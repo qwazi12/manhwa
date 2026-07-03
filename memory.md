@@ -113,6 +113,41 @@
 | D-001 | 2026-07-03 | Auto-detect ffmpeg filters instead of crashing | User shouldn't need to reinstall system software to test prototype |
 | D-002 | 2026-07-03 | Keep `subs.srt` as sidecar even when burning fails | Preserves data contract; any player can load it |
 | D-003 | 2026-07-03 | Do NOT add features or refactor toward Stage 2 | User's explicit instruction: Stage 1 clean run only |
+| D-004 | 2026-07-03 | Accept no-subtitles-burn for Stage 1 | Homebrew's base `ffmpeg` formula deliberately excludes libass/libfreetype; building from source or a custom tap is out of scope for Stage 1 |
+
+---
+
+#### FFmpeg Reinstall Attempt
+- **When:** 2026-07-03 12:44 ET
+- **Action:** `brew update` then `brew reinstall ffmpeg`
+- **Result:** FFmpeg upgraded from 8.1 → 8.1.2, but the base homebrew formula **does not include libass or libfreetype**
+- **Investigation:** `brew info ffmpeg` shows only 10 required deps (dav1d, lame, libvmaf, libvpx, openssl, opus, sdl2, svt-av1, x264, x265). The caveats note mentions "ffmpeg-full" but that was a third-party tap concept, not part of core homebrew.
+- **Filter check:** `ffmpeg -filters | grep subtitle` → still empty. `drawtext` also absent.
+- **Impact:** Subtitle burning remains unavailable via the standard homebrew bottle. The pipeline's 3-tier auto-detection (subtitles → drawtext → audio-only) handles this gracefully.
+- **Decision (D-004):** Accept this for Stage 1. Subtitles are written as `subs.srt` sidecar — loadable in any media player. Burned-in subtitles would require building ffmpeg from source with `--enable-libass --enable-libfreetype`, which is out of scope for prototype validation.
+
+#### Pipeline Re-verification (post-upgrade)
+- **When:** 2026-07-03 12:45 ET
+- **Command:** `python main.py --images input/images --script input/script.txt --voice input/voice.mp3 --no-whisper`
+- **Result:** ✅ Full pipeline completed with ffmpeg 8.1.2
+- **Output:** `build/output.mp4` — 1920×1080, 30fps, H.264+AAC, 24s
+
+#### GitHub Push — Initial Commit
+- **When:** 2026-07-03 12:42 ET
+- **Commit:** `d35e52c` — "Stage 1 prototype — working pipeline + ffmpeg subtitle fallback"
+- **Files:** 17 files, 782 insertions
+- **Remote:** `https://github.com/qwazi12/manhwa.git` (branch: `main`)
+
+---
+
+## Known Issues & Limitations
+
+| ID | Status | Issue | Impact | Fix |
+|---|---|---|---|---|
+| K-001 | ⚠️ OPEN | FFmpeg (homebrew base) missing libass/libfreetype | No burned-in subtitles; SRT sidecar generated instead | Build ffmpeg from source, or use a tap with full deps. Not blocking for Stage 1. |
+| K-002 | ℹ️ BY DESIGN | Sample voice.mp3 has no speech | Whisper returns 0 words | Use `--no-whisper` for sample; real voice works fine |
+| K-003 | ℹ️ BY DESIGN | Alignment is proportional, not fuzzy-matched | Fine if you read your own script; drifts with ad-lib | Stage 1 assumption |
+| K-004 | ℹ️ BY DESIGN | No panel cropping or composition intelligence | Images used whole | Deliberate Stage 1 limit |
 
 ---
 
@@ -122,8 +157,8 @@
 - [ ] User will bring real narration script
 - [ ] User will bring real recorded voice
 - [ ] User will judge output quality before any changes are made
-- [ ] If ffmpeg subtitle burning is wanted: `brew reinstall ffmpeg`
+- [x] ~~If ffmpeg subtitle burning is wanted: `brew reinstall ffmpeg`~~ — Attempted; base formula lacks libass. Accepted for Stage 1.
 
 ---
 
-*Last updated: 2026-07-03 12:41 ET*
+*Last updated: 2026-07-03 12:45 ET*

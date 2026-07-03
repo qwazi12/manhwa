@@ -158,7 +158,7 @@ def render_video(shots, beats, voice_path: str, build_dir: str) -> str:
         print("      [WARN] ffmpeg lacks subtitle/drawtext filters (needs "
               "libass or libfreetype).\n"
               "      Subtitles skipped — subs.srt written as sidecar.\n"
-              "      Fix: brew reinstall ffmpeg  (homebrew default includes libass)")
+              "      Load subs.srt in VLC/mpv alongside output.mp4 for subtitles.")
         _run(["ffmpeg", "-y", "-i", "silent.mp4", "-i", voice,
               "-map", "0:v", "-map", "1:a",
               *config.VIDEO_CODEC, *config.AUDIO_CODEC,
