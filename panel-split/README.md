@@ -53,21 +53,47 @@ The content-density sliding window is the simple, dependency-light stand-in
 for all of that. If validation shows it isn't good enough on real action
 panels, that's the signal to add the heavier detection — not before.
 
-## Usage
+## Blank crop archiving
 
-Single page:
+After cropping, each crop is checked for content density. Anything mostly
+background (a transition page, a stray empty gutter sliver, a near-blank
+"meanwhile..." panel) is moved to `archive_blank/` inside the output
+folder instead of sitting alongside the real panels — keeps the main
+output clean and saves space if you're batch-processing full chapters.
+
+Nothing is deleted by default; blanks are archived, not discarded, so you
+can double check none of them were actually meaningful before clearing
+that folder out. `panels.json` also marks each panel/shot with
+`"blank": true/false` so you can filter programmatically too.
+
+Disable this and keep everything in the main folder with:
 ```bash
-python split_panels.py --input page.webp --out output
+python split_panels.py --input page.webp --out output --keep-blanks
 ```
 
-A whole chapter (folder of pages):
-```bash
-python split_panels.py --input chapter_pages/ --out output --batch
-```
+Tuning: `BLANK_DENSITY_THRESHOLD` (default 0.015) controls how strict the
+blank test is — raise it if genuinely sparse-but-meaningful panels (a
+character alone in an empty room) are getting archived by mistake.
 
-Then review `output/`, drop any bad crops, and rename what's left into
-final story order (`001.png`, `002.png`, ...) for the recap pipeline's
-`input/images/`.
+## Integration Workflow with manhwa-recap-v1
+
+To split your raw screenshots, review the cuts, and load them into the video pipeline:
+
+### Step 1: Split & Archive Blanks
+Run the extractor on a folder of raw chapter screenshots. Direct the output to a temporary review folder (e.g. `review_crops`):
+```bash
+python split_panels.py --input path/to/raw_screenshots --out review_crops --batch
+```
+This automatically splits the pages and moves blank/transition panels into `review_crops/archive_blank/` to keep your workspace clean.
+
+### Step 2: Manual Review
+Open the `review_crops/` folder. Look through the crops and simply **delete** any bad cuts or unwanted images.
+
+### Step 3: Rename & Import
+Run the helper script to naturally sort the remaining crops, rename them sequentially (`001.png`, `002.png`, ...), and copy them directly to the recap input folder:
+```bash
+python import_crops.py --from-dir review_crops --to-dir ../manhwa-recap-v1/input/images
+```
 
 ## Always spot-check
 
@@ -91,3 +117,5 @@ All thresholds are constants at the top of `split_panels.py`:
 | `SHOT_WINDOW_MIN/MAX` | Size range of sub-shot windows (px). |
 | `SHOT_OVERLAP` | Overlap between candidate windows. |
 | `SHOT_SCORE_KEEP` | How strong a window must score (vs the best) to be kept. |
+| `BLANK_DENSITY_THRESHOLD` | Content-density cutoff below which a crop is archived as blank. |
+| `ARCHIVE_BLANKS` | Default on/off for blank archiving (override per-run with `--keep-blanks`). |

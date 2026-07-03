@@ -47,7 +47,9 @@ MIN_GUTTER_RUN = 8             # consecutive gutter rows/cols to count as a real
 MIN_PANEL_SIZE = 80            # discard slivers smaller than this (px)
 EDGE_MARGIN = 4                # trim px off each cut to avoid gutter bleed
 
-# --- sub-shot (Layer 2) tunables ---
+# --- blank-crop archiving tunables ---
+BLANK_DENSITY_THRESHOLD = 0.015   # crops with less than this fraction non-bg content are "blank"
+ARCHIVE_BLANKS = True             # move (not delete) blank crops to an archive/ subfolder
 TALL_RATIO = 1.8               # panel h/w above this is a candidate for sub-shots
 SHOT_WINDOW_MIN = 700          # min sub-shot window height (px)
 SHOT_WINDOW_MAX = 1100         # max sub-shot window height (px)
@@ -229,29 +231,57 @@ def detect_panels(image_path: str):
     return img, panels
 
 
+def _is_blank_crop(crop_gray: np.ndarray, bg_color: int) -> bool:
+    """A crop counts as blank if almost none of it is non-background
+    content — e.g. a transition page, a stray sliver of empty gutter
+    that slipped past MIN_PANEL_SIZE, or a mostly-white 'meanwhile...'
+    panel with just a few words of text."""
+    return _content_density(crop_gray, bg_color) < BLANK_DENSITY_THRESHOLD
+
+
 # ----------------------------------------------------------- save
 
-def process_file(input_path: str, out_dir: str, prefix: str, all_meta: list):
+def process_file(input_path: str, out_dir: str, prefix: str, all_meta: list,
+                  archive_blanks: bool = ARCHIVE_BLANKS):
     img, panels = detect_panels(input_path)
+    gray_full = np.array(img.convert("L"))
+    bg = _estimate_background_color(gray_full)
     os.makedirs(out_dir, exist_ok=True)
+    archive_dir = os.path.join(out_dir, "archive_blank")
 
-    n_crops = 0
+    n_crops, n_blank = 0, 0
+
+    def save_crop(bbox, fname):
+        nonlocal n_crops, n_blank
+        x0, y0, x1, y1 = bbox
+        crop = img.crop((x0, y0, x1, y1))
+        crop_gray = gray_full[y0:y1, x0:x1]
+        blank = _is_blank_crop(crop_gray, bg)
+        if blank and archive_blanks:
+            os.makedirs(archive_dir, exist_ok=True)
+            crop.save(os.path.join(archive_dir, fname))
+            n_blank += 1
+        else:
+            crop.save(os.path.join(out_dir, fname))
+        n_crops += 1
+        return blank
+
     for p in panels:
         base = f"{prefix}_panel_{p['panel_id']:03d}"
         if p["type"] == "single":
-            x0, y0, x1, y1 = p["bbox"]
-            img.crop((x0, y0, x1, y1)).save(os.path.join(out_dir, base + ".png"))
-            n_crops += 1
+            p["blank"] = save_crop(p["bbox"], base + ".png")
         else:
             for s in p["shots"]:
-                x0, y0, x1, y1 = s["bbox"]
                 fname = f"{base}_shot_{s['shot_id']:02d}.png"
-                img.crop((x0, y0, x1, y1)).save(os.path.join(out_dir, fname))
-                n_crops += 1
+                s["blank"] = save_crop(s["bbox"], fname)
 
     multi = sum(1 for p in panels if p["type"] != "single")
-    print(f"{os.path.basename(input_path)}: {len(panels)} panel(s), "
-          f"{n_crops} crop(s) ({multi} multi-beat) -> {out_dir}")
+    kept = n_crops - n_blank
+    msg = (f"{os.path.basename(input_path)}: {len(panels)} panel(s), "
+           f"{n_crops} crop(s) ({multi} multi-beat)")
+    if archive_blanks:
+        msg += f" — {kept} kept, {n_blank} archived as blank"
+    print(msg + f" -> {out_dir}")
 
     all_meta.append({
         "source": os.path.basename(input_path),
@@ -267,8 +297,12 @@ def main():
     ap.add_argument("--input", required=True, help="a page image, or a folder if --batch")
     ap.add_argument("--out", required=True, help="output folder for crops + panels.json")
     ap.add_argument("--batch", action="store_true", help="treat --input as a folder of pages")
+    ap.add_argument("--keep-blanks", action="store_true",
+                    help="don't archive near-blank crops (transition pages, empty gutter "
+                         "slivers) — keep everything in the main output folder")
     args = ap.parse_args()
 
+    archive_blanks = not args.keep_blanks
     exts = {".png", ".jpg", ".jpeg", ".webp"}
     all_meta = []
 
@@ -280,13 +314,18 @@ def main():
         total = 0
         for idx, fname in enumerate(files, 1):
             total += process_file(os.path.join(args.input, fname),
-                                  args.out, f"page{idx:03d}", all_meta)
+                                  args.out, f"page{idx:03d}", all_meta, archive_blanks)
         print(f"\nDone: {total} crops from {len(files)} pages.")
     else:
-        process_file(args.input, args.out, "page001", all_meta)
+        process_file(args.input, args.out, "page001", all_meta, archive_blanks)
+
+    if archive_blanks:
+        print("Blank/near-empty crops were moved to archive_blank/ instead of deleted —")
+        print("check that folder before assuming nothing useful got filtered out.")
 
     with open(os.path.join(args.out, "panels.json"), "w", encoding="utf-8") as f:
         json.dump({"pages": all_meta}, f, indent=2)
+
 
     print("\nWrote panels.json with panel/shot coordinates and reading order.")
     print("Review the crops, then rename them (001.png, 002.png, ...) in final")

@@ -160,6 +160,7 @@
 
 - [x] Implement chapter URL scraper (Playwright/Scraper integration)
 - [x] Verify panel + sub-shot extraction tool
+- [x] Integrate panel-split and manhwa-recap-v1 as side-by-side workflow (with blank crop archiving)
 - [ ] User will bring real chapter art (sliced panel images)
 - [ ] User will bring real narration script
 - [ ] User will bring real recorded voice
@@ -188,5 +189,19 @@
 
 ---
 
-*Last updated: 2026-07-03 14:30 ET*
+#### Side-by-Side Workflow Integration & Blank Archiving
+- **When:** 2026-07-03 14:53 ET
+- **Action:** 
+  1. Relocated `panel-split` folder to the workspace root alongside `manhwa-recap-v1`.
+  2. Replaced old `split_panels.py` and `README.md` with the updated versions from the nested `panel-split 2` folder (which includes `archive_blank/` logic).
+  3. Created `import_crops.py` to naturally sort remaining crop files, rename them sequentially (`001.png`, `002.png`, ...), and copy them directly to `manhwa-recap-v1/input/images/`.
+  4. Updated `panel-split/README.md` with detailed instructions on this 3-step integration workflow (Split & Archive Blanks -> Manual Review -> Rename & Import).
+- **Verification:** Ran the full extraction workflow:
+  - `python3 split_panels.py --input ../manhwa-recap-v1/build/scraped_images --out review_crops --batch` -> Successfully split 24 pages into 300 crops, keeping 147 and archiving 153 blank/transition crops to `review_crops/archive_blank/`.
+  - `python3 import_crops.py` -> Naturally sorted the 147 remaining crops, renamed them sequentially `001.png` to `147.png`, and imported them to `manhwa-recap-v1/input/images/`.
+
+---
+
+*Last updated: 2026-07-03 14:55 ET*
+
 

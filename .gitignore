@@ -19,6 +19,7 @@ dist/
 build/
 test_output/
 test_output_batch/
+review_crops/
 
 # --- OS junk ---
 .DS_Store
