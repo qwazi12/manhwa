@@ -159,6 +159,7 @@
 ---
 
 - [x] Implement chapter URL scraper (Playwright/Scraper integration)
+- [x] Verify panel + sub-shot extraction tool
 - [ ] User will bring real chapter art (sliced panel images)
 - [ ] User will bring real narration script
 - [ ] User will bring real recorded voice
@@ -177,5 +178,15 @@
 
 ---
 
-*Last updated: 2026-07-03 13:25 ET*
+#### Panel + Sub-Shot Extraction Tool Verification
+- **When:** 2026-07-03 14:24 ET
+- **Action:** Checked Python venv environment, installed `requirements.txt` containing `numpy` and `Pillow` inside `panel-split 2/`.
+- **Test:** Ran the tool on scraped page `009.webp` using:
+  `python split_panels.py --input ../build/scraped_images/009.webp --out test_output`
+- **Result:** Successfully cut `009.webp` into 11 panels yielding 12 crops.
+- **Details:** 10 panels were classified as `single`. Panel 11 (height/width = 1.98 >= 1.8 TALL_RATIO) was correctly marked as `continuous_vertical_action` and split into 2 sub-shots (Shot 1: 792x700 at y:5203-5903; Shot 2: 792x597 at y:5692-6289) using the content-density sliding-window heuristic.
+
+---
+
+*Last updated: 2026-07-03 14:30 ET*
 
