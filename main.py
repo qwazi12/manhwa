@@ -24,6 +24,7 @@ import sys
 import align
 import render
 import transcribe
+import scraper
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -47,7 +48,8 @@ def load_images(folder: str):
 
 def main():
     ap = argparse.ArgumentParser(description="Manhwa recap Stage 1 prototype")
-    ap.add_argument("--images", required=True, help="folder of ordered panel images")
+    ap.add_argument("--images", help="folder of ordered panel images")
+    ap.add_argument("--chapter-url", help="URL of the manhwa chapter to scrape panel images from")
     ap.add_argument("--script", required=True, help="narration script, one beat per line")
     ap.add_argument("--voice", required=True, help="recorded narration audio (mp3/wav/m4a)")
     ap.add_argument("--out", default="build", help="output directory")
@@ -55,11 +57,21 @@ def main():
                     help="time beats proportionally instead of via whisper")
     args = ap.parse_args()
 
+    if not args.images and not args.chapter_url:
+        ap.error("Either --images or --chapter-url must be provided")
+
     build_dir = os.path.abspath(args.out)
     os.makedirs(build_dir, exist_ok=True)
 
     # 1. inputs
-    images = load_images(args.images)
+    if args.chapter_url:
+        images_dir = os.path.join(build_dir, "scraped_images")
+        scraper.download_chapter(args.chapter_url, images_dir)
+        images_folder = images_dir
+    else:
+        images_folder = args.images
+
+    images = load_images(images_folder)
     with open(args.script, encoding="utf-8") as f:
         script_text = f.read()
     voice = os.path.abspath(args.voice)
