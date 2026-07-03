@@ -140,25 +140,33 @@
 
 ---
 
-## Known Issues & Limitations
-
-| ID | Status | Issue | Impact | Fix |
-|---|---|---|---|---|
-| K-001 | ⚠️ OPEN | FFmpeg (homebrew base) missing libass/libfreetype | No burned-in subtitles; SRT sidecar generated instead | Build ffmpeg from source, or use a tap with full deps. Not blocking for Stage 1. |
+| K-001 | ✅ RESOLVED | FFmpeg (homebrew base) missing libass/libfreetype | None | Fixed by patching formula locally and running with HOMEBREW_NO_INSTALL_FROM_API=1 |
 | K-002 | ℹ️ BY DESIGN | Sample voice.mp3 has no speech | Whisper returns 0 words | Use `--no-whisper` for sample; real voice works fine |
 | K-003 | ℹ️ BY DESIGN | Alignment is proportional, not fuzzy-matched | Fine if you read your own script; drifts with ad-lib | Stage 1 assumption |
 | K-004 | ℹ️ BY DESIGN | No panel cropping or composition intelligence | Images used whole | Deliberate Stage 1 limit |
 
 ---
 
+#### FFmpeg Local Formula Patch & Subtitle Verification
+- **When:** 2026-07-03 13:20 ET
+- **Action:** Checked tap git status. Discovered Homebrew was installing from cached API.
+- **Fix:** Ran `HOMEBREW_NO_INSTALL_FROM_API=1 brew reinstall --build-from-source ffmpeg`.
+- **Result:** ffmpeg rebuilt successfully in 70s. Filter check confirmed `subtitles` and `ass` filters are now compiled in.
+- **Verification:** Ran `python main.py --images input/images --script input/script.txt --voice input/voice.mp3 --no-whisper`.
+- **Output:** Checked frame at 5 seconds. Subtitles are now successfully burned into the video.
+- **Status:** K-001 resolved.
+
+---
+
 ## What's Next (Pending User Input)
 
+- [ ] Implement chapter URL scraper (Playwright/Scraper integration)
 - [ ] User will bring real chapter art (sliced panel images)
 - [ ] User will bring real narration script
 - [ ] User will bring real recorded voice
 - [ ] User will judge output quality before any changes are made
-- [x] ~~If ffmpeg subtitle burning is wanted: `brew reinstall ffmpeg`~~ — Attempted; base formula lacks libass. Accepted for Stage 1.
 
 ---
 
-*Last updated: 2026-07-03 12:45 ET*
+*Last updated: 2026-07-03 13:21 ET*
+
