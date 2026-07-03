@@ -1,0 +1,29 @@
+# --- Environment & Secrets (NEVER commit) ---
+.env*
+*.key
+*.pem
+*.crt
+*.p12
+*.jks
+
+# --- Python ---
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+*.egg
+
+# --- Build artifacts (reproducible, don't track) ---
+build/
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+
+# --- IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
