@@ -1,0 +1,299 @@
+"""
+Panel + sub-shot extractor for manhwa/webtoon pages.
+
+Two layers:
+
+  LAYER 1 — Primary panels.
+    Detect gutters (blank white or black gaps) and cut the page into
+    primary panel regions. Handles stacked panels (horizontal gutters)
+    and side-by-side panels (vertical gutters), including a mix.
+
+  LAYER 2 — Sub-shots inside a panel.
+    A tall, continuous action panel (no internal gutter to cut on) is
+    not one visual beat — it's several. For any panel whose height/width
+    ratio exceeds TALL_RATIO and which has no clean internal gutter, fall
+    back to a sliding-window pass: generate overlapping vertical windows,
+    score each by content density (edge/ink coverage), and keep the best
+    ones in top-to-bottom order as sub-shots.
+
+  A short or gutter-cuttable panel stays a single shot.
+
+Output:
+    - PNG crops named panel_XXX.png (single) or panel_XXX_shot_YY.png
+      (multi-beat panels).
+    - panels.json metadata with bounding boxes, panel type, and reading
+      order — compatible with the recap pipeline's shots.json contract.
+
+Deliberately NOT included (Stage 3 territory, not built until Stage 2
+validation shows it's needed): speech-bubble masking, face/person
+detection, saliency models. The sliding-window fallback is the simple,
+dependency-light stand-in for those.
+
+Usage:
+    python split_panels.py --input page.webp --out output_dir
+    python split_panels.py --input pages_folder --out output_dir --batch
+"""
+
+import argparse
+import json
+import os
+import numpy as np
+from PIL import Image
+
+# --- gutter / panel tunables ---
+BG_COLOR_TOLERANCE = 10        # how close a pixel must be to bg to count as gutter
+GUTTER_FRACTION = 0.985        # fraction of a row/col matching bg to call it a gutter
+MIN_GUTTER_RUN = 8             # consecutive gutter rows/cols to count as a real gap
+MIN_PANEL_SIZE = 80            # discard slivers smaller than this (px)
+EDGE_MARGIN = 4                # trim px off each cut to avoid gutter bleed
+
+# --- sub-shot (Layer 2) tunables ---
+TALL_RATIO = 1.8               # panel h/w above this is a candidate for sub-shots
+SHOT_WINDOW_MIN = 700          # min sub-shot window height (px)
+SHOT_WINDOW_MAX = 1100         # max sub-shot window height (px)
+SHOT_OVERLAP = 0.30            # fraction of overlap between candidate windows
+SHOT_SCORE_KEEP = 0.55         # keep windows scoring >= this fraction of the best window
+
+
+# ----------------------------------------------------------- background
+
+def _estimate_background_color(gray: np.ndarray) -> int:
+    """Gutters are almost always white or black. Pick whichever has more
+    pixels within tolerance (robust against large flat-color panel fills)."""
+    white_count = int(np.sum(gray >= 255 - BG_COLOR_TOLERANCE))
+    black_count = int(np.sum(gray <= BG_COLOR_TOLERANCE))
+    return 255 if white_count >= black_count else 0
+
+
+# ----------------------------------------------------------- gutter cuts
+
+def _find_gutter_runs(uniform_mask: np.ndarray, min_run: int):
+    runs, start = [], None
+    for i, val in enumerate(uniform_mask):
+        if val and start is None:
+            start = i
+        elif not val and start is not None:
+            if i - start >= min_run:
+                runs.append((start, i))
+            start = None
+    if start is not None and len(uniform_mask) - start >= min_run:
+        runs.append((start, len(uniform_mask)))
+    return runs
+
+
+def _cut_points_from_gutters(runs, length: int):
+    points = [0] + [(s + e) // 2 for s, e in runs] + [length]
+    segments = []
+    for i in range(len(points) - 1):
+        a, b = points[i], points[i + 1]
+        if b - a >= MIN_PANEL_SIZE:
+            segments.append((a, b))
+    return segments
+
+
+def _split_axis(arr: np.ndarray, axis: int, bg_color: int):
+    close_to_bg = np.abs(arr.astype(np.int16) - bg_color) <= BG_COLOR_TOLERANCE
+    frac = close_to_bg.mean(axis=1 if axis == 0 else 0)
+    # Vertical gutters (side-by-side panels) are rarer and more prone to
+    # false positives from noise, so hold them to a stricter fraction.
+    threshold = GUTTER_FRACTION if axis == 0 else max(GUTTER_FRACTION, 0.995)
+    uniform = frac >= threshold
+    runs = _find_gutter_runs(uniform, MIN_GUTTER_RUN)
+    return _cut_points_from_gutters(runs, arr.shape[axis])
+
+
+# ----------------------------------------------------------- content score
+
+def _content_density(gray_region: np.ndarray, bg_color: int) -> float:
+    """Fraction of pixels that are NOT background — a cheap proxy for how
+    much 'stuff' (art, faces, action) is in a region. Used to score
+    sliding-window sub-shot candidates without any ML."""
+    if gray_region.size == 0:
+        return 0.0
+    not_bg = np.abs(gray_region.astype(np.int16) - bg_color) > BG_COLOR_TOLERANCE
+    return float(not_bg.mean())
+
+
+# ----------------------------------------------------------- sub-shots
+
+def _sliding_shot_windows(panel_gray: np.ndarray, bg_color: int):
+    """Return a list of (y0, y1) sub-shot windows for a tall continuous
+    panel, chosen by content-density scoring over overlapping windows."""
+    h = panel_gray.shape[0]
+    win = int(np.clip(h / 3, SHOT_WINDOW_MIN, SHOT_WINDOW_MAX))
+    if win >= h:
+        return [(0, h)]
+
+    step = max(int(win * (1 - SHOT_OVERLAP)), 1)
+    candidates = []
+    y = 0
+    while y < h:
+        y1 = min(y + win, h)
+        score = _content_density(panel_gray[y:y1, :], bg_color)
+        candidates.append({"y0": y, "y1": y1, "score": score})
+        if y1 >= h:
+            break
+        y += step
+
+    if not candidates:
+        return [(0, h)]
+
+    best = max(c["score"] for c in candidates) or 1.0
+    kept = [c for c in candidates if c["score"] >= SHOT_SCORE_KEEP * best]
+
+    # suppress heavily-overlapping kept windows: greedily keep top-scored,
+    # drop any candidate overlapping an already-kept one by >60%
+    kept.sort(key=lambda c: c["score"], reverse=True)
+    chosen = []
+    for c in kept:
+        overlap = False
+        for k in chosen:
+            inter = max(0, min(c["y1"], k["y1"]) - max(c["y0"], k["y0"]))
+            if inter > 0.6 * (c["y1"] - c["y0"]):
+                overlap = True
+                break
+        if not overlap:
+            chosen.append(c)
+
+    chosen.sort(key=lambda c: c["y0"])
+    return [(c["y0"], c["y1"]) for c in chosen] or [(0, h)]
+
+
+# ----------------------------------------------------------- main detect
+
+def detect_panels(image_path: str):
+    """Return (PIL image, list of panel dicts). Each panel dict:
+        {
+          "panel_id": int,
+          "bbox": [x0, y0, x1, y1],       # in page coordinates
+          "type": "single" | "continuous_vertical_action",
+          "shots": [ {"shot_id": int, "bbox": [x0,y0,x1,y1]}, ... ]
+        }
+    """
+    img = Image.open(image_path).convert("RGB")
+    gray = np.array(img.convert("L"))
+    bg = _estimate_background_color(gray)
+
+    panels = []
+    panel_id = 0
+
+    for (r0, r1) in _split_axis(gray, axis=0, bg_color=bg):
+        strip = gray[r0:r1, :]
+        for (c0, c1) in _split_axis(strip, axis=1, bg_color=bg):
+            top = min(r0 + EDGE_MARGIN, r1)
+            bottom = max(r1 - EDGE_MARGIN, top + 1)
+            left = min(c0 + EDGE_MARGIN, c1)
+            right = max(c1 - EDGE_MARGIN, left + 1)
+            pw, ph = right - left, bottom - top
+            if pw < MIN_PANEL_SIZE or ph < MIN_PANEL_SIZE:
+                continue
+
+            panel_id += 1
+            panel_gray = gray[top:bottom, left:right]
+
+            # Layer 2: is this a tall continuous panel needing sub-shots?
+            if ph / pw >= TALL_RATIO:
+                # only sub-split if there's no clean internal gutter already
+                internal = _split_axis(panel_gray, axis=0, bg_color=bg)
+                if len(internal) <= 1:
+                    windows = _sliding_shot_windows(panel_gray, bg)
+                    if len(windows) > 1:
+                        shots = [{
+                            "shot_id": i + 1,
+                            "bbox": [left, top + wy0, right, top + wy1],
+                        } for i, (wy0, wy1) in enumerate(windows)]
+                        panels.append({
+                            "panel_id": panel_id,
+                            "bbox": [left, top, right, bottom],
+                            "type": "continuous_vertical_action",
+                            "shots": shots,
+                        })
+                        continue
+
+            panels.append({
+                "panel_id": panel_id,
+                "bbox": [left, top, right, bottom],
+                "type": "single",
+                "shots": [{"shot_id": 1, "bbox": [left, top, right, bottom]}],
+            })
+
+    if not panels:
+        w, h = img.size
+        panels = [{
+            "panel_id": 1,
+            "bbox": [0, 0, w, h],
+            "type": "single",
+            "shots": [{"shot_id": 1, "bbox": [0, 0, w, h]}],
+        }]
+
+    return img, panels
+
+
+# ----------------------------------------------------------- save
+
+def process_file(input_path: str, out_dir: str, prefix: str, all_meta: list):
+    img, panels = detect_panels(input_path)
+    os.makedirs(out_dir, exist_ok=True)
+
+    n_crops = 0
+    for p in panels:
+        base = f"{prefix}_panel_{p['panel_id']:03d}"
+        if p["type"] == "single":
+            x0, y0, x1, y1 = p["bbox"]
+            img.crop((x0, y0, x1, y1)).save(os.path.join(out_dir, base + ".png"))
+            n_crops += 1
+        else:
+            for s in p["shots"]:
+                x0, y0, x1, y1 = s["bbox"]
+                fname = f"{base}_shot_{s['shot_id']:02d}.png"
+                img.crop((x0, y0, x1, y1)).save(os.path.join(out_dir, fname))
+                n_crops += 1
+
+    multi = sum(1 for p in panels if p["type"] != "single")
+    print(f"{os.path.basename(input_path)}: {len(panels)} panel(s), "
+          f"{n_crops} crop(s) ({multi} multi-beat) -> {out_dir}")
+
+    all_meta.append({
+        "source": os.path.basename(input_path),
+        "prefix": prefix,
+        "panels": panels,
+    })
+    return n_crops
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="Extract primary panels and sub-shots from manhwa/webtoon pages")
+    ap.add_argument("--input", required=True, help="a page image, or a folder if --batch")
+    ap.add_argument("--out", required=True, help="output folder for crops + panels.json")
+    ap.add_argument("--batch", action="store_true", help="treat --input as a folder of pages")
+    args = ap.parse_args()
+
+    exts = {".png", ".jpg", ".jpeg", ".webp"}
+    all_meta = []
+
+    if args.batch:
+        files = sorted(f for f in os.listdir(args.input)
+                       if os.path.splitext(f)[1].lower() in exts)
+        if not files:
+            raise SystemExit(f"No images found in {args.input}")
+        total = 0
+        for idx, fname in enumerate(files, 1):
+            total += process_file(os.path.join(args.input, fname),
+                                  args.out, f"page{idx:03d}", all_meta)
+        print(f"\nDone: {total} crops from {len(files)} pages.")
+    else:
+        process_file(args.input, args.out, "page001", all_meta)
+
+    with open(os.path.join(args.out, "panels.json"), "w", encoding="utf-8") as f:
+        json.dump({"pages": all_meta}, f, indent=2)
+
+    print("\nWrote panels.json with panel/shot coordinates and reading order.")
+    print("Review the crops, then rename them (001.png, 002.png, ...) in final")
+    print("story order before feeding into the recap pipeline's input/images/.")
+    print("Note: multi-beat panels are split into _shot_NN files — a tall action")
+    print("panel becomes several crops. Verify these look right; drop any that don't.")
+
+
+if __name__ == "__main__":
+    main()

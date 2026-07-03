@@ -17,6 +17,8 @@ dist/
 
 # --- Build artifacts (reproducible, don't track) ---
 build/
+test_output/
+test_output_batch/
 
 # --- OS junk ---
 .DS_Store
