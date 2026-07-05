@@ -164,7 +164,7 @@
 - [x] Verify panel + sub-shot extraction tool
 - [x] Integrate panel-split and manhwa-recap-v1 as side-by-side workflow (with blank crop archiving)
 - [x] Set up panel-describe tool and run sample vision description tests
-- [ ] Run description pass over the full chapter
+- [x] Run description pass over the full chapter
 - [ ] User will bring real chapter art (sliced panel images)
 - [ ] User will bring real narration script
 - [ ] User will bring real recorded voice
@@ -215,11 +215,12 @@
      `python run.py --input ../panel-split/review_crops --out descriptions.json --limit 5`
   4. Run Test 2 (next 5 panels from `review_crops/`) using a temporary test folder and:
      `python run.py --input test_images_2 --out descriptions_test_2.json`
-- **Result:** Both test runs (10 panels total) completed successfully with 100% described panel records. The OCR text and detailed visual descriptions (e.g. falling sequences, landscapes, shocked characters) are highly descriptive and accurate, forming a solid base for the future matcher.
+  5. Run Full Chapter Pass: Pointed `run.py` at `panel-split/review_crops/` without a limit to describe the full chapter.
+- **Result:** Both sample tests (10 panels) and the full chapter run completed. 145 out of 146 panels were successfully described via Gemini 2.5 Flash. One panel (`page012_panel_006`) encountered a transient JSONDecodeError due to an API formatting fluke. The remaining 145 panels contain rich OCR text transcripts and detailed visual descriptions, forming a complete representation of the chapter's content.
 
 ---
 
-*Last updated: 2026-07-04 20:15 ET*
+*Last updated: 2026-07-04 20:38 ET*
 
 
 
