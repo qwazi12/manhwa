@@ -50,6 +50,33 @@ AUDIO_SUBDIR = os.environ.get("HF_AUDIO_DIR", "build_test/tts 2")
 shots = json.load(open(os.path.join(RECAP, BEATSHEET)))
 beats = json.load(open(os.path.join(RECAP, BEATS)))
 
+# ---- pre-render gate: refuse to build a bad beatsheet (fail in ~1s, not a
+# ---- ~15-min render). Junk/blank panel, missing image, timeline gap -> abort.
+import sys
+sys.path.insert(0, RECAP)
+_PANEL_DIR = os.path.abspath(os.path.join(RECAP, "..", "panel-split", "review_crops"))
+try:
+    import matcher
+    _desc = os.path.join(RECAP, "..", "panel-describe", "descriptions.json")
+    if os.path.exists(_desc):
+        _panels = json.load(open(_desc))
+        # resolve every panel's image to where the crops actually live, so the
+        # gate's file-existence check is meaningful (descriptions store basenames)
+        for _p in _panels:
+            if _p.get("file") and not os.path.isabs(_p["file"]):
+                _p["file"] = os.path.join(_PANEL_DIR, _p["file"])
+        for _s in shots:
+            _s["panel_file"] = os.path.join(_PANEL_DIR, f"{_s['panel_id']}.png")
+        _problems = matcher.validate_beatsheet(shots, _panels)
+        if _problems:
+            print(f"ABORT: beatsheet failed {len(_problems)} validation check(s):")
+            for _p in _problems[:20]:
+                print("   -", _p)
+            raise SystemExit(1)
+        print(f"Gate OK: {len(shots)} shots, no junk/blank/missing panels.")
+except ImportError:
+    pass  # matcher not importable (e.g. minimal env) — skip the gate
+
 # ---- copy assets so a fresh checkout is reproducible ----------------------
 # Plain byte-copy (not shutil.copy) — macOS's fcopyfile clonefile fast-path
 # intermittently times out on this volume.

@@ -462,6 +462,69 @@ def build_timeline(beats, panels, assignments):
     return shots
 
 
+# ------------------------------------------------- regression gate
+def validate_beatsheet(shots, panels):
+    """Pre-render gate. Return a list of problem strings (empty == clean).
+
+    Enforces the invariants that broke in past sessions, so a bad beatsheet
+    fails in ~1s instead of wasting a ~15-min render:
+      1. every beat resolves to a panel that exists in descriptions,
+      2. no beat lands on a junk / blank / line-fragment panel,
+      3. every referenced image file actually exists on disk,
+      4. no gaps in the timeline (already asserted, re-checked here).
+    'Hold the last valid panel when only junk remains' is guaranteed upstream by
+    the DP (OVER_HOLD_PENALTY), so the OUTPUT simply must contain no junk — which
+    check (2) verifies directly.
+    """
+    by_id = {p.get("panel_id"): p for p in panels}
+    problems = []
+    for s in shots:
+        pid = s.get("panel_id")
+        p = by_id.get(pid)
+        if p is None:
+            problems.append(f"beat {s['index']}: panel_id {pid!r} not in descriptions")
+            continue
+        if is_junk_panel(p):
+            problems.append(
+                f"beat {s['index']} ({s.get('start',0):.1f}s): junk/blank panel {pid} "
+                f"— {(p.get('visual_description','') or '')[:50]!r}")
+        f = s.get("panel_file") or p.get("file")
+        if f and os.path.isabs(f) and not os.path.exists(f):
+            problems.append(f"beat {s['index']}: image file missing: {f}")
+    for i in range(len(shots) - 1):
+        if abs(shots[i]["end"] - shots[i + 1]["start"]) > 1e-6:
+            problems.append(f"beat {s['index']}: timeline gap before {i+1}")
+    return problems
+
+
+def beatsheet_metrics(shots, panels):
+    """Compact quality snapshot for regression baselining."""
+    by_id = {p.get("panel_id"): p for p in panels}
+    max_hold = run = 1
+    for i in range(1, len(shots)):
+        if shots[i]["panel_id"] == shots[i - 1]["panel_id"]:
+            run += 1
+            max_hold = max(max_hold, run)
+        else:
+            run = 1
+
+    def pnum(pid):
+        m = re.findall(r"\d+", pid or "")
+        return (int(m[0]), int(m[1])) if len(m) >= 2 else (0, 0)
+    backward = sum(1 for i in range(1, len(shots))
+                   if pnum(shots[i]["panel_id"]) < pnum(shots[i - 1]["panel_id"]))
+    junk = sum(1 for s in shots
+               if by_id.get(s["panel_id"]) and is_junk_panel(by_id[s["panel_id"]]))
+    return {
+        "beats": len(shots),
+        "distinct_panels": len({s["panel_id"] for s in shots}),
+        "max_hold": max_hold,
+        "held": sum(1 for s in shots if s["held"]),
+        "backward_jumps": backward,
+        "junk_in_output": junk,
+    }
+
+
 def run(beats_path, descriptions_path, out_path, embed_model=None):
     beats = json.load(open(beats_path))
     panels = json.load(open(descriptions_path))

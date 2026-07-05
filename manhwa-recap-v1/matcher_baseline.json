@@ -1,0 +1,9 @@
+{
+  "beats": 127,
+  "distinct_panels": 99,
+  "max_hold": 5,
+  "held": 28,
+  "backward_jumps": 0,
+  "junk_in_output": 0,
+  "method": "gemini-embeddings+dp"
+}
