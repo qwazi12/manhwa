@@ -418,3 +418,30 @@
 - **Gitignored** (regenerable/large): `my-video/node_modules/`, `my-video/renders/`, `my-video/recap_hyperframes.mp4`, `my-video/assets/`, `my-video/.hyperframes/`. Committed source: `build_composition.py`, `my-video/index.html`, `package.json`, `hyperframes.json`, `meta.json`, `CLAUDE.md`/`AGENTS.md`.
 - **Pending user judgment:** watch `recap_hyperframes.mp4` and decide if the ±1-beat matcher shifts read as wrong in motion, and whether the grey-vs-paper background + missing push/inset transitions matter enough to iterate before moving on.
 
+---
+
+### Session 6 — 2026-07-05 (later) — Stage 2 validation PASSED + Stage 3 content-trim (baked-in whitespace)
+
+**User input:** After watching `recap_hyperframes.mp4`, confirmed "the beats read fine and everything flows smoothly" — this is the **Stage 2 success criterion met** (output close enough to the reference format to justify building further). Asked: what produced this (was it per-beat OCR-vs-visual scoring?), what script, is it made from the images directly, and can the white extra spaces in the extracted images be removed. Then directed: implement the content-bbox trim pass and proceed with Stage 2 close-out + Stage 3 panel-extraction hardening.
+
+#### Answers given (for the record)
+- The render used the SAME matcher config as Session 5 (Gemini embeddings + junk filter + `ADVANCE_PENALTY=0.006`) — **NOT** per-beat OCR-vs-visual scoring (never built; the ±1-beat shifts read fine in motion, so it wasn't needed).
+- Script = `hyperframes/build_composition.py`; yes, both the sharp card and the blurred background are the SAME source PNG (one `object-fit: contain`, one blurred+scaled behind).
+- The white space is **baked into the source panel PNGs from panel-split**, not added by the render. Measured: 111/146 panels have >15% wasted top/bottom white; median 29.6%.
+
+#### Root cause of the baked-in whitespace
+`split_panels.py` cuts in two passes — horizontal gutters across the FULL page width, then vertical gutters within each strip. Correct for single-column webtoons, but this chapter has some print-style grid / side-by-side layouts where a blank band inside one panel's column is NOT blank across the whole page width at that row range (a neighbor has content there), so the gutter pass never cuts it and the band survives inside the isolated crop.
+
+#### Fix implemented — content-bbox trim (Stage 3 panel-extraction hardening)
+- Added to `panel-split/split_panels.py`: `_content_bounds(region_gray, bg, pad)` — scans inward, a row/col counts as content only if ≥`CONTENT_LINE_FRAC` (1%) of it is non-background (so a speck won't defeat it but a **speech bubble's black outline/text survives** — verified bubbles intact). New constants `TRIM_TO_CONTENT=True`, `CONTENT_PAD=6`, `CONTENT_LINE_FRAC=0.01`. Returns full region for blank crops (leaves them to the blank-archiver). This is a per-crop tighten, **never a new cut** — cannot fragment a panel.
+- Wired into `save_crop`: trims each isolated crop before saving and returns the tightened page-coordinate bbox so `panels.json` stays accurate. Runs automatically on all future splits.
+- Added `--retrim-dir DIR` CLI mode to apply the trim to already-extracted crops in place (for folders split before this existed). Made `--input`/`--out` optional so `--retrim-dir` runs standalone.
+- **Applied to the existing 146 `review_crops/` in place** (backed up first to session scratchpad — review_crops is gitignored, NOT git-recoverable): **136/146 trimmed, 22.4M px of blank margin removed** (10 already tight/blank). Refreshed `descriptions.json` `width`/`height`/`bbox` on the 136 changed records from the new PNG sizes — **no new Gemini calls** (OCR/visual text unchanged, so matcher scoring is identical).
+- Re-ran matcher (assignments identical, as expected — scoring is text-only), rebuilt the HyperFrames composition (re-copied trimmed panels), re-rendered: **63.1s, 32.3MB**. Verified in render: beat-1 running-boy card that previously had ~28% white bands top+bottom is now a clean full-content landscape card; enemies panel (beat 11) tight with all speech bubbles intact.
+- Note: `build_composition.py` asset copy switched from `shutil.copy` to a plain byte-copy with retry — macOS `fcopyfile` clonefile fast-path was intermittently `TimeoutError`-ing on this volume.
+
+#### Stage status after this session
+- **Stage 2 (validate on real content): ✅ COMPLETE** — user judged the rendered output reads well against the reference; the core mechanic is proven.
+- **Stage 3 (harden visual engine): IN PROGRESS** — content-trim done. Still open from the reference gap analysis: transition variety (push + inset, currently fade/scale-in only), warm-paper background tint (reads grey), and optional per-beat OCR-vs-visual scoring for exact 4/4 (deferred — shifts read fine).
+- Stages 4–9 untouched.
+

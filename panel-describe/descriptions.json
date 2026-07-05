@@ -3,12 +3,12 @@
     "panel_id": "page001_panel_003",
     "file": "page001_panel_003.png",
     "width": 792,
-    "height": 2338,
+    "height": 1657,
     "bbox": [
       0,
       0,
       792,
-      2338
+      1657
     ],
     "ocr_text": "",
     "visual_description": "Stretching across the panel, a vast, dark mountain range is shrouded in heavy mist under a cloudy night sky with a full moon and falling snow. Silhouetted trees and foliage frame the foreground.",
@@ -19,12 +19,12 @@
     "panel_id": "page001_panel_004",
     "file": "page001_panel_004.png",
     "width": 792,
-    "height": 1205,
+    "height": 541,
     "bbox": [
       0,
       0,
       792,
-      1205
+      541
     ],
     "ocr_text": "",
     "visual_description": "Running barefoot through a dark, shadowy forest, a young person in a white tunic and purple sash is seen from a high-angle perspective, casting a long shadow on the ground.",
@@ -35,12 +35,12 @@
     "panel_id": "page001_panel_005",
     "file": "page001_panel_005.png",
     "width": 792,
-    "height": 1058,
+    "height": 701,
     "bbox": [
       0,
       0,
       792,
-      1058
+      701
     ],
     "ocr_text": "",
     "visual_description": "Running forward with a desperate, pained expression, a young person with spiky dark purple hair and torn white robes is covered in dirt and sweat against a blurry, streaked grey-green background.",
@@ -50,13 +50,13 @@
   {
     "panel_id": "page002_panel_003",
     "file": "page002_panel_003.png",
-    "width": 704,
-    "height": 699,
+    "width": 626,
+    "height": 421,
     "bbox": [
       0,
       0,
-      704,
-      699
+      626,
+      421
     ],
     "ocr_text": "흐윽",
     "visual_description": "Pressing down on dark, debris-strewn ground, a bare foot and lower leg are visible amidst dark foliage and branches on the left. Particles scatter around the foot.",
@@ -66,13 +66,13 @@
   {
     "panel_id": "page002_panel_008",
     "file": "page002_panel_008.png",
-    "width": 734,
-    "height": 636,
+    "width": 683,
+    "height": 441,
     "bbox": [
       0,
       0,
-      734,
-      636
+      683,
+      441
     ],
     "ocr_text": "!!!",
     "visual_description": "Looking wide-eyed and shocked, a character with dark hair and purple eyes is shown in a close-up, with motion lines in the background suggesting intense emotion or movement.",
@@ -83,12 +83,12 @@
     "panel_id": "page002_panel_011",
     "file": "page002_panel_011.png",
     "width": 792,
-    "height": 2459,
+    "height": 2264,
     "bbox": [
       0,
       0,
       792,
-      2459
+      2264
     ],
     "ocr_text": "EUAAACK...!! / ACK!!! / ACCK!!! / 쿵",
     "visual_description": "Tumbling down a steep, dark, rocky cliff face, a young person in light, tattered clothes is shown in three stages of their painful fall, kicking up dust and debris.",
@@ -115,12 +115,12 @@
     "panel_id": "page003_panel_003",
     "file": "page003_panel_003.png",
     "width": 792,
-    "height": 877,
+    "height": 443,
     "bbox": [
       0,
       0,
       792,
-      877
+      443
     ],
     "ocr_text": "......!",
     "visual_description": "Staring intensely, a character with dark purple hair and a magenta eye is shown in an extreme close-up, with dirt and smoke around their face, suggesting a tense situation.",
@@ -130,13 +130,13 @@
   {
     "panel_id": "page003_panel_004",
     "file": "page003_panel_004.png",
-    "width": 741,
-    "height": 865,
+    "width": 701,
+    "height": 435,
     "bbox": [
       0,
       0,
-      741,
-      865
+      701,
+      435
     ],
     "ocr_text": "DAMN IT ALL...",
     "visual_description": "Kneeling on the dirty ground, a person's hands and lower legs are visible, covered in dirt, with torn clothing on one arm. Close-up shot.",
@@ -147,12 +147,12 @@
     "panel_id": "page003_panel_005",
     "file": "page003_panel_005.png",
     "width": 792,
-    "height": 918,
+    "height": 496,
     "bbox": [
       0,
       0,
       792,
-      918
+      496
     ],
     "ocr_text": "ARE YOU TELLING ME...",
     "visual_description": "Walking across desolate, cracked ground, a small figure in light clothes is observed by two dark-cloaked figures partially visible in the foreground, framing the scene. It's a medium shot from a slightly high angle.",
@@ -163,12 +163,12 @@
     "panel_id": "page003_panel_006",
     "file": "page003_panel_006.png",
     "width": 792,
-    "height": 1855,
+    "height": 1417,
     "bbox": [
       0,
       0,
       792,
-      1855
+      1417
     ],
     "ocr_text": "THAT I'VE BEEN DANCING IN THE MIDDLE OF YOUR PALMS FROM THE START...",
     "visual_description": "Standing defiantly, a person with dark hair in light clothing faces multiple red-cloaked figures under a bright full moon. Some cloaked figures are perched on a large tree, others on the ground and a cliff, in a misty, dark outdoor setting.",
@@ -179,12 +179,12 @@
     "panel_id": "page003_panel_009",
     "file": "page003_panel_009.png",
     "width": 205,
-    "height": 94,
+    "height": 69,
     "bbox": [
       0,
       0,
       205,
-      94
+      69
     ],
     "ocr_text": "FUCK!",
     "visual_description": "Displaying the exclamatory word 'FUCK!' in bold, black, italicized letters against a plain white background, serving as a strong sound effect or reaction.",
@@ -194,12 +194,12 @@
   {
     "panel_id": "page003_panel_010",
     "file": "page003_panel_010.png",
-    "width": 268,
+    "width": 49,
     "height": 94,
     "bbox": [
       0,
       0,
-      268,
+      49,
       94
     ],
     "ocr_text": "",
@@ -211,12 +211,12 @@
     "panel_id": "page003_panel_012",
     "file": "page003_panel_012.png",
     "width": 792,
-    "height": 558,
+    "height": 500,
     "bbox": [
       0,
       0,
       792,
-      558
+      500
     ],
     "ocr_text": "",
     "visual_description": "Gritting their teeth and staring intensely, a person with long dark hair and purple eyes is shown in an extreme close-up. Their face is covered in cuts and sweat droplets, indicating pain or exertion.",
@@ -227,12 +227,12 @@
     "panel_id": "page004_panel_003",
     "file": "page004_panel_003.png",
     "width": 792,
-    "height": 1376,
+    "height": 1287,
     "bbox": [
       0,
       0,
       792,
-      1376
+      1287
     ],
     "ocr_text": "YOU MUST'VE HAD QUITE A LOT OF TROUBLE RUNNING FOR AN HOUR TO REACH HERE. / WELL DONE, PRINCE CHEON. / HEHE... / ALL THIS WAITING HAD ME AT THE POINT OF FALLING ASLEEP.",
     "visual_description": "Standing on a rock, a cloaked figure with a sword addresses two other cloaked figures who are crouching below, in a dark, rocky outdoor setting. The figures wear face coverings.",
@@ -242,13 +242,13 @@
   {
     "panel_id": "page004_panel_006",
     "file": "page004_panel_006.png",
-    "width": 766,
-    "height": 1485,
+    "width": 759,
+    "height": 988,
     "bbox": [
       0,
       0,
-      766,
-      1485
+      759,
+      988
     ],
     "ocr_text": "...WHAT SHOULD I DO!?! / I DON'T HAVE THE STRENGTH TO RUN AWAY EITHER...",
     "visual_description": "Facing three cloaked enemies with glowing weapons in a misty forest, a purple-haired figure in tattered clothes stands with their back to the viewer. One enemy is in a tree, two are on the ground. Medium shot.",
@@ -258,12 +258,12 @@
   {
     "panel_id": "page004_panel_009",
     "file": "page004_panel_009.png",
-    "width": 163,
+    "width": 91,
     "height": 107,
     "bbox": [
       0,
       0,
-      163,
+      91,
       107
     ],
     "ocr_text": "",
@@ -274,12 +274,12 @@
   {
     "panel_id": "page004_panel_010",
     "file": "page004_panel_010.png",
-    "width": 399,
+    "width": 181,
     "height": 107,
     "bbox": [
       0,
       0,
-      399,
+      181,
       107
     ],
     "ocr_text": "",
@@ -290,13 +290,13 @@
   {
     "panel_id": "page004_panel_012",
     "file": "page004_panel_012.png",
-    "width": 755,
-    "height": 1127,
+    "width": 734,
+    "height": 1105,
     "bbox": [
       0,
       0,
-      755,
-      1127
+      734,
+      1105
     ],
     "ocr_text": "ON ENROLLING INTO / THE ACADEMY— / WHAT MORE DO YOU WANT FROM ME? WHY ARE YOU AIMING FOR MY LIFE?",
     "visual_description": "Standing defiantly with a pained expression, a young man with long dark hair and tattered clothes looks forward. He has sweat and scratches on his face and chest. The background is dark and misty with faint tree branches.",
@@ -307,12 +307,12 @@
     "panel_id": "page005_panel_005",
     "file": "page005_panel_005.png",
     "width": 792,
-    "height": 1060,
+    "height": 866,
     "bbox": [
       0,
       0,
       792,
-      1060
+      866
     ],
     "ocr_text": "EVEN IF YOU GAVE UP ON THE ACADEMY OR YOU HAVE ABSOLUTELY NO TALENT IN MAR- TIAL ARTS, YOU SHOULD KNOW THAT SOMETHING LIKE THAT DOESN'T MATTER, RIGHT PRINCE CHEON?",
     "visual_description": "Speaking intensely, a cloaked figure with dark skin, glowing purple eyes, and a face mask looks directly forward in a medium close-up. They wear a dark hooded cloak against a plain, dark background.",
@@ -323,12 +323,12 @@
     "panel_id": "page005_panel_006",
     "file": "page005_panel_006.png",
     "width": 792,
-    "height": 1409,
+    "height": 1009,
     "bbox": [
       0,
       0,
       792,
-      1409
+      1009
     ],
     "ocr_text": "AS LONG AS YOU HAVE A RIGHT TO THE THRONE, THIS IS THE ONLY WAY, PRINCE. / GIVE IT UP- THERE'S NO OTHER WAY OUT.",
     "visual_description": "Two cloaked figures confront an unseen opponent, one drawing a glowing sword. They wear dark hoods and face masks, standing under a full moon with trees in the background. Medium shot.",
@@ -338,13 +338,13 @@
   {
     "panel_id": "page005_panel_007",
     "file": "page005_panel_007.png",
-    "width": 543,
-    "height": 300,
+    "width": 310,
+    "height": 93,
     "bbox": [
       0,
       0,
-      543,
-      300
+      310,
+      93
     ],
     "ocr_text": "EVEN IF YOU",
     "visual_description": "Showing the bottom half of a speech bubble with a black outline, containing the text 'EVEN IF YOU' against a white background. No characters or setting are visible.",
@@ -355,12 +355,12 @@
     "panel_id": "page005_panel_009",
     "file": "page005_panel_009.png",
     "width": 792,
-    "height": 819,
+    "height": 706,
     "bbox": [
       0,
       0,
       792,
-      819
+      706
     ],
     "ocr_text": "HAVE 'PEASANT BLOOD' MIXED IN YOU, / 끼이이잉 / SINCE YOU ARE OF THE BLOODLINE OF THAT PERSON, WE'LL SEND YOU OFF WITH A PAINLESS DEATH.",
     "visual_description": "Standing in a dark void, a glowing blue-skinned male character with light, spiky hair and sweat on his face looks distressed. A horizontal blue light beam stretches behind him in this medium shot.",
@@ -370,13 +370,13 @@
   {
     "panel_id": "page005_panel_011",
     "file": "page005_panel_011.png",
-    "width": 617,
-    "height": 574,
+    "width": 459,
+    "height": 383,
     "bbox": [
       0,
       0,
-      617,
-      574
+      459,
+      383
     ],
     "ocr_text": "PEASANT BLOOD... THEY SAY...?",
     "visual_description": "Displaying a white oval speech bubble with a spiky, impactful black outline, containing the text 'PEASANT BLOOD... THEY SAY...?'. The background is plain white.",
@@ -387,12 +387,12 @@
     "panel_id": "page005_panel_012",
     "file": "page005_panel_012.png",
     "width": 792,
-    "height": 709,
+    "height": 504,
     "bbox": [
       0,
       0,
       792,
-      709
+      504
     ],
     "ocr_text": "HOW DARE THEY DISHONOR MY MOTHER...?!",
     "visual_description": "Staring wide-eyed with intense fury, a character's face is shown in an extreme close-up. Their purple eye is wide, sweat drips, and small scratches mark their skin, conveying deep distress and anger.",
@@ -403,12 +403,12 @@
     "panel_id": "page006_panel_001",
     "file": "page006_panel_001.png",
     "width": 792,
-    "height": 1487,
+    "height": 1283,
     "bbox": [
       0,
       0,
       792,
-      1487
+      1283
     ],
     "ocr_text": "THERE'S NO WAY THOSE BASTARDS WOULD SEND ME OFF WITH A \"PAINLESS DEATH.\" / IF I'M GOING TO DIE ANYWAY, THEN I'LL GO BY FIGHTING UNTIL MY VERY LAST BREATH!",
     "visual_description": "Holding a glowing cylindrical object to their neck, a determined, injured character with dark hair and torn clothes is shown in a medium close-up against a dark background. Scratches are visible on their face and arms.",
@@ -419,12 +419,12 @@
     "panel_id": "page006_panel_005",
     "file": "page006_panel_005.png",
     "width": 792,
-    "height": 975,
+    "height": 624,
     "bbox": [
       0,
       0,
       792,
-      975
+      624
     ],
     "ocr_text": "HOH? / DID YOU LEARN SOME MARTIAL ARTS FROM WARRIOR JANG?",
     "visual_description": "Gazing intensely forward, a hooded figure with piercing red eyes and a face mask is shown in a close-up. The character's expression is stern, with two speech bubbles above their head.",
@@ -435,12 +435,12 @@
     "panel_id": "page006_panel_006",
     "file": "page006_panel_006.png",
     "width": 792,
-    "height": 1515,
+    "height": 952,
     "bbox": [
       0,
       0,
       792,
-      1515
+      952
     ],
     "ocr_text": "... NO, IT / SEEMS LIKE / HE DIDN'T. / HOWEVER, IT / SEEMS AS THOUGH / HE CAN'T RUN AWAY / FROM HIS BLOOD- / LINE-",
     "visual_description": "Holding a small blade with both hands, a wounded person with long dark hair and tattered light-colored clothing stands in a dark, rocky environment. Cuts and blood streaks are visible on their face and body. Medium shot.",
@@ -451,12 +451,12 @@
     "panel_id": "page006_panel_007",
     "file": "page006_panel_007.png",
     "width": 792,
-    "height": 1146,
+    "height": 926,
     "bbox": [
       0,
       0,
       792,
-      1146
+      926
     ],
     "ocr_text": "SEEING HOW / EVEN WITHOUT ANY / TRAINING OR SKILLS, / HE DOESN'T WANT TO / GIVE UP UNTIL THE / END. / HEHE... THIS / IS GOING TO BE / A FUN HUNT.",
     "visual_description": "Looking intently with narrowed eyes, a masked figure in a dark hood and grey face covering is shown in a medium close-up, with a full moon and dark trees in the night background.",
@@ -467,12 +467,12 @@
     "panel_id": "page007_panel_005",
     "file": "page007_panel_005.png",
     "width": 792,
-    "height": 1445,
+    "height": 1178,
     "bbox": [
       0,
       0,
       792,
-      1445
+      1178
     ],
     "ocr_text": "파 / 악",
     "visual_description": "Standing ready to fight, a figure in white faces five cloaked assassins wielding swords in a moonlit forest clearing. Four attackers leap from above, one stands on the ground, under a bright full moon.",
@@ -483,12 +483,12 @@
     "panel_id": "page007_panel_009",
     "file": "page007_panel_009.png",
     "width": 792,
-    "height": 1178,
+    "height": 1088,
     "bbox": [
       0,
       0,
       792,
-      1178
+      1088
     ],
     "ocr_text": "EUARGHH!!! / 흒 / 흒",
     "visual_description": "Fighting fiercely, a young man in torn white clothes swings a knife at multiple cloaked figures in a dynamic medium shot, on a cracked, greenish-blue ground. One cloaked figure is clearly visible on the left.",
@@ -498,13 +498,13 @@
   {
     "panel_id": "page007_panel_010",
     "file": "page007_panel_010.png",
-    "width": 765,
-    "height": 809,
+    "width": 747,
+    "height": 579,
     "bbox": [
       0,
       0,
-      765,
-      809
+      747,
+      579
     ],
     "ocr_text": "촤아아아",
     "visual_description": "Lunging forward with a dagger, a mysterious figure in a dark purple hooded cloak and face veil moves rapidly. Only their eyes are visible, and they wear a glove. The background is blurred, emphasizing speed.",
@@ -515,12 +515,12 @@
     "panel_id": "page007_panel_013",
     "file": "page007_panel_013.png",
     "width": 792,
-    "height": 707,
+    "height": 705,
     "bbox": [
       0,
       0,
       792,
-      707
+      705
     ],
     "ocr_text": "KEUK...! / 쩌억!",
     "visual_description": "Being struck by a powerful blow, a distressed young man with messy dark hair, wearing a tattered robe, grimaces while holding a sword. He is in a dynamic mid-shot against a blurry blue-green outdoor background.",
@@ -531,12 +531,12 @@
     "panel_id": "page008_panel_003",
     "file": "page008_panel_003.png",
     "width": 792,
-    "height": 988,
+    "height": 698,
     "bbox": [
       0,
       0,
       792,
-      988
+      698
     ],
     "ocr_text": "콰콰콰콱",
     "visual_description": "Lunging forward with intense motion blur, a figure in dark robes strikes towards another figure whose wide, shocked eye is visible on the left. The background is a blurred light blue and grey.",
@@ -547,12 +547,12 @@
     "panel_id": "page008_panel_006",
     "file": "page008_panel_006.png",
     "width": 792,
-    "height": 1090,
+    "height": 892,
     "bbox": [
       0,
       0,
       792,
-      1090
+      892
     ],
     "ocr_text": "콱",
     "visual_description": "Choking and lifting a struggling person by the neck, a masked, cloaked figure holds a sword while the victim, with messy dark hair and torn clothes, is suspended mid-air in a hazy, dark environment. Medium shot.",
@@ -563,12 +563,12 @@
     "panel_id": "page008_panel_010",
     "file": "page008_panel_010.png",
     "width": 792,
-    "height": 793,
+    "height": 623,
     "bbox": [
       0,
       0,
       792,
-      793
+      623
     ],
     "ocr_text": "IS THAT THE / END OF YOUR LITTLE / RETALIATION? / 크득 / 크득",
     "visual_description": "Staring intensely with glowing purple eyes, a masked and hooded figure looks down at a blurred, injured person. Blood splatters are visible on the defeated individual's clothing in this medium close-up.",
@@ -578,13 +578,13 @@
   {
     "panel_id": "page008_panel_011",
     "file": "page008_panel_011.png",
-    "width": 754,
-    "height": 635,
+    "width": 725,
+    "height": 316,
     "bbox": [
       0,
       0,
-      754,
-      635
+      725,
+      316
     ],
     "ocr_text": "스윽",
     "visual_description": "Drawing a glowing blade from a sheath, a person's hand pulls the weapon with a bright light emanating from it. The shot is a medium close-up of the torso and arm against a dark, blurry background.",
@@ -611,12 +611,12 @@
     "panel_id": "page009_panel_003",
     "file": "page009_panel_003.png",
     "width": 792,
-    "height": 792,
+    "height": 562,
     "bbox": [
       0,
       0,
       792,
-      792
+      562
     ],
     "ocr_text": "퓨퓨! / ?!",
     "visual_description": "Choking another person, a hooded figure with wide, shocked eyes grips the neck of a struggling, angry person with messy dark hair. The medium close-up shows blood splattering, set against a dark, stormy background.",
@@ -627,12 +627,12 @@
     "panel_id": "page009_panel_006",
     "file": "page009_panel_006.png",
     "width": 792,
-    "height": 1397,
+    "height": 1055,
     "bbox": [
       0,
       0,
       792,
-      1397
+      1055
     ],
     "ocr_text": "!!",
     "visual_description": "Charging forward with intense speed, three cloaked figures in dark red robes and black masks advance, their eyes visible and alert. The foreground figure's wide, white eyes convey urgency against a blurred, dark background.",
@@ -643,12 +643,12 @@
     "panel_id": "page009_panel_007",
     "file": "page009_panel_007.png",
     "width": 792,
-    "height": 1067,
+    "height": 688,
     "bbox": [
       0,
       0,
       792,
-      1067
+      688
     ],
     "ocr_text": "털썩",
     "visual_description": "Standing over a collapsed figure, a person in a red hooded cloak and grey tunic holds a sword hilt, with blood splattering nearby. The other figure lies on the ground, appearing injured, in a dark, misty environment. Medium shot.",
@@ -658,13 +658,13 @@
   {
     "panel_id": "page009_panel_010",
     "file": "page009_panel_010.png",
-    "width": 749,
-    "height": 581,
+    "width": 727,
+    "height": 457,
     "bbox": [
       0,
       0,
-      749,
-      581
+      727,
+      457
     ],
     "ocr_text": "SERVES YOU RIGHT! / 씨익",
     "visual_description": "Smirking menacingly, a dark-haired character with purple eyes and a bloodied, sweaty face looks directly forward in a close-up shot. The background is dark and blurry.",
@@ -691,12 +691,12 @@
     "panel_id": "page009_panel_011_shot_02",
     "file": "page009_panel_011_shot_02.png",
     "width": 792,
-    "height": 597,
+    "height": 592,
     "bbox": [
       0,
       0,
       792,
-      597
+      592
     ],
     "ocr_text": "WERE ALL OF THOSE RANDOM SLASHES AN ACT TO MAKE US LOWER OUR GUARD...?!",
     "visual_description": "Standing amidst a desolate landscape, a figure in a dark hooded cloak faces away from the viewer, with another figure's legs visible at the top right. A speech bubble dominates the lower right.",
@@ -706,13 +706,13 @@
   {
     "panel_id": "page010_panel_003",
     "file": "page010_panel_003.png",
-    "width": 768,
-    "height": 1427,
+    "width": 760,
+    "height": 1024,
     "bbox": [
       0,
       0,
-      768,
-      1427
+      760,
+      1024
     ],
     "ocr_text": "HE MANAGED TO / PULL OFF SUCH A / SHREWD ACT IN A / SITUATION LIKE / THIS... / WHAT IF HE HAD / ACTUALLY MASTERED / MARTIAL ARTS...?!",
     "visual_description": "Drawing a sword with a golden hilt from its scabbard, a person's hand is captured in a close-up, with a bright glint on the blade, against a dark, dusty background.",
@@ -723,12 +723,12 @@
     "panel_id": "page010_panel_004",
     "file": "page010_panel_004.png",
     "width": 792,
-    "height": 783,
+    "height": 584,
     "bbox": [
       0,
       0,
       792,
-      783
+      584
     ],
     "ocr_text": "파 / 얏",
     "visual_description": "Charging forward with a drawn sword, a masked, hooded figure in a red cloak and dark clothing runs through a turbulent, watery environment, left hand extended.",
@@ -754,12 +754,12 @@
   {
     "panel_id": "page010_panel_006",
     "file": "page010_panel_006.png",
-    "width": 502,
+    "width": 325,
     "height": 120,
     "bbox": [
       0,
       0,
-      502,
+      325,
       120
     ],
     "ocr_text": "YOU DAMNED BRAT!",
@@ -771,12 +771,12 @@
     "panel_id": "page010_panel_010",
     "file": "page010_panel_010.png",
     "width": 792,
-    "height": 1424,
+    "height": 976,
     "bbox": [
       0,
       0,
       792,
-      1424
+      976
     ],
     "ocr_text": "콰직",
     "visual_description": "Striking a person with a glowing sword, a masked figure in a red hood attacks a white-robed individual, causing blood to splatter and debris to fly in a chaotic, dark environment. The victim recoils from the impact.",
@@ -787,12 +787,12 @@
     "panel_id": "page010_panel_011",
     "file": "page010_panel_011.png",
     "width": 792,
-    "height": 953,
+    "height": 754,
     "bbox": [
       0,
       0,
       792,
-      953
+      754
     ],
     "ocr_text": "......!! / 컥",
     "visual_description": "Lying on the ground, a young, dark-haired character is severely injured, bleeding from the mouth, with dirt and debris covering their clothes and face in a medium close-up shot.",
@@ -803,12 +803,12 @@
     "panel_id": "page011_panel_005",
     "file": "page011_panel_005.png",
     "width": 792,
-    "height": 646,
+    "height": 469,
     "bbox": [
       0,
       0,
       792,
-      646
+      469
     ],
     "ocr_text": "JUST BECAUSE WE WENT EASY ON YOU, YOU DARE TO...!",
     "visual_description": "Staring intensely with narrowed red eyes, a dark-skinned character wearing a black hood and face covering glares forward. The background is dark and cloudy. Close-up shot.",
@@ -819,12 +819,12 @@
     "panel_id": "page011_panel_006",
     "file": "page011_panel_006.png",
     "width": 792,
-    "height": 970,
+    "height": 648,
     "bbox": [
       0,
       0,
       792,
-      970
+      648
     ],
     "ocr_text": "푸욱",
     "visual_description": "Recoiling in shock and pain, a young person with messy dark hair and a blood-stained, torn shirt looks wide-eyed at a bright blue impact on their right. Their face is covered in cuts and blood, against a dark, blurry background in a medium close-up.",
@@ -835,12 +835,12 @@
     "panel_id": "page011_panel_010",
     "file": "page011_panel_010.png",
     "width": 792,
-    "height": 1391,
+    "height": 1203,
     "bbox": [
       0,
       0,
       792,
-      1391
+      1203
     ],
     "ocr_text": "KEUACK- / KKK!!!",
     "visual_description": "Shining brightly in a wide shot, a full moon illuminates a misty, blue-toned forest scene with dark mountains and silhouetted trees, under what appears to be rain or falling light streaks.",
@@ -850,13 +850,13 @@
   {
     "panel_id": "page011_panel_013",
     "file": "page011_panel_013.png",
-    "width": 725,
-    "height": 657,
+    "width": 677,
+    "height": 453,
     "bbox": [
       0,
       0,
-      725,
-      657
+      677,
+      453
     ],
     "ocr_text": "콜록",
     "visual_description": "Screaming in agony with blood dripping from his mouth, a long-haired man is shown in a close-up, covered in sweat and facial wounds against a dark, muted background.",
@@ -883,12 +883,12 @@
     "panel_id": "page012_panel_003",
     "file": "page012_panel_003.png",
     "width": 792,
-    "height": 1267,
+    "height": 922,
     "bbox": [
       0,
       0,
       792,
-      1267
+      922
     ],
     "ocr_text": "SHIT... AS I THOUGHT, I CAN'T TRICK THEM TWICE, HUH...? / IT'S ALRIGHT. AT LEAST I KILLED ONE BASTARD...",
     "visual_description": "Clawing at a rough, grey ground surface, a person's strained hand with prominent veins and red marks is visible in a medium close-up shot. Dirt or debris is scattered around the fingertips.",
@@ -898,13 +898,13 @@
   {
     "panel_id": "page012_panel_004",
     "file": "page012_panel_004.png",
-    "width": 506,
-    "height": 96,
+    "width": 234,
+    "height": 61,
     "bbox": [
       0,
       0,
-      506,
-      96
+      234,
+      61
     ],
     "ocr_text": "",
     "visual_description": "Showing the top portion of an empty speech bubble, outlined in black with a wavy upper edge and a smooth lower curve.",
@@ -915,12 +915,12 @@
     "panel_id": "page012_panel_006",
     "file": "page012_panel_006.png",
     "width": 792,
-    "height": 1181,
+    "height": 1086,
     "bbox": [
       0,
       0,
       792,
-      1181
+      1086
     ],
     "ocr_text": "SLOWLY!! MORE!! / DIE AN EXCRUCIATING DEATH!! / 콰악 / ......!!!!!!",
     "visual_description": "Screaming in agony as a heavy boot stomps violently into his bleeding chest, a wounded, dark-haired man lies on the ground. Blood splatters from his mouth and torso under the crushing force of the attack.",
@@ -930,13 +930,13 @@
   {
     "panel_id": "page012_panel_008",
     "file": "page012_panel_008.png",
-    "width": 524,
-    "height": 178,
+    "width": 273,
+    "height": 83,
     "bbox": [
       0,
       0,
-      524,
-      178
+      273,
+      83
     ],
     "ocr_text": "",
     "visual_description": "A curved black line arches across the bottom of a white panel, forming the top part of a semi-circle or arch.",
@@ -947,12 +947,12 @@
     "panel_id": "page012_panel_010",
     "file": "page012_panel_010.png",
     "width": 792,
-    "height": 621,
+    "height": 547,
     "bbox": [
       0,
       0,
       792,
-      621
+      547
     ],
     "ocr_text": "?",
     "visual_description": "Pressing a foot onto a fallen person's chest, a hooded figure stands holding a sword, while another cloaked figure watches from the right. The scene takes place on a desolate, misty ground.",
@@ -962,13 +962,13 @@
   {
     "panel_id": "page012_panel_011",
     "file": "page012_panel_011.png",
-    "width": 594,
-    "height": 351,
+    "width": 412,
+    "height": 276,
     "bbox": [
       0,
       0,
-      594,
-      351
+      412,
+      276
     ],
     "ocr_text": "DOING / SOMETHING LIKE / THAT ISN'T MY STYLE / AT ALL BUT... / SINCE OUR",
     "visual_description": "Text appearing in a speech bubble, partially visible against a plain white background. The bubble contains dialogue, with no characters or specific setting shown.",
@@ -978,13 +978,13 @@
   {
     "panel_id": "page012_panel_013",
     "file": "page012_panel_013.png",
-    "width": 708,
-    "height": 710,
+    "width": 644,
+    "height": 510,
     "bbox": [
       0,
       0,
-      708,
-      710
+      644,
+      510
     ],
     "ocr_text": "COMRADE DIED, I GUESS THERE ISN'T A CHOICE...? / 후",
     "visual_description": "Looking intently to the left, a cloaked figure with a face covering and hood is shown in a medium close-up. Their eyes are visible against a blurry, dark background, possibly a forest, as they exhale or sigh.",
@@ -995,12 +995,12 @@
     "panel_id": "page013_panel_001",
     "file": "page013_panel_001.png",
     "width": 792,
-    "height": 1123,
+    "height": 1038,
     "bbox": [
       0,
       0,
       792,
-      1123
+      1038
     ],
     "ocr_text": "파야",
     "visual_description": "A golden light bursts from the center of a dark, abstract space, radiating intense rays outwards. No characters are visible in this wide shot.",
@@ -1011,12 +1011,12 @@
     "panel_id": "page013_panel_002",
     "file": "page013_panel_002.png",
     "width": 792,
-    "height": 467,
+    "height": 357,
     "bbox": [
       0,
       0,
       792,
-      467
+      357
     ],
     "ocr_text": "",
     "visual_description": "Staring wide-eyed with a furrowed brow, a masked figure's upper face is shown in an extreme close-up, surrounded by speed lines, conveying shock or intense focus.",
@@ -1027,12 +1027,12 @@
     "panel_id": "page013_panel_003",
     "file": "page013_panel_003.png",
     "width": 792,
-    "height": 1845,
+    "height": 1521,
     "bbox": [
       0,
       0,
       792,
-      1845
+      1521
     ],
     "ocr_text": "콰 / ?!! / 억!",
     "visual_description": "Reacting with surprise, a masked figure in a red hooded cloak stands amidst debris as a powerful, swirling yellow and black energy blast erupts above them, filling the upper half of the panel.",
@@ -1043,12 +1043,12 @@
     "panel_id": "page013_panel_004",
     "file": "page013_panel_004.png",
     "width": 792,
-    "height": 1410,
+    "height": 1056,
     "bbox": [
       0,
       0,
       792,
-      1410
+      1056
     ],
     "ocr_text": "",
     "visual_description": "Being violently dismembered amidst a spray of blood and fire, a figure collapses while four cloaked, sword-wielding enemies stand ready, and another injured person lies on the dusty ground.",
@@ -1059,12 +1059,12 @@
     "panel_id": "page014_panel_003",
     "file": "page014_panel_003.png",
     "width": 792,
-    "height": 1155,
+    "height": 686,
     "bbox": [
       0,
       0,
       792,
-      1155
+      686
     ],
     "ocr_text": "",
     "visual_description": "A blood-splattered sword is swung over a fallen figure with dark purple hair, who lies on the ground in a dark, possibly forested setting. The figure's light-colored clothing is torn and stained.",
@@ -1075,12 +1075,12 @@
     "panel_id": "page014_panel_004",
     "file": "page014_panel_004.png",
     "width": 792,
-    "height": 1197,
+    "height": 693,
     "bbox": [
       0,
       0,
       792,
-      1197
+      693
     ],
     "ocr_text": "JUST NOW... SOMETHING LIKE A BEAM OF WHITE LIGHT...",
     "visual_description": "Standing amidst a glowing, debris-filled landscape, three cloaked and masked figures react to an unseen event, one holding a sword. Medium shot.",
@@ -1091,12 +1091,12 @@
     "panel_id": "page014_panel_005",
     "file": "page014_panel_005.png",
     "width": 792,
-    "height": 826,
+    "height": 524,
     "bbox": [
       0,
       0,
       792,
-      826
+      524
     ],
     "ocr_text": "슥",
     "visual_description": "Stepping down onto a dusty, smoky ground, a person's foot in a white and blue sneaker is surrounded by glowing blue energy, captured in a medium shot.",
@@ -1107,12 +1107,12 @@
     "panel_id": "page014_panel_006",
     "file": "page014_panel_006.png",
     "width": 792,
-    "height": 687,
+    "height": 356,
     "bbox": [
       0,
       0,
       792,
-      687
+      356
     ],
     "ocr_text": "!!",
     "visual_description": "Staring wide-eyed with shock, a person in a dark hood and face covering is shown in a close-up. Blurry horizontal lines in the background suggest rapid motion through a textured environment.",
@@ -1123,12 +1123,12 @@
     "panel_id": "page014_panel_007",
     "file": "page014_panel_007.png",
     "width": 792,
-    "height": 1160,
+    "height": 960,
     "bbox": [
       0,
       0,
       792,
-      1160
+      960
     ],
     "ocr_text": "HE'S BEHIND US!!! / 휘 릭",
     "visual_description": "Pointing upwards and backwards, a cloaked figure with a sword raises an arm, alerting another cloaked figure to a threat. They stand in a dark, stormy outdoor environment.",
@@ -1139,12 +1139,12 @@
     "panel_id": "page015_panel_003",
     "file": "page015_panel_003.png",
     "width": 792,
-    "height": 1456,
+    "height": 948,
     "bbox": [
       0,
       0,
       792,
-      1456
+      948
     ],
     "ocr_text": "쉬이익",
     "visual_description": "Confronting a glowing blue figure, three cloaked assassins with drawn swords stand ready in a misty, dark forest. Snow falls as two figures in the foreground prepare to attack, while a third stands further back.",
@@ -1155,12 +1155,12 @@
     "panel_id": "page015_panel_004",
     "file": "page015_panel_004.png",
     "width": 792,
-    "height": 814,
+    "height": 406,
     "bbox": [
       0,
       0,
       792,
-      814
+      406
     ],
     "ocr_text": "파직",
     "visual_description": "Emitting blue electrical energy, a dark-haired character stands with their back to the viewer, facing three cloaked and masked figures in a misty forest under a full moon. The figures appear to be observing the powered-up character.",
@@ -1171,12 +1171,12 @@
     "panel_id": "page015_panel_005",
     "file": "page015_panel_005.png",
     "width": 792,
-    "height": 1784,
+    "height": 1467,
     "bbox": [
       0,
       0,
       792,
-      1784
+      1467
     ],
     "ocr_text": "파직 / 파직",
     "visual_description": "Standing with arms crossed, a young man in a blue and white hoodie and dark visor is enveloped in crackling blue electrical energy. He stands on dark, cracked ground with faint foliage in the background.",
@@ -1187,12 +1187,12 @@
     "panel_id": "page015_panel_006",
     "file": "page015_panel_006.png",
     "width": 792,
-    "height": 824,
+    "height": 672,
     "bbox": [
       0,
       0,
       792,
-      824
+      672
     ],
     "ocr_text": "WHAT IS THAT...? I'VE NEVER SEEN CLOTHING LIKE THAT BEFORE...?",
     "visual_description": "Looking intensely with furrowed brows and sweat, a masked figure in a dark red hooded cloak and black face mask is shown in a close-up against a cloudy, dark background.",
@@ -1203,12 +1203,12 @@
     "panel_id": "page016_panel_003",
     "file": "page016_panel_003.png",
     "width": 792,
-    "height": 919,
+    "height": 454,
     "bbox": [
       0,
       0,
       792,
-      919
+      454
     ],
     "ocr_text": "스르륵",
     "visual_description": "Standing enveloped in crackling blue energy, a character in a blue and white hooded jacket crosses their hands. The mid-shot shows their torso against a dark, shadowy background.",
@@ -1219,12 +1219,12 @@
     "panel_id": "page016_panel_006",
     "file": "page016_panel_006.png",
     "width": 792,
-    "height": 1052,
+    "height": 971,
     "bbox": [
       0,
       0,
       792,
-      1052
+      971
     ],
     "ocr_text": "WHO ARE YOU! / 타닥 탓",
     "visual_description": "Running forward with a sword drawn, a masked figure in a dark grey outfit and red hooded cape splashes through water. Motion lines emphasize their speed in the dark environment.",
@@ -1235,12 +1235,12 @@
     "panel_id": "page016_panel_007",
     "file": "page016_panel_007.png",
     "width": 792,
-    "height": 710,
+    "height": 553,
     "bbox": [
       0,
       0,
       792,
-      710
+      553
     ],
     "ocr_text": "쉬익",
     "visual_description": "Standing amidst a misty forest path, a male character in a blue and white jacket and hat is enveloped in crackling blue electricity. The background shows trees and fog, with speed lines on the right.",
@@ -1251,12 +1251,12 @@
     "panel_id": "page016_panel_008",
     "file": "page016_panel_008.png",
     "width": 792,
-    "height": 541,
+    "height": 323,
     "bbox": [
       0,
       0,
       792,
-      541
+      323
     ],
     "ocr_text": "씨익",
     "visual_description": "Smiling subtly with blue lightning crackling around them, a character's face and upper chest are shown in a close-up, wearing a zipped-up hoodie against a background of speed lines.",
@@ -1267,12 +1267,12 @@
     "panel_id": "page016_panel_009",
     "file": "page016_panel_009.png",
     "width": 792,
-    "height": 1129,
+    "height": 926,
     "bbox": [
       0,
       0,
       792,
-      1129
+      926
     ],
     "ocr_text": "번 / 쩌억",
     "visual_description": "Bursting with intense golden light, a bright star-like explosion emanates from the center of a dark, abstract space, surrounded by radial speed lines. No characters are visible.",
@@ -1283,12 +1283,12 @@
     "panel_id": "page016_panel_010_shot_01",
     "file": "page016_panel_010_shot_01.png",
     "width": 792,
-    "height": 700,
+    "height": 635,
     "bbox": [
       0,
       0,
       792,
-      700
+      635
     ],
     "ocr_text": "",
     "visual_description": "Engulfing dark, jagged shapes in a blur of reddish-orange and blue-grey energy, a powerful impact or rapid movement creates streaking vertical lines across the panel.",
@@ -1330,13 +1330,13 @@
   {
     "panel_id": "page017_panel_004",
     "file": "page017_panel_004.png",
-    "width": 568,
-    "height": 188,
+    "width": 360,
+    "height": 112,
     "bbox": [
       0,
       0,
-      568,
-      188
+      360,
+      112
     ],
     "ocr_text": "",
     "visual_description": "Revealing a partial, jagged outline of a speech bubble or panel border, set against a stark white background with no characters or other elements visible.",
@@ -1347,12 +1347,12 @@
     "panel_id": "page017_panel_005",
     "file": "page017_panel_005.png",
     "width": 792,
-    "height": 876,
+    "height": 698,
     "bbox": [
       0,
       0,
       792,
-      876
+      698
     ],
     "ocr_text": "HUH... HUH?!",
     "visual_description": "Gasping in shock, an extreme close-up shows a masked figure's wide, terrified eye. The person wears a dark grey mask and a reddish-brown cloak, with dark splatters on the right against a blurry background.",
@@ -1363,12 +1363,12 @@
     "panel_id": "page017_panel_006",
     "file": "page017_panel_006.png",
     "width": 792,
-    "height": 675,
+    "height": 306,
     "bbox": [
       0,
       0,
       792,
-      675
+      306
     ],
     "ocr_text": "치지직 / 치지직",
     "visual_description": "Emitting bright blue electrical energy, a figure in a hooded garment glows intensely while moving rapidly across a blurred, dark background. The figure's face is obscured by the light.",
@@ -1379,12 +1379,12 @@
     "panel_id": "page017_panel_007",
     "file": "page017_panel_007.png",
     "width": 792,
-    "height": 2273,
+    "height": 2048,
     "bbox": [
       0,
       0,
       792,
-      2273
+      2048
     ],
     "ocr_text": "WHA.. WHAT HAPPENED! / HE DISAPPEARED IN A SECOND?! / IS IT AN AGILITY SKILL? ... NO. / IT'S MORE LIKE, HE'S BECOMING INVISIBLE- LIKE WATER- IN A SECOND...!!",
     "visual_description": "Observing another cloaked figure rapidly fading into invisibility amidst flying debris, a cloaked individual reacts with wide-eyed shock. The dynamic scene, set against a blue background, emphasizes the mysterious disappearance.",
@@ -1395,12 +1395,12 @@
     "panel_id": "page017_panel_008",
     "file": "page017_panel_008.png",
     "width": 792,
-    "height": 903,
+    "height": 867,
     "bbox": [
       0,
       0,
       792,
-      903
+      867
     ],
     "ocr_text": "콰앙",
     "visual_description": "Deflecting a powerful blue energy blast, a cloaked figure in a dark brown hood and black mask stands amidst flying debris and red splatter in a desolate setting. Mid-shot.",
@@ -1410,12 +1410,12 @@
   {
     "panel_id": "page017_panel_010",
     "file": "page017_panel_010.png",
-    "width": 204,
+    "width": 62,
     "height": 120,
     "bbox": [
       0,
       0,
-      204,
+      62,
       120
     ],
     "ocr_text": "",
@@ -1426,12 +1426,12 @@
   {
     "panel_id": "page017_panel_011",
     "file": "page017_panel_011.png",
-    "width": 362,
+    "width": 291,
     "height": 120,
     "bbox": [
       0,
       0,
-      362,
+      291,
       120
     ],
     "ocr_text": "SIR!!!",
@@ -1443,12 +1443,12 @@
     "panel_id": "page018_panel_001",
     "file": "page018_panel_001.png",
     "width": 792,
-    "height": 1046,
+    "height": 719,
     "bbox": [
       0,
       0,
       792,
-      1046
+      719
     ],
     "ocr_text": "쉬익 / ... EXACTLY WHAT IS THAT LIGHT?!",
     "visual_description": "Streaking across a dark, blurry background, a bright blue-white light dominates the upper frame, accompanied by a speech bubble expressing shock. The environment appears abstract and fast-moving.",
@@ -1459,12 +1459,12 @@
     "panel_id": "page018_panel_002",
     "file": "page018_panel_002.png",
     "width": 792,
-    "height": 1090,
+    "height": 753,
     "bbox": [
       0,
       0,
       792,
-      1090
+      753
     ],
     "ocr_text": "CAN IT BE THAT / THIS IS THE POWER / OF A MASTER WHO'S / RISEN TO THE HIGH- / EST LEVEL?!",
     "visual_description": "Staring wide-eyed in shock, a masked figure in a dark hood has sweat dripping from their forehead. Speed lines in the background suggest rapid movement or intense realization in this close-up shot.",
@@ -1475,12 +1475,12 @@
     "panel_id": "page018_panel_003",
     "file": "page018_panel_003.png",
     "width": 792,
-    "height": 674,
+    "height": 586,
     "bbox": [
       0,
       0,
       792,
-      674
+      586
     ],
     "ocr_text": "썩 / 씩",
     "visual_description": "Streaking across a blurred landscape, light blue and dark blue/black colors blend horizontally, conveying extreme speed or a powerful impact. No characters are visible.",
@@ -1490,13 +1490,13 @@
   {
     "panel_id": "page018_panel_005",
     "file": "page018_panel_005.png",
-    "width": 631,
-    "height": 504,
+    "width": 489,
+    "height": 385,
     "bbox": [
       0,
       0,
-      631,
-      504
+      489,
+      385
     ],
     "ocr_text": "BUT WHY IS AN EXTRAORDINARY MASTER LIKE HIM DEFENDING THAT BRAT!?!",
     "visual_description": "A speech bubble with a spiky, radiating outline contains text, set against a plain white background, conveying a sense of shock or exclamation.",
@@ -1507,12 +1507,12 @@
     "panel_id": "page018_panel_006",
     "file": "page018_panel_006.png",
     "width": 792,
-    "height": 564,
+    "height": 317,
     "bbox": [
       0,
       0,
       792,
-      564
+      317
     ],
     "ocr_text": "",
     "visual_description": "Swinging a sword with immense speed, two hands tightly grip the hilt, creating a bright flash on the blade. The background blurs horizontally, emphasizing rapid motion in a close-up shot.",
@@ -1523,12 +1523,12 @@
     "panel_id": "page018_panel_007",
     "file": "page018_panel_007.png",
     "width": 792,
-    "height": 1812,
+    "height": 1615,
     "bbox": [
       0,
       0,
       792,
-      1812
+      1615
     ],
     "ocr_text": "THAT KID ALREADY LOST A LOT OF BLOOD, SO HE'S A LOST CAUSE ANYWAY. OUR MISSION HAS BEEN FULFILLED.",
     "visual_description": "Lying injured and bleeding profusely, a dark-haired character with a pale face and torn clothes has blood dripping from their mouth and chest. The shot is a medium close-up against a dark, indistinct background.",
@@ -1539,12 +1539,12 @@
     "panel_id": "page019_panel_003",
     "file": "page019_panel_003.png",
     "width": 792,
-    "height": 1606,
+    "height": 1300,
     "bbox": [
       0,
       0,
       792,
-      1606
+      1300
     ],
     "ocr_text": "LET'S... LET'S RETREAT!!! / 타 얏",
     "visual_description": "Rapidly retreating through a blurred, dark environment, a shadowy humanoid figure moves with speed, leaving streaks of motion behind. The setting appears to be a dark, possibly forested area.",
@@ -1555,12 +1555,12 @@
     "panel_id": "page019_panel_004",
     "file": "page019_panel_004.png",
     "width": 792,
-    "height": 1008,
+    "height": 675,
     "bbox": [
       0,
       0,
       792,
-      1008
+      675
     ],
     "ocr_text": "",
     "visual_description": "Leaping through a moonlit, snowy forest, a hooded figure in a red cloak wields a sword, surrounded by motion lines, in a medium shot. Trees line the bottom of the frame under a starry sky with a bright moon.",
@@ -1571,12 +1571,12 @@
     "panel_id": "page019_panel_005",
     "file": "page019_panel_005.png",
     "width": 792,
-    "height": 1367,
+    "height": 1113,
     "bbox": [
       0,
       0,
       792,
-      1367
+      1113
     ],
     "ocr_text": "키이이잉",
     "visual_description": "Reaching out from the darkness, a glowing white hand crackles with bright blue electricity. The hand is illuminated against a dark, smoky background in a medium shot.",
@@ -1587,12 +1587,12 @@
     "panel_id": "page019_panel_006",
     "file": "page019_panel_006.png",
     "width": 792,
-    "height": 1263,
+    "height": 1138,
     "bbox": [
       0,
       0,
       792,
-      1263
+      1138
     ],
     "ocr_text": "퍼억",
     "visual_description": "Falling through a night sky, a dark-clad figure disintegrates into black particles, with a sword falling beside him, above a dark forest under a full moon.",
@@ -1602,13 +1602,13 @@
   {
     "panel_id": "page020_panel_003",
     "file": "page020_panel_003.png",
-    "width": 750,
-    "height": 982,
+    "width": 728,
+    "height": 565,
     "bbox": [
       0,
       0,
-      750,
-      982
+      728,
+      565
     ],
     "ocr_text": "씨익",
     "visual_description": "Lying on his back with a menacing grin, a disheveled man with dark hair and wide, red eyes looks upwards. His face and clothes are scratched and dirty, suggesting injury or a struggle, against a dark, gritty background.",
@@ -1619,12 +1619,12 @@
     "panel_id": "page020_panel_006",
     "file": "page020_panel_006.png",
     "width": 792,
-    "height": 656,
+    "height": 411,
     "bbox": [
       0,
       0,
       792,
-      656
+      411
     ],
     "ocr_text": "",
     "visual_description": "Straining with intense emotion, a character's purple eye is shown in an extreme close-up. Sweat beads on their pale skin, and dark, messy hair frames their face, suggesting struggle or pain.",
@@ -1635,12 +1635,12 @@
     "panel_id": "page020_panel_007",
     "file": "page020_panel_007.png",
     "width": 792,
-    "height": 610,
+    "height": 410,
     "bbox": [
       0,
       0,
       792,
-      610
+      410
     ],
     "ocr_text": "",
     "visual_description": "Displaying a distressed face in an extreme close-up, a person with dark hair has closed or heavily shadowed eyes, with small lines and sweat drops indicating intense emotion or pain.",
@@ -1650,13 +1650,13 @@
   {
     "panel_id": "page020_panel_010",
     "file": "page020_panel_010.png",
-    "width": 515,
-    "height": 159,
+    "width": 252,
+    "height": 68,
     "bbox": [
       0,
       0,
-      515,
-      159
+      252,
+      68
     ],
     "ocr_text": "",
     "visual_description": "Curving across a stark white background, a single thin black line forms an arc at the top of the panel, suggesting a minimalist or abstract detail.",
@@ -1666,13 +1666,13 @@
   {
     "panel_id": "page020_panel_013",
     "file": "page020_panel_013.png",
-    "width": 584,
-    "height": 205,
+    "width": 393,
+    "height": 112,
     "bbox": [
       0,
       0,
-      584,
-      205
+      393,
+      112
     ],
     "ocr_text": "IT LOOKS LIKE",
     "visual_description": "Displaying a partial speech bubble, the text 'IT LOOKS LIKE' is centered on a white background. No characters or specific setting are visible.",
@@ -1682,13 +1682,13 @@
   {
     "panel_id": "page020_panel_015",
     "file": "page020_panel_015.png",
-    "width": 592,
-    "height": 439,
+    "width": 413,
+    "height": 195,
     "bbox": [
       0,
       0,
-      592,
-      439
+      413,
+      195
     ],
     "ocr_text": "OUR ANCESTOR IS IN A HAPPY MOOD EVEN THOUGH HE'S AT HIS DEATHBED?",
     "visual_description": "Displaying a speech bubble with text, the panel features a white background with no visible characters or setting. It is a close-up shot of the speech bubble.",
@@ -1698,13 +1698,13 @@
   {
     "panel_id": "page020_panel_016",
     "file": "page020_panel_016.png",
-    "width": 559,
-    "height": 598,
+    "width": 346,
+    "height": 282,
     "bbox": [
       0,
       0,
-      559,
-      598
+      346,
+      282
     ],
     "ocr_text": "ANCESTOR...?",
     "visual_description": "Displaying a speech bubble with the text 'ANCESTOR...?', the panel features a white background with no visible characters, emphasizing a spoken question or reaction.",
@@ -1715,12 +1715,12 @@
     "panel_id": "page020_panel_018",
     "file": "page020_panel_018.png",
     "width": 792,
-    "height": 495,
+    "height": 407,
     "bbox": [
       0,
       0,
       792,
-      495
+      407
     ],
     "ocr_text": "",
     "visual_description": "Staring intensely with a wide-open purple eye, a character's face is shown in an extreme close-up. Dark hair frames the strained skin, which bears sweat drops and stress lines, indicating significant effort or pain.",
@@ -1730,13 +1730,13 @@
   {
     "panel_id": "page020_panel_020",
     "file": "page020_panel_020.png",
-    "width": 637,
-    "height": 424,
+    "width": 496,
+    "height": 410,
     "bbox": [
       0,
       0,
-      637,
-      424
+      496,
+      410
     ],
     "ocr_text": "WHO IS IT...? WHAT / KIND OF NONSENSE IS / HE SPOUTING AFTER / APPEARING ALL OF A / SUDDEN...?",
     "visual_description": "Displaying a thought bubble with a spiky, agitated outline, the panel focuses on the dialogue against a plain white background. No characters are visible.",
@@ -1747,12 +1747,12 @@
     "panel_id": "page021_panel_003",
     "file": "page021_panel_003.png",
     "width": 792,
-    "height": 1354,
+    "height": 1060,
     "bbox": [
       0,
       0,
       792,
-      1354
+      1060
     ],
     "ocr_text": "MY EYESIGHT IS GETTING FUZZY SO I CAN'T SEE... / MY ENTIRE BODY'S GETTING FRIGID...",
     "visual_description": "Experiencing a physical decline, a blurred male character in a blue and white hoodie stands against a dark, indistinct background, his face obscured by blur, suggesting impaired vision or consciousness. It's a medium shot.",
@@ -1762,13 +1762,13 @@
   {
     "panel_id": "page021_panel_004",
     "file": "page021_panel_004.png",
-    "width": 731,
-    "height": 954,
+    "width": 690,
+    "height": 760,
     "bbox": [
       0,
       0,
-      731,
-      954
+      690,
+      760
     ],
     "ocr_text": "AM... I GOING TO DIE LIKE THIS?",
     "visual_description": "Struggling with injuries, a young person with messy dark hair and bloodied, torn clothes looks up with a pained, sweaty expression in a medium shot against a blurry, dark background.",
@@ -1778,13 +1778,13 @@
   {
     "panel_id": "page021_panel_005",
     "file": "page021_panel_005.png",
-    "width": 532,
-    "height": 127,
+    "width": 283,
+    "height": 72,
     "bbox": [
       0,
       0,
-      532,
-      127
+      283,
+      72
     ],
     "ocr_text": "",
     "visual_description": "Curving across the top of the frame, a thick black arc forms the upper edge of an unseen circular or oval shape against a plain white background.",
@@ -1810,13 +1810,13 @@
   {
     "panel_id": "page021_panel_009",
     "file": "page021_panel_009.png",
-    "width": 527,
-    "height": 122,
+    "width": 279,
+    "height": 90,
     "bbox": [
       0,
       0,
-      527,
-      122
+      279,
+      90
     ],
     "ocr_text": "NO CHOICE.",
     "visual_description": "Presenting a partial speech bubble, the panel shows the upper right curve of a white-outlined bubble containing the text 'NO CHOICE.' against a plain white background.",
@@ -1826,13 +1826,13 @@
   {
     "panel_id": "page021_panel_011",
     "file": "page021_panel_011.png",
-    "width": 550,
-    "height": 108,
+    "width": 319,
+    "height": 75,
     "bbox": [
       0,
       0,
-      550,
-      108
+      319,
+      75
     ],
     "ocr_text": "",
     "visual_description": "Arches across the top of the frame, a thick black curved line is drawn on a plain white background.",
@@ -1842,13 +1842,13 @@
   {
     "panel_id": "page021_panel_013",
     "file": "page021_panel_013.png",
-    "width": 754,
-    "height": 879,
+    "width": 736,
+    "height": 716,
     "bbox": [
       0,
       0,
-      754,
-      879
+      736,
+      716
     ],
     "ocr_text": "I WAS GOING TO COME HERE EARLIER AND TEACH YOU HOW TO USE THIS, BUT I GUESS WE'LL HAVE TO IMPROVISE.",
     "visual_description": "Holding a small device emitting a blue glow, a person's torso and arm are visible against a dark, hazy background. They wear a white shirt with blue accents and a dark belt.",
@@ -1859,12 +1859,12 @@
     "panel_id": "page021_panel_014",
     "file": "page021_panel_014.png",
     "width": 792,
-    "height": 1399,
+    "height": 1225,
     "bbox": [
       0,
       0,
       792,
-      1399
+      1225
     ],
     "ocr_text": "I SHOULD HURRY, HUH. / SINCE YOU'RE RIGHT ABOUT TO DIE.",
     "visual_description": "Standing over a severely injured man, a dark-haired character in a blue hoodie faces away from the viewer. The man, with messy hair and bloodied face and clothes, lies on a dark, textured ground in a medium shot.",
@@ -1874,13 +1874,13 @@
   {
     "panel_id": "page022_panel_003",
     "file": "page022_panel_003.png",
-    "width": 759,
-    "height": 838,
+    "width": 735,
+    "height": 528,
     "bbox": [
       0,
       0,
-      759,
-      838
+      735,
+      528
     ],
     "ocr_text": "푸욱",
     "visual_description": "Shining a penlight into a distressed, blood-splattered face, a hand holds the light close to the person's chin. The dark-haired person's mouth is open, blood dripping. Close-up.",
@@ -1890,13 +1890,13 @@
   {
     "panel_id": "page022_panel_004",
     "file": "page022_panel_004.png",
-    "width": 707,
-    "height": 913,
+    "width": 643,
+    "height": 615,
     "bbox": [
       0,
       0,
-      707,
-      913
+      643,
+      615
     ],
     "ocr_text": "I'M THE ONE INJECTING IT, AND IT'S MAKING ME CRINGE. / 푸욱",
     "visual_description": "Injecting a substance into another person's arm, a figure in a blue and white hoodie leans over a prone, injured body. The injector holds a small vial or syringe, with blood visible on the recipient's arm. Medium shot in a dark setting.",
@@ -1907,12 +1907,12 @@
     "panel_id": "page022_panel_007",
     "file": "page022_panel_007.png",
     "width": 792,
-    "height": 711,
+    "height": 554,
     "bbox": [
       0,
       0,
       792,
-      711
+      554
     ],
     "ocr_text": "DONE.",
     "visual_description": "Smirking slyly, a young man in a blue hoodie and goggles holds a glowing, pen-like device in a medium close-up shot against a dark, blurred background.",
@@ -1923,12 +1923,12 @@
     "panel_id": "page022_panel_011",
     "file": "page022_panel_011.png",
     "width": 792,
-    "height": 949,
+    "height": 654,
     "bbox": [
       0,
       0,
       792,
-      949
+      654
     ],
     "ocr_text": "HEY, ANCES- / TOR NIM?",
     "visual_description": "Kneeling beside an injured man, a young man in a blue and white jacket looks down at an older man with purple hair, who lies bleeding on the murky ground in white robes. Medium shot.",
@@ -1939,12 +1939,12 @@
     "panel_id": "page022_panel_012",
     "file": "page022_panel_012.png",
     "width": 792,
-    "height": 1049,
+    "height": 668,
     "bbox": [
       0,
       0,
       792,
-      1049
+      668
     ],
     "ocr_text": "PLEASE MAKE SURE TO SUCCEED AND MAKE THIS DESCENDANT'S LIFE EASIER, OKAY?",
     "visual_description": "Looking down with a sinister smile, a man in a blue jacket observes another person with long dark hair bleeding from the mouth and crying, against a dark, desolate background in a medium close-up.",
@@ -1954,13 +1954,13 @@
   {
     "panel_id": "page023_panel_003",
     "file": "page023_panel_003.png",
-    "width": 498,
-    "height": 122,
+    "width": 221,
+    "height": 38,
     "bbox": [
       0,
       0,
-      498,
-      122
+      221,
+      38
     ],
     "ocr_text": "",
     "visual_description": "Curving across the bottom of the frame, a thin black line is visible against a stark white background.",
@@ -2003,12 +2003,12 @@
     "panel_id": "page023_panel_005_shot_03",
     "file": "page023_panel_005_shot_03.png",
     "width": 792,
-    "height": 537,
+    "height": 391,
     "bbox": [
       0,
       0,
       792,
-      537
+      391
     ],
     "ocr_text": "",
     "visual_description": "Lying prone on the ground, a person with dark hair and light, tattered clothes appears defeated, with bare feet visible. Above them, a figure in dark attire with a blue aura stands, partially visible, in a hazy outdoor setting.",
@@ -2019,12 +2019,12 @@
     "panel_id": "page023_panel_006",
     "file": "page023_panel_006.png",
     "width": 792,
-    "height": 1459,
+    "height": 1118,
     "bbox": [
       0,
       0,
       792,
-      1459
+      1118
     ],
     "ocr_text": "...... / 파지직",
     "visual_description": "Rising from a prone figure, a glowing blue, humanoid energy ascends into a desolate, cloudy sky. The person lies on their back, feet visible, in a medium shot.",
@@ -2035,12 +2035,12 @@
     "panel_id": "page023_panel_007",
     "file": "page023_panel_007.png",
     "width": 792,
-    "height": 1261,
+    "height": 911,
     "bbox": [
       0,
       0,
       792,
-      1261
+      911
     ],
     "ocr_text": "WHAT / KIND OF NONSENSE / HAS THAT STRANGE GUY / BEEN BLABBERING / ABOUT...?",
     "visual_description": "Looking distressed and injured, a long-haired character with cuts on their face and blood dripping from their mouth is shown in a close-up. Their eyes are heavy-lidded, conveying pain or exhaustion against a dark, indistinct background.",
@@ -2050,13 +2050,13 @@
   {
     "panel_id": "page023_panel_009",
     "file": "page023_panel_009.png",
-    "width": 532,
-    "height": 205,
+    "width": 292,
+    "height": 49,
     "bbox": [
       0,
       0,
-      532,
-      205
+      292,
+      49
     ],
     "ocr_text": "",
     "visual_description": "Showing the bottom outline of an empty speech bubble against a plain white background. No characters or specific setting are visible.",
@@ -2066,12 +2066,12 @@
   {
     "panel_id": "page023_panel_012",
     "file": "page023_panel_012.png",
-    "width": 141,
+    "width": 16,
     "height": 82,
     "bbox": [
       0,
       0,
-      141,
+      16,
       82
     ],
     "ocr_text": "",
@@ -2083,12 +2083,12 @@
     "panel_id": "page023_panel_013",
     "file": "page023_panel_013.png",
     "width": 84,
-    "height": 82,
+    "height": 42,
     "bbox": [
       0,
       0,
       84,
-      82
+      42
     ],
     "ocr_text": "SERIAL",
     "visual_description": "Displaying the word \"SERIAL\" in large, bold, dark blue letters against a plain white background. It is a close-up of the text.",
@@ -2099,12 +2099,12 @@
     "panel_id": "page023_panel_014",
     "file": "page023_panel_014.png",
     "width": 116,
-    "height": 82,
+    "height": 41,
     "bbox": [
       0,
       0,
       116,
-      82
+      41
     ],
     "ocr_text": "NUMBER.",
     "visual_description": "Displaying a single word in large, bold, dark blue capital letters, the text \"NUMBER.\" is centered against a plain white background. The shot is a close-up on the text itself.",
@@ -2114,12 +2114,12 @@
   {
     "panel_id": "page023_panel_015",
     "file": "page023_panel_015.png",
-    "width": 132,
+    "width": 17,
     "height": 82,
     "bbox": [
       0,
       0,
-      132,
+      17,
       82
     ],
     "ocr_text": "",
@@ -2130,13 +2130,13 @@
   {
     "panel_id": "page023_panel_018",
     "file": "page023_panel_018.png",
-    "width": 532,
-    "height": 107,
+    "width": 292,
+    "height": 50,
     "bbox": [
       0,
       0,
-      532,
-      107
+      292,
+      50
     ],
     "ocr_text": "",
     "visual_description": "Showing the bottom edge of a white speech bubble with a jagged, torn-paper-like border, against a white background.",
@@ -2146,13 +2146,13 @@
   {
     "panel_id": "page024_panel_003",
     "file": "page024_panel_003.png",
-    "width": 568,
-    "height": 160,
+    "width": 365,
+    "height": 53,
     "bbox": [
       0,
       0,
-      568,
-      160
+      365,
+      53
     ],
     "ocr_text": "",
     "visual_description": "Showing the bottom half of a jagged-edged banner or speech bubble, outlined in black against a white background.",
@@ -2163,12 +2163,12 @@
     "panel_id": "page024_panel_005",
     "file": "page024_panel_005.png",
     "width": 792,
-    "height": 414,
+    "height": 389,
     "bbox": [
       0,
       0,
       792,
-      414
+      389
     ],
     "ocr_text": "...?!",
     "visual_description": "Staring wide-eyed in shock and distress, a dark-haired character's face is shown in an extreme close-up, with sweat drops visible. The background is blurry and dark.",
@@ -2178,13 +2178,13 @@
   {
     "panel_id": "page024_panel_006",
     "file": "page024_panel_006.png",
-    "width": 598,
-    "height": 487,
+    "width": 423,
+    "height": 352,
     "bbox": [
       0,
       0,
-      598,
-      487
+      423,
+      352
     ],
     "ocr_text": "THERE'S A STRANGE VOICE INSIDE MY HEAD...",
     "visual_description": "Displaying a white thought bubble with jagged black outlines, containing the text 'THERE'S A STRANGE VOICE INSIDE MY HEAD...' on a plain white background.",
@@ -2194,13 +2194,13 @@
   {
     "panel_id": "page024_panel_009",
     "file": "page024_panel_009.png",
-    "width": 596,
-    "height": 189,
+    "width": 417,
+    "height": 77,
     "bbox": [
       0,
       0,
-      596,
-      189
+      417,
+      77
     ],
     "ocr_text": "",
     "visual_description": "Outlining the top of a rectangular shape with jagged corners, a black line forms what appears to be a speech bubble or panel border against a white background.",
@@ -2210,12 +2210,12 @@
   {
     "panel_id": "page024_panel_012",
     "file": "page024_panel_012.png",
-    "width": 121,
+    "width": 17,
     "height": 127,
     "bbox": [
       0,
       0,
-      121,
+      17,
       127
     ],
     "ocr_text": "",
@@ -2226,13 +2226,13 @@
   {
     "panel_id": "page024_panel_013",
     "file": "page024_panel_013.png",
-    "width": 83,
-    "height": 127,
+    "width": 70,
+    "height": 51,
     "bbox": [
       0,
       0,
-      83,
-      127
+      70,
+      51
     ],
     "ocr_text": "SKY",
     "visual_description": "Displaying the word 'SKY' in bold, dark blue capital letters, set against a plain white background. It is a close-up of the text.",
@@ -2242,13 +2242,13 @@
   {
     "panel_id": "page024_panel_014",
     "file": "page024_panel_014.png",
-    "width": 249,
-    "height": 127,
+    "width": 236,
+    "height": 51,
     "bbox": [
       0,
       0,
-      249,
-      127
+      236,
+      51
     ],
     "ocr_text": "CORPORATION.",
     "visual_description": "Displaying the word 'CORPORATION.' in large, bold blue letters, centered on a plain white background. No characters or specific setting are visible.",
@@ -2258,12 +2258,12 @@
   {
     "panel_id": "page024_panel_015",
     "file": "page024_panel_015.png",
-    "width": 117,
+    "width": 17,
     "height": 127,
     "bbox": [
       0,
       0,
-      117,
+      17,
       127
     ],
     "ocr_text": "",
@@ -2274,13 +2274,13 @@
   {
     "panel_id": "page024_panel_018",
     "file": "page024_panel_018.png",
-    "width": 595,
-    "height": 275,
+    "width": 418,
+    "height": 71,
     "bbox": [
       0,
       0,
-      595,
-      275
+      418,
+      71
     ],
     "ocr_text": "",
     "visual_description": "An empty speech bubble is shown at the top of a white panel, with jagged edges indicating it's part of a larger, unseen bubble.",
@@ -2290,13 +2290,13 @@
   {
     "panel_id": "page024_panel_020",
     "file": "page024_panel_020.png",
-    "width": 559,
-    "height": 272,
+    "width": 345,
+    "height": 68,
     "bbox": [
       0,
       0,
-      559,
-      272
+      345,
+      68
     ],
     "ocr_text": "",
     "visual_description": "Outlining the bottom of a panel or speech bubble, a thick black line with jagged, pointed edges on either side is visible against a plain white background.",
@@ -2306,13 +2306,13 @@
   {
     "panel_id": "page024_panel_024",
     "file": "page024_panel_024.png",
-    "width": 662,
-    "height": 567,
+    "width": 551,
+    "height": 305,
     "bbox": [
       0,
       0,
-      662,
-      567
+      551,
+      305
     ],
     "ocr_text": "나노마신 / 刺客魔神",
     "visual_description": "Displaying the title of a series, the words '나노마신' and '刺客魔神' are rendered in a stylized red font with a circuit board texture on a plain white background.",
@@ -2323,12 +2323,12 @@
     "panel_id": "page024_panel_026",
     "file": "page024_panel_026.png",
     "width": 91,
-    "height": 498,
+    "height": 37,
     "bbox": [
       0,
       0,
       91,
-      498
+      37
     ],
     "ocr_text": "금강불괴",
     "visual_description": "Displaying Korean text at the top of a white background, the panel shows the characters '금강불괴' in a simple, clean font. This is a text-only panel.",

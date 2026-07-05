@@ -47,6 +47,18 @@ MIN_GUTTER_RUN = 8             # consecutive gutter rows/cols to count as a real
 MIN_PANEL_SIZE = 80            # discard slivers smaller than this (px)
 EDGE_MARGIN = 4                # trim px off each cut to avoid gutter bleed
 
+# --- content bounding-box trim (removes baked-in blank margins) ---
+# After a panel is isolated, it may still carry large blank (white/black)
+# bands top/bottom/side — common when a print-style page has grid or
+# side-by-side layouts, where a blank band inside one panel's column is NOT
+# blank across the full page width, so the gutter pass never cut it. This is
+# a per-crop tighten (never a new cut — it can't fragment a panel in two): it
+# shrinks the box inward to where real ink begins. Speech bubbles keep their
+# black outline/text so they survive; only truly empty margins are stripped.
+TRIM_TO_CONTENT = True         # tighten each isolated crop to its content bbox
+CONTENT_PAD = 6                # px of breathing room kept around the content
+CONTENT_LINE_FRAC = 0.01       # a row/col needs >= this frac non-bg to be content
+
 # --- blank-crop archiving tunables ---
 BLANK_DENSITY_THRESHOLD = 0.015   # crops with less than this fraction non-bg content are "blank"
 ARCHIVE_BLANKS = True             # move (not delete) blank crops to an archive/ subfolder
@@ -114,6 +126,31 @@ def _content_density(gray_region: np.ndarray, bg_color: int) -> float:
         return 0.0
     not_bg = np.abs(gray_region.astype(np.int16) - bg_color) > BG_COLOR_TOLERANCE
     return float(not_bg.mean())
+
+
+# ----------------------------------------------------------- content trim
+
+def _content_bounds(region_gray: np.ndarray, bg_color: int, pad: int = CONTENT_PAD):
+    """Return (x0, y0, x1, y1) — the tight content box within region_gray,
+    padded by `pad`. A row/col counts as content only if enough of it is
+    non-background (CONTENT_LINE_FRAC), so a stray speck won't defeat the trim
+    but a speech bubble's outline/text will. Returns the full region if there
+    is no real content (leave blank crops for the blank-archiver to handle)."""
+    h, w = region_gray.shape
+    if h == 0 or w == 0:
+        return 0, 0, w, h
+    not_bg = np.abs(region_gray.astype(np.int16) - bg_color) > BG_COLOR_TOLERANCE
+    row_thresh = max(3, int(CONTENT_LINE_FRAC * w))
+    col_thresh = max(3, int(CONTENT_LINE_FRAC * h))
+    rows = np.where(not_bg.sum(axis=1) >= row_thresh)[0]
+    cols = np.where(not_bg.sum(axis=0) >= col_thresh)[0]
+    if rows.size == 0 or cols.size == 0:
+        return 0, 0, w, h
+    y0 = max(0, int(rows[0]) - pad)
+    y1 = min(h, int(rows[-1]) + 1 + pad)
+    x0 = max(0, int(cols[0]) - pad)
+    x1 = min(w, int(cols[-1]) + 1 + pad)
+    return x0, y0, x1, y1
 
 
 # ----------------------------------------------------------- sub-shots
@@ -254,6 +291,12 @@ def process_file(input_path: str, out_dir: str, prefix: str, all_meta: list,
     def save_crop(bbox, fname):
         nonlocal n_crops, n_blank
         x0, y0, x1, y1 = bbox
+        # tighten the isolated crop to its content box (strips baked-in
+        # blank margins the gutter pass couldn't see); returns the trimmed
+        # page-coordinate bbox so panels.json reflects what was actually saved
+        if TRIM_TO_CONTENT:
+            tx0, ty0, tx1, ty1 = _content_bounds(gray_full[y0:y1, x0:x1], bg)
+            x0, y0, x1, y1 = x0 + tx0, y0 + ty0, x0 + tx1, y0 + ty1
         crop = img.crop((x0, y0, x1, y1))
         crop_gray = gray_full[y0:y1, x0:x1]
         blank = _is_blank_crop(crop_gray, bg)
@@ -264,16 +307,16 @@ def process_file(input_path: str, out_dir: str, prefix: str, all_meta: list,
         else:
             crop.save(os.path.join(out_dir, fname))
         n_crops += 1
-        return blank
+        return blank, [x0, y0, x1, y1]
 
     for p in panels:
         base = f"{prefix}_panel_{p['panel_id']:03d}"
         if p["type"] == "single":
-            p["blank"] = save_crop(p["bbox"], base + ".png")
+            p["blank"], p["bbox"] = save_crop(p["bbox"], base + ".png")
         else:
             for s in p["shots"]:
                 fname = f"{base}_shot_{s['shot_id']:02d}.png"
-                s["blank"] = save_crop(s["bbox"], fname)
+                s["blank"], s["bbox"] = save_crop(s["bbox"], fname)
 
     multi = sum(1 for p in panels if p["type"] != "single")
     kept = n_crops - n_blank
@@ -291,16 +334,53 @@ def process_file(input_path: str, out_dir: str, prefix: str, all_meta: list,
     return n_crops
 
 
+def retrim_directory(crop_dir: str):
+    """Apply the content-bbox trim to already-extracted crops, in place.
+
+    Each file is a standalone isolated crop, so the trim runs on the whole
+    image. Use this to tighten a crop folder that was produced before
+    TRIM_TO_CONTENT existed, without re-running the whole split. Filenames and
+    IDs are preserved; only the pixels (and thus width/height) change."""
+    exts = {".png", ".jpg", ".jpeg", ".webp"}
+    files = sorted(f for f in os.listdir(crop_dir)
+                   if os.path.splitext(f)[1].lower() in exts)
+    changed, saved_px = 0, 0
+    for fname in files:
+        path = os.path.join(crop_dir, fname)
+        img = Image.open(path).convert("RGB")
+        gray = np.array(img.convert("L"))
+        bg = _estimate_background_color(gray)
+        x0, y0, x1, y1 = _content_bounds(gray, bg)
+        w, h = img.size
+        if (x0, y0, x1, y1) == (0, 0, w, h):
+            continue
+        img.crop((x0, y0, x1, y1)).save(path)
+        changed += 1
+        saved_px += (w * h) - (x1 - x0) * (y1 - y0)
+        print(f"  {fname}: {w}x{h} -> {x1-x0}x{y1-y0}")
+    print(f"\nRe-trimmed {changed}/{len(files)} crops in {crop_dir} "
+          f"({saved_px/1e6:.1f}M px of blank margin removed).")
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Extract primary panels and sub-shots from manhwa/webtoon pages")
-    ap.add_argument("--input", required=True, help="a page image, or a folder if --batch")
-    ap.add_argument("--out", required=True, help="output folder for crops + panels.json")
+    ap.add_argument("--retrim-dir",
+                    help="apply the content-bbox trim to existing crops in this "
+                         "folder in place (no re-split); ignores --input/--out")
+    ap.add_argument("--input", help="a page image, or a folder if --batch")
+    ap.add_argument("--out", help="output folder for crops + panels.json")
     ap.add_argument("--batch", action="store_true", help="treat --input as a folder of pages")
     ap.add_argument("--keep-blanks", action="store_true",
                     help="don't archive near-blank crops (transition pages, empty gutter "
                          "slivers) — keep everything in the main output folder")
     args = ap.parse_args()
+
+    if args.retrim_dir:
+        retrim_directory(args.retrim_dir)
+        return
+    if not args.input or not args.out:
+        ap.error("--input and --out are required (unless using --retrim-dir)")
 
     archive_blanks = not args.keep_blanks
     exts = {".png", ".jpg", ".jpeg", ".webp"}

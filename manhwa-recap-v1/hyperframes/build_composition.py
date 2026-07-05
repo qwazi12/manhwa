@@ -33,18 +33,36 @@ shots = json.load(open(os.path.join(RECAP, "build_test/beatsheet_gemini.json")))
 beats = json.load(open(os.path.join(RECAP, "build_test/beats 2.json")))
 
 # ---- copy assets so a fresh checkout is reproducible ----------------------
-import shutil
+# Plain byte-copy (not shutil.copy) — macOS's fcopyfile clonefile fast-path
+# intermittently times out on this volume.
 PANEL_SRC = os.path.abspath(os.path.join(RECAP, "..", "panel-split", "review_crops"))
 AUDIO_SRC = os.path.join(RECAP, "build_test", "tts 2")
 os.makedirs(os.path.join(PROJ, "assets", "panels"), exist_ok=True)
 os.makedirs(os.path.join(PROJ, "assets", "audio"), exist_ok=True)
+
+
+def _copy(src, dst, tries=5):
+    import time
+    for attempt in range(tries):
+        try:
+            with open(src, "rb") as f:
+                data = f.read()
+            with open(dst, "wb") as f:
+                f.write(data)
+            return
+        except TimeoutError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(0.5)
+
+
 for pid in sorted({s["panel_id"] for s in shots}):
-    shutil.copy(os.path.join(PANEL_SRC, f"{pid}.png"),
-                os.path.join(PROJ, "assets", "panels", f"{pid}.png"))
+    _copy(os.path.join(PANEL_SRC, f"{pid}.png"),
+          os.path.join(PROJ, "assets", "panels", f"{pid}.png"))
 for i in range(len(beats)):
     a = os.path.join(AUDIO_SRC, f"beat_{i:03d}.mp3")
     if os.path.exists(a):
-        shutil.copy(a, os.path.join(PROJ, "assets", "audio", f"beat_{i:03d}.mp3"))
+        _copy(a, os.path.join(PROJ, "assets", "audio", f"beat_{i:03d}.mp3"))
 
 W, H = 1920, 1080
 total = max(s["end"] for s in shots)
