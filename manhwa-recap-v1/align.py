@@ -17,6 +17,61 @@ import config
 
 # ---------------------------------------------------------------- beats
 
+def _parse_timestamp_to_seconds(ts_str: str) -> float:
+    parts = ts_str.split(":")
+    if len(parts) == 3:
+        h, m, s = parts
+        return float(h) * 3600 + float(m) * 60 + float(s)
+    elif len(parts) == 2:
+        m, s = parts
+        return float(m) * 60 + float(s)
+    else:
+        return float(ts_str)
+
+
+def parse_timed_script(script_text: str):
+    """
+    Parse a script containing embedded timestamps like '00:00:00.320At night...'
+    Returns a list of beats with start and end times populated, or None if no timestamps found.
+    """
+    pattern = r"(\d{1,2}:\d{2}:\d{2}\.\d{2,3}|\d{2}:\d{2}\.\d{2,3})"
+    matches = list(re.finditer(pattern, script_text))
+    if not matches:
+        return None
+
+    beats = []
+    for i in range(len(matches)):
+        start_str = matches[i].group(1)
+        start_sec = _parse_timestamp_to_seconds(start_str)
+
+        # Text is between this timestamp and the next (or the end of script)
+        start_idx = matches[i].end()
+        end_idx = matches[i+1].start() if i < len(matches) - 1 else len(script_text)
+        
+        # Remove bracketed metadata like [music] from display/subtitle text
+        text = script_text[start_idx:end_idx].strip()
+        display_text = re.sub(r"\[[^\]]+\]", "", text).strip()
+        # Clean double spaces
+        display_text = re.sub(r"\s+", " ", display_text)
+
+        beats.append({
+            "index": i,
+            "text": display_text,
+            "start": round(start_sec, 3),
+            "word_count": len(display_text.split())
+        })
+
+    # Enforce end times
+    for i in range(len(beats) - 1):
+        beats[i]["end"] = beats[i+1]["start"]
+    
+    # Last beat end time: start + max(4.0, word_count * 0.4)
+    last_word_count = beats[-1]["word_count"]
+    beats[-1]["end"] = round(beats[-1]["start"] + max(4.0, last_word_count * 0.4), 3)
+
+    return beats
+
+
 def split_beats(script_text: str):
     """
     One beat per non-empty line. If the script is a single block of prose,

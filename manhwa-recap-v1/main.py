@@ -78,19 +78,28 @@ def main():
     print(f"[1/5] Loaded {len(images)} images, script, voice track.")
 
     # 2. beats
-    beats = align.split_beats(script_text)
-    print(f"[2/5] Split script into {len(beats)} beats.")
+    beats = align.parse_timed_script(script_text)
+    timed_automatically = False
+    if beats:
+        print(f"[2/5] Parsed timestamped script into {len(beats)} beats.")
+        timed_automatically = True
+    else:
+        beats = align.split_beats(script_text)
+        print(f"[2/5] Split script into {len(beats)} beats.")
 
     # 3. timing
-    if args.no_whisper:
-        dur = transcribe.audio_duration(voice)
-        beats = align.time_beats_proportional(beats, dur)
-        print(f"[3/5] Timed beats proportionally over {dur:.1f}s of audio.")
+    if not timed_automatically:
+        if args.no_whisper:
+            dur = transcribe.audio_duration(voice)
+            beats = align.time_beats_proportional(beats, dur)
+            print(f"[3/5] Timed beats proportionally over {dur:.1f}s of audio.")
+        else:
+            print("[3/5] Transcribing with whisper (first run downloads the model)...")
+            words = transcribe.transcribe_words(voice)
+            beats = align.time_beats_with_words(beats, words)
+            print(f"      Aligned {len(beats)} beats against {len(words)} spoken words.")
     else:
-        print("[3/5] Transcribing with whisper (first run downloads the model)...")
-        words = transcribe.transcribe_words(voice)
-        beats = align.time_beats_with_words(beats, words)
-        print(f"      Aligned {len(beats)} beats against {len(words)} spoken words.")
+        print("[3/5] Using parsed timestamps from script (skipping Whisper/proportional timing).")
 
     # 4. shots
     shots = align.assign_shots(beats, images)
