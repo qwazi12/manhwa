@@ -274,8 +274,22 @@ def match_beats_to_panels(beats, panels, embed_model=None):
     Anti-stall guard: if the same panel has held for MAX_HELD consecutive beats,
     the advance penalty is reduced to near-zero for that decision so the matcher
     is forced to consider moving forward. Forward-only rule stays intact.
+
+    Junk/SFX-only panels (content-free fragments, bare sound-effect text) are
+    masked here — NOT removed from the list — so panel indices stay valid for
+    the caller's build_timeline, every entry point gets the filter, and a beat
+    can never stall on e.g. a lone "FUCK!" panel. Masking = a floor score so
+    the forward-only search never selects them.
     """
-    score, method = build_scorer(beats, panels, embed_model)
+    raw_score, method = build_scorer(beats, panels, embed_model)
+    junk = [is_junk_panel(p) for p in panels]
+    n_junk = sum(junk)
+    if n_junk:
+        print(f"Masked {n_junk} junk/SFX-only panels of {len(panels)} "
+              f"(never selectable).")
+
+    def score(bi, pi):
+        return -1.0 if junk[pi] else raw_score(bi, pi)
     n_p = len(panels)
     assignments = []
     cur = 0       # current panel index; never decreases
@@ -286,7 +300,17 @@ def match_beats_to_panels(beats, panels, embed_model=None):
         stall_factor = max(0.0, 1.0 - max(0, held_run - MAX_HELD) * 0.25)
         effective_penalty = ADVANCE_PENALTY * stall_factor
 
-        best_pi, best_val = cur, score(bi, cur)
+        # Hard cap: once a panel has held MAX_HELD consecutive beats, forbid
+        # holding again — force the best FORWARD panel. Scaling the penalty
+        # isn't enough when scores barely differ (a dynamic action panel can
+        # out-score everything for a whole sequence); without this a single
+        # panel can swallow 10+ beats. Legitimate ~MAX_HELD-length dramatic
+        # holds (e.g. an eye close-up over two sentences) still happen; only
+        # runaway stalls are broken.
+        force_advance = held_run >= MAX_HELD
+
+        best_pi = cur
+        best_val = -math.inf if force_advance else score(bi, cur)
         # consider advancing up to LOOKAHEAD panels forward
         for step in range(1, LOOKAHEAD + 1):
             pi = cur + step
@@ -295,6 +319,10 @@ def match_beats_to_panels(beats, panels, embed_model=None):
             val = score(bi, pi) - effective_penalty * step
             if val > best_val:
                 best_val, best_pi = val, pi
+        # if forced and every lookahead panel was junk/unavailable, still take
+        # the nearest forward panel so we never re-select the held one
+        if force_advance and best_pi == cur and cur + 1 < n_p:
+            best_pi = cur + 1
 
         # never exhaust the panel list before beats run out:
         # only advance one step at a time when panels are scarce
@@ -371,16 +399,10 @@ def run(beats_path, descriptions_path, out_path, embed_model=None):
         if p.get("file") and not os.path.isabs(p["file"]):
             p["file"] = os.path.join(desc_dir, p["file"])
     # only use panels that described successfully and have real size
+    # (junk/SFX-panel filtering now happens inside match_beats_to_panels so it
+    # applies to every entry point, not just this one)
     panels = [p for p in panels
               if p.get("ok", True) and p.get("width") and p.get("height")]
-    # drop content-free fragments (empty bubbles, stray lines) so beats can't
-    # stall on them — see is_junk_panel for the (conservative) rule
-    n_before = len(panels)
-    junk_ids = [p.get("panel_id") for p in panels if is_junk_panel(p)]
-    panels = [p for p in panels if not is_junk_panel(p)]
-    if junk_ids:
-        print(f"Filtered {len(junk_ids)} junk/SFX-only panels "
-              f"({n_before}->{len(panels)}): {', '.join(junk_ids)}")
     if not panels:
         raise SystemExit("No usable panels in descriptions.json")
     if not beats:

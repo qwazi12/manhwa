@@ -20,6 +20,18 @@ import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+# ---- dormant feature flags (default OFF — activate only when asked) --------
+# Warm-paper background tint: pushes the blurred veil from grey toward the
+# reference's #e8e6e3 paper tone. OFF keeps the current neutral look.
+TINT_ENABLED = False
+TINT_COLOR = "232, 230, 227"   # #e8e6e3 as "r, g, b" for rgba()
+TINT_STRENGTH = 0.45           # 0..1 opacity of the warm wash over the veil
+# Transition variety beyond the default fade/scale-in entrance:
+#   push  — a short horizontal slide-in on a real advance (~4 frames)
+#   inset — (reserved) composite a sub-panel over its parent; not yet built
+TRANSITIONS = {"push": False, "inset": False}
+PUSH_FRAMES = 4                # push distance expressed as frames @30fps feel
+
 
 def audio_dur(path):
     out = subprocess.check_output(
@@ -29,14 +41,20 @@ def audio_dur(path):
 PROJ = os.path.join(HERE, "my-video")
 RECAP = os.path.abspath(os.path.join(HERE, ".."))
 
-shots = json.load(open(os.path.join(RECAP, "build_test/beatsheet_gemini.json")))
-beats = json.load(open(os.path.join(RECAP, "build_test/beats 2.json")))
+# Inputs default to the validated 15-beat slice; override via env for the
+# full chapter (HF_BEATSHEET / HF_BEATS / HF_AUDIO_DIR).
+BEATSHEET = os.environ.get("HF_BEATSHEET", "build_test/beatsheet_gemini.json")
+BEATS = os.environ.get("HF_BEATS", "build_test/beats 2.json")
+AUDIO_SUBDIR = os.environ.get("HF_AUDIO_DIR", "build_test/tts 2")
+
+shots = json.load(open(os.path.join(RECAP, BEATSHEET)))
+beats = json.load(open(os.path.join(RECAP, BEATS)))
 
 # ---- copy assets so a fresh checkout is reproducible ----------------------
 # Plain byte-copy (not shutil.copy) — macOS's fcopyfile clonefile fast-path
 # intermittently times out on this volume.
 PANEL_SRC = os.path.abspath(os.path.join(RECAP, "..", "panel-split", "review_crops"))
-AUDIO_SRC = os.path.join(RECAP, "build_test", "tts 2")
+AUDIO_SRC = os.path.join(RECAP, AUDIO_SUBDIR)
 os.makedirs(os.path.join(PROJ, "assets", "panels"), exist_ok=True)
 os.makedirs(os.path.join(PROJ, "assets", "audio"), exist_ok=True)
 
@@ -100,9 +118,16 @@ for i, s in enumerate(shots):
         f'{{ scale: 1.15 }}, {{ scale: 1.22, duration: {dur}, ease: "none" }}, {start});')
     # entrance: card fades/scales in on a real advance (not on a hold)
     if not held:
-        tl_lines.append(
-            f'  tl.from("#card{i}", '
-            f'{{ opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }}, {start});')
+        if TRANSITIONS["push"]:
+            # horizontal push: slide in from the right while fading up
+            tl_lines.append(
+                f'  tl.from("#card{i}", '
+                f'{{ opacity: 0, xPercent: {PUSH_FRAMES * 2}, duration: 0.45, '
+                f'ease: "power2.out" }}, {start});')
+        else:
+            tl_lines.append(
+                f'  tl.from("#card{i}", '
+                f'{{ opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }}, {start});')
 
 # ---- audio tracks: one per beat at its real start, its own natural duration
 audio_layers = []
@@ -136,6 +161,9 @@ html = f"""<!doctype html>
       /* soft paper vignette over the background for the reference's flat feel */
       #veil {{ position: absolute; inset: 0; background:
         radial-gradient(ellipse at center, rgba(232,230,227,0.25) 0%, rgba(232,230,227,0.72) 100%); }}
+      /* warm-paper tint (dormant unless TINT_ENABLED): flat wash toward #e8e6e3 */
+      #tint {{ position: absolute; inset: 0; background:
+        rgba({TINT_COLOR}, {TINT_STRENGTH if TINT_ENABLED else 0}); }}
       /* floating aspect-preserved card with soft drop shadow */
       .card {{
         position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -154,6 +182,7 @@ html = f"""<!doctype html>
          data-duration="{round(total,3)}" data-width="{W}" data-height="{H}">
 {os.linesep.join(bg_layers)}
     <div id="veil"></div>
+    <div id="tint"></div>
 {os.linesep.join(card_layers)}
 {os.linesep.join(audio_layers)}
     </div>
