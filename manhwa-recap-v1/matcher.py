@@ -38,25 +38,29 @@ import re
 from collections import Counter
 
 # ------------------------------------------------------------ tunables
-# How far forward the matcher may look for a better panel on a single beat.
-# A stall that compounds needs runway to find the correct panel again, so this
-# is set generously now that embedding scores are meaningful.
-LOOKAHEAD = 8
-# Penalty applied to advancing to a NEW panel, so it prefers holding unless a
-# later panel clearly matches better. Higher = holds panels longer.
-# Calibrated for Gemini-embedding cosine scores (~0.6-0.9 range). With lexical
-# fallback scores (~0.0-0.1) this value is far too large and the matcher will
-# stall — the embedding scorer is the intended path.
-ADVANCE_PENALTY = 0.006
+# The matcher aligns the beat sequence to the panel sequence with a GLOBAL
+# monotonic dynamic-programming pass (not greedy) — see align_beats_dp. The
+# only knob is HOLD_PENALTY: the per-beat cost of keeping the same panel as the
+# previous beat. Advancing to a new (forward) panel is free. Higher = fewer,
+# shorter holds / more variety; lower = longer holds. Because the DP optimizes
+# the whole path at once, small local errors can't compound the way the old
+# greedy forward-only matcher's did (that caused the "drifts worse over time"
+# desync and 40s+ stalls). Scores are Gemini-embedding cosine in ~0.6-0.9, so a
+# 0.02 hold penalty gently favors progression while still allowing a genuine
+# 2-3 beat dramatic hold when one panel clearly out-matches the alternatives.
+HOLD_PENALTY = 0.06
+# Hard safety rail: no panel may be held for more than MAX_HOLD consecutive
+# beats, even if it scores best — guarantees no single image can dominate a long
+# stretch (the old greedy matcher parked one panel for 10 beats / 46s). Enforced
+# exactly inside the DP via run-length state, so the result is still the optimal
+# alignment SUBJECT TO this cap. Roughly matches the reference's longest hold
+# (a ~2-sentence dwell), with a little headroom.
+MAX_HOLD = 5
 # Weight of OCR/dialogue match vs. visual-description match (lexical fallback).
 # OCR is the highest-signal field (exact character names and dialogue are
 # almost perfectly discriminative), so it gets a majority weight.
 OCR_WEIGHT = 0.55
 DESC_WEIGHT = 0.45
-# Anti-stall: if the same panel has been held for this many consecutive beats,
-# the ADVANCE_PENALTY is reduced toward zero so the matcher becomes willing
-# to try the next panel. Forward-only rule is preserved.
-MAX_HELD = 3
 
 # ------------------------------------------------------ Gemini embeddings
 # Real semantic scores come from the Gemini embeddings API (one call per text
@@ -77,37 +81,65 @@ _EMBED_CACHE_PATH = os.path.join(
 # in particular embeds as generic anger/distress and out-scores correct scene
 # panels across many beats (this is what corrupted beats 5-14 before filtering).
 #
-# Rule: a panel is junk if its description depicts NO human subject AND NO real
-# scene, and reads as a bubble/line fragment or bare rendered text. Note "plain
-# white background" is a blank, not a scene, so generic "background" is NOT a
-# scene token. A panel like the fall shot (pure "EUAAACK" SFX text but a rich
-# tumbling-down-a-cliff visual) survives because it names a subject and a scene.
-_JUNK_SUBJECT = re.compile(
-    r"\b(person|figure|man|boy|woman|women|men|people|child|character|hooded|"
-    r"cloaked|warrior|someone|soldier|guard|hand|hands|face|eye|eyes|head|"
-    r"body|arm|leg|legs|crowd|rider|horse|monk|girl|king|elder|blade|sword|"
-    r"kneeling|standing|lying|collapsing|collapsed)\b", re.I)
-_JUNK_SCENE = re.compile(
-    r"\b(moon|moonlit|sky|forest|ground|room|wall|tree|trees|mountain|night|"
-    r"cliff|dirt|field|building|street|palace|water|fire|snow|rain|smoke|"
-    r"debris|environment|rocky|desolate|indoor|outdoor|landscape)\b", re.I)
-_JUNK_FRAGMENT = re.compile(
-    r"\b(speech bubble|black line|curved line|thin black|thick black|"
-    r"outline of|bottom (edge|half|outline|portion)|top (edge|half|portion)|"
-    r"jagged[- ]edge|empty (speech )?bubble|banner|blank (white )?panel|"
-    r"the word|single word)\b", re.I)
-_JUNK_SFXTEXT = re.compile(
-    r"\b(sound effect|onomatopoeia|exclamatory word|italicized letters|"
-    r"bold[, ].{0,20}letters|capital letters|stylized text)\b", re.I)
+# Rule (POSITIVE-KEEP): keep a panel only if its description names a real
+# SUBJECT (a person/body part/animal/depicted object) or a real SCENE
+# (setting/environment). Everything else is dropped. This is deliberately the
+# inverse of the old blocklist: instead of enumerating every junk phrase (which
+# always leaves gaps — "curved bracket", "partial abstract shape", "chevron"
+# and friends slipped through), a panel must EARN its place by depicting
+# something. A content-free fragment (empty bubble, stray line, bare SFX/logo
+# word, abstract graphic) names neither a subject nor a scene, so it's dropped
+# automatically without needing a pattern for it. The fall shot (pure "EUAAACK"
+# SFX but a rich tumbling-down-a-cliff visual) survives because it names a
+# subject + scene. Note: generic "background" alone is NOT a scene token (a
+# "plain white background" is a blank), so lists below avoid it.
+_KEEP_SUBJECT = re.compile(
+    r"\b(person|figure|figures|man|men|boy|woman|women|child|children|character|"
+    r"hooded|cloaked|masked|warrior|someone|soldier|guard|hand|hands|"
+    r"face|faces|eye|eyes|head|hair|body|arm|arms|leg|legs|torso|chest|neck|"
+    r"finger|fingers|crowd|rider|horse|monk|girl|king|prince|elder|assassin|"
+    r"killer|opponent|enemy|victim|silhouette|blade|sword|dagger|knife|weapon|"
+    r"spear|syringe|device|kneeling|standing|lying|crouching|sitting|running|"
+    r"lunging|falling|collapsing|collapsed|wounded|clenched)\b", re.I)
+_KEEP_SCENE = re.compile(
+    r"\b(moon|moonlit|sky|forest|ground|floor|room|wall|tree|trees|mountain|"
+    r"mountains|night|cliff|slope|dirt|field|building|street|palace|castle|"
+    r"water|fire|flame|lightning|explosion|blast|snow|rain|smoke|dust|debris|"
+    r"fog|mist|environment|rocky|desolate|indoor|outdoor|landscape|forest floor|"
+    r"battlefield|clearing|woods|nighttime|moonlight|"
+    # energy / effect moments (a light-burst or explosion is a real story beat,
+    # not a fragment) — keep these even without a person in frame
+    r"light|glow|glowing|burst|bursting|energy|aura|spark|sparks|beam|flash|"
+    r"radiant|shockwave|reddish-orange|fireball)\b", re.I)
+# Override: descriptions that self-declare as abstract / non-representational.
+# These beat the positive-keep because a keep-word can appear inside a NEGATION
+# ("...rather than a depiction of a physical object or character") — the panel
+# describes what it is NOT. Any of these phrases means "this is not a real
+# scene", so drop regardless of stray keep-words.
+_ABSTRACT_OVERRIDE = re.compile(
+    r"(abstract shape|abstract graphic|decorative|symbolic element|"
+    r"greater-than|less-than|chevron|a bracket|curved bracket|geometric shape|"
+    r"non-representational|rather than a depiction|not a depiction|"
+    r"stylized,? (curved|black|abstract)|graphic element|"
+    # text/bubble fragments: a panel that is PRIMARILY a speech/thought bubble
+    # or rendered text, not a depicted scene (the AI often opens with these)
+    r"(half|part|edge|portion|outline) of (a |an )?(speech|thought)?\s?bubble|"
+    r"partial (speech|thought) bubble|empty (speech|thought) bubble|"
+    r"a (white |jagged )?(speech|thought) bubble (with|containing|is shown)|"
+    r"displaying (a |the )?(text|word|speech|thought)|containing the text)", re.I)
 
 
 def is_junk_panel(panel):
-    """True if the panel depicts no subject and no scene — a content-free
-    bubble/line fragment or a bare text/SFX panel — safe to drop from matching."""
+    """True if the panel should be DROPPED from matching. Positive-keep rule:
+    a panel is junk unless its description names a real subject or a real scene
+    — UNLESS it self-declares as abstract/decorative (override), which drops it
+    even if a keep-word appears inside a negation. Content-free fragments (empty
+    bubbles, stray lines, bare SFX/logo words, abstract shapes) are dropped
+    without needing an explicit pattern for each junk variety."""
     desc = panel.get("visual_description", "") or ""
-    if _JUNK_SUBJECT.search(desc) or _JUNK_SCENE.search(desc):
-        return False
-    return bool(_JUNK_FRAGMENT.search(desc) or _JUNK_SFXTEXT.search(desc))
+    if _ABSTRACT_OVERRIDE.search(desc):
+        return True
+    return not (_KEEP_SUBJECT.search(desc) or _KEEP_SCENE.search(desc))
 
 
 _STOP = set("a an the of to in on at and or but with was were is are be been "
@@ -262,92 +294,108 @@ def build_scorer(beats, panels, embed_model):
     return score, "lexical"
 
 
-# --------------------------------------------------- forward-only match
+# ------------------------------------------- global monotonic DP aligner
 def match_beats_to_panels(beats, panels, embed_model=None):
     """
-    Assign one panel per beat, monotonically non-decreasing in panel order.
-    Greedy with bounded look-ahead: for each beat, consider staying on the
-    current panel or advancing up to LOOKAHEAD panels forward; pick the best
-    score, applying ADVANCE_PENALTY per panel advanced so it holds unless a
-    forward panel is clearly better.
+    Assign one panel per beat, monotonically non-decreasing in panel index
+    (story order preserved), maximizing the TOTAL match score over the whole
+    sequence via dynamic programming — NOT greedily.
 
-    Anti-stall guard: if the same panel has held for MAX_HELD consecutive beats,
-    the advance penalty is reduced to near-zero for that decision so the matcher
-    is forced to consider moving forward. Forward-only rule stays intact.
+    Why global DP and not greedy: a greedy forward-only matcher makes each
+    choice locally and can never revisit it, so small local errors compound and
+    the video "drifts" more and more out of sync with the narration over time
+    (and a single dynamic panel could swallow 10+ beats). The DP optimizes the
+    entire beat->panel path at once, so a locally-tempting-but-globally-wrong
+    panel is rejected when it would hurt later beats. This is the structural fix
+    for the accumulating desync.
 
-    Junk/SFX-only panels (content-free fragments, bare sound-effect text) are
-    masked here — NOT removed from the list — so panel indices stay valid for
-    the caller's build_timeline, every entry point gets the filter, and a beat
-    can never stall on e.g. a lone "FUCK!" panel. Masking = a floor score so
-    the forward-only search never selects them.
+    State (prefix-max DP, O(n_beats * n_panels * MAX_HOLD)):
+        dp[j][r] = best total score with the current beat on panel j, having
+                   been on j for r+1 consecutive beats (r in 0..MAX_HOLD-1).
+    Transitions to the next beat:
+        hold   -> same j, r+1   (only if r+1 < MAX_HOLD)   : cost - HOLD_PENALTY
+        advance-> any j' > j, r'=0                          : cost
+    Holding the same panel costs HOLD_PENALTY (gently favors progression);
+    advancing to a forward panel is free; the run-length cap MAX_HOLD makes a
+    long stall structurally impossible.
+
+    Junk/SFX-only panels get cost = -inf, so the optimal path never lands on
+    them — no forced-advance/scarcity hacks needed. Indices stay valid for the
+    caller's build_timeline (panels list is never mutated).
     """
     raw_score, method = build_scorer(beats, panels, embed_model)
     junk = [is_junk_panel(p) for p in panels]
     n_junk = sum(junk)
     if n_junk:
-        print(f"Masked {n_junk} junk/SFX-only panels of {len(panels)} "
-              f"(never selectable).")
+        print(f"Excluded {n_junk} junk/SFX-only panels of {len(panels)} "
+              f"(cost -inf; never on the optimal path).")
 
-    def score(bi, pi):
-        return -1.0 if junk[pi] else raw_score(bi, pi)
-    n_p = len(panels)
+    NEG = -1e9
+    R = max(1, MAX_HOLD)  # number of run-length buckets
+
+    def cost(bi, pi):
+        return NEG if junk[pi] else raw_score(bi, pi)
+
+    n_b, n_p = len(beats), len(panels)
+    if n_b == 0 or n_p == 0:
+        return [], method
+
+    # dp[j][r] for the current beat; beat 0 starts every panel at run-length 0.
+    dp = [[NEG] * R for _ in range(n_p)]
+    for j in range(n_p):
+        dp[j][0] = cost(0, j)
+    # back[i][j][r] = (prev_j, prev_r) chosen for beat i landing on (j, r)
+    back = [None]  # back[0] unused
+    for i in range(1, n_b):
+        newdp = [[NEG] * R for _ in range(n_p)]
+        bp = [[None] * R for _ in range(n_p)]
+        # prefix-max over panels j' < j of the best value across any run-length,
+        # used for the ADVANCE transition (new run-length 0). prefix_arg is the
+        # (j', r') that achieved it, so backpointers are always (prev_j, prev_r).
+        prefix_best, prefix_arg = NEG, None
+        for j in range(n_p):
+            c = cost(i, j)
+            # advance into j (from best earlier panel), run-length resets to 0
+            if prefix_arg is not None:
+                newdp[j][0] = c + prefix_best
+                bp[j][0] = prefix_arg
+            # hold on j: extend run-length r-1 -> r (r >= 1), cost the penalty
+            for r in range(1, R):
+                prev = dp[j][r - 1]
+                if prev > NEG:
+                    val = c + prev - HOLD_PENALTY
+                    if val > newdp[j][r]:
+                        newdp[j][r] = val
+                        bp[j][r] = (j, r - 1)
+            # fold panel j's best (over run-lengths) into the advance window
+            jr = max(range(R), key=lambda r: dp[j][r])
+            if dp[j][jr] > prefix_best:
+                prefix_best, prefix_arg = dp[j][jr], (j, jr)
+        dp = newdp
+        back.append(bp)
+
+    # backtrack the optimal path
+    best_j, best_r, best_val = 0, 0, NEG
+    for j in range(n_p):
+        for r in range(R):
+            if dp[j][r] > best_val:
+                best_val, best_j, best_r = dp[j][r], j, r
+    path = [0] * n_b
+    j, r = best_j, best_r
+    for i in range(n_b - 1, -1, -1):
+        path[i] = j
+        if i > 0:
+            j, r = back[i][j][r]
     assignments = []
-    cur = 0       # current panel index; never decreases
-    held_run = 0  # consecutive beats on the same panel
-
-    for bi in range(len(beats)):
-        # Anti-stall: scale down advance penalty when we've held too long
-        stall_factor = max(0.0, 1.0 - max(0, held_run - MAX_HELD) * 0.25)
-        effective_penalty = ADVANCE_PENALTY * stall_factor
-
-        # Hard cap: once a panel has held MAX_HELD consecutive beats, forbid
-        # holding again — force the best FORWARD panel. Scaling the penalty
-        # isn't enough when scores barely differ (a dynamic action panel can
-        # out-score everything for a whole sequence); without this a single
-        # panel can swallow 10+ beats. Legitimate ~MAX_HELD-length dramatic
-        # holds (e.g. an eye close-up over two sentences) still happen; only
-        # runaway stalls are broken.
-        force_advance = held_run >= MAX_HELD
-
-        best_pi = cur
-        best_val = -math.inf if force_advance else score(bi, cur)
-        # consider advancing up to LOOKAHEAD panels forward
-        for step in range(1, LOOKAHEAD + 1):
-            pi = cur + step
-            if pi >= n_p:
-                break
-            val = score(bi, pi) - effective_penalty * step
-            if val > best_val:
-                best_val, best_pi = val, pi
-        # if forced and every lookahead panel was junk/unavailable, still take
-        # the nearest forward panel so we never re-select the held one
-        if force_advance and best_pi == cur and cur + 1 < n_p:
-            best_pi = cur + 1
-
-        # never exhaust the panel list before beats run out:
-        # only advance one step at a time when panels are scarce
-        beats_left = len(beats) - bi
-        panels_left = n_p - cur
-        if panels_left <= beats_left and best_pi > cur:
-            best_pi = min(best_pi, cur + 1)
-
-        advanced = best_pi > cur
+    for i in range(n_b):
+        advanced = (i == 0) or (path[i] != path[i - 1])
         assignments.append({
-            "beat_index": bi,
-            "panel_index": best_pi,
-            "score": round(score(bi, best_pi), 4),
+            "beat_index": i,
+            "panel_index": path[i],
+            "score": round(cost(i, path[i]), 4),
             "held": not advanced,
-            "held_run": held_run,
         })
-
-        # update stall counter
-        if advanced:
-            held_run = 0
-        else:
-            held_run += 1
-        cur = best_pi
-
-    return assignments, method
+    return assignments, method + "+dp"
 
 
 # ------------------------------------------------- gap-free timeline
