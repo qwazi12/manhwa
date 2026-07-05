@@ -1,0 +1,82 @@
+[
+  {
+    "panel_id": "page001_panel_003",
+    "file": "page001_panel_003.png",
+    "width": 792,
+    "height": 2338,
+    "bbox": [
+      0,
+      0,
+      792,
+      2338
+    ],
+    "ocr_text": "",
+    "visual_description": "A wide shot depicts a dark, misty mountainous landscape at night. A full moon shines in the cloudy sky, with small white specks suggesting falling snow or stars. Silhouetted trees and foliage are visible in the foreground and on the mountain slopes.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_004",
+    "file": "page001_panel_004.png",
+    "width": 792,
+    "height": 1205,
+    "bbox": [
+      0,
+      0,
+      792,
+      1205
+    ],
+    "ocr_text": "",
+    "visual_description": "A young, barefoot person with dark hair, wearing a light tunic and blue sash, runs through a dark, shadowy forest. The character is seen from a high-angle, medium-wide shot, with dense, dark foliage framing the scene from above and the sides, suggesting a hurried movement through a dimly lit environment.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_005",
+    "file": "page001_panel_005.png",
+    "width": 792,
+    "height": 1058,
+    "bbox": [
+      0,
+      0,
+      792,
+      1058
+    ],
+    "ocr_text": "",
+    "visual_description": "A young person with spiky dark hair and a tattered light-colored robe is shown in a medium close-up. They have a distressed expression with wide eyes, an open mouth, and sweat/dirt on their face. Their clothes are torn, and the background features speed lines, suggesting intense motion or a powerful impact.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_003",
+    "file": "page002_panel_003.png",
+    "width": 704,
+    "height": 699,
+    "bbox": [
+      0,
+      0,
+      704,
+      699
+    ],
+    "ocr_text": "흐읍",
+    "visual_description": "A person's lower leg and foot are shown in a medium close-up, stepping through a dark, murky environment. Dark particles and splashes surround the foot, which is near some dark-leaved plants on the left.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_008",
+    "file": "page002_panel_008.png",
+    "width": 734,
+    "height": 636,
+    "bbox": [
+      0,
+      0,
+      734,
+      636
+    ],
+    "ocr_text": "!!!",
+    "visual_description": "A close-up shot focuses on a character's face, showing their wide, shocked eye with a purple iris and a small sweat drop. The character has long dark hair and a pale complexion, with motion lines suggesting intense emotion or a sudden reaction. The background is blurred, emphasizing the character's expression.",
+    "source": "gemini",
+    "ok": true
+  }
+]

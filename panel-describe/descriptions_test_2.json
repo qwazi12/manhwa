@@ -1,0 +1,82 @@
+[
+  {
+    "panel_id": "page002_panel_011",
+    "file": "page002_panel_011.png",
+    "width": 792,
+    "height": 2459,
+    "bbox": [
+      0,
+      0,
+      792,
+      2459
+    ],
+    "ocr_text": "EUAAACK...!! / ACK!!! / ACCK!!! / 쿵",
+    "visual_description": "A young person with dark hair and tattered clothes is depicted falling down a steep, rocky cliff face. The panel shows three distinct moments of their descent, with dust and debris indicating impacts. The setting is a dark, overgrown natural environment, captured in a vertical wide shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_014",
+    "file": "page002_panel_014.png",
+    "width": 792,
+    "height": 749,
+    "bbox": [
+      0,
+      0,
+      792,
+      749
+    ],
+    "ocr_text": "...SHIT!! / I CAN'T MOVE... MY LEG ANYMORE...!",
+    "visual_description": "A person with dark purple hair, wearing torn white and blue clothing, is collapsed on their hands and knees on a dark, dusty ground. Their face is obscured by their hair, and they appear to be in distress, with dirt and debris scattered around them. It is a medium close-up shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_003",
+    "file": "page003_panel_003.png",
+    "width": 792,
+    "height": 877,
+    "bbox": [
+      0,
+      0,
+      792,
+      877
+    ],
+    "ocr_text": "......!",
+    "visual_description": "A close-up shot focuses on a character's intense pink eye and dark purple hair. The character's face shows signs of dirt or injury, with a determined or surprised expression. Smoke or dust surrounds the character, obscuring the background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_004",
+    "file": "page003_panel_004.png",
+    "width": 741,
+    "height": 865,
+    "bbox": [
+      0,
+      0,
+      741,
+      865
+    ],
+    "ocr_text": "DAMN IT ALL...",
+    "visual_description": "A person is shown in a medium close-up, kneeling on the ground with their hands clenched into fists. Their clothing is torn at the wrist, and dirt specks are visible on their skin and clothes. A speech bubble above them reads, 'DAMN IT ALL...'",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_005",
+    "file": "page003_panel_005.png",
+    "width": 792,
+    "height": 918,
+    "bbox": [
+      0,
+      0,
+      792,
+      918
+    ],
+    "ocr_text": "ARE YOU / TELLING ME...",
+    "visual_description": "A young person in light, tattered clothing stands in the middle of a desolate, cracked ground, holding a white object. Two figures in dark, hooded cloaks are partially visible in the foreground on the left and right edges. The shot is a wide view, showing the central figure from a distance.",
+    "source": "gemini",
+    "ok": true
+  }
+]

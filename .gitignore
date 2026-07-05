@@ -1,5 +1,6 @@
 # --- Environment & Secrets (NEVER commit) ---
 .env*
+!.env.example
 *.key
 *.pem
 *.crt

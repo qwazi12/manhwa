@@ -1,0 +1,11 @@
+# Core
+Pillow>=10.0.0
+
+# Vision model (recommended path — one call does OCR + description)
+google-genai>=1.0.0
+
+# Free local fallback (OCR-only, no visual description)
+# Also requires the tesseract binary:
+#   macOS:  brew install tesseract
+#   Ubuntu: apt-get install tesseract-ocr
+pytesseract>=0.3.10
