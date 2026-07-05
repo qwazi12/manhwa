@@ -67,8 +67,8 @@ def render_shot(shot, index: int, build_dir: str) -> str:
     frames = max(int(round(dur * config.FPS)), 1)
     out_name = f"clips/shot_{index:03d}.mp4"
     os.makedirs(os.path.join(build_dir, "clips"), exist_ok=True)
-    img = os.path.relpath(shot["image"], build_dir)
-    mode = _motion_mode(shot["image"])
+    img = os.path.relpath(shot["panel_file"], build_dir)
+    mode = _motion_mode(shot["panel_file"])
 
     if mode == "pan":
         # scale to output width, pan top -> bottom over the shot

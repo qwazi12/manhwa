@@ -30,6 +30,7 @@ import transcribe
 import scraper
 import tts
 import beat_segmenter
+import matcher
 
 
 def load_env():
@@ -76,6 +77,9 @@ def main():
     ap.add_argument("--use-tts", action="store_true",
                     help="synthesize the voice track using Google Cloud TTS Chirp 3 HD")
     ap.add_argument("--limit-beats", type=int, help="limit processing to the first N beats (useful for quick testing)")
+    ap.add_argument("--descriptions", help="Path to descriptions.json metadata")
+    ap.add_argument("--panels-dir", help="Directory containing the panel PNG files (default: ../panel-split/test_output_batch)")
+    ap.add_argument("--embed-model", default="all-MiniLM-L6-v2", help="embedding model for semantic matching")
     args = ap.parse_args()
 
     if not args.images and not args.chapter_url:
@@ -146,9 +150,51 @@ def main():
         else:
             print("[3/5] Using parsed timestamps from script (skipping Whisper/proportional timing).")
 
-    # 4. shots
-    shots = align.assign_shots(beats, images)
-    print(f"[4/5] Assigned {len(images)} images into {len(shots)} shots.")
+    # 4. shots (matching beats to panels)
+    print("[4/5] Matching beats to panel descriptions...")
+    desc_path = args.descriptions
+    if not desc_path:
+        # Check standard locations
+        possible_paths = [
+            os.path.abspath(os.path.join(build_dir, "descriptions.json")),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "panel-describe", "descriptions.json")),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "descriptions.json")),
+        ]
+        for p in possible_paths:
+            if os.path.exists(p):
+                desc_path = p
+                break
+        if not desc_path:
+            sys.exit("Error: descriptions.json not found. Please provide --descriptions.")
+            
+    print(f"      Loading panel metadata from {desc_path}")
+    desc_dir = os.path.dirname(os.path.abspath(desc_path))
+    # Determine where the actual panel PNGs live
+    if args.panels_dir:
+        panels_dir = os.path.abspath(args.panels_dir)
+    else:
+        # Default: sibling panel-split/test_output_batch next to the project root
+        panels_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "panel-split", "test_output_batch")
+        )
+        if not os.path.isdir(panels_dir):
+            panels_dir = desc_dir  # last-resort: same folder as descriptions.json
+    with open(desc_path, encoding="utf-8") as f:
+        panels = json.load(f)
+    # Resolve relative file paths: try panels_dir first, fall back to desc_dir
+    for p in panels:
+        if p.get("file") and not os.path.isabs(p["file"]):
+            candidate = os.path.join(panels_dir, p["file"])
+            p["file"] = candidate if os.path.exists(candidate) else os.path.join(desc_dir, p["file"])
+    # clean panels
+    panels = [p for p in panels if p.get("ok", True) and p.get("width") and p.get("height")]
+    if not panels:
+        sys.exit("Error: No usable panels found in descriptions.json")
+
+    # Match beats to panels
+    assignments, method = matcher.match_beats_to_panels(beats, panels, args.embed_model)
+    shots = matcher.build_timeline(beats, panels, assignments)
+    print(f"      Matched {len(beats)} beats to {len(set(s['panel_id'] for s in shots))} distinct panels using {method}.")
 
     # data contracts
     def dump(name, obj):
@@ -156,7 +202,7 @@ def main():
             json.dump(obj, f, indent=2, ensure_ascii=False)
 
     dump("beats.json", beats)
-    dump("shots.json", shots)
+    dump("beatsheet.json", shots)
     dump("timeline.json", {
         "video": {"width": 1920, "height": 1080, "fps": 30},
         "voice": voice,
@@ -168,7 +214,7 @@ def main():
     print("[5/5] Rendering (this is the slow part)...")
     out = render.render_video(shots, beats, voice, build_dir)
     print(f"\nDone: {out}")
-    print("Artifacts: beats.json, shots.json, timeline.json in the same folder.")
+    print("Artifacts: beats.json, beatsheet.json, timeline.json in the same folder.")
 
 
 if __name__ == "__main__":
