@@ -477,8 +477,13 @@
 #### Known Issues — update
 | K-006 | ✅ STALL RESOLVED at chapter scale | Junk score-masking (every entry point) + hard anti-stall cap: 127 beats, max hold 5, 70 distinct, 0 junk selected, checkpoints unregressed | Exact 4/4 still not pursued (deferred, task #5 open) | — |
 
+#### Full-chapter render — DONE and validated
+- Built composition via `HF_BEATSHEET/HF_BEATS/HF_AUDIO_DIR` env override → `npx hyperframes render`: **17,506 frames, 9m 43.5s, 254 MB, ~15 min render (1 worker)**. Output at `hyperframes/my-video/renders/my-video_2026-07-05_14-53-21.mp4` (the older `recap_hyperframes.mp4` is the stale 63s slice — ignore it).
+- **Spot-checked the previously-stalled battle window** (368/383/396/405s, formerly all one panel for 46s): four DIFFERENT panels now — stall gone, sequence advances beat-by-beat, card+shadow+blurred-blowup compositing intact throughout. Chapter-scale validation PASSED.
+- Minor cosmetic note (not a regression): a few tall panels that carry a top+bottom speech bubble separated from the art by a white gap still show internal white bands — the trim keeps them because bubble ink counts as content (correct by design). Acceptable.
+
 #### Stage status
-- **Stage 3 (harden visual engine): substantially advanced** — content-trim (S6) + junk-mask indexing fix + hard anti-stall cap now validated across a full 9.7-min chapter, not one lucky slice. Full-chapter render in progress at time of writing.
+- **Stage 3 (harden visual engine): substantially advanced** — content-trim (S6) + junk-mask indexing fix + hard anti-stall cap validated across a full 9.7-min chapter, not one lucky slice.
 - Dormant: warm-paper tint, push/inset transitions (flags OFF), per-beat 4/4 reweighting (not built).
 - Stages 4–9 untouched.
 
