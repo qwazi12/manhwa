@@ -489,3 +489,39 @@
 
 ---
 
+### Session 8 — 2026-07-05 (later) — Desync RCA → greedy matcher replaced with global DP aligner
+
+**User input:** After watching the full-chapter render, reported the narration and images go out of sync after **1:09**, and flagged a "waste/irrelevant" image at **2:46** (a chevron/bracket). Asked: are images on a fixed timer or narration-driven? Is there a tool/way to improve this (maybe the 4/4, maybe render-per-panel for granular review)? Do a deep root-cause analysis comparing to the reference sample. Then endorsed a specific plan: (1) patch junk leakage, (2) replace greedy matcher with a global monotonic aligner (DTW/Viterbi/DP), (3) improve semantics/granularity (CLIP), and asked my opinion + about a per-clip render/review architecture.
+
+#### Root-cause analysis (proven, not theorized)
+- **Answered the timer question:** images are **narration-driven**, not a fixed timer — each panel's on-screen time = its matched beat's real TTS clip duration (`data-duration`). Confirmed matches the reference behavior.
+- **Proved there is NO timing/sync drift:** extracted the exact rendered frames at 1:09 and 2:46 and **pixel-matched** them to the panels the beatsheet assigns there (1:09 = `page005_panel_006`, exact match). The render is frame-accurate to the beatsheet and audio rides the same beat clock. So the "desync" the user sees is the **matcher choosing the wrong/junk panel**, not clocks drifting apart. This reframed the whole fix from renderer to matcher.
+- **Three failure modes identified:** (1) **junk leaks** — the 2:46 chevron is `page010_panel_005` ("stylized curved bracket"), a real file the regex blocklist never had a pattern for; plus 7 more junk panels in the video (beats 114-120 marched through a run of page024 fragments) because the greedy matcher's forced-advance + end-of-chapter scarcity guard forced `cur+1` **even onto junk**, defeating the score-mask. (2) **semantic phase drift** — the greedy forward-only matcher makes irreversible local choices, so small errors **compound** over the chapter (fine early, worse later — exactly the 1:09 symptom). (3) **granularity/score coarseness** — 127 beats vs ~70 panels, and one "enemies talking" panel matches all "enemies talking" beats equally, so a representative panel gets held.
+- **Why the reference doesn't have this:** it's a human 1:1 hand-edit; our pipeline generates narration independently and matches after the fact.
+
+#### My assessment of the user's plan (given in chat)
+- Agreed on junk-patch and the global aligner as the real fix, and the ordering.
+- **Pushed back on DTAIDistance:** it's for warping two numeric time-series and wants to compute distances internally; our problem is a precomputed NxM semantic cost matrix with custom constraints — a ~40-line hand-written prefix-max DP fits better with no dependency. Same theory (Viterbi/DTW), cleaner fit.
+- **Pushed back on CLIP as a priority:** CLIP matches short literal captions to images and caps at 77 tokens; our narration is abstract/narrative ("didn't understand why they wanted to kill him") which CLIP handles WORSE than the current Gemini vision-description + text-embedding path. CLIP could be an ensemble signal later, not the fix.
+- **Endorsed the per-clip render/review idea** as the right Stage-5 architecture (render one clip per shot, concat; fix+re-render a single clip in seconds instead of the whole 15-min video). Slotted as the next workstream AFTER the matcher is solid. Not built yet.
+- **"The 4/4" is subsumed** by the DP aligner (the checkpoint misses were greedy artifacts).
+- Noted doing junk+DP together is more efficient (patching the greedy bypass is throwaway since the DP deletes that path).
+
+#### What changed in `matcher.py` (committed, pushed)
+- **Replaced the greedy forward-only matcher with a GLOBAL monotonic DP aligner** (`match_beats_to_panels` rewritten). Optimizes the whole beat→panel path at once so local errors can't compound. Prefix-max DP with **run-length state** enforcing an exact hard `MAX_HOLD` cap (=5); `HOLD_PENALTY` (=0.06) gently favors progression/variety. Junk panels get cost −inf → never on the optimal path (no forced-advance/scarcity hacks; those are deleted). O(beats·panels·MAX_HOLD). Method string now `gemini-embeddings+dp`.
+- **Junk detection flipped blocklist → POSITIVE-KEEP:** `is_junk_panel` now drops a panel UNLESS its description names a real subject or scene, plus an `_ABSTRACT_OVERRIDE` for self-declared abstract/decorative panels and bubble/text-fragment leads (beats keep-words that appear inside negations like "rather than a depiction of a character", and typographic "characters" = letters). Added energy/effect scene terms (`light|glow|burst|explosion|lightning|...`) so light-burst/explosion story beats are NOT false-dropped. Result: 39/146 dropped, all genuine junk; effect panels survive; no false drops.
+- **Removed dead tunables** `LOOKAHEAD`/`ADVANCE_PENALTY` (greedy-only); `MAX_HOLD` now means the DP hard cap.
+
+#### Full-chapter result (DP aligner)
+- 127 beats → **97/146 distinct panels** (was 59-72 greedy), **max hold 5** (guaranteed by cap; was 10+ with a 46s stall), **0 backward jumps**, **0 junk panels in output** (was 7 + the 2:46 chevron). Checkpoints still correct (fall→page002_panel_011, branch→page004_panel_003). The flagged 15-30 confrontation stretch now moves through 9 distinct panels instead of one 52s hold.
+- Re-render kicked off (`build_test/beatsheet_full.json` → HyperFrames, ~15 min). Pending: verify the re-rendered video visually + user judgment.
+
+#### Known Issues — update
+| K-006 | ✅ RESOLVED (structural) | Greedy→global DP aligner + positive-keep junk filter: 0 junk, max hold 5, no compounding drift, 97 distinct panels | Residual: beat-level exactness limited by score coarseness (failure mode 3) | Deferred to the agreed "third" step: mine more sub-shots + stronger score. Per-clip render/review architecture endorsed as next workstream. |
+
+#### Next workstreams (agreed direction, not yet built)
+1. **Per-clip render + review architecture** (Stage 5 enabler): render one clip per shot, concat; enables granular swap/re-render of a single bad shot without re-rendering the whole video. Makes the 1.5x pass and future review UI trivial.
+2. **Failure mode 3** (finer beat-level matching): more sub-shots so there's ~1 panel per beat, and/or a stronger text↔image score (possibly a CLIP ensemble signal, but Gemini-description path stays primary for abstract narration).
+
+---
+
