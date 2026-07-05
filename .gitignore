@@ -43,3 +43,10 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# HyperFrames render project — node_modules, renders, copied assets (regenerable)
+manhwa-recap-v1/hyperframes/my-video/node_modules/
+manhwa-recap-v1/hyperframes/my-video/renders/
+manhwa-recap-v1/hyperframes/my-video/recap_hyperframes.mp4
+manhwa-recap-v1/hyperframes/my-video/assets/
+manhwa-recap-v1/hyperframes/my-video/.hyperframes/

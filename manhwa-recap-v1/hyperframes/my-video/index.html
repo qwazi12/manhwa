@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #e8e6e3; }
+      #root { position: relative; width: 1920px; height: 1080px; background: #e8e6e3; }
+      /* blurred, desaturated blow-up of the artwork itself */
+      .bg {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        object-fit: cover; filter: blur(42px) saturate(0.5) brightness(1.08);
+        transform: scale(1.18); transform-origin: center;
+      }
+      /* soft paper vignette over the background for the reference's flat feel */
+      #veil { position: absolute; inset: 0; background:
+        radial-gradient(ellipse at center, rgba(232,230,227,0.25) 0%, rgba(232,230,227,0.72) 100%); }
+      /* floating aspect-preserved card with soft drop shadow */
+      .card {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: 1920px; height: 1080px; display: flex; align-items: center; justify-content: center;
+      }
+      .cardimg {
+        max-width: 46%; max-height: 90%; width: auto; height: auto;
+        object-fit: contain; border-radius: 6px; background: #fff;
+        box-shadow: 0 30px 70px rgba(0,0,0,0.38), 0 8px 20px rgba(0,0,0,0.22);
+        transform-origin: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0"
+         data-duration="63.148" data-width="1920" data-height="1080">
+    <img class="clip bg" data-start="0.0" data-duration="3.038" data-track-index="0" id="bg0" src="assets/panels/page001_panel_003.png" alt="" />
+    <img class="clip bg" data-start="3.038" data-duration="5.918" data-track-index="0" id="bg1" src="assets/panels/page001_panel_004.png" alt="" />
+    <img class="clip bg" data-start="8.956" data-duration="3.878" data-track-index="0" id="bg2" src="assets/panels/page002_panel_003.png" alt="" />
+    <img class="clip bg" data-start="12.834" data-duration="2.894" data-track-index="0" id="bg3" src="assets/panels/page002_panel_003.png" alt="" />
+    <img class="clip bg" data-start="15.728" data-duration="3.614" data-track-index="0" id="bg4" src="assets/panels/page002_panel_011.png" alt="" />
+    <img class="clip bg" data-start="19.342" data-duration="4.094" data-track-index="0" id="bg5" src="assets/panels/page002_panel_014.png" alt="" />
+    <img class="clip bg" data-start="23.436" data-duration="5.054" data-track-index="0" id="bg6" src="assets/panels/page002_panel_014.png" alt="" />
+    <img class="clip bg" data-start="28.49" data-duration="3.878" data-track-index="0" id="bg7" src="assets/panels/page003_panel_004.png" alt="" />
+    <img class="clip bg" data-start="32.368" data-duration="2.438" data-track-index="0" id="bg8" src="assets/panels/page003_panel_005.png" alt="" />
+    <img class="clip bg" data-start="34.806" data-duration="7.094" data-track-index="0" id="bg9" src="assets/panels/page003_panel_006.png" alt="" />
+    <img class="clip bg" data-start="41.9" data-duration="3.374" data-track-index="0" id="bg10" src="assets/panels/page003_panel_012.png" alt="" />
+    <img class="clip bg" data-start="45.274" data-duration="7.046" data-track-index="0" id="bg11" src="assets/panels/page004_panel_003.png" alt="" />
+    <img class="clip bg" data-start="52.32" data-duration="4.286" data-track-index="0" id="bg12" src="assets/panels/page004_panel_003.png" alt="" />
+    <img class="clip bg" data-start="56.606" data-duration="4.838" data-track-index="0" id="bg13" src="assets/panels/page004_panel_006.png" alt="" />
+    <img class="clip bg" data-start="61.444" data-duration="1.704" data-track-index="0" id="bg14" src="assets/panels/page004_panel_006.png" alt="" />
+    <div id="veil"></div>
+    <div class="clip card" data-start="0.0" data-duration="3.038" data-track-index="1" id="card0">
+      <img class="cardimg" src="assets/panels/page001_panel_003.png" alt="" />
+    </div>
+    <div class="clip card" data-start="3.038" data-duration="5.918" data-track-index="1" id="card1">
+      <img class="cardimg" src="assets/panels/page001_panel_004.png" alt="" />
+    </div>
+    <div class="clip card" data-start="8.956" data-duration="3.878" data-track-index="1" id="card2">
+      <img class="cardimg" src="assets/panels/page002_panel_003.png" alt="" />
+    </div>
+    <div class="clip card" data-start="12.834" data-duration="2.894" data-track-index="1" id="card3">
+      <img class="cardimg" src="assets/panels/page002_panel_003.png" alt="" />
+    </div>
+    <div class="clip card" data-start="15.728" data-duration="3.614" data-track-index="1" id="card4">
+      <img class="cardimg" src="assets/panels/page002_panel_011.png" alt="" />
+    </div>
+    <div class="clip card" data-start="19.342" data-duration="4.094" data-track-index="1" id="card5">
+      <img class="cardimg" src="assets/panels/page002_panel_014.png" alt="" />
+    </div>
+    <div class="clip card" data-start="23.436" data-duration="5.054" data-track-index="1" id="card6">
+      <img class="cardimg" src="assets/panels/page002_panel_014.png" alt="" />
+    </div>
+    <div class="clip card" data-start="28.49" data-duration="3.878" data-track-index="1" id="card7">
+      <img class="cardimg" src="assets/panels/page003_panel_004.png" alt="" />
+    </div>
+    <div class="clip card" data-start="32.368" data-duration="2.438" data-track-index="1" id="card8">
+      <img class="cardimg" src="assets/panels/page003_panel_005.png" alt="" />
+    </div>
+    <div class="clip card" data-start="34.806" data-duration="7.094" data-track-index="1" id="card9">
+      <img class="cardimg" src="assets/panels/page003_panel_006.png" alt="" />
+    </div>
+    <div class="clip card" data-start="41.9" data-duration="3.374" data-track-index="1" id="card10">
+      <img class="cardimg" src="assets/panels/page003_panel_012.png" alt="" />
+    </div>
+    <div class="clip card" data-start="45.274" data-duration="7.046" data-track-index="1" id="card11">
+      <img class="cardimg" src="assets/panels/page004_panel_003.png" alt="" />
+    </div>
+    <div class="clip card" data-start="52.32" data-duration="4.286" data-track-index="1" id="card12">
+      <img class="cardimg" src="assets/panels/page004_panel_003.png" alt="" />
+    </div>
+    <div class="clip card" data-start="56.606" data-duration="4.838" data-track-index="1" id="card13">
+      <img class="cardimg" src="assets/panels/page004_panel_006.png" alt="" />
+    </div>
+    <div class="clip card" data-start="61.444" data-duration="1.704" data-track-index="1" id="card14">
+      <img class="cardimg" src="assets/panels/page004_panel_006.png" alt="" />
+    </div>
+    <audio class="clip" id="a0" data-start="0.0" data-duration="2.688" data-track-index="9" data-volume="1" src="assets/audio/beat_000.mp3"></audio>
+    <audio class="clip" id="a1" data-start="3.038" data-duration="5.568" data-track-index="9" data-volume="1" src="assets/audio/beat_001.mp3"></audio>
+    <audio class="clip" id="a2" data-start="8.956" data-duration="3.528" data-track-index="9" data-volume="1" src="assets/audio/beat_002.mp3"></audio>
+    <audio class="clip" id="a3" data-start="12.834" data-duration="2.544" data-track-index="9" data-volume="1" src="assets/audio/beat_003.mp3"></audio>
+    <audio class="clip" id="a4" data-start="15.728" data-duration="3.264" data-track-index="9" data-volume="1" src="assets/audio/beat_004.mp3"></audio>
+    <audio class="clip" id="a5" data-start="19.342" data-duration="3.744" data-track-index="9" data-volume="1" src="assets/audio/beat_005.mp3"></audio>
+    <audio class="clip" id="a6" data-start="23.436" data-duration="4.704" data-track-index="9" data-volume="1" src="assets/audio/beat_006.mp3"></audio>
+    <audio class="clip" id="a7" data-start="28.49" data-duration="3.528" data-track-index="9" data-volume="1" src="assets/audio/beat_007.mp3"></audio>
+    <audio class="clip" id="a8" data-start="32.368" data-duration="2.088" data-track-index="9" data-volume="1" src="assets/audio/beat_008.mp3"></audio>
+    <audio class="clip" id="a9" data-start="34.806" data-duration="6.744" data-track-index="9" data-volume="1" src="assets/audio/beat_009.mp3"></audio>
+    <audio class="clip" id="a10" data-start="41.9" data-duration="3.024" data-track-index="9" data-volume="1" src="assets/audio/beat_010.mp3"></audio>
+    <audio class="clip" id="a11" data-start="45.274" data-duration="6.696" data-track-index="9" data-volume="1" src="assets/audio/beat_011.mp3"></audio>
+    <audio class="clip" id="a12" data-start="52.32" data-duration="3.936" data-track-index="9" data-volume="1" src="assets/audio/beat_012.mp3"></audio>
+    <audio class="clip" id="a13" data-start="56.606" data-duration="4.488" data-track-index="9" data-volume="1" src="assets/audio/beat_013.mp3"></audio>
+    <audio class="clip" id="a14" data-start="61.444" data-duration="1.704" data-track-index="9" data-volume="1" src="assets/audio/beat_014.mp3"></audio>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+  tl.fromTo("#card0 .cardimg", { scale: 1.0 }, { scale: 1.035, duration: 3.038, ease: "none" }, 0.0);
+  tl.fromTo("#bg0", { scale: 1.15 }, { scale: 1.22, duration: 3.038, ease: "none" }, 0.0);
+  tl.fromTo("#card1 .cardimg", { scale: 1.035 }, { scale: 1.0, duration: 5.918, ease: "none" }, 3.038);
+  tl.fromTo("#bg1", { scale: 1.15 }, { scale: 1.22, duration: 5.918, ease: "none" }, 3.038);
+  tl.from("#card1", { opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }, 3.038);
+  tl.fromTo("#card2 .cardimg", { scale: 1.0 }, { scale: 1.035, duration: 3.878, ease: "none" }, 8.956);
+  tl.fromTo("#bg2", { scale: 1.15 }, { scale: 1.22, duration: 3.878, ease: "none" }, 8.956);
+  tl.from("#card2", { opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }, 8.956);
+  tl.fromTo("#card3 .cardimg", { scale: 1.035 }, { scale: 1.0, duration: 2.894, ease: "none" }, 12.834);
+  tl.fromTo("#bg3", { scale: 1.15 }, { scale: 1.22, duration: 2.894, ease: "none" }, 12.834);
+  tl.fromTo("#card4 .cardimg", { scale: 1.0 }, { scale: 1.035, duration: 3.614, ease: "none" }, 15.728);
+  tl.fromTo("#bg4", { scale: 1.15 }, { scale: 1.22, duration: 3.614, ease: "none" }, 15.728);
+  tl.from("#card4", { opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }, 15.728);
+  tl.fromTo("#card5 .cardimg", { scale: 1.035 }, { scale: 1.0, duration: 4.094, ease: "none" }, 19.342);
+  tl.fromTo("#bg5", { scale: 1.15 }, { scale: 1.22, duration: 4.094, ease: "none" }, 19.342);
+  tl.from("#card5", { opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }, 19.342);
+  tl.fromTo("#card6 .cardimg", { scale: 1.0 }, { scale: 1.035, duration: 5.054, ease: "none" }, 23.436);
+  tl.fromTo("#bg6", { scale: 1.15 }, { scale: 1.22, duration: 5.054, ease: "none" }, 23.436);
+  tl.fromTo("#card7 .cardimg", { scale: 1.035 }, { scale: 1.0, duration: 3.878, ease: "none" }, 28.49);
+  tl.fromTo("#bg7", { scale: 1.15 }, { scale: 1.22, duration: 3.878, ease: "none" }, 28.49);
+  tl.from("#card7", { opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }, 28.49);
+  tl.fromTo("#card8 .cardimg", { scale: 1.0 }, { scale: 1.035, duration: 2.438, ease: "none" }, 32.368);
+  tl.fromTo("#bg8", { scale: 1.15 }, { scale: 1.22, duration: 2.438, ease: "none" }, 32.368);
+  tl.from("#card8", { opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }, 32.368);
+  tl.fromTo("#card9 .cardimg", { scale: 1.035 }, { scale: 1.0, duration: 7.094, ease: "none" }, 34.806);
+  tl.fromTo("#bg9", { scale: 1.15 }, { scale: 1.22, duration: 7.094, ease: "none" }, 34.806);
+  tl.from("#card9", { opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }, 34.806);
+  tl.fromTo("#card10 .cardimg", { scale: 1.0 }, { scale: 1.035, duration: 3.374, ease: "none" }, 41.9);
+  tl.fromTo("#bg10", { scale: 1.15 }, { scale: 1.22, duration: 3.374, ease: "none" }, 41.9);
+  tl.from("#card10", { opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }, 41.9);
+  tl.fromTo("#card11 .cardimg", { scale: 1.035 }, { scale: 1.0, duration: 7.046, ease: "none" }, 45.274);
+  tl.fromTo("#bg11", { scale: 1.15 }, { scale: 1.22, duration: 7.046, ease: "none" }, 45.274);
+  tl.from("#card11", { opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }, 45.274);
+  tl.fromTo("#card12 .cardimg", { scale: 1.0 }, { scale: 1.035, duration: 4.286, ease: "none" }, 52.32);
+  tl.fromTo("#bg12", { scale: 1.15 }, { scale: 1.22, duration: 4.286, ease: "none" }, 52.32);
+  tl.fromTo("#card13 .cardimg", { scale: 1.035 }, { scale: 1.0, duration: 4.838, ease: "none" }, 56.606);
+  tl.fromTo("#bg13", { scale: 1.15 }, { scale: 1.22, duration: 4.838, ease: "none" }, 56.606);
+  tl.from("#card13", { opacity: 0, scale: 0.94, duration: 0.45, ease: "power2.out" }, 56.606);
+  tl.fromTo("#card14 .cardimg", { scale: 1.0 }, { scale: 1.035, duration: 1.704, ease: "none" }, 61.444);
+  tl.fromTo("#bg14", { scale: 1.15 }, { scale: 1.22, duration: 1.704, ease: "none" }, 61.444);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
