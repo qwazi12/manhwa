@@ -44,6 +44,10 @@ def parse_timed_script(script_text: str):
         start_str = matches[i].group(1)
         start_sec = _parse_timestamp_to_seconds(start_str)
 
+        # Enforce monotonicity to handle script timestamp typos gracefully
+        if beats and start_sec < beats[-1]["start"]:
+            start_sec = beats[-1]["start"] + 0.1
+
         # Text is between this timestamp and the next (or the end of script)
         start_idx = matches[i].end()
         end_idx = matches[i+1].start() if i < len(matches) - 1 else len(script_text)
