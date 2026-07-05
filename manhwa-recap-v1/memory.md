@@ -377,3 +377,32 @@
 - **Agreed priority order to close the gap:** (1) matcher fixes → (2) render compositing upgrade → (3) transition presets → (4) subtitle flag → (5) pacing/hold rules.
 - No code changed this session — analysis only. Analysis artifacts (frames, transcript) in session scratchpad, not repo.
 
+---
+
+### Session 5 — 2026-07-05 (later) — K-006 Matcher Fix (SFX filter + penalty) — stall RESOLVED, 2/4 exact + 2 phase-shifted
+
+**User input (verbatim intent):** Do the matcher-accuracy fix (K-006): filter text-only SFX panels + lower ADVANCE_PENALTY. User noted the reference video *validates* the held mechanic (its best moment is a 7.5s hold on one eye close-up across two sentences) — "holding isn't the bug; holding on the wrong panel is." Then proceed to render compositing via HyperFrames. Standing rule still in force: if the four checkpoint beats don't each land on the correct panel, report which ones before rendering.
+
+#### What changed in `matcher.py`
+- **Added junk/SFX-panel filter** (`is_junk_panel` + `_JUNK_SUBJECT/_JUNK_SCENE/_JUNK_FRAGMENT/_JUNK_SFXTEXT` regexes). Rule: drop a panel iff its `visual_description` names **no human subject AND no real scene**, and reads as a bubble/line fragment or bare rendered text (sound-effect word, logo word, empty/partial speech bubble, stray gutter line). Key subtlety encoded: "plain white background" is a *blank*, not a scene, so generic "background" is deliberately NOT a scene token — this is what let the `page003_panel_009` "FUCK!" panel slip through the first (conservative) pass. Filter now drops **35 of 146** panels (→111 kept). Verified all four checkpoint targets + the real collapse panel `page002_panel_014` + the fall panel `page002_panel_011` (pure "EUAACK" SFX text but rich tumbling visual) survive.
+- **Lowered `ADVANCE_PENALTY` 0.015 → 0.006.** Swept {0.015,0.008,0.006,0.004,0.002} × MAX_HELD {3,2}: no single value lands all four (beat 5 wants low penalty to reach DAMN IT ALL 2 steps ahead; beat 11 wants higher penalty or it overshoots past the branch panel to a page-6 panel — they pull opposite directions). Chose 0.006 to keep the two clean action anchors (beats 4 & 11) correct. `LOOKAHEAD` kept 8, `MAX_HELD` kept 3.
+
+#### Root cause found (raw scores, measured via `build_scorer`)
+- `page003_panel_009` OCR=`FUCK!`, description self-labeled "serving as a strong sound effect or reaction" — a **semantic magnet**: a bare expletive embeds as generic anger/distress and out-scored correct scene panels across many beats (beat 5: 0.7455 > correct 0.7183; beat 8: 0.6865 > correct 0.6188). At panel-index 11 it swallowed beats 8–14; forward-only then blocked the correct earlier panels. Filtering it was the single highest-value fix (corrected beat 11, unblocked the sequence).
+- Tested **description-only scoring** (drop OCR from panel text) to fix beat 8's OCR-dilution — it made things WORSE: beat 11 broke because `page004_panel_003`'s enemy dialogue OCR ("WELL DONE, PRINCE CHEON") was *helping* it match the enemy beat. Conclusion: OCR helps some beats and hurts others; no global field-weighting or penalty lands all four. This is a real ceiling of the bag-of-embeddings scorer.
+
+#### Result — stall RESOLVED; all four target panels present in correct order
+- Output `build_test/beatsheet_gemini.json`. 15 beats → **11 distinct panels** (was 4 lexical, 7 mid-session), 10 advanced / 5 held, **max consecutive hold = 2** (was 7). The stall the user cared about is gone — nothing parks on the wrong panel.
+- Checkpoint verdict: **2/4 land on the exact target; the other 2 are ±1-beat phase shifts onto a semantically valid neighbor, and the wanted panels DO appear:**
+  - Beat 4 fall → `page002_panel_011` ✅
+  - Beat 5 "raised himself…cursed" → `page002_panel_014` (collapse "SHIT!! I CAN'T MOVE MY LEG"); wanted `page003_panel_004` (DAMN IT ALL) — which instead lands on **beat 7** ("leaned on two hands and **cursed** again"). Both cursing beats; near-miss.
+  - Beat 8 "stood up" → `page003_panel_005`; wanted `page003_panel_006` (standing, faces red-cloaked figures) — which instead lands on **beat 9** ("he **saw many figures** in front of him"), arguably *more* correct there.
+  - Beat 11 branch → `page004_panel_003` ✅
+- **Per standing rule: STOPPED before rendering** to report the two phase-shifted beats and get the user's call on whether ±1-beat on a valid neighbor is acceptable, or whether to invest in per-field/per-beat scoring (the next lever) before moving to HyperFrames compositing.
+
+#### Known Issues — update
+| K-006 | 🔄 STALL RESOLVED, alignment ~good | Gemini embeddings + SFX-panel filter + ADVANCE_PENALTY 0.006: stall gone (max hold 2, 11 distinct panels), all 4 target panels present in correct order | 2/4 checkpoints land exactly; 2 are ±1-beat onto valid neighbors | Exact 4/4 needs smarter scoring (per-beat OCR-vs-visual weighting): OCR helps dialogue/enemy beats, hurts pure-action beats. Deferred pending user call — current alignment may be good enough to render |
+
+#### Decision pending (render path)
+- Prior turn assessment (delivered in chat): renderer choice is HyperFrames (HTML→MP4 via headless Chromium + FFmpeg, Apache-2.0, `github.com/heygen-com/hyperframes`) over an FFmpeg filtergraph — the reference's card+drop-shadow+blur+eased-zoom look is CSS-native (FFmpeg-hostile), and HyperFrames converges with the planned Stage-5 web review UI. Cost: adds Node 22+/Puppeteer, slower frame-seek renders. Realistic automated ceiling vs the hand-tuned CapCut reference ≈ 90–95%; matcher accuracy is ~50% of the "feel," compositing ~30%. Not started — gated on matcher sign-off.
+

@@ -47,7 +47,7 @@ LOOKAHEAD = 8
 # Calibrated for Gemini-embedding cosine scores (~0.6-0.9 range). With lexical
 # fallback scores (~0.0-0.1) this value is far too large and the matcher will
 # stall — the embedding scorer is the intended path.
-ADVANCE_PENALTY = 0.015
+ADVANCE_PENALTY = 0.006
 # Weight of OCR/dialogue match vs. visual-description match (lexical fallback).
 # OCR is the highest-signal field (exact character names and dialogue are
 # almost perfectly discriminative), so it gets a majority weight.
@@ -66,6 +66,49 @@ GEMINI_EMBED_MODEL = "gemini-embedding-2"
 _EMBED_TASK = "SEMANTIC_SIMILARITY"
 _EMBED_CACHE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "embeddings_cache.json")
+
+# ------------------------------------------------ junk / SFX-panel filter
+# The panel splitter emits content-free fragments: an empty or partial speech
+# bubble, a stray gutter line, a blank panel with one black stroke, a floating
+# dialogue bubble cut off from its scene, or a bare text/SFX panel (a big
+# "FUCK!" or "SERIAL NUMBER" logo). These depict no subject and no scene, so no
+# narration beat should ever land on them — yet as candidates they act as
+# semantic "parking magnets" a forward-only matcher stalls on. A bare expletive
+# in particular embeds as generic anger/distress and out-scores correct scene
+# panels across many beats (this is what corrupted beats 5-14 before filtering).
+#
+# Rule: a panel is junk if its description depicts NO human subject AND NO real
+# scene, and reads as a bubble/line fragment or bare rendered text. Note "plain
+# white background" is a blank, not a scene, so generic "background" is NOT a
+# scene token. A panel like the fall shot (pure "EUAAACK" SFX text but a rich
+# tumbling-down-a-cliff visual) survives because it names a subject and a scene.
+_JUNK_SUBJECT = re.compile(
+    r"\b(person|figure|man|boy|woman|women|men|people|child|character|hooded|"
+    r"cloaked|warrior|someone|soldier|guard|hand|hands|face|eye|eyes|head|"
+    r"body|arm|leg|legs|crowd|rider|horse|monk|girl|king|elder|blade|sword|"
+    r"kneeling|standing|lying|collapsing|collapsed)\b", re.I)
+_JUNK_SCENE = re.compile(
+    r"\b(moon|moonlit|sky|forest|ground|room|wall|tree|trees|mountain|night|"
+    r"cliff|dirt|field|building|street|palace|water|fire|snow|rain|smoke|"
+    r"debris|environment|rocky|desolate|indoor|outdoor|landscape)\b", re.I)
+_JUNK_FRAGMENT = re.compile(
+    r"\b(speech bubble|black line|curved line|thin black|thick black|"
+    r"outline of|bottom (edge|half|outline|portion)|top (edge|half|portion)|"
+    r"jagged[- ]edge|empty (speech )?bubble|banner|blank (white )?panel|"
+    r"the word|single word)\b", re.I)
+_JUNK_SFXTEXT = re.compile(
+    r"\b(sound effect|onomatopoeia|exclamatory word|italicized letters|"
+    r"bold[, ].{0,20}letters|capital letters|stylized text)\b", re.I)
+
+
+def is_junk_panel(panel):
+    """True if the panel depicts no subject and no scene — a content-free
+    bubble/line fragment or a bare text/SFX panel — safe to drop from matching."""
+    desc = panel.get("visual_description", "") or ""
+    if _JUNK_SUBJECT.search(desc) or _JUNK_SCENE.search(desc):
+        return False
+    return bool(_JUNK_FRAGMENT.search(desc) or _JUNK_SFXTEXT.search(desc))
+
 
 _STOP = set("a an the of to in on at and or but with was were is are be been "
             "he she it his her him they them their you your i me my we our as "
@@ -330,6 +373,14 @@ def run(beats_path, descriptions_path, out_path, embed_model=None):
     # only use panels that described successfully and have real size
     panels = [p for p in panels
               if p.get("ok", True) and p.get("width") and p.get("height")]
+    # drop content-free fragments (empty bubbles, stray lines) so beats can't
+    # stall on them — see is_junk_panel for the (conservative) rule
+    n_before = len(panels)
+    junk_ids = [p.get("panel_id") for p in panels if is_junk_panel(p)]
+    panels = [p for p in panels if not is_junk_panel(p)]
+    if junk_ids:
+        print(f"Filtered {len(junk_ids)} junk/SFX-only panels "
+              f"({n_before}->{len(panels)}): {', '.join(junk_ids)}")
     if not panels:
         raise SystemExit("No usable panels in descriptions.json")
     if not beats:
