@@ -231,7 +231,36 @@
 
 ---
 
-*Last updated: 2026-07-04 20:46 ET*
+*Last updated: 2026-07-05 10:45 ET*
+
+---
+
+#### TTS Integration & Real Durations Pipeline Upgrade
+- **When:** 2026-07-05 01:15 ET
+- **Action:** 
+  1. Added `beat_segmenter.py` to chunk raw script into full sentence beats.
+  2. Integrated Gemini Chirp 3 HD TTS (Charon voice) in `tts.py` to synthesize individual beat clips.
+  3. Built real-audio timing loop in `main.py` using `ffprobe` to determine duration per beat (timeline is built from actual audio lengths, not guessed).
+  4. Disabled gRPC fork support in macOS by setting `GRPC_ENABLE_FORK_SUPPORT=false` to prevent deadlocks when subprocesses call FFmpeg.
+
+---
+
+#### Semantic Matching & Image Cleanup
+- **When:** 2026-07-05 03:55 ET
+- **Action:**
+  1. Added `matcher.py` and `run_matcher.py` to replace sequential assignment with semantic cosine matching of narration beat vs visual description + OCR text.
+  2. Unified project image structure: Deleted duplicate folders `test_output_batch/` (~300 raw panels with blanks), `test_output/` (early scratch crops), and `input/images/` (obsolete numbered sequence).
+  3. Made `panel-split/review_crops/` (146 clean, blank-free panels) the single source of truth for the pipeline, with `main.py` resolving relative panel filenames dynamically.
+
+---
+
+#### Prompt Hardening & Anti-Stall Guard
+- **When:** 2026-07-05 14:10 ET
+- **Action:**
+  1. Hardened Gemini Vision prompt in `describe.py` to produce discriminative description structures (forcing action-first verbs, explicit OCR bubble quote capture, banning generic filler phrases).
+  2. Handled local `google-genai` import/venv corruption in `panel-describe/venv` by rebuilding it and fixing the update merger in `run.py` to be fail-safe (preserves good records).
+  3. Added anti-stall guard to `matcher.py` (`MAX_HELD=3` tunable) which scales down advance penalties when a panel holds too long, encouraging chronological progression.
+
 
 
 
