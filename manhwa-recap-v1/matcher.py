@@ -49,13 +49,16 @@ from collections import Counter
 # 0.02 hold penalty gently favors progression while still allowing a genuine
 # 2-3 beat dramatic hold when one panel clearly out-matches the alternatives.
 HOLD_PENALTY = 0.06
-# Hard safety rail: no panel may be held for more than MAX_HOLD consecutive
-# beats, even if it scores best — guarantees no single image can dominate a long
-# stretch (the old greedy matcher parked one panel for 10 beats / 46s). Enforced
-# exactly inside the DP via run-length state, so the result is still the optimal
-# alignment SUBJECT TO this cap. Roughly matches the reference's longest hold
-# (a ~2-sentence dwell), with a little headroom.
+# Safety rail: strongly discourage holding a panel beyond MAX_HOLD consecutive
+# beats (the old greedy matcher parked one panel for 10 beats / 46s). This is a
+# steep OVER-cap penalty, NOT a hard wall: holding past the cap is very costly
+# but still finite, so when the ONLY forward option is a junk/blank panel (e.g.
+# the finale, where the last page is mostly "SKY CORPORATION" title-card
+# fragments), the DP keeps holding the last REAL panel instead of advancing onto
+# a blank one. Normal stretches never hit this because a real forward panel is
+# cheaper than the over-cap penalty.
 MAX_HOLD = 5
+OVER_HOLD_PENALTY = 0.5   # per-beat cost of holding beyond MAX_HOLD (steep, finite)
 # Weight of OCR/dialogue match vs. visual-description match (lexical fallback).
 # OCR is the highest-signal field (exact character names and dialogue are
 # almost perfectly discriminative), so it gets a majority weight.
@@ -126,7 +129,15 @@ _ABSTRACT_OVERRIDE = re.compile(
     r"(half|part|edge|portion|outline) of (a |an )?(speech|thought)?\s?bubble|"
     r"partial (speech|thought) bubble|empty (speech|thought) bubble|"
     r"a (white |jagged )?(speech|thought) bubble (with|containing|is shown)|"
-    r"displaying (a |the )?(text|word|speech|thought)|containing the text)", re.I)
+    r"displaying (a |the )?(text|word|speech|thought)|containing the text|"
+    # blank / stray-line fragments (an over-split gutter sliver, not a scene):
+    # "blank white panel", "a thin/thick black line", a line "running/curving/
+    # arching along/across an edge". These render as near-white cards.
+    r"blank (white )?panel|mostly blank|(thin|thick) black (vertical|horizontal|"
+    r"curved)? ?line|black (vertical|horizontal) line|single (thin|thick)|"
+    r"(running|curving|curves|arches|arcing|extending) (down|along|across|"
+    r"downwards|upwards)[^.]{0,28}(edge|frame|panel|corner|background)|"
+    r"a thick black arc|stark white background)", re.I)
 
 
 def is_junk_panel(panel):
@@ -313,28 +324,32 @@ def match_beats_to_panels(beats, panels, embed_model=None):
         dp[j][r] = best total score with the current beat on panel j, having
                    been on j for r+1 consecutive beats (r in 0..MAX_HOLD-1).
     Transitions to the next beat:
-        hold   -> same j, r+1   (only if r+1 < MAX_HOLD)   : cost - HOLD_PENALTY
-        advance-> any j' > j, r'=0                          : cost
-    Holding the same panel costs HOLD_PENALTY (gently favors progression);
-    advancing to a forward panel is free; the run-length cap MAX_HOLD makes a
-    long stall structurally impossible.
+        hold      -> same j, r+1  (r+1 < MAX_HOLD)   : cost - HOLD_PENALTY
+        over-hold -> same j, stay at top bucket      : cost - OVER_HOLD_PENALTY
+        advance   -> any j' > j, r'=0                : cost
+    Holding costs HOLD_PENALTY (gently favors progression); the top bucket has a
+    steep OVER_HOLD_PENALTY self-loop so holding past MAX_HOLD is very costly but
+    still possible — this is what keeps the finale on the last REAL panel instead
+    of advancing onto blank title-card junk when the last page has no real panels.
 
-    Junk/SFX-only panels get cost = -inf, so the optimal path never lands on
-    them — no forced-advance/scarcity hacks needed. Indices stay valid for the
+    Junk/blank panels get a steep finite cost (JUNK_COST), so the optimal path
+    avoids them unless there is literally no alternative — and an over-cap hold on
+    a real panel always beats advancing onto junk. Indices stay valid for the
     caller's build_timeline (panels list is never mutated).
     """
     raw_score, method = build_scorer(beats, panels, embed_model)
     junk = [is_junk_panel(p) for p in panels]
     n_junk = sum(junk)
     if n_junk:
-        print(f"Excluded {n_junk} junk/SFX-only panels of {len(panels)} "
-              f"(cost -inf; never on the optimal path).")
+        print(f"Excluded {n_junk} junk/blank panels of {len(panels)} "
+              f"(steep cost; avoided unless nothing else is reachable).")
 
-    NEG = -1e9
+    NEG = -1e18        # sentinel for an unreachable DP state
+    JUNK_COST = -100.0  # finite: junk is avoided but not impossible (last resort)
     R = max(1, MAX_HOLD)  # number of run-length buckets
 
     def cost(bi, pi):
-        return NEG if junk[pi] else raw_score(bi, pi)
+        return JUNK_COST if junk[pi] else raw_score(bi, pi)
 
     n_b, n_p = len(beats), len(panels)
     if n_b == 0 or n_p == 0:
@@ -367,6 +382,15 @@ def match_beats_to_panels(beats, panels, embed_model=None):
                     if val > newdp[j][r]:
                         newdp[j][r] = val
                         bp[j][r] = (j, r - 1)
+            # over-cap self-loop at the top bucket: keep holding past MAX_HOLD
+            # at a steep (finite) penalty, so the finale can dwell on the last
+            # real panel rather than advance onto blank/junk title-card panels
+            top_prev = dp[j][R - 1]
+            if top_prev > NEG:
+                val = c + top_prev - OVER_HOLD_PENALTY
+                if val > newdp[j][R - 1]:
+                    newdp[j][R - 1] = val
+                    bp[j][R - 1] = (j, R - 1)
             # fold panel j's best (over run-lengths) into the advance window
             jr = max(range(R), key=lambda r: dp[j][r])
             if dp[j][jr] > prefix_best:
