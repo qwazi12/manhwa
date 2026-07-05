@@ -22,6 +22,7 @@ build_test/
 test_output/
 test_output_batch/
 review_crops/
+manhwa-recap-v1/input/images/
 manhwa-recap-v1/input/voice.mp3
 manhwa-recap-v1/input/script_test.txt
 manhwa-recap-v1/input/*.mp3

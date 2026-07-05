@@ -67,7 +67,7 @@ def load_images(folder: str):
 def main():
     load_env()
     ap = argparse.ArgumentParser(description="Manhwa recap Stage 1 prototype")
-    ap.add_argument("--images", help="folder of ordered panel images")
+    ap.add_argument("--images", help="[LEGACY] folder of ordered panel images (not needed when using --descriptions)")
     ap.add_argument("--chapter-url", help="URL of the manhwa chapter to scrape panel images from")
     ap.add_argument("--script", required=True, help="narration script, one beat per line")
     ap.add_argument("--voice", required=True, help="recorded narration audio (mp3/wav/m4a)")
@@ -78,29 +78,30 @@ def main():
                     help="synthesize the voice track using Google Cloud TTS Chirp 3 HD")
     ap.add_argument("--limit-beats", type=int, help="limit processing to the first N beats (useful for quick testing)")
     ap.add_argument("--descriptions", help="Path to descriptions.json metadata")
-    ap.add_argument("--panels-dir", help="Directory containing the panel PNG files (default: ../panel-split/test_output_batch)")
+    ap.add_argument("--panels-dir", help="Directory containing the panel PNG files (default: ../panel-split/review_crops)")
     ap.add_argument("--embed-model", default="all-MiniLM-L6-v2", help="embedding model for semantic matching")
     args = ap.parse_args()
 
-    if not args.images and not args.chapter_url:
-        ap.error("Either --images or --chapter-url must be provided")
+    # --images is now optional; matcher uses descriptions.json for image selection
+    if not args.images and not args.chapter_url and not args.descriptions:
+        ap.error("Either --descriptions (recommended) or --images/--chapter-url must be provided")
 
     build_dir = os.path.abspath(args.out)
     os.makedirs(build_dir, exist_ok=True)
 
     # 1. inputs
+    images = []
     if args.chapter_url:
         images_dir = os.path.join(build_dir, "scraped_images")
         scraper.download_chapter(args.chapter_url, images_dir)
-        images_folder = images_dir
-    else:
-        images_folder = args.images
+        images = load_images(images_dir)
+    elif args.images:
+        images = load_images(args.images)
 
-    images = load_images(images_folder)
     with open(args.script, encoding="utf-8") as f:
         script_text = f.read()
     voice = os.path.abspath(args.voice)
-    print(f"[1/5] Loaded {len(images)} images, script, voice track.")
+    print(f"[1/5] Loaded {len(images) if images else '(matcher-driven)'} images, script, voice track.")
 
     # 2. beats
     timed_automatically = False
@@ -173,9 +174,9 @@ def main():
     if args.panels_dir:
         panels_dir = os.path.abspath(args.panels_dir)
     else:
-        # Default: sibling panel-split/test_output_batch next to the project root
+        # Default: sibling panel-split/review_crops next to the project root
         panels_dir = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "panel-split", "test_output_batch")
+            os.path.join(os.path.dirname(__file__), "..", "panel-split", "review_crops")
         )
         if not os.path.isdir(panels_dir):
             panels_dir = desc_dir  # last-resort: same folder as descriptions.json
