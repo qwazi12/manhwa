@@ -445,3 +445,11 @@
 - **Stage 3 (harden visual engine): IN PROGRESS** — content-trim done. Still open from the reference gap analysis: transition variety (push + inset, currently fade/scale-in only), warm-paper background tint (reads grey), and optional per-beat OCR-vs-visual scoring for exact 4/4 (deferred — shifts read fine).
 - Stages 4–9 untouched.
 
+#### Follow-up — playback-speed question + decision (no rerender)
+- **User asked:** what is the current playback speed of the rendered video, since it "feels much better" at 1.5x in their player.
+- **Answer given:** confirmed native 1.0x — no `atempo`/`setpts`/`playbackRate` anywhere in `build_composition.py` or the render; every clip's `data-duration` comes straight from real TTS/ffprobe durations. 63.19s = the narration's natural TTS pace, unmodified.
+- **Standing decision (user, this session):** do NOT bake 1.5x into TTS generation (risk of degrading synthesis quality). Instead, apply the 1.5x speedup as a **final post-processing step** on the finished render — after picture-lock, once matcher + compositing + transitions are all done — via `atempo=1.5` (audio) + `setpts=PTS/1.5` (video), not by regenerating narration faster. **No rerender needed now** — this is noted for whenever the next full render happens.
+- **How to apply going forward:** any future "final render" step for this project should include a 1.5x-speed pass as the last step in the pipeline, applied uniformly to the finished MP4, not to individual TTS clips.
+
+---
+
