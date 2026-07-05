@@ -25,6 +25,19 @@ import align
 import render
 import transcribe
 import scraper
+import tts
+
+
+def load_env():
+    # Read parent directory's .env file
+    env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+    if os.path.exists(env_path):
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ[k.strip()] = v.strip()
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -47,6 +60,7 @@ def load_images(folder: str):
 
 
 def main():
+    load_env()
     ap = argparse.ArgumentParser(description="Manhwa recap Stage 1 prototype")
     ap.add_argument("--images", help="folder of ordered panel images")
     ap.add_argument("--chapter-url", help="URL of the manhwa chapter to scrape panel images from")
@@ -55,6 +69,8 @@ def main():
     ap.add_argument("--out", default="build", help="output directory")
     ap.add_argument("--no-whisper", action="store_true",
                     help="time beats proportionally instead of via whisper")
+    ap.add_argument("--use-tts", action="store_true",
+                    help="synthesize the voice track using Google Cloud TTS Chirp 3 HD")
     args = ap.parse_args()
 
     if not args.images and not args.chapter_url:
@@ -77,6 +93,12 @@ def main():
     voice = os.path.abspath(args.voice)
     print(f"[1/5] Loaded {len(images)} images, script, voice track.")
 
+    api_key = None
+    if args.use_tts:
+        api_key = os.environ.get("TTS_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            sys.exit("Error: --use-tts requires either TTS_API_KEY or GEMINI_API_KEY to be set in environment or .env file.")
+
     # 2. beats
     beats = align.parse_timed_script(script_text)
     timed_automatically = False
@@ -86,6 +108,13 @@ def main():
     else:
         beats = align.split_beats(script_text)
         print(f"[2/5] Split script into {len(beats)} beats.")
+
+    # 2.5 voice track generation (if --use-tts is passed)
+    if args.use_tts:
+        print("[TTS] Starting Text-to-Speech generation...")
+        success = tts.generate_voice_track(beats, voice, api_key, timed_automatically)
+        if not success:
+            sys.exit("Error: Text-to-Speech generation failed.")
 
     # 3. timing
     if not timed_automatically:
