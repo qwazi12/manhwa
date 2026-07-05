@@ -18,10 +18,12 @@ dist/
 
 # --- Build artifacts (reproducible, don't track) ---
 build/
+build_test/
 test_output/
 test_output_batch/
 review_crops/
 manhwa-recap-v1/input/voice.mp3
+manhwa-recap-v1/input/script_test.txt
 manhwa-recap-v1/input/*.mp3
 manhwa-recap-v1/input/*.wav
 manhwa-recap-v1/input/*.m4a

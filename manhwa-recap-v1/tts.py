@@ -1,163 +1,95 @@
+"""
+Text-to-speech for narration beats using Google Cloud Chirp 3: HD, voice
+en-US-Chirp3-HD-Charon. Each beat is voiced as ONE complete sentence so the
+speech sounds natural. Beat *durations* come from the actual synthesized
+audio length (not a guessed SRT), so image timing can be driven by real
+speech.
+
+Auth: set GOOGLE_APPLICATION_CREDENTIALS to a service-account key with the
+Text-to-Speech API enabled (Application Default Credentials).
+"""
+
 import os
-import ssl
-import json
-import urllib.request
-import urllib.error
+import re
 import subprocess
-import base64
-import time
-from pathlib import Path
 
-def synthesize_text(text: str, output_path: str, api_key: str) -> bool:
-    """
-    Synthesizes text to speech using Google Cloud Text-to-Speech REST API.
-    Uses Chirp 3: HD Charon male voice (en-US-Chirp3-HD-Charon).
-    """
-    url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
-    payload = {
-        "input": {
-            "text": text
-        },
-        "voice": {
-            "languageCode": "en-US",
-            "name": "en-US-Chirp3-HD-Charon"
-        },
-        "audioConfig": {
-            "audioEncoding": "MP3"
-        }
-    }
-    
-    # Create unverified context to bypass SSL certificate issues
-    context = ssl._create_unverified_context()
-    
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST"
+VOICE_NAME = "en-US-Chirp3-HD-Charon"
+LANGUAGE_CODE = "en-US"
+SPEAKING_RATE = 1.0          # 0.25–2.0; 1.0 is natural. Lower = slower/calmer.
+GAP_SEC = 0.35               # small breath between beats
+
+
+def _clean_for_tts(text: str) -> str:
+    """Remove bracketed cues like [music] and collapse whitespace."""
+    text = re.sub(r"\[[^\]]*\]", "", text)
+    return " ".join(text.split()).strip()
+
+
+def synth_beat(text: str, out_path: str, client):
+    """Synthesize one beat to an MP3. Skips if the file already exists
+    (caching to save quota on rebuilds)."""
+    from google.cloud import texttospeech
+    if os.path.exists(out_path):
+        return
+    clean = _clean_for_tts(text)
+    resp = client.synthesize_speech(
+        input=texttospeech.SynthesisInput(text=clean),
+        voice=texttospeech.VoiceSelectionParams(
+            language_code=LANGUAGE_CODE, name=VOICE_NAME),
+        audio_config=texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=SPEAKING_RATE),
     )
-    
-    try:
-        with urllib.request.urlopen(req, context=context) as response:
-            result = json.loads(response.read().decode("utf-8"))
-            if "audioContent" in result:
-                audio_bytes = base64.b64decode(result["audioContent"])
-                with open(output_path, "wb") as f:
-                    f.write(audio_bytes)
-                return True
-            else:
-                print(f"Error: No audioContent in response: {result}")
-                return False
-    except urllib.error.HTTPError as e:
-        print(f"\n[TTS ERROR] HTTP {e.code}: {e.read().decode('utf-8')}")
-        return False
-    except Exception as e:
-        print(f"\n[TTS ERROR] Connection failed: {e}")
-        return False
+    with open(out_path, "wb") as f:
+        f.write(resp.audio_content)
 
 
-def generate_voice_track(beats, output_path: str, api_key: str, has_timestamps: bool) -> bool:
+def audio_duration(path: str) -> float:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", path],
+        capture_output=True, text=True, check=True)
+    return float(out.stdout.strip())
+
+
+def synth_all_beats(beats, tts_dir: str):
     """
-    Synthesize all beats using Google Cloud TTS and assemble the final voice track.
-    If has_timestamps is True, mixes each clip at its exact start time using FFmpeg adelay.
-    If False, concatenates clips sequentially with a 0.5s pause in between.
+    Synthesize every beat, then compute a real timeline from actual audio
+    durations. Returns beats with 'start'/'end'/'audio' filled in, plus the
+    ordered list of (audio_path, start_ms) for mixing.
+
+    This is the key change: beat timing follows the SPEECH, so a long
+    sentence gets a long on-screen hold and a short one gets a short hold —
+    automatically, with no SRT guessing.
     """
-    build_dir = Path("build/tts")
-    build_dir.mkdir(parents=True, exist_ok=True)
-    
-    inputs = []
-    filter_complex_parts = []
-    amix_inputs = []
-    
-    print(f"\n[TTS] Synthesizing {len(beats)} beats using Google Cloud TTS...")
-    
-    for i, beat in enumerate(beats):
-        idx = beat.get("index", i)
-        text = beat.get("text", "")
-        start_sec = beat.get("start", 0.0)
-        
-        # Skip empty text beats
-        if not text.strip():
-            continue
-            
-        clip_path = build_dir / f"beat_{idx:03d}.mp3"
-        
-        # Caching logic
-        if not clip_path.exists():
-            print(f"  [{i+1}/{len(beats)}] Synthesizing beat {idx} ({start_sec:.3f}s): {text[:45]}...")
-            success = synthesize_text(text, str(clip_path), api_key)
-            if not success:
-                print(f"  [Warning] Synthesis failed for beat {idx}. Creating silent fallback.")
-                subprocess.run([
-                    "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", 
-                    "-t", "0.5", str(clip_path)
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            # Throttle requests slightly
-            time.sleep(0.15)
-            
-        inputs.append(str(clip_path))
-        
-        if has_timestamps:
-            # Delay in ms for adelay
-            delay_ms = int(start_sec * 1000)
-            in_idx = len(inputs) - 1
-            filter_complex_parts.append(f"[{in_idx}:a]adelay={delay_ms}|{delay_ms}[a{in_idx}]")
-            amix_inputs.append(f"[a{in_idx}]")
-            
-    if not inputs:
-        print("[TTS ERROR] No text beats found to synthesize.")
-        return False
-        
-    if has_timestamps:
-        print(f"\n[TTS] Mixing {len(inputs)} audio clips at their exact timestamp start times...")
-        # Build filter complex for amix
-        filter_complex_str = ";".join(filter_complex_parts)
-        filter_complex_str += ";" + "".join(amix_inputs) + f"amix=inputs={len(inputs)}:normalize=0[out]"
-        
-        cmd = ["ffmpeg", "-y"]
-        for inp in inputs:
-            cmd.extend(["-i", inp])
-            
-        cmd.extend([
-            "-filter_complex", filter_complex_str,
-            "-map", "[out]",
-            "-c:a", "libmp3lame",
-            "-b:a", "192k",
-            output_path
-        ])
-    else:
-        print(f"\n[TTS] Concatenating {len(inputs)} audio clips sequentially...")
-        # Concatenate sequentially using FFmpeg concat filter
-        # We also want a 0.5s silent gap between clips for natural pacing
-        gap_path = build_dir / "gap.mp3"
-        if not gap_path.exists():
-            subprocess.run([
-                "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                "-t", "0.5", "-c:a", "libmp3lame", "-b:a", "192k", str(gap_path)
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-        # Interleave input clips with gaps
-        cmd = ["ffmpeg", "-y"]
-        concat_inputs = []
-        for inp in inputs:
-            cmd.extend(["-i", inp, "-i", str(gap_path)])
-            in_offset = len(concat_inputs) * 2
-            concat_inputs.append(f"[{in_offset}:a][{in_offset+1}:a]")
-            
-        filter_complex_str = "".join(concat_inputs) + f"concat=n={len(concat_inputs)*2}:v=0:a=1[out]"
-        cmd.extend([
-            "-filter_complex", filter_complex_str,
-            "-map", "[out]",
-            "-c:a", "libmp3lame",
-            "-b:a", "192k",
-            output_path
-        ])
-        
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if res.returncode != 0:
-        print("[TTS ERROR] FFmpeg audio assembly failed:")
-        print(res.stderr.decode("utf-8"))
-        return False
-        
-    print(f"[TTS] Voice track generated successfully at {output_path}")
-    return True
+    from google.cloud import texttospeech
+    os.makedirs(tts_dir, exist_ok=True)
+    client = texttospeech.TextToSpeechClient()
+
+    t = 0.0
+    timeline = []
+    for b in beats:
+        path = os.path.join(tts_dir, f"beat_{b['index']:03d}.mp3")
+        synth_beat(b["text"], path, client)
+        dur = audio_duration(path)
+        b["audio"] = path
+        b["start"] = round(t, 3)
+        b["end"] = round(t + dur, 3)
+        timeline.append((path, int(t * 1000)))
+        t += dur + GAP_SEC
+    return beats, timeline
+
+
+def mix_voice_track(timeline, out_path: str):
+    """Mix all beat MP3s onto one track, each delayed to its start time,
+    using adelay + amix (normalize=0 so voice volume stays constant)."""
+    inputs, filters, labels = [], [], []
+    for i, (path, start_ms) in enumerate(timeline):
+        inputs += ["-i", path]
+        filters.append(f"[{i}:a]adelay={start_ms}|{start_ms}[a{i}]")
+        labels.append(f"[a{i}]")
+    filtergraph = ";".join(filters) + ";" + "".join(labels) + \
+        f"amix=inputs={len(timeline)}:normalize=0[out]"
+    cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", filtergraph,
+           "-map", "[out]", out_path]
+    subprocess.run(cmd, capture_output=True, text=True, check=True)
