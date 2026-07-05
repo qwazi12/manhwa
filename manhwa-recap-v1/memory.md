@@ -547,3 +547,11 @@
 
 #### Known Issues — update
 | K-006 | ✅ RESOLVED + GUARDED | DP aligner + positive-keep filter + over-cap hold; now protected by validate_beatsheet gate + committed baseline + check_matcher.py regression runner | — | Any regression (junk, blank, stall, dropped variety) now fails the gate before a render is wasted |
+
+#### Plan item 2 DONE — per-segment render/review layer
+- **`hyperframes/segments.py`** `build_segments(shots)`: groups the beatsheet into SEGMENTS = maximal runs of consecutive same-panel beats ("Beat = decision, Segment = render"). Full chapter: 127 beats → **99 segments** (17 multi-beat holds now rendered once, not N times). Each segment carries its beats' audio at within-segment offsets.
+- **`hyperframes/render_segments.py`**: renders ONE hyperframes clip per segment (same blurred-blowup + card + Ken Burns look), then ffmpeg-concats. Modes: full build; `--only N` (re-render a single segment + re-concat — ~15s vs ~15min, the review-UI foundation); `--limit N` (test); `--concat-only`. Runs the `validate_beatsheet` gate before any render. `segments.json` manifest = the data a review UI drives. HyperFrames render output flag is `-o/--output <path>` (not `--out`).
+- **Proven** on 3 segments: clips render at exact segment durations (3.07/5.95/3.84s) and concat to the exact sum (12.864s) with video+audio intact. Full 99-segment build (~20min) available on demand but visually identical to the approved monolithic render; the NEW value is single-clip re-render.
+- Workspace `hyperframes/segments-workspace/` (clips/assets/manifest) is gitignored.
+
+#### Execution order status: 1+3 ✅ → 2 ✅ → **4 (auto-narration)** ← NEXT → 5.
