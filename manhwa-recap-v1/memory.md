@@ -525,3 +525,25 @@
 
 ---
 
+
+### Session 9 — 2026-07-05 (later) — Blank-ending fix + regression gate/baseline; roadmap locked
+
+**User input:** After the DP-aligner render, reported the ending 9:04–9:37 showed blank cards (no images), then judged the fixed render "looks great." Proposed a 5-point plan and asked for my opinion, then directed execution order: **1+3 → 2 → 4 → 5**. Also attached the extended sample script (`~/Downloads/Script _story_sample.md`, ~13.3k words, multiple Nano Machine chapters in recap-narrator voice) as a style corpus for future AI narration. A transient `ECONNRESET` interrupted mid-edit; verified all edits landed cleanly (nothing half-applied) before continuing.
+
+#### Blank-ending root cause + fix (committed earlier this session)
+- Two stacked bugs made beats 119–126 blank: (1) **filter gap** — "blank white panel"/"thin black line" fragments (`page023_panel_015`, `page024_panel_012`) slipped positive-keep because "running"/"curving" matched as a person-verb when describing a LINE running along an edge (same class as "characters"=letters). Restored blank/stray-line patterns to `_ABSTRACT_OVERRIDE`. (2) **structural** — the finale page024 has only 2 real panels of 12 (rest are "SKY CORPORATION" title cards), and the HARD `MAX_HOLD` wall forced the DP off the last real panel onto blanks. Changed the cap from a hard wall to a steep-but-finite `OVER_HOLD_PENALTY=0.5` self-loop at the top run-length bucket, and junk cost from -1e9 to finite `JUNK_COST=-100`, so an over-cap hold on a REAL panel always beats advancing onto junk. Ending now holds Ash's wide-eyed-shock reaction through the finale. Verified frames at 9:04 (savior standing over prone Ash) and 9:34 (shock face) — both real. 99 distinct, max hold 5, 0 junk, 0 blank.
+
+#### Plan items 1+3 DONE — regression gate + frozen baseline
+- **`matcher.validate_beatsheet(shots, panels)`** — pre-render gate returning problem strings: no junk/blank panel selected, every referenced image exists, no timeline gap, every beat resolves. "Hold last valid when only junk remains" is guaranteed upstream by the DP, so the gate just verifies 0 junk in output.
+- **Wired into `hyperframes/build_composition.py`**: resolves panel images to `panel-split/review_crops` and ABORTS the build (SystemExit 1) if any violation — fails in ~1s instead of a ~15-min render. Prints "Gate OK" on pass.
+- **`matcher.beatsheet_metrics()`** + **`matcher_baseline.json`** (committed, NOT gitignored): frozen snapshot {beats 127, distinct 99, max_hold 5, held 28, backward 0, junk 0, method gemini-embeddings+dp}.
+- **`check_matcher.py`**: re-runs the DP matcher on `build_test/beats_full.json`, hard-fails on any invariant violation, flags metric regressions vs baseline (distinct dropped / max_hold / junk / backward worsened), exit-coded for CI/pre-render hook. `--update` rewrites the baseline. Path fix: resolves panel files to `review_crops` (descriptions.json stores basenames), else false "image missing".
+- **Negative-tested:** clean beatsheet = 0 violations; injecting `page003_panel_009` ("FUCK!") is caught with a clear message.
+
+#### My assessment of the 5-point plan (given in chat)
+- Agreed on all 5. Upgrades/nuances: (1) make regression a HARD GATE before render, not after; (3) baseline IS the regression fixture — combined 1+3. (2) endorsed the user's **Beat=decision / Segment=render** hierarchy; noted a segment = maximal run of consecutive same-panel beats (data already in `held`), keep merge rules simple for v1. (4) **key inversion insight:** generating narration FROM ordered panels aligns narration to panels by construction, largely obviating the matcher for the auto-narration path (matcher stays for user-provided scripts). (5) precision last; partly subsumed by #4.
+
+#### Execution order (user-approved): 1+3 ✅ → **2 (per-segment render/review)** ← NEXT → 4 (auto-narration w/ inversion) → 5 (precision).
+
+#### Known Issues — update
+| K-006 | ✅ RESOLVED + GUARDED | DP aligner + positive-keep filter + over-cap hold; now protected by validate_beatsheet gate + committed baseline + check_matcher.py regression runner | — | Any regression (junk, blank, stall, dropped variety) now fails the gate before a render is wasted |
