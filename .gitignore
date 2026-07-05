@@ -50,3 +50,6 @@ manhwa-recap-v1/hyperframes/my-video/renders/
 manhwa-recap-v1/hyperframes/my-video/recap_hyperframes.mp4
 manhwa-recap-v1/hyperframes/my-video/assets/
 manhwa-recap-v1/hyperframes/my-video/.hyperframes/
+
+# per-segment render workspace (generated clips/assets)
+manhwa-recap-v1/hyperframes/segments-workspace/
