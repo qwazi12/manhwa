@@ -9,9 +9,12 @@ def natural_key(name: str):
             for t in re.split(r"(\d+)", name)]
 
 def main():
-    ap = argparse.ArgumentParser(description="Rename and import reviewed crops to the recap pipeline")
+    ap = argparse.ArgumentParser(
+        description="[LEGACY] Rename and copy reviewed crops to a numbered destination.\n"
+                    "NOTE: The matcher now reads panel names directly from review_crops/ via\n"
+                    "descriptions.json — this script is only needed for external/legacy use.")
     ap.add_argument("--from-dir", default="review_crops", help="directory containing reviewed crops")
-    ap.add_argument("--to-dir", default="../manhwa-recap-v1/input/images", help="destination input directory")
+    ap.add_argument("--to-dir", required=True, help="destination directory for numbered copies")
     args = ap.parse_args()
 
     src_dir = os.path.abspath(args.from_dir)

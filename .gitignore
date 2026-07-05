@@ -31,6 +31,7 @@ manhwa-recap-v1/input/*.m4a
 
 # --- OS junk ---
 .DS_Store
+**/.DS_Store
 Thumbs.db
 
 # --- IDE ---
