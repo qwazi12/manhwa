@@ -261,6 +261,47 @@
   2. Handled local `google-genai` import/venv corruption in `panel-describe/venv` by rebuilding it and fixing the update merger in `run.py` to be fail-safe (preserves good records).
   3. Added anti-stall guard to `matcher.py` (`MAX_HELD=3` tunable) which scales down advance penalties when a panel holds too long, encouraging chronological progression.
 
+---
 
+### Session 2 — 2026-07-05 (later) — Stall-Fix Verification (NOT resolved) + Model Upgrade
 
+**User input (verbatim intent):** Before doing anything else, verify the anti-stall fix from the prior session actually worked — memory.md showed the code changes but no verification run logged after them. Two-step ask: (1) fix the one panel still missing a description (`page012_panel_006`), confirm 146/146 described panels match `review_crops/` count; (2) run the matcher end-to-end on full descriptions + current TTS beats, render `beatsheet.json` as a readable table (index/start/panel_id/beat/held/hold-streak), and check whether four specific story beats — the fall (EUAACK/ACK), the curse (DAMN IT ALL), standing up, and the enemies/branch beat — each land on a distinct correct panel. Explicit instruction: do NOT render video, stop after showing the beatsheet for user judgment.
+
+#### Step 1 — Missing panel fixed, and root cause was NOT transient
+- **When:** 2026-07-05, this session
+- Found `panel-describe/venv/bin/python`, `python3`, `python3.13` had been Finder-renamed to `python 2` / `python3 2` / `python3.13 2` (space-suffixed), breaking the venv entirely. Renamed back to fix.
+- Re-ran `run.py --merge` on just `page012_panel_006` — **failed again** with the same `JSONDecodeError`. This proves K-005 (see below) was not a one-off API fluke as previously assumed.
+- Root cause via direct API probe: at `temperature=0.0`, `gemini-2.5-flash` produces an infinite repetition loop (`"OOOOOOO..."` until `MAX_TOKENS`) on this specific panel — a violent scream/death panel ("SLOWLY!! MORE!! / DIE AN EXCRUCIATING DEATH!!"). Content/style, not API flakiness, triggered a degenerate decode.
+- **User directive received mid-task:** always use the latest, most capable Gemini models per `https://ai.google.dev/gemini-api/docs/models`. Fetched that page and confirmed current stable vision-capable models: `gemini-3.5-flash` (replaces `gemini-2.5-flash` as default) and `gemini-3.1-flash-lite` (replaces `gemini-2.5-flash-lite` as the cheap option). `gemini-2.5-flash`/`gemini-2.5-flash-lite` still work but are no longer the recommended default.
+- Updated defaults: `panel-describe/run.py` (`--model` default), `panel-describe/describe.py` (docstring), `panel-describe/README.md` (cheapest-option flag mention) — all now point at `gemini-3.5-flash` / `gemini-3.1-flash-lite`.
+- Re-ran the failing panel with `gemini-3.5-flash` at `temperature=0.0` — succeeded on the first try, clean OCR (`"SLOWLY!! MORE!! / DIE AN EXCRUCIATING DEATH!! / 콰악 / ......!!!!!!"`) and a proper action-first `visual_description`. Merged into `descriptions.json`.
+- **Result: 146/146 panels in `panel-describe/descriptions.json` now `ok:true`, matching the 146-panel count in `panel-split/review_crops/`.**
+
+#### Step 2 — Matcher verification: STALL IS NOT FIXED
+- **When:** 2026-07-05, this session
+- Ran `run_matcher.py` against the 15-beat set in `manhwa-recap-v1/build_test/beats 2.json` (the only beats file with real per-beat audio timing from a TTS run; the 5-beat `build_test/beats.json` and the 243-beat `build/beats.json` don't cover the four checkpoint beats together) and the full 146-panel `descriptions.json`. Output written to `manhwa-recap-v1/build_test/beatsheet_verify.json` (kept for reference, not deleted).
+- **Outcome: 15 beats collapsed onto only 4 distinct panels; 12/15 beats `held`.** All four checkpoint moments the user asked about landed on the *wrong* panel:
+  - Fall beat ("rolled down a steep slope") → held on `page001_panel_004` (running-through-forest); should be `page002_panel_011` (`EUAAACK...!! / ACK!!! / ACCK!!!`, tumbling down cliff).
+  - Curse beats (x2, "cursed"/"cursed again") → same wrong hold; should be `page003_panel_004` (`DAMN IT ALL...`).
+  - Standing-up beat → same wrong hold; should be `page003_panel_006` (standing defiantly facing red-cloaked figures).
+  - Enemies/branch beat → held on `page001_panel_005`; should be `page004_panel_003` (cloaked figure on rock addressing others).
+- **Root cause (three compounding issues, measured directly via `matcher.build_scorer`):**
+  1. Lexical fallback scores are tiny (correct-panel similarity ~0.03–0.13) while `ADVANCE_PENALTY=0.06` per panel-step dominates — e.g. the fall panel is 4 panels ahead, so its penalty (0.24) swamps its own similarity score (0.042), so holding at score 0.0 "wins."
+  2. Because it never advances, the correct panel drifts further ahead each beat and eventually exceeds `LOOKAHEAD=6` — by the branch beat the correct panel is 12 panels ahead and literally never gets scored.
+  3. The `MAX_HELD` anti-stall guard added last session only *shrinks the penalty*; it doesn't help when the tied/losing score is exactly 0.0 (strict `>` comparison never breaks a 0-vs-0 tie) and it doesn't widen `LOOKAHEAD`, so an unreachable panel stays unreachable regardless of held-run length. The guard cannot fix either of the two real bugs above.
+  4. Also discovered: the "semantic" embedding path (`sentence-transformers`) has apparently **never actually run** in this project — `run_matcher.py` defaults `--embed-model` to `None`, and `sentence-transformers` is currently broken in `manhwa-recap-v1/venv` anyway (transformers version mismatch). Every matcher run to date, including last session's, used the deterministic lexical/token-overlap fallback, not real semantic similarity.
+- **Per explicit user instruction: did NOT render a video. Did NOT touch `matcher.py` beyond reading it.** Stopped for user judgment after presenting the beatsheet table.
+
+#### Known Issues — additions
+| K-005 | ⚠️ OPEN | `page012_panel_006` degenerate-decode failure was model/content-specific (gemini-2.5-flash infinite-repeat at temp 0.0 on an extreme violence panel), not transient | Fixed for this panel by switching to gemini-3.5-flash | Consider a temperature-escalation retry loop in `describe.py` for any future single-panel failures instead of assuming transient |
+| K-006 | ⚠️ OPEN | Anti-stall guard (`MAX_HELD`) from prior session does not fix the actual stall — verified with real data this session | Beat-to-panel matching still badly wrong on lexical fallback | Needs real fix to scorer (working embeddings) and/or penalty-vs-score-magnitude rebalancing before matcher can be trusted; see full root-cause analysis above |
+| K-007 | ⚠️ OPEN | `sentence-transformers` embedding path in matcher has likely never executed successfully in this project; `manhwa-recap-v1/venv` has a broken `transformers` install | Matcher has only ever run in lexical/token-overlap mode | Fix the venv or accept lexical-only and redesign scoring around it |
+
+#### Model Version Policy (new, standing)
+- **Decision:** Always default to the latest stable, vision-capable Gemini model per `https://ai.google.dev/gemini-api/docs/models` rather than hardcoding an older generation. As of this session: `gemini-3.5-flash` (default) / `gemini-3.1-flash-lite` (cheap option), superseding `gemini-2.5-flash` / `gemini-2.5-flash-lite`.
+- **Where enforced:** `panel-describe/run.py` `--model` default, `panel-describe/describe.py` docstring, `panel-describe/README.md`.
+
+#### Standing Process Note (new)
+- **User instruction (this session):** Log all future session inputs and actions passively into this file (`memory.md`) as they happen, so any human or agent can pick up from the latest point without re-deriving context. Also: always back up work to GitHub (commit + push) rather than leaving changes uncommitted locally.
+- **How to apply going forward:** any agent picking up this project should (a) append a dated session entry here describing what was asked and what was done/found *before* ending a work session, and (b) commit + push to `https://github.com/qwazi12/manhwa.git` at natural stopping points, not just when explicitly asked in-the-moment.
 

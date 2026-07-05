@@ -72,7 +72,7 @@ python run.py --input path/to/clean_panels --out descriptions.json
 Useful flags:
 - `--limit 5` — process only the first 5 panels for a cheap test before
   committing to a whole chapter.
-- `--model gemini-2.5-flash-lite` — cheapest Gemini option.
+- `--model gemini-3.1-flash-lite` — cheapest Gemini option.
 - `--no-ai` — force Tesseract OCR-only (no visual description). For testing
   the pipeline without a key; not the real use case.
 

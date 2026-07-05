@@ -11,7 +11,7 @@
       2338
     ],
     "ocr_text": "",
-    "visual_description": "A wide shot depicts a dark, misty mountain landscape at night. A full moon is visible through a cloudy sky with scattered white specks, possibly snow or stars. In the foreground on the right, dark silhouettes of tree branches and leaves are prominent.",
+    "visual_description": "Stretching across the panel, a vast, dark mountain range is shrouded in heavy mist under a cloudy night sky with a full moon and falling snow. Silhouetted trees and foliage frame the foreground.",
     "source": "gemini",
     "ok": true
   },
@@ -27,7 +27,7 @@
       1205
     ],
     "ocr_text": "",
-    "visual_description": "A young person with dark hair, wearing a light tunic and pants, runs barefoot through a dark, shadowy forest. The character is depicted from a high-angle, wide shot, surrounded by dense, silhouetted foliage and a muted blue-grey ground, suggesting a mysterious or urgent journey.",
+    "visual_description": "Running barefoot through a dark, shadowy forest, a young person in a white tunic and purple sash is seen from a high-angle perspective, casting a long shadow on the ground.",
     "source": "gemini",
     "ok": true
   },
@@ -43,7 +43,7 @@
       1058
     ],
     "ocr_text": "",
-    "visual_description": "A young person with spiky dark hair and a tattered light-colored robe is shown in a medium close-up. They have a distressed expression with wide eyes, an open mouth, and sweat/dirt on their face. Their clothes are torn, and the background features speed lines, suggesting intense motion or a powerful impact.",
+    "visual_description": "Running forward with a desperate, pained expression, a young person with spiky dark purple hair and torn white robes is covered in dirt and sweat against a blurry, streaked grey-green background.",
     "source": "gemini",
     "ok": true
   },
@@ -58,8 +58,8 @@
       704,
       699
     ],
-    "ocr_text": "흐읍",
-    "visual_description": "A close-up shot features a pale leg, possibly a foot, partially submerged in dark, murky water or mud. Debris is scattered around the leg, and dark-leaved plants are visible in the foreground on the left. The scene has a dark, somber tone.",
+    "ocr_text": "흐윽",
+    "visual_description": "Pressing down on dark, debris-strewn ground, a bare foot and lower leg are visible amidst dark foliage and branches on the left. Particles scatter around the foot.",
     "source": "gemini",
     "ok": true
   },
@@ -75,7 +75,7 @@
       636
     ],
     "ocr_text": "!!!",
-    "visual_description": "A close-up shot focuses on a character's face, showing their wide, shocked left eye with a purple iris and a small sweat drop. They have long dark hair and a pale complexion. The background is blurred with vertical lines, suggesting motion or an intense emotional reaction.",
+    "visual_description": "Looking wide-eyed and shocked, a character with dark hair and purple eyes is shown in a close-up, with motion lines in the background suggesting intense emotion or movement.",
     "source": "gemini",
     "ok": true
   },
@@ -91,7 +91,7 @@
       2459
     ],
     "ocr_text": "EUAAACK...!! / ACK!!! / ACCK!!! / 쿵",
-    "visual_description": "A young person with dark hair and tattered clothes is depicted falling down a steep, rocky cliff face. The panel shows three distinct moments of their descent, with dust and debris indicating impacts. The setting is a dark, overgrown natural environment, captured in a vertical wide shot.",
+    "visual_description": "Tumbling down a steep, dark, rocky cliff face, a young person in light, tattered clothes is shown in three stages of their painful fall, kicking up dust and debris.",
     "source": "gemini",
     "ok": true
   },
@@ -107,7 +107,7 @@
       749
     ],
     "ocr_text": "...SHIT!! / I CAN'T MOVE... MY LEG ANYMORE...!",
-    "visual_description": "A person with dark purple hair, wearing torn white and blue clothing, is collapsed on their hands and knees on a dark, dusty ground. Their face is obscured by their hair, and they appear to be in distress, with dirt and debris scattered around them. It is a medium close-up shot.",
+    "visual_description": "Collapsing face down on the ground, a person with dark purple hair and torn white and blue clothes lies injured, hands splayed, amidst scattered debris in a desolate environment. It's a medium shot focusing on their upper body.",
     "source": "gemini",
     "ok": true
   },
@@ -123,7 +123,7 @@
       877
     ],
     "ocr_text": "......!",
-    "visual_description": "A close-up shot focuses on a character with dark purple hair and a wide magenta eye. Their face shows dirt or scratches, and wisps of smoke or dust are visible around them, conveying a sense of shock or distress.",
+    "visual_description": "Staring intensely, a character with dark purple hair and a magenta eye is shown in an extreme close-up, with dirt and smoke around their face, suggesting a tense situation.",
     "source": "gemini",
     "ok": true
   },
@@ -139,7 +139,7 @@
       865
     ],
     "ocr_text": "DAMN IT ALL...",
-    "visual_description": "A medium close-up shot shows a person from the waist down, kneeling on the ground. Their hands and lower legs are dirty, and their clothing is torn. A speech bubble reads 'DAMN IT ALL...'",
+    "visual_description": "Kneeling on the dirty ground, a person's hands and lower legs are visible, covered in dirt, with torn clothing on one arm. Close-up shot.",
     "source": "gemini",
     "ok": true
   },
@@ -154,8 +154,8 @@
       792,
       918
     ],
-    "ocr_text": "ARE YOU / TELLING ME...",
-    "visual_description": "A young person in light, tattered clothing stands in the middle of a desolate, cracked ground, holding a white object. Two figures in dark, hooded cloaks are partially visible in the foreground on the left and right edges. The shot is a wide view, showing the central figure from a distance.",
+    "ocr_text": "ARE YOU TELLING ME...",
+    "visual_description": "Walking across desolate, cracked ground, a small figure in light clothes is observed by two dark-cloaked figures partially visible in the foreground, framing the scene. It's a medium shot from a slightly high angle.",
     "source": "gemini",
     "ok": true
   },
@@ -170,8 +170,8 @@
       792,
       1855
     ],
-    "ocr_text": "THAT I'VE BEEN / DANCING IN THE MIDDLE / OF YOUR PALMS FROM / THE START...",
-    "visual_description": "A wide shot shows a lone figure in light clothing standing in a misty, dark environment, facing away from the viewer. They are surrounded by multiple hooded figures in red robes, some on the ground and several perched in a large, dark tree. A bright full moon illuminates the cloudy night sky above the tree.",
+    "ocr_text": "THAT I'VE BEEN DANCING IN THE MIDDLE OF YOUR PALMS FROM THE START...",
+    "visual_description": "Standing defiantly, a person with dark hair in light clothing faces multiple red-cloaked figures under a bright full moon. Some cloaked figures are perched on a large tree, others on the ground and a cliff, in a misty, dark outdoor setting.",
     "source": "gemini",
     "ok": true
   },
@@ -187,7 +187,7 @@
       94
     ],
     "ocr_text": "FUCK!",
-    "visual_description": "The panel displays the word 'FUCK!' in large, bold, black, italicized letters against a plain white background. The text is centered and fills most of the frame, acting as a strong exclamation.",
+    "visual_description": "Displaying the exclamatory word 'FUCK!' in bold, black, italicized letters against a plain white background, serving as a strong sound effect or reaction.",
     "source": "gemini",
     "ok": true
   },
@@ -203,7 +203,7 @@
       94
     ],
     "ocr_text": "",
-    "visual_description": "The panel features a stark white background with a thick, black, curved line running along the left edge, extending from the top to the bottom. The line has a smooth curve at the top and a sharp, angular bend towards the bottom. It appears to be a partial view of a larger drawing.",
+    "visual_description": "Curving downwards with a sharp angle, a thick black line forms an abstract, incomplete shape against a plain white background, suggesting a partial outline or a stylized element.",
     "source": "gemini",
     "ok": true
   },
@@ -218,8 +218,8 @@
       792,
       558
     ],
-    "ocr_text": "!!",
-    "visual_description": "An extreme close-up shot shows a character with long dark hair and intense, wide eyes with red pupils. Their face is covered in scratches and blood, and their jaw is gritted, indicating pain, anger, or extreme effort. Sweat drops are visible on their skin.",
+    "ocr_text": "",
+    "visual_description": "Gritting their teeth and staring intensely, a person with long dark hair and purple eyes is shown in an extreme close-up. Their face is covered in cuts and sweat droplets, indicating pain or exertion.",
     "source": "gemini",
     "ok": true
   },
@@ -235,7 +235,7 @@
       1376
     ],
     "ocr_text": "YOU MUST'VE HAD QUITE A LOT OF TROUBLE RUNNING FOR AN HOUR TO REACH HERE. / WELL DONE, PRINCE CHEON. / HEHE... / ALL THIS WAITING HAD ME AT THE POINT OF FALLING ASLEEP.",
-    "visual_description": "Three figures in dark hooded cloaks and face masks are depicted in a medium-wide shot. One figure stands on a rock, facing left, while two others are partially visible in the foreground. The setting is a dark, rocky outdoor environment with trees in the background.",
+    "visual_description": "Standing on a rock, a cloaked figure with a sword addresses two other cloaked figures who are crouching below, in a dark, rocky outdoor setting. The figures wear face coverings.",
     "source": "gemini",
     "ok": true
   },
@@ -251,7 +251,7 @@
       1485
     ],
     "ocr_text": "...WHAT SHOULD I DO!?! / I DON'T HAVE THE STRENGTH TO RUN AWAY EITHER...",
-    "visual_description": "A male character with purple hair, seen from behind, faces three hooded figures in a forest setting. Two hooded figures on the ground and one on a tree branch hold glowing weapons, confronting the central character whose shirt is torn. The shot is a medium-wide view, capturing the tense standoff.",
+    "visual_description": "Facing three cloaked enemies with glowing weapons in a misty forest, a purple-haired figure in tattered clothes stands with their back to the viewer. One enemy is in a tree, two are on the ground. Medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -267,7 +267,7 @@
       107
     ],
     "ocr_text": "",
-    "visual_description": "The panel features a large, stylized black outline of a curved, pointed shape, resembling a greater-than symbol or an arrow pointing right. It is centered on a plain white background, appearing as a graphic element rather than a scene or character.",
+    "visual_description": "A stylized black outline of a curved shape, resembling a greater-than symbol or a chevron, points towards the right. It is an abstract graphic element.",
     "source": "gemini",
     "ok": true
   },
@@ -283,7 +283,7 @@
       107
     ],
     "ocr_text": "",
-    "visual_description": "The panel features a thick, curved black line against a plain white background. The line enters from the top left, sweeps downwards and to the right, then curves back up towards the bottom right, suggesting a dynamic, incomplete shape. It is a close-up shot focusing solely on this abstract line.",
+    "visual_description": "Outlining the top-left corner, a thick black curved line is visible against a white background.",
     "source": "gemini",
     "ok": true
   },
@@ -298,8 +298,8 @@
       755,
       1127
     ],
-    "ocr_text": "ON ENROLLING INTO / THE ACADEMY- / WHAT MORE DO / YOU WANT FROM ME? / WHY ARE YOU AIMING / FOR MY LIFE?",
-    "visual_description": "A young man with long, dark, messy hair and a distressed, angry expression is shown in a medium close-up. He is sweating and his light-colored clothing is torn. The background is dark and blurry, with faint outlines of trees or foliage.",
+    "ocr_text": "ON ENROLLING INTO / THE ACADEMY— / WHAT MORE DO YOU WANT FROM ME? WHY ARE YOU AIMING FOR MY LIFE?",
+    "visual_description": "Standing defiantly with a pained expression, a young man with long dark hair and tattered clothes looks forward. He has sweat and scratches on his face and chest. The background is dark and misty with faint tree branches.",
     "source": "gemini",
     "ok": true
   },
@@ -315,7 +315,7 @@
       1060
     ],
     "ocr_text": "EVEN IF YOU GAVE UP ON THE ACADEMY OR YOU HAVE ABSOLUTELY NO TALENT IN MAR- TIAL ARTS, YOU SHOULD KNOW THAT SOMETHING LIKE THAT DOESN'T MATTER, RIGHT PRINCE CHEON?",
-    "visual_description": "A close-up shot features a character wearing a dark purple hooded cloak and a grey face mask. Their visible eyes glow with a bright blue-purple light, conveying an intense and stern expression with furrowed brows. The background is a dark, muted blue-green.",
+    "visual_description": "Speaking intensely, a cloaked figure with dark skin, glowing purple eyes, and a face mask looks directly forward in a medium close-up. They wear a dark hooded cloak against a plain, dark background.",
     "source": "gemini",
     "ok": true
   },
@@ -331,7 +331,7 @@
       1409
     ],
     "ocr_text": "AS LONG AS YOU HAVE A RIGHT TO THE THRONE, THIS IS THE ONLY WAY, PRINCE. / GIVE IT UP- THERE'S NO OTHER WAY OUT.",
-    "visual_description": "Two masked figures in dark hooded cloaks are shown in a medium shot at night under a full moon. The figure on the left holds a glowing sword with both hands, looking forward intently. The second figure is partially visible to the right, also looking forward.",
+    "visual_description": "Two cloaked figures confront an unseen opponent, one drawing a glowing sword. They wear dark hoods and face masks, standing under a full moon with trees in the background. Medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -347,7 +347,7 @@
       300
     ],
     "ocr_text": "EVEN IF YOU",
-    "visual_description": "The bottom portion of a speech bubble is visible in the lower part of the frame, containing the text \"EVEN IF YOU\". The background is plain white. It is a close-up shot focusing on the speech bubble.",
+    "visual_description": "Showing the bottom half of a speech bubble with a black outline, containing the text 'EVEN IF YOU' against a white background. No characters or setting are visible.",
     "source": "gemini",
     "ok": true
   },
@@ -362,8 +362,8 @@
       792,
       819
     ],
-    "ocr_text": "HAVE 'PEASANT BLOOD' MIXED IN YOU, / SINCE YOU ARE OF THE BLOODLINE OF THAT PERSON, WE'LL SEND YOU OFF WITH A PAINLESS DEATH. / 끼이이잉",
-    "visual_description": "A male character with light blue skin and white, spiky hair is shown in profile, facing right. He has sweat on his face, indicating distress. The background is dark with a horizontal blue light beam behind him. The shot is a medium close-up.",
+    "ocr_text": "HAVE 'PEASANT BLOOD' MIXED IN YOU, / 끼이이잉 / SINCE YOU ARE OF THE BLOODLINE OF THAT PERSON, WE'LL SEND YOU OFF WITH A PAINLESS DEATH.",
+    "visual_description": "Standing in a dark void, a glowing blue-skinned male character with light, spiky hair and sweat on his face looks distressed. A horizontal blue light beam stretches behind him in this medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -379,7 +379,7 @@
       574
     ],
     "ocr_text": "PEASANT BLOOD... THEY SAY...?",
-    "visual_description": "A white oval speech bubble with a spiky, radiating black outline is centered on a plain white background. Inside the bubble, the text \"PEASANT BLOOD... THEY SAY...?\" is written in black, italicized capital letters. The panel is a close-up on the speech bubble.",
+    "visual_description": "Displaying a white oval speech bubble with a spiky, impactful black outline, containing the text 'PEASANT BLOOD... THEY SAY...?'. The background is plain white.",
     "source": "gemini",
     "ok": true
   },
@@ -395,7 +395,7 @@
       709
     ],
     "ocr_text": "HOW DARE THEY DISHONOR MY MOTHER...?!",
-    "visual_description": "A close-up shot focuses on a character's intense eye with a purple iris and dark purple hair. Sweat drops are visible on their face, which shows lines of strain or anger. A speech bubble conveys a strong emotional reaction.",
+    "visual_description": "Staring wide-eyed with intense fury, a character's face is shown in an extreme close-up. Their purple eye is wide, sweat drips, and small scratches mark their skin, conveying deep distress and anger.",
     "source": "gemini",
     "ok": true
   },
@@ -411,7 +411,7 @@
       1487
     ],
     "ocr_text": "THERE'S NO WAY THOSE BASTARDS WOULD SEND ME OFF WITH A \"PAINLESS DEATH.\" / IF I'M GOING TO DIE ANYWAY, THEN I'LL GO BY FIGHTING UNTIL MY VERY LAST BREATH!",
-    "visual_description": "A close-up shot shows a person with dark hair and a grimacing expression, their face and neck marked with dirt and cuts. They wear a torn, light-colored garment and hold a small, dark cylindrical object that emits a blue light near their neck. The background is dark and out of focus.",
+    "visual_description": "Holding a glowing cylindrical object to their neck, a determined, injured character with dark hair and torn clothes is shown in a medium close-up against a dark background. Scratches are visible on their face and arms.",
     "source": "gemini",
     "ok": true
   },
@@ -427,7 +427,7 @@
       975
     ],
     "ocr_text": "HOH? / DID YOU LEARN SOME MARTIAL ARTS FROM WARRIOR JANG?",
-    "visual_description": "A close-up shot features a character with intense red eyes, partially hidden by a dark grey mask and a dark purple hood. Their brows are furrowed, suggesting surprise or intensity. The background is a solid, dark teal color.",
+    "visual_description": "Gazing intensely forward, a hooded figure with piercing red eyes and a face mask is shown in a close-up. The character's expression is stern, with two speech bubbles above their head.",
     "source": "gemini",
     "ok": true
   },
@@ -442,8 +442,8 @@
       792,
       1515
     ],
-    "ocr_text": "... NO, IT SEEMS LIKE HE DIDN'T. / HOWEVER, IT SEEMS AS THOUGH HE CAN'T RUN AWAY FROM HIS BLOOD-LINE-",
-    "visual_description": "A man with long dark hair and a grim expression, showing cuts and dirt on his face, holds a small knife with both hands. He wears tattered light-colored clothing. The setting is a dark, rough, greyish-blue environment. It's a medium shot of the man.",
+    "ocr_text": "... NO, IT / SEEMS LIKE / HE DIDN'T. / HOWEVER, IT / SEEMS AS THOUGH / HE CAN'T RUN AWAY / FROM HIS BLOOD- / LINE-",
+    "visual_description": "Holding a small blade with both hands, a wounded person with long dark hair and tattered light-colored clothing stands in a dark, rocky environment. Cuts and blood streaks are visible on their face and body. Medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -459,7 +459,7 @@
       1146
     ],
     "ocr_text": "SEEING HOW / EVEN WITHOUT ANY / TRAINING OR SKILLS, / HE DOESN'T WANT TO / GIVE UP UNTIL THE / END. / HEHE... THIS / IS GOING TO BE / A FUN HUNT.",
-    "visual_description": "A masked figure in a dark hooded cloak is shown in a medium close-up, with only their intense eyes visible. They are outdoors at night, with a large full moon and dark trees in the background. The figure's expression suggests a sinister or determined mood.",
+    "visual_description": "Looking intently with narrowed eyes, a masked figure in a dark hood and grey face covering is shown in a medium close-up, with a full moon and dark trees in the night background.",
     "source": "gemini",
     "ok": true
   },
@@ -475,7 +475,7 @@
       1445
     ],
     "ocr_text": "파 / 악",
-    "visual_description": "A wide shot shows a person in white clothing with dark hair, seen from behind, facing five figures in dark ninja-like outfits with red cloaks. Four cloaked figures are airborne, wielding swords, while one stands on the ground. The scene is set in a dark, moonlit forest with a large tree in the center.",
+    "visual_description": "Standing ready to fight, a figure in white faces five cloaked assassins wielding swords in a moonlit forest clearing. Four attackers leap from above, one stands on the ground, under a bright full moon.",
     "source": "gemini",
     "ok": true
   },
@@ -490,8 +490,8 @@
       792,
       1178
     ],
-    "ocr_text": "흨 / EUARGHH!!! / 흨",
-    "visual_description": "A young man with dark hair and a tattered white outfit is in the center, barefoot, holding a knife, with a pained expression. He is surrounded by at least two figures in dark hooded cloaks. White energy lines emanate from the central figure, suggesting a struggle on a cracked, greenish-blue ground. It's a medium shot capturing the intense action.",
+    "ocr_text": "EUARGHH!!! / 흒 / 흒",
+    "visual_description": "Fighting fiercely, a young man in torn white clothes swings a knife at multiple cloaked figures in a dynamic medium shot, on a cracked, greenish-blue ground. One cloaked figure is clearly visible on the left.",
     "source": "gemini",
     "ok": true
   },
@@ -507,7 +507,7 @@
       809
     ],
     "ocr_text": "촤아아아",
-    "visual_description": "A cloaked figure with a veiled face and visible eyes lunges forward, holding a golden-hilted dagger in their gloved right hand. The background is a blur of blue and purple, emphasizing rapid motion. This is a medium shot focusing on the figure's upper body and weapon.",
+    "visual_description": "Lunging forward with a dagger, a mysterious figure in a dark purple hooded cloak and face veil moves rapidly. Only their eyes are visible, and they wear a glove. The background is blurred, emphasizing speed.",
     "source": "gemini",
     "ok": true
   },
@@ -522,8 +522,8 @@
       792,
       707
     ],
-    "ocr_text": "KEUK...! / 퍼억!",
-    "visual_description": "A young man with dark, messy hair and a pained, determined expression is shown in a medium close-up. He wears a torn white and purple robe, covered in dirt and blood, as he appears to block a dark, blurry attack with his left arm while holding a short sword in his right hand. The background is a blurry, dark forest.",
+    "ocr_text": "KEUK...! / 쩌억!",
+    "visual_description": "Being struck by a powerful blow, a distressed young man with messy dark hair, wearing a tattered robe, grimaces while holding a sword. He is in a dynamic mid-shot against a blurry blue-green outdoor background.",
     "source": "gemini",
     "ok": true
   },
@@ -538,8 +538,8 @@
       792,
       988
     ],
-    "ocr_text": "콰콰콱",
-    "visual_description": "Two figures are engaged in a dynamic struggle. A larger, muscular figure in a dark red robe, with a blurred face, appears to be striking or grappling a smaller figure. The smaller figure, wearing a dark mask or hood, has one wide, surprised eye visible. Motion lines and a blurred background emphasize the action in this medium close-up.",
+    "ocr_text": "콰콰콰콱",
+    "visual_description": "Lunging forward with intense motion blur, a figure in dark robes strikes towards another figure whose wide, shocked eye is visible on the left. The background is a blurred light blue and grey.",
     "source": "gemini",
     "ok": true
   },
@@ -555,7 +555,7 @@
       1090
     ],
     "ocr_text": "콱",
-    "visual_description": "A hooded, masked figure in a dark cloak and holding a sword grips the neck of a younger man, lifting him off the ground. The younger man, in tattered light clothing, has a pained expression. They are in a desolate outdoor setting with a hazy blue-grey background, depicted in a medium shot.",
+    "visual_description": "Choking and lifting a struggling person by the neck, a masked, cloaked figure holds a sword while the victim, with messy dark hair and torn clothes, is suspended mid-air in a hazy, dark environment. Medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -570,8 +570,8 @@
       792,
       793
     ],
-    "ocr_text": "IS THAT THE / END OF YOUR LITTLE / RETALIATION? / 뾰 / 뾰록",
-    "visual_description": "A close-up shot shows a hooded figure with a face mask and glowing purple eyes on the left, looking intensely forward. On the right, a blurry figure with dark hair and a pale face appears injured, with blood visible on their chest. The background is dark and indistinct.",
+    "ocr_text": "IS THAT THE / END OF YOUR LITTLE / RETALIATION? / 크득 / 크득",
+    "visual_description": "Staring intensely with glowing purple eyes, a masked and hooded figure looks down at a blurred, injured person. Blood splatters are visible on the defeated individual's clothing in this medium close-up.",
     "source": "gemini",
     "ok": true
   },
@@ -587,7 +587,7 @@
       635
     ],
     "ocr_text": "스윽",
-    "visual_description": "A medium close-up shot shows a person from the waist up, wearing a light robe and a dark blue sash. Their right hand is drawing a glowing, futuristic-looking blade from behind their back. A bright light emanates from the blade, and the background is dark and indistinct.",
+    "visual_description": "Drawing a glowing blade from a sheath, a person's hand pulls the weapon with a bright light emanating from it. The shot is a medium close-up of the torso and arm against a dark, blurry background.",
     "source": "gemini",
     "ok": true
   },
@@ -603,7 +603,7 @@
       559
     ],
     "ocr_text": "OUT!! / HUH?",
-    "visual_description": "Two masked figures in dark red hooded cloaks are shown in a dynamic medium close-up. The figure on the left has wide, surprised eyes, while the one on the right has narrowed, intense eyes, both surrounded by motion lines. They are in a dark, outdoor setting with trees visible in the background.",
+    "visual_description": "Moving rapidly through a dark, blurred forest, two cloaked figures with masked faces react; one looks surprised with wide eyes, while the other has an intense gaze. Motion lines emphasize their speed.",
     "source": "gemini",
     "ok": true
   },
@@ -618,8 +618,8 @@
       792,
       792
     ],
-    "ocr_text": "푸슉! / ?!",
-    "visual_description": "A hooded, masked figure with wide, startled eyes has just struck another person, whose chest is splattered with blood. The injured person, with dark messy hair, clutches their neck with a pained and angry expression. This medium close-up shot shows the two characters against a dark, blurry background with motion lines.",
+    "ocr_text": "퓨퓨! / ?!",
+    "visual_description": "Choking another person, a hooded figure with wide, shocked eyes grips the neck of a struggling, angry person with messy dark hair. The medium close-up shows blood splattering, set against a dark, stormy background.",
     "source": "gemini",
     "ok": true
   },
@@ -635,7 +635,7 @@
       1397
     ],
     "ocr_text": "!!",
-    "visual_description": "Three masked figures in dark red hooded cloaks rush forward with motion blur. The lead figure in the foreground has wide, intense eyes. Two other masked figures are visible behind, also moving rapidly. The background is dark and blurry, suggesting an outdoor setting.",
+    "visual_description": "Charging forward with intense speed, three cloaked figures in dark red robes and black masks advance, their eyes visible and alert. The foreground figure's wide, white eyes convey urgency against a blurred, dark background.",
     "source": "gemini",
     "ok": true
   },
@@ -651,7 +651,7 @@
       1067
     ],
     "ocr_text": "털썩",
-    "visual_description": "A cloaked figure in red and grey stands on the left, while another figure in light clothing collapses onto a wet, dark surface on the right. Blood splatters are visible in the air near the cloaked figure's head. The background is dark and appears to be raining, with motion lines indicating impact or movement.",
+    "visual_description": "Standing over a collapsed figure, a person in a red hooded cloak and grey tunic holds a sword hilt, with blood splattering nearby. The other figure lies on the ground, appearing injured, in a dark, misty environment. Medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -667,7 +667,7 @@
       581
     ],
     "ocr_text": "SERVES YOU RIGHT! / 씨익",
-    "visual_description": "A close-up shot features a character with dark, messy hair and purple eyes, grinning widely with a triumphant or menacing expression. Sweat drips from their face, which also shows scratches or bloodstains. The background is dark and blurry.",
+    "visual_description": "Smirking menacingly, a dark-haired character with purple eyes and a bloodied, sweaty face looks directly forward in a close-up shot. The background is dark and blurry.",
     "source": "gemini",
     "ok": true
   },
@@ -683,7 +683,7 @@
       700
     ],
     "ocr_text": "",
-    "visual_description": "Three cloaked figures stand on a desolate, cracked ground, one holding a katana. Another cloaked figure lies face down, incapacitated, while a person in a white shirt kneels nearby. Two katanas lie on the ground, suggesting a recent conflict in this wide shot.",
+    "visual_description": "Observing a collapsed cloaked figure and a kneeling child, three cloaked individuals stand on a desolate grey ground, one holding a katana. Two katanas lie discarded.",
     "source": "gemini",
     "ok": true
   },
@@ -699,7 +699,7 @@
       597
     ],
     "ocr_text": "WERE ALL OF THOSE RANDOM SLASHES AN ACT TO MAKE US LOWER OUR GUARD...?!",
-    "visual_description": "A figure in a dark red hooded cloak is seen from behind on the left, partially obscured by a light mist. The background is a desolate, grey landscape with dark, sparse foliage. A large, spiky speech bubble containing text occupies the lower right portion of the panel.",
+    "visual_description": "Standing amidst a desolate landscape, a figure in a dark hooded cloak faces away from the viewer, with another figure's legs visible at the top right. A speech bubble dominates the lower right.",
     "source": "gemini",
     "ok": true
   },
@@ -715,7 +715,7 @@
       1427
     ],
     "ocr_text": "HE MANAGED TO / PULL OFF SUCH A / SHREWD ACT IN A / SITUATION LIKE / THIS... / WHAT IF HE HAD / ACTUALLY MASTERED / MARTIAL ARTS...?!",
-    "visual_description": "A close-up shot shows a person's hand, clad in dark robes, gripping the golden hilt of a sword. The sword is being drawn from its scabbard, with a bright glint on the exposed blade. The background is dark and blurred, suggesting an intense moment.",
+    "visual_description": "Drawing a sword with a golden hilt from its scabbard, a person's hand is captured in a close-up, with a bright glint on the blade, against a dark, dusty background.",
     "source": "gemini",
     "ok": true
   },
@@ -731,7 +731,7 @@
       783
     ],
     "ocr_text": "파 / 얏",
-    "visual_description": "A masked figure in a dark hooded cloak and ninja-like attire lunges forward, holding a glowing sword in their right hand. They are surrounded by dynamic water or energy effects, suggesting rapid movement or an attack. The shot is a medium full shot, capturing the figure in mid-action.",
+    "visual_description": "Charging forward with a drawn sword, a masked, hooded figure in a red cloak and dark clothing runs through a turbulent, watery environment, left hand extended.",
     "source": "gemini",
     "ok": true
   },
@@ -747,7 +747,7 @@
       120
     ],
     "ocr_text": "",
-    "visual_description": "This panel features a stylized, curved black line on a white background. The line forms a sharp, inward-pointing angle in the middle, resembling a less-than sign or a partial bracket. The top and bottom ends of the line curve outwards, suggesting a dynamic, incomplete shape.",
+    "visual_description": "Showing a stylized, curved bracket or a partial, abstract shape, with thick black lines against a white background. The lines curve inward from the top and bottom, meeting at a sharp point in the middle left of the frame. It appears to be a decorative or symbolic element rather than a depiction of a physical object or character.",
     "source": "gemini",
     "ok": true
   },
@@ -763,7 +763,7 @@
       120
     ],
     "ocr_text": "YOU DAMNED BRAT!",
-    "visual_description": "A speech bubble with the text \"YOU DAMNED BRAT!\" is prominently displayed against a plain white background. The bubble's outline is visible on the right side of the frame. No characters or specific setting are shown, focusing solely on the dialogue.",
+    "visual_description": "Displaying the text 'YOU DAMNED BRAT!' within a white speech bubble with a black outline, against a plain white background.",
     "source": "gemini",
     "ok": true
   },
@@ -778,8 +778,8 @@
       792,
       1424
     ],
-    "ocr_text": "콰직 / 콰직",
-    "visual_description": "A masked figure in a dark cloak is shown mid-swing with a glowing sword, striking a person in white robes. The person in white robes is thrown backward, with blood splattering from their head and debris flying around them. The scene depicts a violent attack in an outdoor, action-filled setting.",
+    "ocr_text": "콰직",
+    "visual_description": "Striking a person with a glowing sword, a masked figure in a red hood attacks a white-robed individual, causing blood to splatter and debris to fly in a chaotic, dark environment. The victim recoils from the impact.",
     "source": "gemini",
     "ok": true
   },
@@ -795,7 +795,7 @@
       953
     ],
     "ocr_text": "......!! / 컥",
-    "visual_description": "A close-up shot shows a person with dark hair lying down, severely injured and covered in blood and debris. Their eyes are closed, and blood is splattered around their mouth and face, suggesting a critical wound. A speech bubble and a sound effect are present in the upper part of the panel.",
+    "visual_description": "Lying on the ground, a young, dark-haired character is severely injured, bleeding from the mouth, with dirt and debris covering their clothes and face in a medium close-up shot.",
     "source": "gemini",
     "ok": true
   },
@@ -811,7 +811,7 @@
       646
     ],
     "ocr_text": "JUST BECAUSE WE WENT EASY ON YOU, YOU DARE TO...!",
-    "visual_description": "A close-up shot features a character with dark skin, wearing a dark hooded cloak and a black face covering that reveals only their eyes. The character has an intense, angry expression with furrowed brows and narrowed red eyes. The background is dark and cloudy.",
+    "visual_description": "Staring intensely with narrowed red eyes, a dark-skinned character wearing a black hood and face covering glares forward. The background is dark and cloudy. Close-up shot.",
     "source": "gemini",
     "ok": true
   },
@@ -827,7 +827,7 @@
       970
     ],
     "ocr_text": "푸욱",
-    "visual_description": "A young man with dark, messy hair and a wide-eyed, shocked expression is shown in a medium close-up. He has bloodstains and dirt on his face and a fresh wound on his chest, with blood on his white shirt. A bright, vertical light streak is visible on the right, suggesting an impact or attack.",
+    "visual_description": "Recoiling in shock and pain, a young person with messy dark hair and a blood-stained, torn shirt looks wide-eyed at a bright blue impact on their right. Their face is covered in cuts and blood, against a dark, blurry background in a medium close-up.",
     "source": "gemini",
     "ok": true
   },
@@ -842,8 +842,8 @@
       792,
       1391
     ],
-    "ocr_text": "KEUACK- KKK!!!",
-    "visual_description": "A wide shot depicts a mystical nighttime forest scene under a large, bright full moon. Dark silhouettes of trees and mountains are visible in the foreground and midground, while vertical light streaks fall from the blue-teal sky.",
+    "ocr_text": "KEUACK- / KKK!!!",
+    "visual_description": "Shining brightly in a wide shot, a full moon illuminates a misty, blue-toned forest scene with dark mountains and silhouetted trees, under what appears to be rain or falling light streaks.",
     "source": "gemini",
     "ok": true
   },
@@ -859,7 +859,7 @@
       657
     ],
     "ocr_text": "콜록",
-    "visual_description": "A close-up shot features a person with long dark hair, eyes squeezed shut in agony, and mouth wide open with blood dripping from it. Sweat beads on their face and neck, which also bears small scratch marks. The background is a dark, muted teal.",
+    "visual_description": "Screaming in agony with blood dripping from his mouth, a long-haired man is shown in a close-up, covered in sweat and facial wounds against a dark, muted background.",
     "source": "gemini",
     "ok": true
   },
@@ -874,8 +874,8 @@
       792,
       986
     ],
-    "ocr_text": "HOW DOES IT FEEL TO HAVE A HOLE IN YOUR STOMACH? / 쪼아 / UGHHH!!!",
-    "visual_description": "A cloaked figure holds a sword impaled into the stomach of another person. The injured person, with dark hair and a light robe, screams in agony, blood visible on their face and clothing. The scene is set against a desolate, rocky background, captured in a medium shot.",
+    "ocr_text": "HOW DOES IT FEEL TO HAVE A HOLE IN YOUR STOMACH? / ㅉㅇㅉ / UGHHH!!!",
+    "visual_description": "Being impaled by a sword, a dark-haired character screams in agony as a cloaked figure holds the weapon in their stomach. Blood stains the victim's white clothing against a desolate, dusty background.",
     "source": "gemini",
     "ok": true
   },
@@ -891,7 +891,7 @@
       1267
     ],
     "ocr_text": "SHIT... AS I THOUGHT, I CAN'T TRICK THEM TWICE, HUH...? / IT'S ALRIGHT. AT LEAST I KILLED ONE BASTARD...",
-    "visual_description": "A close-up shot focuses on a pale hand with red accents, fingers splayed and digging into a dark, textured ground. Dirt clings to the fingertips as the hand appears to be gripping or clawing the surface. The background is a dark, indistinct area.",
+    "visual_description": "Clawing at a rough, grey ground surface, a person's strained hand with prominent veins and red marks is visible in a medium close-up shot. Dirt or debris is scattered around the fingertips.",
     "source": "gemini",
     "ok": true
   },
@@ -907,7 +907,7 @@
       96
     ],
     "ocr_text": "",
-    "visual_description": "A partial, empty speech bubble with a jagged, wavy top edge is centered in the frame. The bubble's outline is black against a plain white background, and no characters or setting are visible. The shot focuses on the upper part of the bubble.",
+    "visual_description": "Showing the top portion of an empty speech bubble, outlined in black with a wavy upper edge and a smooth lower curve.",
     "source": "gemini",
     "ok": true
   },
@@ -922,11 +922,10 @@
       792,
       1181
     ],
-    "ocr_text": "",
-    "visual_description": "",
-    "source": "none",
-    "ok": false,
-    "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
+    "ocr_text": "SLOWLY!! MORE!! / DIE AN EXCRUCIATING DEATH!! / 콰악 / ......!!!!!!",
+    "visual_description": "Screaming in agony as a heavy boot stomps violently into his bleeding chest, a wounded, dark-haired man lies on the ground. Blood splatters from his mouth and torso under the crushing force of the attack.",
+    "source": "gemini",
+    "ok": true
   },
   {
     "panel_id": "page012_panel_008",
@@ -940,7 +939,7 @@
       178
     ],
     "ocr_text": "",
-    "visual_description": "The panel features a single, thick black curved line against a plain white background. The line forms a smooth, upward-facing arc, resembling the top portion of a circle or an oval.",
+    "visual_description": "A curved black line arches across the bottom of a white panel, forming the top part of a semi-circle or arch.",
     "source": "gemini",
     "ok": true
   },
@@ -956,7 +955,7 @@
       621
     ],
     "ocr_text": "?",
-    "visual_description": "A cloaked figure stands with a sword in hand, one foot pressed onto the chest of a person lying on the ground, who has blood on their chest. Another cloaked figure is partially visible on the right side of the frame. The setting appears to be a desolate, rocky outdoor area.",
+    "visual_description": "Pressing a foot onto a fallen person's chest, a hooded figure stands holding a sword, while another cloaked figure watches from the right. The scene takes place on a desolate, misty ground.",
     "source": "gemini",
     "ok": true
   },
@@ -971,8 +970,8 @@
       594,
       351
     ],
-    "ocr_text": "DOING SOMETHING LIKE THAT ISN'T MY STYLE AT ALL BUT... / SINCE OUR",
-    "visual_description": "The panel features two partial speech bubbles against a plain white background. The upper speech bubble is mostly visible, containing text. The lower speech bubble is only partially visible at the bottom left, showing the beginning of a sentence. No characters or specific setting are depicted.",
+    "ocr_text": "DOING / SOMETHING LIKE / THAT ISN'T MY STYLE / AT ALL BUT... / SINCE OUR",
+    "visual_description": "Text appearing in a speech bubble, partially visible against a plain white background. The bubble contains dialogue, with no characters or specific setting shown.",
     "source": "gemini",
     "ok": true
   },
@@ -988,7 +987,7 @@
       710
     ],
     "ocr_text": "COMRADE DIED, I GUESS THERE ISN'T A CHOICE...? / 후",
-    "visual_description": "A cloaked figure with a face covering, revealing only their eyes, looks intently to the left. The character appears serious or contemplative, with a sound effect indicating a sigh or exhale. The setting is a muted, blurry outdoor environment, possibly a forest, captured in a medium close-up.",
+    "visual_description": "Looking intently to the left, a cloaked figure with a face covering and hood is shown in a medium close-up. Their eyes are visible against a blurry, dark background, possibly a forest, as they exhale or sigh.",
     "source": "gemini",
     "ok": true
   },
@@ -1004,7 +1003,7 @@
       1123
     ],
     "ocr_text": "파야",
-    "visual_description": "A bright, golden starburst of light explodes from the center of a dark, abstract background. Radial lines emanate from the light, suggesting intense energy or speed. The panel is dominated by this central light effect.",
+    "visual_description": "A golden light bursts from the center of a dark, abstract space, radiating intense rays outwards. No characters are visible in this wide shot.",
     "source": "gemini",
     "ok": true
   },
@@ -1020,7 +1019,7 @@
       467
     ],
     "ocr_text": "",
-    "visual_description": "A close-up shot focuses on a person's wide, startled eyes with small red pupils, framed by a dark grey face covering and a reddish-brown hood. Their forehead is deeply furrowed, conveying intense shock or fear. Speed lines emanate from the background, emphasizing the dramatic moment.",
+    "visual_description": "Staring wide-eyed with a furrowed brow, a masked figure's upper face is shown in an extreme close-up, surrounded by speed lines, conveying shock or intense focus.",
     "source": "gemini",
     "ok": true
   },
@@ -1036,7 +1035,7 @@
       1845
     ],
     "ocr_text": "콰 / ?!! / 억!",
-    "visual_description": "A hooded figure in a dark outfit and red cloak stands on the left, looking surprised. A large, swirling yellow and dark red energy blast with debris fills the upper and middle right of the panel. The lower right shows a partially obscured figure or object on the ground. The shot is a medium-wide view.",
+    "visual_description": "Reacting with surprise, a masked figure in a red hooded cloak stands amidst debris as a powerful, swirling yellow and black energy blast erupts above them, filling the upper half of the panel.",
     "source": "gemini",
     "ok": true
   },
@@ -1052,7 +1051,7 @@
       1410
     ],
     "ocr_text": "",
-    "visual_description": "A wide shot depicts a violent confrontation on a dusty, barren ground. Four masked figures in dark hooded cloaks, each holding a sword, are positioned around the scene. In the foreground, a figure is shown with a massive burst of blood and dark energy erupting from their torso, while another person in white lies injured on the ground.",
+    "visual_description": "Being violently dismembered amidst a spray of blood and fire, a figure collapses while four cloaked, sword-wielding enemies stand ready, and another injured person lies on the dusty ground.",
     "source": "gemini",
     "ok": true
   },
@@ -1068,7 +1067,7 @@
       1155
     ],
     "ocr_text": "",
-    "visual_description": "A medium close-up shows two figures in a dark, possibly outdoor, setting. In the foreground, a person with dark purple hair lies injured, wearing a torn, light-colored garment. Behind them, another figure, heavily splattered with blood, holds a sword with a glowing hilt, suggesting a recent violent encounter.",
+    "visual_description": "A blood-splattered sword is swung over a fallen figure with dark purple hair, who lies on the ground in a dark, possibly forested setting. The figure's light-colored clothing is torn and stained.",
     "source": "gemini",
     "ok": true
   },
@@ -1083,8 +1082,8 @@
       792,
       1197
     ],
-    "ocr_text": "JUST NOW... / SOMETHING / LIKE A BEAM OF / WHITE LIGHT...",
-    "visual_description": "Three cloaked figures with masked faces stand in a smoky, reddish-orange environment, partially obscured by dark debris. The figure on the right holds a glowing white sword. The shot is a medium-wide view, focusing on the figures and the immediate surroundings.",
+    "ocr_text": "JUST NOW... SOMETHING LIKE A BEAM OF WHITE LIGHT...",
+    "visual_description": "Standing amidst a glowing, debris-filled landscape, three cloaked and masked figures react to an unseen event, one holding a sword. Medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -1100,7 +1099,7 @@
       826
     ],
     "ocr_text": "슥",
-    "visual_description": "A close-up shot shows a person's foot in a white and blue sneaker stepping down onto a dark, textured ground. A light blue, glowing aura emanates from around the shoe, accompanied by dark specks, suggesting motion or impact.",
+    "visual_description": "Stepping down onto a dusty, smoky ground, a person's foot in a white and blue sneaker is surrounded by glowing blue energy, captured in a medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -1116,7 +1115,7 @@
       687
     ],
     "ocr_text": "!!",
-    "visual_description": "A close-up shot shows a person with dark skin, wearing a dark head covering and a red hooded cloak. Their visible eye is wide with a sweat drop, indicating surprise or shock, as they look to the left. The background features blurry horizontal lines, suggesting motion.",
+    "visual_description": "Staring wide-eyed with shock, a person in a dark hood and face covering is shown in a close-up. Blurry horizontal lines in the background suggest rapid motion through a textured environment.",
     "source": "gemini",
     "ok": true
   },
@@ -1131,8 +1130,8 @@
       792,
       1160
     ],
-    "ocr_text": "HE'S BEHIND US!!! / 휘 / 력",
-    "visual_description": "Two masked figures in dark cloaks are depicted in a dynamic medium shot. The central figure, seen from the back, points upwards with one hand and holds a sword, while looking over their shoulder. Another cloaked figure is partially visible on the left. The background is a dark, stormy sky with faint trees.",
+    "ocr_text": "HE'S BEHIND US!!! / 휘 릭",
+    "visual_description": "Pointing upwards and backwards, a cloaked figure with a sword raises an arm, alerting another cloaked figure to a threat. They stand in a dark, stormy outdoor environment.",
     "source": "gemini",
     "ok": true
   },
@@ -1147,8 +1146,8 @@
       792,
       1456
     ],
-    "ocr_text": "쉬익",
-    "visual_description": "Three cloaked figures, armed with swords, stand in a dark, misty forest. Two are in the foreground, facing a glowing blue figure in the distance, while a third cloaked figure is positioned between them. The scene is a wide shot, emphasizing the confrontation in the eerie woodland.",
+    "ocr_text": "쉬이익",
+    "visual_description": "Confronting a glowing blue figure, three cloaked assassins with drawn swords stand ready in a misty, dark forest. Snow falls as two figures in the foreground prepare to attack, while a third stands further back.",
     "source": "gemini",
     "ok": true
   },
@@ -1164,7 +1163,7 @@
       814
     ],
     "ocr_text": "파직",
-    "visual_description": "A medium shot shows a person from behind, enveloped in blue electrical energy. Four hooded figures, with only their eyes visible, stand on either side, observing. They are in a dark forest setting under a full moon.",
+    "visual_description": "Emitting blue electrical energy, a dark-haired character stands with their back to the viewer, facing three cloaked and masked figures in a misty forest under a full moon. The figures appear to be observing the powered-up character.",
     "source": "gemini",
     "ok": true
   },
@@ -1180,7 +1179,7 @@
       1784
     ],
     "ocr_text": "파직 / 파직",
-    "visual_description": "A young man wearing a blue and white hooded jacket, black pants, and a dark VR-like headset stands with his arms crossed. He is surrounded by glowing blue electrical energy. The setting appears to be an outdoor, somewhat desolate area with sparse dark plants and cracked ground. It is a full-body shot of the character.",
+    "visual_description": "Standing with arms crossed, a young man in a blue and white hoodie and dark visor is enveloped in crackling blue electrical energy. He stands on dark, cracked ground with faint foliage in the background.",
     "source": "gemini",
     "ok": true
   },
@@ -1196,7 +1195,7 @@
       824
     ],
     "ocr_text": "WHAT IS THAT...? I'VE NEVER SEEN CLOTHING LIKE THAT BEFORE...?",
-    "visual_description": "A close-up shot features a character wearing a dark red hooded cloak and a dark grey face mask. Their wide, red eyes and furrowed brows show surprise or concern, with sweat visible on their forehead. The background is a blurry, dark, cloudy sky.",
+    "visual_description": "Looking intensely with furrowed brows and sweat, a masked figure in a dark red hooded cloak and black face mask is shown in a close-up against a cloudy, dark background.",
     "source": "gemini",
     "ok": true
   },
@@ -1212,7 +1211,7 @@
       919
     ],
     "ocr_text": "스르륵",
-    "visual_description": "A character in a blue and white hooded jacket is shown in a medium close-up, with their arms crossed. Blue electrical energy crackles around their body, and they have a subtle smile. The background is dark and indistinct.",
+    "visual_description": "Standing enveloped in crackling blue energy, a character in a blue and white hooded jacket crosses their hands. The mid-shot shows their torso against a dark, shadowy background.",
     "source": "gemini",
     "ok": true
   },
@@ -1227,8 +1226,8 @@
       792,
       1052
     ],
-    "ocr_text": "WHO ARE YOU! / 타 / 닥 / 탁",
-    "visual_description": "A masked figure in a dark grey outfit and a flowing red hooded cape lunges forward, holding a sword in their left hand and extending their right. They are running through splashing water against a dark, streaked background that conveys motion. This is a medium shot of the character in action.",
+    "ocr_text": "WHO ARE YOU! / 타닥 탓",
+    "visual_description": "Running forward with a sword drawn, a masked figure in a dark grey outfit and red hooded cape splashes through water. Motion lines emphasize their speed in the dark environment.",
     "source": "gemini",
     "ok": true
   },
@@ -1244,7 +1243,7 @@
       710
     ],
     "ocr_text": "쉬익",
-    "visual_description": "A male character stands in a misty, overgrown outdoor setting, emanating blue lightning-like energy. He wears a blue and white jacket, dark pants, and a hat. The panel is a wide shot, showing him centered in the environment.",
+    "visual_description": "Standing amidst a misty forest path, a male character in a blue and white jacket and hat is enveloped in crackling blue electricity. The background shows trees and fog, with speed lines on the right.",
     "source": "gemini",
     "ok": true
   },
@@ -1260,7 +1259,7 @@
       541
     ],
     "ocr_text": "씨익",
-    "visual_description": "A close-up shot features a person from the nose down, wearing a blue zippered hoodie. Blue lightning-like energy crackles around their head and shoulders, and they have a subtle smile. The background shows horizontal lines, suggesting motion.",
+    "visual_description": "Smiling subtly with blue lightning crackling around them, a character's face and upper chest are shown in a close-up, wearing a zipped-up hoodie against a background of speed lines.",
     "source": "gemini",
     "ok": true
   },
@@ -1275,8 +1274,8 @@
       792,
       1129
     ],
-    "ocr_text": "번 / 쩌 / 7",
-    "visual_description": "A bright, golden-white light source emanates from the center of the panel, casting intense radial rays across a dark background. Two Korean sound effects, '번' and '쩌', are placed in the top left and bottom right corners respectively, with a stylized '7' below '쩌'.",
+    "ocr_text": "번 / 쩌억",
+    "visual_description": "Bursting with intense golden light, a bright star-like explosion emanates from the center of a dark, abstract space, surrounded by radial speed lines. No characters are visible.",
     "source": "gemini",
     "ok": true
   },
@@ -1292,7 +1291,7 @@
       700
     ],
     "ocr_text": "",
-    "visual_description": "The panel depicts an abstract, dynamic scene with dark, jagged shapes that resemble a powerful, shadowy force or impact. These shapes are set against a background of strong vertical streaks in shades of red, orange, and blue-grey, conveying intense motion and energy. No identifiable characters or specific setting are clearly visible.",
+    "visual_description": "Engulfing dark, jagged shapes in a blur of reddish-orange and blue-grey energy, a powerful impact or rapid movement creates streaking vertical lines across the panel.",
     "source": "gemini",
     "ok": true
   },
@@ -1308,7 +1307,7 @@
       700
     ],
     "ocr_text": "",
-    "visual_description": "A masked figure in a red hooded cloak and dark clothing holds two swords, one longer than the other, in a dynamic pose. The background is a blur of vertical red, grey, and light blue streaks, with dark, ink-like splatters. The shot is a medium view, focusing on the character's upper body and weapons.",
+    "visual_description": "Swinging two swords, a masked figure in a red hood and dark attire is caught mid-action against a streaked background with dark, shadowy, bird-like forms flying around.",
     "source": "gemini",
     "ok": true
   },
@@ -1324,7 +1323,7 @@
       700
     ],
     "ocr_text": "",
-    "visual_description": "Two cloaked figures, wearing dark red hoods and black masks, are depicted in a dynamic action scene. The upper figure wields a katana, surrounded by blue and black energy effects, while the lower figure is also in motion, with similar light effects. The background is blurred with vertical streaks, suggesting rapid movement in a medium shot.",
+    "visual_description": "Striking with a glowing katana, a masked figure in a dark red cloak attacks another similarly cloaked figure. The lower figure reacts amidst black splatter effects, in a dynamic medium shot against a blurred background.",
     "source": "gemini",
     "ok": true
   },
@@ -1340,7 +1339,7 @@
       188
     ],
     "ocr_text": "",
-    "visual_description": "The panel is predominantly white, with a partial black outline of a jagged, irregular shape visible along the bottom edge. This shape resembles the top of a speech bubble or a decorative border. No characters, actions, or specific settings are discernible in this abstract shot.",
+    "visual_description": "Revealing a partial, jagged outline of a speech bubble or panel border, set against a stark white background with no characters or other elements visible.",
     "source": "gemini",
     "ok": true
   },
@@ -1356,7 +1355,7 @@
       876
     ],
     "ocr_text": "HUH... HUH?!",
-    "visual_description": "A close-up shot features a person wearing a dark grey face covering and a reddish-brown hood. Their visible eye is wide with shock, looking to the right. Dark, splattered shapes are prominent on the right side of the panel, with a blurry, dark blue background.",
+    "visual_description": "Gasping in shock, an extreme close-up shows a masked figure's wide, terrified eye. The person wears a dark grey mask and a reddish-brown cloak, with dark splatters on the right against a blurry background.",
     "source": "gemini",
     "ok": true
   },
@@ -1372,7 +1371,7 @@
       675
     ],
     "ocr_text": "치지직 / 치지직",
-    "visual_description": "A person's upper body is depicted, enveloped in a bright, electric blue and white glow with lightning-like energy emanating from them. Horizontal lines in the background suggest rapid motion or speed. It is a medium shot of the glowing figure.",
+    "visual_description": "Emitting bright blue electrical energy, a figure in a hooded garment glows intensely while moving rapidly across a blurred, dark background. The figure's face is obscured by the light.",
     "source": "gemini",
     "ok": true
   },
@@ -1387,8 +1386,8 @@
       792,
       2273
     ],
-    "ocr_text": "WHA.. WHAT HAPPENED! / HE DISAPPEARED IN A SECOND?! / IS IT AN AGILITY SKILL? ... NO. / IT'S MORE LIKE, HE'S BECOMING INVISIBLE- LIKE WATER- IN A SECOND....!!",
-    "visual_description": "A figure in a red hooded cloak is shown from behind, partially transparent and fading into a streaky blue background with floating debris. Below, a close-up reveals a character's face with wide, shocked eyes and sweat, looking upwards. The panel depicts a sudden, mysterious disappearance.",
+    "ocr_text": "WHA.. WHAT HAPPENED! / HE DISAPPEARED IN A SECOND?! / IS IT AN AGILITY SKILL? ... NO. / IT'S MORE LIKE, HE'S BECOMING INVISIBLE- LIKE WATER- IN A SECOND...!!",
+    "visual_description": "Observing another cloaked figure rapidly fading into invisibility amidst flying debris, a cloaked individual reacts with wide-eyed shock. The dynamic scene, set against a blue background, emphasizes the mysterious disappearance.",
     "source": "gemini",
     "ok": true
   },
@@ -1403,8 +1402,8 @@
       792,
       903
     ],
-    "ocr_text": "콰앙 / !",
-    "visual_description": "A cloaked figure with a black mask and hood is positioned on the right, looking towards the right. A bright blue energy stream emanates from their left hand, cutting across the panel amidst flying black debris and red splatters on the left. Dark tree silhouettes are visible in the background, suggesting an outdoor setting.",
+    "ocr_text": "콰앙",
+    "visual_description": "Deflecting a powerful blue energy blast, a cloaked figure in a dark brown hood and black mask stands amidst flying debris and red splatter in a desolate setting. Mid-shot.",
     "source": "gemini",
     "ok": true
   },
@@ -1420,7 +1419,7 @@
       120
     ],
     "ocr_text": "",
-    "visual_description": "This is a close-up shot of a person's profile, showing only the right side of their face from the forehead to the chin. A single, thin black line outlines the curve of their forehead, a slight indentation for the eye socket, a small, sharp curve for the nose, and a gentle curve for the mouth and chin. The background is entirely white, emphasizing the minimalist outline.",
+    "visual_description": "Curving downwards, a thick black line with a small, sharp indentation is depicted against a plain white background.",
     "source": "gemini",
     "ok": true
   },
@@ -1436,7 +1435,7 @@
       120
     ],
     "ocr_text": "SIR!!!",
-    "visual_description": "A speech bubble is shown against a plain white background. The word \"SIR!!!\" is written in bold, black, slightly italicized letters within the bubble, indicating a loud or urgent exclamation.",
+    "visual_description": "Shouting 'SIR!!!', a speech bubble with jagged edges is shown against a plain white background, indicating an urgent exclamation.",
     "source": "gemini",
     "ok": true
   },
@@ -1451,8 +1450,8 @@
       792,
       1046
     ],
-    "ocr_text": "... EXACTLY WHAT IS THAT LIGHT?! / 쉭익",
-    "visual_description": "The panel features a dynamic, blurry background with streaks of light blue and black, suggesting rapid motion or an energy surge. Large, stylized red sound effects are prominent in the upper right. A speech bubble in the lower left contains text expressing surprise about a light.",
+    "ocr_text": "쉬익 / ... EXACTLY WHAT IS THAT LIGHT?!",
+    "visual_description": "Streaking across a dark, blurry background, a bright blue-white light dominates the upper frame, accompanied by a speech bubble expressing shock. The environment appears abstract and fast-moving.",
     "source": "gemini",
     "ok": true
   },
@@ -1467,8 +1466,8 @@
       792,
       1090
     ],
-    "ocr_text": "CAN IT BE THAT THIS IS THE POWER OF A MASTER WHO'S RISEN TO THE HIGH- EST LEVEL?!",
-    "visual_description": "A close-up shot shows a person's face, partially covered by a dark mask and a hood. Their eyes are wide with red pupils, expressing shock or fear, and sweat beads on their forehead. Motion lines streak across the background, suggesting rapid movement or intense focus.",
+    "ocr_text": "CAN IT BE THAT / THIS IS THE POWER / OF A MASTER WHO'S / RISEN TO THE HIGH- / EST LEVEL?!",
+    "visual_description": "Staring wide-eyed in shock, a masked figure in a dark hood has sweat dripping from their forehead. Speed lines in the background suggest rapid movement or intense realization in this close-up shot.",
     "source": "gemini",
     "ok": true
   },
@@ -1483,8 +1482,8 @@
       792,
       674
     ],
-    "ocr_text": "쉬익",
-    "visual_description": "The panel features a large, red Korean sound effect \"쉬익\" (shwi-ik) prominently in the foreground. The background is a blurred, abstract landscape with streaks of light blue and dark, shadowy shapes, conveying a sense of rapid motion or a powerful energy surge.",
+    "ocr_text": "썩 / 씩",
+    "visual_description": "Streaking across a blurred landscape, light blue and dark blue/black colors blend horizontally, conveying extreme speed or a powerful impact. No characters are visible.",
     "source": "gemini",
     "ok": true
   },
@@ -1500,7 +1499,7 @@
       504
     ],
     "ocr_text": "BUT WHY IS AN EXTRAORDINARY MASTER LIKE HIM DEFENDING THAT BRAT!?!",
-    "visual_description": "A speech bubble with a spiky, irregular black outline is centered on a white background. Inside the bubble, black text is written in an italicized, all-caps font. The panel focuses solely on this speech bubble, with no characters or setting visible.",
+    "visual_description": "A speech bubble with a spiky, radiating outline contains text, set against a plain white background, conveying a sense of shock or exclamation.",
     "source": "gemini",
     "ok": true
   },
@@ -1516,7 +1515,7 @@
       564
     ],
     "ocr_text": "",
-    "visual_description": "A close-up shot captures a person's hands firmly gripping the hilt of a sword. The sword blade glows brightly and is depicted with motion lines, indicating it is being swung at high speed. The background is blurred horizontally, emphasizing the rapid movement.",
+    "visual_description": "Swinging a sword with immense speed, two hands tightly grip the hilt, creating a bright flash on the blade. The background blurs horizontally, emphasizing rapid motion in a close-up shot.",
     "source": "gemini",
     "ok": true
   },
@@ -1532,7 +1531,7 @@
       1812
     ],
     "ocr_text": "THAT KID ALREADY LOST A LOT OF BLOOD, SO HE'S A LOST CAUSE ANYWAY. OUR MISSION HAS BEEN FULFILLED.",
-    "visual_description": "A young man with dark hair is shown in a medium close-up, lying down and appearing severely injured. Blood stains his mouth and torso, and his face is contorted in a pained expression. The background is blurred and dark.",
+    "visual_description": "Lying injured and bleeding profusely, a dark-haired character with a pale face and torn clothes has blood dripping from their mouth and chest. The shot is a medium close-up against a dark, indistinct background.",
     "source": "gemini",
     "ok": true
   },
@@ -1547,8 +1546,8 @@
       792,
       1606
     ],
-    "ocr_text": "LET'S... LET'S RETREAT!!! / 타 / 얏",
-    "visual_description": "A dark, shadowy figure is depicted in motion, with its lower body and legs blurred by speed lines. The background is a dark, indistinct forest or natural environment. The panel captures a dynamic moment, likely a retreat, with sound effects indicating movement.",
+    "ocr_text": "LET'S... LET'S RETREAT!!! / 타 얏",
+    "visual_description": "Rapidly retreating through a blurred, dark environment, a shadowy humanoid figure moves with speed, leaving streaks of motion behind. The setting appears to be a dark, possibly forested area.",
     "source": "gemini",
     "ok": true
   },
@@ -1564,7 +1563,7 @@
       1008
     ],
     "ocr_text": "",
-    "visual_description": "A hooded figure in a dark red cloak and dark attire is captured mid-leap in a wide shot, holding a sword. Swirling light blue energy surrounds the figure, suggesting rapid motion through a moonlit forest at night. Dark trees frame the scene under a bright moon.",
+    "visual_description": "Leaping through a moonlit, snowy forest, a hooded figure in a red cloak wields a sword, surrounded by motion lines, in a medium shot. Trees line the bottom of the frame under a starry sky with a bright moon.",
     "source": "gemini",
     "ok": true
   },
@@ -1579,8 +1578,8 @@
       792,
       1367
     ],
-    "ocr_text": "키이잉",
-    "visual_description": "A glowing, ethereal hand reaches forward from a dark, smoky background, emitting bright blue electrical energy or lightning. It is a medium close-up shot focusing on the hand.",
+    "ocr_text": "키이이잉",
+    "visual_description": "Reaching out from the darkness, a glowing white hand crackles with bright blue electricity. The hand is illuminated against a dark, smoky background in a medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -1596,7 +1595,7 @@
       1263
     ],
     "ocr_text": "퍼억",
-    "visual_description": "A dark, shadowy figure is falling through a night sky, with black particles emanating from them. A small sword falls alongside the figure. Below are dark trees, and a full moon shines in the upper right corner of this medium-wide shot.",
+    "visual_description": "Falling through a night sky, a dark-clad figure disintegrates into black particles, with a sword falling beside him, above a dark forest under a full moon.",
     "source": "gemini",
     "ok": true
   },
@@ -1612,7 +1611,7 @@
       982
     ],
     "ocr_text": "씨익",
-    "visual_description": "A close-up shot shows a person lying down, looking up with a wide, intense grin and red eyes. Their face and visible shoulder are covered in scratches and dirt. The background is dark and out of focus.",
+    "visual_description": "Lying on his back with a menacing grin, a disheveled man with dark hair and wide, red eyes looks upwards. His face and clothes are scratched and dirty, suggesting injury or a struggle, against a dark, gritty background.",
     "source": "gemini",
     "ok": true
   },
@@ -1628,7 +1627,7 @@
       656
     ],
     "ocr_text": "",
-    "visual_description": "A close-up shot focuses on a character's strained eye with a purple iris. Sweat drops are visible on their face and dark hair, which partially covers their features. Small scratch marks are also present on the skin, conveying intensity or distress.",
+    "visual_description": "Straining with intense emotion, a character's purple eye is shown in an extreme close-up. Sweat beads on their pale skin, and dark, messy hair frames their face, suggesting struggle or pain.",
     "source": "gemini",
     "ok": true
   },
@@ -1644,7 +1643,7 @@
       610
     ],
     "ocr_text": "",
-    "visual_description": "A close-up shot focuses on the upper face of a person with dark hair. Their eyes are closed or heavily shadowed, and their forehead is furrowed with visible lines. Small sweat drop symbols are present, indicating intense effort or distress.",
+    "visual_description": "Displaying a distressed face in an extreme close-up, a person with dark hair has closed or heavily shadowed eyes, with small lines and sweat drops indicating intense emotion or pain.",
     "source": "gemini",
     "ok": true
   },
@@ -1660,7 +1659,7 @@
       159
     ],
     "ocr_text": "",
-    "visual_description": "The panel features a plain white background with a thin, black, curved line visible at the very top, suggesting the edge of a speech bubble or an abstract element. No characters or specific setting are visible in this close-up shot.",
+    "visual_description": "Curving across a stark white background, a single thin black line forms an arc at the top of the panel, suggesting a minimalist or abstract detail.",
     "source": "gemini",
     "ok": true
   },
@@ -1676,7 +1675,7 @@
       205
     ],
     "ocr_text": "IT LOOKS LIKE",
-    "visual_description": "The bottom portion of a speech bubble is visible against a plain white background. The text \"IT LOOKS LIKE\" is written inside the bubble. No characters or specific setting are depicted in this close-up shot of the bubble.",
+    "visual_description": "Displaying a partial speech bubble, the text 'IT LOOKS LIKE' is centered on a white background. No characters or specific setting are visible.",
     "source": "gemini",
     "ok": true
   },
@@ -1691,8 +1690,8 @@
       592,
       439
     ],
-    "ocr_text": "OUR ANCESTOR IS IN / A HAPPY MOOD EVEN / THOUGH HE'S AT HIS / DEATHBED?",
-    "visual_description": "The panel features a speech bubble with black text against a plain white background. Only a portion of the speech bubble is visible in the upper right corner of the frame. No characters or specific settings are depicted.",
+    "ocr_text": "OUR ANCESTOR IS IN A HAPPY MOOD EVEN THOUGH HE'S AT HIS DEATHBED?",
+    "visual_description": "Displaying a speech bubble with text, the panel features a white background with no visible characters or setting. It is a close-up shot of the speech bubble.",
     "source": "gemini",
     "ok": true
   },
@@ -1708,7 +1707,7 @@
       598
     ],
     "ocr_text": "ANCESTOR...?",
-    "visual_description": "The panel features a single, oval-shaped speech bubble with a spiky, starburst-like outline, suggesting surprise or shock. The bubble is centered on a plain white background. Inside, the word \"ANCESTOR...?\" is written in black, italicized capital letters.",
+    "visual_description": "Displaying a speech bubble with the text 'ANCESTOR...?', the panel features a white background with no visible characters, emphasizing a spoken question or reaction.",
     "source": "gemini",
     "ok": true
   },
@@ -1724,7 +1723,7 @@
       495
     ],
     "ocr_text": "",
-    "visual_description": "An extreme close-up focuses on a character's wide-open eye, revealing a purple iris. The character's forehead and face show multiple scratch-like marks and sweat drops, suggesting intense strain or distress. Dark hair frames the face.",
+    "visual_description": "Staring intensely with a wide-open purple eye, a character's face is shown in an extreme close-up. Dark hair frames the strained skin, which bears sweat drops and stress lines, indicating significant effort or pain.",
     "source": "gemini",
     "ok": true
   },
@@ -1739,8 +1738,8 @@
       637,
       424
     ],
-    "ocr_text": "WHO IS IT...? WHAT KIND OF NONSENSE IS HE SPOUTING AFTER APPEARING ALL OF A SUDDEN...?",
-    "visual_description": "The panel displays a large, white, oval-shaped speech bubble with a spiky, radiating black outline, suggesting a strong emotional utterance. The background is plain white, with no characters or setting visible within the frame.",
+    "ocr_text": "WHO IS IT...? WHAT / KIND OF NONSENSE IS / HE SPOUTING AFTER / APPEARING ALL OF A / SUDDEN...?",
+    "visual_description": "Displaying a thought bubble with a spiky, agitated outline, the panel focuses on the dialogue against a plain white background. No characters are visible.",
     "source": "gemini",
     "ok": true
   },
@@ -1756,7 +1755,7 @@
       1354
     ],
     "ocr_text": "MY EYESIGHT IS GETTING FUZZY SO I CAN'T SEE... / MY ENTIRE BODY'S GETTING FRIGID...",
-    "visual_description": "A blurred, dark-haired young man in a blue and white hoodie is centered in a medium close-up shot. His face is indistinct but appears to be smiling or laughing. The background is dark and heavily blurred, suggesting an outdoor setting. Two speech bubbles with jagged outlines contain text, indicating the character's internal thoughts or sensations.",
+    "visual_description": "Experiencing a physical decline, a blurred male character in a blue and white hoodie stands against a dark, indistinct background, his face obscured by blur, suggesting impaired vision or consciousness. It's a medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -1772,7 +1771,7 @@
       954
     ],
     "ocr_text": "AM... I GOING TO DIE LIKE THIS?",
-    "visual_description": "A young man with long dark hair and a distressed, sweaty face is shown in a medium close-up. He wears torn, blood-stained clothing, with a cut visible on his cheek. The background is dark and blurry, suggesting a somber or intense situation.",
+    "visual_description": "Struggling with injuries, a young person with messy dark hair and bloodied, torn clothes looks up with a pained, sweaty expression in a medium shot against a blurry, dark background.",
     "source": "gemini",
     "ok": true
   },
@@ -1788,7 +1787,7 @@
       127
     ],
     "ocr_text": "",
-    "visual_description": "The panel features a partial black curved line against a plain white background. The line forms an arc, suggesting the top edge of a larger, unseen circular or oval shape. It is a close-up shot focusing on this abstract line.",
+    "visual_description": "Curving across the top of the frame, a thick black arc forms the upper edge of an unseen circular or oval shape against a plain white background.",
     "source": "gemini",
     "ok": true
   },
@@ -1804,7 +1803,7 @@
       603
     ],
     "ocr_text": "SHIT! I / GUESS THERE IS",
-    "visual_description": "A young man with dark hair and a blue hooded jacket looks down at a futuristic device on his left wrist, touching it with his right hand. His mouth is slightly open, conveying surprise or concern. The background shows dark, silhouetted trees under a misty sky, suggesting an outdoor, possibly nighttime, forest setting. This is a medium close-up shot.",
+    "visual_description": "Looking intently at a glowing wrist device, a young man in a blue hooded jacket holds his left arm with his right hand. His face is partially obscured by dark hair. He stands against a dark, misty forest background in a medium close-up.",
     "source": "gemini",
     "ok": true
   },
@@ -1820,7 +1819,7 @@
       122
     ],
     "ocr_text": "NO CHOICE.",
-    "visual_description": "The panel is predominantly white. In the upper right corner, a partial speech bubble with a black outline is visible. Inside the bubble, the text \"NO CHOICE.\" is written in black. The shot is a close-up on the speech bubble.",
+    "visual_description": "Presenting a partial speech bubble, the panel shows the upper right curve of a white-outlined bubble containing the text 'NO CHOICE.' against a plain white background.",
     "source": "gemini",
     "ok": true
   },
@@ -1836,7 +1835,7 @@
       108
     ],
     "ocr_text": "",
-    "visual_description": "The panel features a simple black curved line against a white background. The line forms an arch, suggesting the top of a rounded object or a landscape feature. It is an abstract, minimalist shot.",
+    "visual_description": "Arches across the top of the frame, a thick black curved line is drawn on a plain white background.",
     "source": "gemini",
     "ok": true
   },
@@ -1852,7 +1851,7 @@
       879
     ],
     "ocr_text": "I WAS GOING TO COME HERE EARLIER AND TEACH YOU HOW TO USE THIS, BUT I GUESS WE'LL HAVE TO IMPROVISE.",
-    "visual_description": "A medium close-up shot shows a person's torso and right arm. They are holding a small, glowing blue device in their hand. The person wears a light-colored shirt with blue accents and a dark belt, against a blurry, dark, and cloudy background.",
+    "visual_description": "Holding a small device emitting a blue glow, a person's torso and arm are visible against a dark, hazy background. They wear a white shirt with blue accents and a dark belt.",
     "source": "gemini",
     "ok": true
   },
@@ -1868,7 +1867,7 @@
       1399
     ],
     "ocr_text": "I SHOULD HURRY, HUH. / SINCE YOU'RE RIGHT ABOUT TO DIE.",
-    "visual_description": "Two male characters are in the frame. One, in a blue hoodie, is seen from the back, facing a wounded man with messy dark hair and a torn white robe. The wounded man is slumped on the ground, bleeding from his mouth and chest, looking up with a pained expression. The setting is a dark, somber environment, possibly a stone room. It's a medium shot focusing on the interaction.",
+    "visual_description": "Standing over a severely injured man, a dark-haired character in a blue hoodie faces away from the viewer. The man, with messy hair and bloodied face and clothes, lies on a dark, textured ground in a medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -1884,7 +1883,7 @@
       838
     ],
     "ocr_text": "푸욱",
-    "visual_description": "A close-up shot shows a person with dark hair, blood on their chin and neck, and a distressed expression with sweat. A hand from the right holds a glowing, pen-like device, pointing it towards the person's neck. The background is dark and indistinct.",
+    "visual_description": "Shining a penlight into a distressed, blood-splattered face, a hand holds the light close to the person's chin. The dark-haired person's mouth is open, blood dripping. Close-up.",
     "source": "gemini",
     "ok": true
   },
@@ -1900,7 +1899,7 @@
       913
     ],
     "ocr_text": "I'M THE ONE INJECTING IT, AND IT'S MAKING ME CRINGE. / 푸욱",
-    "visual_description": "A male character in a blue and white hoodie is shown from the chest down, looking downwards. He holds a small white object, possibly a syringe, near the arm of another person lying out of frame, with some blood visible. The shot is a medium close-up, focusing on the action of injection.",
+    "visual_description": "Injecting a substance into another person's arm, a figure in a blue and white hoodie leans over a prone, injured body. The injector holds a small vial or syringe, with blood visible on the recipient's arm. Medium shot in a dark setting.",
     "source": "gemini",
     "ok": true
   },
@@ -1916,7 +1915,7 @@
       711
     ],
     "ocr_text": "DONE.",
-    "visual_description": "A young man with dark hair and a blue hooded jacket is shown in a medium close-up. He wears goggles on his head and has a subtle smirk on his face. He holds a glowing, pen-like object in his right hand, with a dark, blurry background suggesting an outdoor setting.",
+    "visual_description": "Smirking slyly, a young man in a blue hoodie and goggles holds a glowing, pen-like device in a medium close-up shot against a dark, blurred background.",
     "source": "gemini",
     "ok": true
   },
@@ -1932,7 +1931,7 @@
       949
     ],
     "ocr_text": "HEY, ANCES- / TOR NIM?",
-    "visual_description": "Two male figures are in the frame. One man in traditional white clothing lies on the ground with blood on his chest. Another man in modern athletic wear kneels beside him, reaching out. The setting is a muted, desolate outdoor area. It's a medium shot focusing on the interaction between the two figures.",
+    "visual_description": "Kneeling beside an injured man, a young man in a blue and white jacket looks down at an older man with purple hair, who lies bleeding on the murky ground in white robes. Medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -1948,7 +1947,7 @@
       1049
     ],
     "ocr_text": "PLEASE MAKE SURE TO SUCCEED AND MAKE THIS DESCENDANT'S LIFE EASIER, OKAY?",
-    "visual_description": "A medium close-up shows two characters. On the right, a character with dark hair and a blue jacket looks down with a slight smirk. Below them, another character with messy purple hair has blood dripping from their mouth and wide, distressed eyes. The background is a blurry, muted green-grey.",
+    "visual_description": "Looking down with a sinister smile, a man in a blue jacket observes another person with long dark hair bleeding from the mouth and crying, against a dark, desolate background in a medium close-up.",
     "source": "gemini",
     "ok": true
   },
@@ -1964,7 +1963,7 @@
       122
     ],
     "ocr_text": "",
-    "visual_description": "The panel shows a white background with a partial black outline at the bottom. The outline forms a gentle curve, suggesting the bottom edge of a speech bubble or a decorative frame. The shot is a close-up on this minimal detail.",
+    "visual_description": "Curving across the bottom of the frame, a thin black line is visible against a stark white background.",
     "source": "gemini",
     "ok": true
   },
@@ -1979,8 +1978,8 @@
       792,
       700
     ],
-    "ocr_text": "THIS NANO MACHINE IS THE LATEST VERSION. OPERATING IT SHOULD BE SIMPLE ENOUGH, / SO GOOD LUCK LEARNING HOW TO USE IT.",
-    "visual_description": "A young man with dark hair and a cap, wearing a blue and white jacket, stands in a medium shot. He is surrounded by light blue electrical energy, with larger glowing blue Korean characters (sound effects) to his left. The background is a blurry, cloudy sky.",
+    "ocr_text": "THIS NANO MACHINE IS THE LATEST VERSION. OPERATING IT SHOULD BE SIMPLE ENOUGH, / SO GOOD LUCK LEARNING HOW TO USE IT. / 파아",
+    "visual_description": "Standing amidst crackling blue electricity, a young man in a blue and white jacket and cap looks forward with a slight smile against a cloudy, stormy sky. A blue sound effect is on the left.",
     "source": "gemini",
     "ok": true
   },
@@ -1996,7 +1995,7 @@
       700
     ],
     "ocr_text": "촤 / 촤",
-    "visual_description": "A young man with dark hair, wearing a blue and white jacket, stands emanating light blue energy. He has his hands in his pockets and a slight smirk. In the foreground, the bare feet of another person lie on the ground, suggesting they are defeated or unconscious in a desolate outdoor setting.",
+    "visual_description": "Standing over a prone figure, a young man crackles with blue electricity, wearing a blue and white hoodie and dark pants. The bare feet of the person on the ground are visible in the foreground against a cloudy, desolate background.",
     "source": "gemini",
     "ok": true
   },
@@ -2012,7 +2011,7 @@
       537
     ],
     "ocr_text": "",
-    "visual_description": "A person in light-colored, tattered clothing lies on their back on the ground, with their bare feet visible in the foreground. Above them, a glowing blue, humanoid figure stands. The background shows a misty outdoor environment with trees, suggesting a desolate or post-battle scene.",
+    "visual_description": "Lying prone on the ground, a person with dark hair and light, tattered clothes appears defeated, with bare feet visible. Above them, a figure in dark attire with a blue aura stands, partially visible, in a hazy outdoor setting.",
     "source": "gemini",
     "ok": true
   },
@@ -2027,8 +2026,8 @@
       792,
       1459
     ],
-    "ocr_text": "파지직 / ......",
-    "visual_description": "A person in tattered white clothing lies on their back, with their bare feet prominent in the foreground. A bright, glowing blue, humanoid-shaped energy rises from their body, surrounded by blue lightning effects. The background is a dark, cloudy sky with falling particles, suggesting a cold or stormy environment. The shot is a medium-wide view.",
+    "ocr_text": "...... / 파지직",
+    "visual_description": "Rising from a prone figure, a glowing blue, humanoid energy ascends into a desolate, cloudy sky. The person lies on their back, feet visible, in a medium shot.",
     "source": "gemini",
     "ok": true
   },
@@ -2044,7 +2043,7 @@
       1261
     ],
     "ocr_text": "WHAT / KIND OF NONSENSE / HAS THAT STRANGE GUY / BEEN BLABBERING / ABOUT...?",
-    "visual_description": "A close-up shot features a person with long, dark purple hair, looking upwards with a dazed expression. Blood drips from their mouth and a cut on their cheek, while sweat beads on their face. The background is dark and out of focus.",
+    "visual_description": "Looking distressed and injured, a long-haired character with cuts on their face and blood dripping from their mouth is shown in a close-up. Their eyes are heavy-lidded, conveying pain or exhaustion against a dark, indistinct background.",
     "source": "gemini",
     "ok": true
   },
@@ -2060,7 +2059,7 @@
       205
     ],
     "ocr_text": "",
-    "visual_description": "The panel features the bottom half of a speech bubble with a decorative, jagged top edge. The bubble is empty and set against a plain white background. It is a close-up shot of the speech bubble.",
+    "visual_description": "Showing the bottom outline of an empty speech bubble against a plain white background. No characters or specific setting are visible.",
     "source": "gemini",
     "ok": true
   },
@@ -2076,7 +2075,7 @@
       82
     ],
     "ocr_text": "",
-    "visual_description": "The panel is almost entirely white, with a thin, vertical black line running along the right edge. The line appears to be part of the panel's border or a very narrow object. The shot is extremely minimal, focusing on the blank space.",
+    "visual_description": "Remaining mostly blank, the panel features a thin black vertical line along its right edge, against a stark white background.",
     "source": "gemini",
     "ok": true
   },
@@ -2092,7 +2091,7 @@
       82
     ],
     "ocr_text": "SERIAL",
-    "visual_description": "The panel displays the word \"SERIAL\" in a bold, dark blue, sans-serif font. The text is centered against a plain white background, occupying most of the frame.",
+    "visual_description": "Displaying the word \"SERIAL\" in large, bold, dark blue letters against a plain white background. It is a close-up of the text.",
     "source": "gemini",
     "ok": true
   },
@@ -2108,7 +2107,7 @@
       82
     ],
     "ocr_text": "NUMBER.",
-    "visual_description": "The panel displays the word \"NUMBER.\" in large, bold, dark blue capital letters against a plain white background. The text is centered horizontally and slightly above the vertical center of the frame. There are no characters or specific settings visible, making it a text-focused panel.",
+    "visual_description": "Displaying a single word in large, bold, dark blue capital letters, the text \"NUMBER.\" is centered against a plain white background. The shot is a close-up on the text itself.",
     "source": "gemini",
     "ok": true
   },
@@ -2124,7 +2123,7 @@
       82
     ],
     "ocr_text": "",
-    "visual_description": "This panel is entirely white with a thin black vertical line along its left edge. No characters, objects, or specific setting are visible, making it an abstract or blank panel.",
+    "visual_description": "Presenting a blank white panel with a thin black vertical line running down its left edge. No characters or specific setting are visible in this minimalist shot.",
     "source": "gemini",
     "ok": true
   },
@@ -2140,7 +2139,7 @@
       107
     ],
     "ocr_text": "",
-    "visual_description": "The panel shows a partial black outline against a white background. The outline forms a straight horizontal line in the middle, with jagged, torn-paper-like edges curving upwards on both the left and right sides, suggesting the bottom of a speech bubble or a torn panel.",
+    "visual_description": "Showing the bottom edge of a white speech bubble with a jagged, torn-paper-like border, against a white background.",
     "source": "gemini",
     "ok": true
   },
@@ -2156,7 +2155,7 @@
       160
     ],
     "ocr_text": "",
-    "visual_description": "The panel shows a white background with the top portion of a speech bubble or banner outline at the bottom. The outline features a straight horizontal top edge with jagged, lightning-bolt-like shapes extending from the top corners, leading down to vertical lines. No characters or specific setting are visible.",
+    "visual_description": "Showing the bottom half of a jagged-edged banner or speech bubble, outlined in black against a white background.",
     "source": "gemini",
     "ok": true
   },
@@ -2172,7 +2171,7 @@
       414
     ],
     "ocr_text": "...?!",
-    "visual_description": "A close-up shot focuses on a person with dark hair, their left eye wide open in shock or fear, with sweat drops on their face. The background is blurry and indistinct. A speech bubble to the right contains '...?!'.",
+    "visual_description": "Staring wide-eyed in shock and distress, a dark-haired character's face is shown in an extreme close-up, with sweat drops visible. The background is blurry and dark.",
     "source": "gemini",
     "ok": true
   },
@@ -2188,7 +2187,7 @@
       487
     ],
     "ocr_text": "THERE'S A STRANGE VOICE INSIDE MY HEAD...",
-    "visual_description": "The panel shows a white oval speech bubble with a jagged, spiky black outline, suggesting an internal or impactful thought. Inside, the text \"THERE'S A STRANGE VOICE INSIDE MY HEAD...\" is displayed in black, bold, italicized font. The background is plain white, focusing solely on the speech bubble.",
+    "visual_description": "Displaying a white thought bubble with jagged black outlines, containing the text 'THERE'S A STRANGE VOICE INSIDE MY HEAD...' on a plain white background.",
     "source": "gemini",
     "ok": true
   },
@@ -2204,7 +2203,7 @@
       189
     ],
     "ocr_text": "",
-    "visual_description": "The panel features a white background with a black outline of a decorative border. The top edge of the border has two jagged, lightning-bolt-like shapes on the left and right, connected by a straight horizontal line. The sides of the border extend downwards as straight vertical lines. It is a close-up shot of the top section of this frame.",
+    "visual_description": "Outlining the top of a rectangular shape with jagged corners, a black line forms what appears to be a speech bubble or panel border against a white background.",
     "source": "gemini",
     "ok": true
   },
@@ -2220,7 +2219,7 @@
       127
     ],
     "ocr_text": "",
-    "visual_description": "The panel is almost entirely white. A thick black vertical line runs down the right edge of the frame. The panel appears blank or serves as a visual separator.",
+    "visual_description": "Running along the right edge of the panel, a thick black vertical line stands against a stark white background. The rest of the panel is completely empty.",
     "source": "gemini",
     "ok": true
   },
@@ -2236,7 +2235,7 @@
       127
     ],
     "ocr_text": "SKY",
-    "visual_description": "The panel displays the word \"SKY\" in bold, dark blue capital letters against a plain white background. No characters, specific settings, or actions are depicted, making it a text-focused image.",
+    "visual_description": "Displaying the word 'SKY' in bold, dark blue capital letters, set against a plain white background. It is a close-up of the text.",
     "source": "gemini",
     "ok": true
   },
@@ -2252,7 +2251,7 @@
       127
     ],
     "ocr_text": "CORPORATION.",
-    "visual_description": "The panel displays the word \"CORPORATION.\" in a bold, dark blue, sans-serif font. The text is centered against a plain white background. This is a text-only panel.",
+    "visual_description": "Displaying the word 'CORPORATION.' in large, bold blue letters, centered on a plain white background. No characters or specific setting are visible.",
     "source": "gemini",
     "ok": true
   },
@@ -2268,7 +2267,7 @@
       127
     ],
     "ocr_text": "",
-    "visual_description": "The panel is almost entirely white, featuring a thin, dark vertical line running along the left edge from top to bottom. The background is a plain, solid white, creating a minimalist and empty composition. This appears to be a full frame shot of this simple visual element.",
+    "visual_description": "Displaying a blank white panel, a thin black vertical line runs along the far left edge, creating an empty, minimalist composition.",
     "source": "gemini",
     "ok": true
   },
@@ -2284,7 +2283,7 @@
       275
     ],
     "ocr_text": "",
-    "visual_description": "The panel features an empty speech bubble with jagged bottom edges, positioned at the top against a plain white background. The majority of the frame consists of blank white space below the bubble. It appears to be a medium shot focusing on the speech bubble.",
+    "visual_description": "An empty speech bubble is shown at the top of a white panel, with jagged edges indicating it's part of a larger, unseen bubble.",
     "source": "gemini",
     "ok": true
   },
@@ -2300,7 +2299,7 @@
       272
     ],
     "ocr_text": "",
-    "visual_description": "The panel shows a partial black outline of a shape at the bottom, resembling the top edge of a speech bubble or a panel border. It features a straight horizontal line with jagged, pointed corners on both the left and right sides. The background is plain white.",
+    "visual_description": "Outlining the bottom of a panel or speech bubble, a thick black line with jagged, pointed edges on either side is visible against a plain white background.",
     "source": "gemini",
     "ok": true
   },
@@ -2316,7 +2315,7 @@
       567
     ],
     "ocr_text": "나노마신 / 刺客魔神",
-    "visual_description": "A stylized title logo is prominently displayed against a plain white background. The text is rendered in a dark red, textured font with a subtle grid pattern. This is a close-up shot focusing solely on the title.",
+    "visual_description": "Displaying the title of a series, the words '나노마신' and '刺客魔神' are rendered in a stylized red font with a circuit board texture on a plain white background.",
     "source": "gemini",
     "ok": true
   },
@@ -2332,7 +2331,7 @@
       498
     ],
     "ocr_text": "금강불괴",
-    "visual_description": "The panel features Korean text '금강불괴' positioned at the top left corner. The rest of the panel is a plain white background, with no characters, actions, or specific setting depicted.",
+    "visual_description": "Displaying Korean text at the top of a white background, the panel shows the characters '금강불괴' in a simple, clean font. This is a text-only panel.",
     "source": "gemini",
     "ok": true
   }

@@ -19,10 +19,10 @@ these descriptions is a later, separate stage.
 
 Design choice (from research): modern vision-language models do OCR AND
 description in a single call, so we don't run a separate OCR engine when
-Gemini is available — one request returns both fields as JSON. Gemini 2.5
-Flash is the default: free tier covers ~1,500 panels/day, and it handles
-the English-translated bubbles in these manhwa panels without the
-Japanese-specialized manga-OCR stack.
+Gemini is available — one request returns both fields as JSON. Gemini 3.5
+Flash is the default (gemini-3.1-flash-lite is the cheaper alternative);
+it handles the English-translated bubbles in these manhwa panels without
+the Japanese-specialized manga-OCR stack.
 
 If no GEMINI_API_KEY is set, the tool falls back to Tesseract for OCR-only
 (visual_description left empty) so it still runs for testing — but the
@@ -41,15 +41,16 @@ VISION_PROMPT = """You are analyzing a single panel from a manhwa/webtoon chapte
 Return ONLY a JSON object (no markdown, no code fences) with exactly these keys:
 
 {
-  "ocr_text": "<all readable text in speech bubbles, captions, or sound effects, joined with ' / '. Empty string if none.>",
-  "visual_description": "<2-3 sentences: who is in frame, what action or emotion is happening, the setting, and the shot type (close-up, wide, etc.). Be concrete and factual. Do not invent plot.>"
+  "ocr_text": "<ALL readable text in speech bubbles, captions, or sound effects, joined with ' / '. Transcribe EXACTLY as written — names, curses, sound effects all matter for matching. Empty string if none.>",
+  "visual_description": "<Lead with the single concrete action happening in this exact panel (e.g. 'boy tumbling down a rocky cliff face', 'character collapsed on ground clutching injured leg', 'figure standing upright facing a row of cloaked enemies', 'extreme close-up of one wide shocked eye'). Then: who is in frame (name if visible), setting, shot type. MAX 50 words. Use specific action verbs — NEVER start with vague openers like 'a scene showing', 'a panel depicting', or 'the image features'.>"
 }
 
 Rules:
-- Transcribe text exactly as written, including names.
-- If a bubble is only punctuation like '!!!' or '......', include it as-is.
-- Describe only what is visibly in THIS panel. Do not guess story context.
-- Keep visual_description under 60 words."""
+- visual_description MUST start with the action verb phrase, not the subject. Example: 'Falling down a steep rocky slope, the dark-haired boy...' not 'A boy falls...'
+- OCR text is the highest-priority match signal — transcribe every word, name, and sound effect exactly.
+- If a bubble is only punctuation like '!!!' or 'ACK!!', include it as-is.
+- Describe only what is visibly in THIS panel. Do not invent plot.
+- Keep visual_description under 50 words."""
 
 
 def _panel_id_from_name(fname: str) -> str:

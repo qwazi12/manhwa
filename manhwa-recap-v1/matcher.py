@@ -38,14 +38,19 @@ from collections import Counter
 
 # ------------------------------------------------------------ tunables
 # How far forward the matcher may look for a better panel on a single beat.
-# Small window keeps it from skipping ahead too aggressively.
-LOOKAHEAD = 4
+LOOKAHEAD = 6
 # Penalty applied to advancing to a NEW panel, so it prefers holding unless a
 # later panel clearly matches better. Higher = holds panels longer.
 ADVANCE_PENALTY = 0.06
 # Weight of OCR/dialogue match vs. visual-description match.
-OCR_WEIGHT = 0.45
-DESC_WEIGHT = 0.55
+# OCR is the highest-signal field (exact character names and dialogue are
+# almost perfectly discriminative), so it gets a majority weight.
+OCR_WEIGHT = 0.55
+DESC_WEIGHT = 0.45
+# Anti-stall: if the same panel has been held for this many consecutive beats,
+# the ADVANCE_PENALTY is reduced toward zero so the matcher becomes willing
+# to try the next panel. Forward-only rule is preserved.
+MAX_HELD = 3
 
 _STOP = set("a an the of to in on at and or but with was were is are be been "
             "he she it his her him they them their you your i me my we our as "
@@ -125,36 +130,53 @@ def match_beats_to_panels(beats, panels, embed_model=None):
     current panel or advancing up to LOOKAHEAD panels forward; pick the best
     score, applying ADVANCE_PENALTY per panel advanced so it holds unless a
     forward panel is clearly better.
+
+    Anti-stall guard: if the same panel has held for MAX_HELD consecutive beats,
+    the advance penalty is reduced to near-zero for that decision so the matcher
+    is forced to consider moving forward. Forward-only rule stays intact.
     """
     score, method = build_scorer(beats, panels, embed_model)
     n_p = len(panels)
     assignments = []
-    cur = 0  # current panel index; never decreases
+    cur = 0       # current panel index; never decreases
+    held_run = 0  # consecutive beats on the same panel
 
     for bi in range(len(beats)):
+        # Anti-stall: scale down advance penalty when we've held too long
+        stall_factor = max(0.0, 1.0 - max(0, held_run - MAX_HELD) * 0.25)
+        effective_penalty = ADVANCE_PENALTY * stall_factor
+
         best_pi, best_val = cur, score(bi, cur)
-        # consider advancing
+        # consider advancing up to LOOKAHEAD panels forward
         for step in range(1, LOOKAHEAD + 1):
             pi = cur + step
             if pi >= n_p:
                 break
-            val = score(bi, pi) - ADVANCE_PENALTY * step
+            val = score(bi, pi) - effective_penalty * step
             if val > best_val:
                 best_val, best_pi = val, pi
-        # never let panels run out before beats end: if we're near the end of
-        # the panel list but have many beats left, hold instead of exhausting.
+
+        # never exhaust the panel list before beats run out:
+        # only advance one step at a time when panels are scarce
         beats_left = len(beats) - bi
         panels_left = n_p - cur
         if panels_left <= beats_left and best_pi > cur:
-            # only advance by one at a time when panels are scarce
             best_pi = min(best_pi, cur + 1)
 
+        advanced = best_pi > cur
         assignments.append({
             "beat_index": bi,
             "panel_index": best_pi,
             "score": round(score(bi, best_pi), 4),
-            "held": best_pi == cur,
+            "held": not advanced,
+            "held_run": held_run,
         })
+
+        # update stall counter
+        if advanced:
+            held_run = 0
+        else:
+            held_run += 1
         cur = best_pi
 
     return assignments, method
