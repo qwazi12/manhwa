@@ -29,6 +29,10 @@ manhwa-recap-v1/input/*.mp3
 manhwa-recap-v1/input/*.wav
 manhwa-recap-v1/input/*.m4a
 
+# --- Derived caches (regenerable from API, don't track) ---
+manhwa-recap-v1/embeddings_cache.json
+embeddings_cache.json
+
 # --- OS junk ---
 .DS_Store
 **/.DS_Store

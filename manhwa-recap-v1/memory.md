@@ -305,3 +305,52 @@
 - **User instruction (this session):** Log all future session inputs and actions passively into this file (`memory.md`) as they happen, so any human or agent can pick up from the latest point without re-deriving context. Also: always back up work to GitHub (commit + push) rather than leaving changes uncommitted locally.
 - **How to apply going forward:** any agent picking up this project should (a) append a dated session entry here describing what was asked and what was done/found *before* ending a work session, and (b) commit + push to `https://github.com/qwazi12/manhwa.git` at natural stopping points, not just when explicitly asked in-the-moment.
 
+---
+
+### Session 3 — 2026-07-05 (later) — Gemini Embedding Scorer (K-006/K-007 addressed; matcher much better, 3 beats still off)
+
+**User input (verbatim intent):** Diagnosis from Session 2 confirmed. Do NOT try to fix sentence-transformers. Instead: (1) add a Gemini embedding scorer to `matcher.py` using the already-installed/authenticated google-genai SDK, model `text-embedding-004`, task_type `SEMANTIC_SIMILARITY`, one call per string, cosine gives real 0.6-0.9 scores; match the existing `_try_embed` interface so `build_scorer()` calls it transparently; cache embeddings to disk (`embeddings_cache.json` keyed by text hash). (2) Recalibrate constants: `ADVANCE_PENALTY` 0.06→0.015, `LOOKAHEAD` →8, keep `MAX_HELD=3`. (3) Re-run matcher on `build_test/beats 2.json` + full descriptions with the Gemini embedder, show the beat/start/panel_id/held/beat_text table, verify four checkpoint beats (fall→page002_panel_011, curse→page003_panel_004, standing→page003_panel_006, branch→page004_panel_003). If any miss, show raw scores before touching anything. (4) Append full session to memory.md. Do NOT render — beatsheet table first.
+
+**Root cause being addressed (from Session 2):** lexical token-overlap scores were ~0.0-0.1, so `ADVANCE_PENALTY` (0.06/step) always beat advancing → matcher stalled on one panel. The fix is a real semantic scorer, not guard-tuning.
+
+#### What changed
+- **Installed `google-genai` into `manhwa-recap-v1/venv`** (was absent; only `faster-whisper`/`Pillow` were there). Version 2.10.0. Did NOT touch sentence-transformers per instruction.
+- **`text-embedding-004` is NOT available** on this API key/endpoint (404 NOT_FOUND for v1beta embedContent). Listed models: the only embedding-capable ones are `gemini-embedding-001`, `gemini-embedding-2` (stable), `gemini-embedding-2-preview`. Per the standing "latest stable Gemini" policy, **used `gemini-embedding-2`** (3072-dim). This is a deliberate substitution for the requested-but-unavailable `text-embedding-004`.
+- **Added to `matcher.py`:** `_gemini_embed(texts, model_name="gemini-embedding-2")` — one `embed_content` call per string (this model returns exactly one embedding per call regardless of batch), L2-normalizes, returns np.ndarray or None; matches the `_try_embed` signature. Disk cache `_load/_save_embed_cache` + `_text_key` (sha256 of `model\x00task\x00text`) writing to `manhwa-recap-v1/embeddings_cache.json`. `build_scorer` now tries Gemini first → sentence-transformers (only if `--embed-model` passed) → lexical.
+- **Recalibrated tunables:** `ADVANCE_PENALTY` 0.06→0.015, `LOOKAHEAD` 6→8, `MAX_HELD` kept 3.
+- **`embeddings_cache.json` is gitignored** (6.7MB derived artifact, regenerable from API; keys are text-hashed so it self-invalidates when descriptions change). Added to root `.gitignore`.
+
+#### Result — matcher massively improved but NOT all four checkpoints correct
+- Method is now `gemini-embeddings` (confirmed in output). 15 beats → **7 distinct panels** (was 4 on lexical), 9 held / 6 advanced. Output: `build_test/beatsheet_gemini.json`.
+- **Checkpoint verdicts:**
+  - Beat 4 "rolled down a steep slope" → **page002_panel_011 ✅ CORRECT** (the fall panel; lexical had this stuck on the running panel).
+  - Beat 5 "raised himself... cursed" → got page002_panel_014 ("...SHIT!! I CAN'T MOVE MY LEG"), wanted page003_panel_004 (DAMN IT ALL). **MISS — but penalty-caused, not scoring:** DAMN IT ALL actually scores *higher raw* (0.7183 vs 0.7086) but is 3 steps ahead so `ADVANCE_PENALTY*3=0.045` drops it below the 1-step-away collapse panel. Note: page002_panel_014 is itself a plausible "cursing on the ground" match.
+  - Beat 8 "stood up to his full height" → got page003_panel_009 ("FUCK!" text-only SFX panel), wanted page003_panel_006 (standing defiantly facing figures). **MISS — genuine embedding error:** the wrong panel scores *higher raw* (0.6865 vs 0.6188). Penalty tuning cannot fix this; the embedding of "stood up to full height" is closer to a bold "FUCK!" exclamation than to "Standing defiantly." This wrong grab then poisons beats 9-14, which all hold on the FUCK! panel.
+  - Beat 11 "enemy on the highest branch" → got page003_panel_009 (held), wanted page004_panel_003 (cloaked figure on rock addressing others). **MISS — penalty + poisoning:** page004_panel_003 scores *higher raw* (0.7141 vs 0.6934 held) but the 3-step penalty flips it, AND the matcher is stuck on the FUCK! panel from beat 8's error.
+- **Summary of the 3 misses:** two (beats 5, 11) are cases where the correct panel has the higher raw score but loses to `ADVANCE_PENALTY` over multiple steps — arguably `ADVANCE_PENALTY` is still slightly too high, or the text-only SFX panels (page003_panel_009 "FUCK!", etc.) should be filtered out as match targets. One (beat 8) is a genuine semantic mismatch where a bold-text SFX panel out-embeds the real action panel. The SFX/text-only panels appear to be the common culprit — they attract narration beats they shouldn't.
+
+#### Per instruction: STOPPED for user decision. Did NOT render. Did NOT re-tune after seeing misses — surfaced raw scores instead (above).
+
+#### Beatsheet panel assignments (build_test/beatsheet_gemini.json, gemini-embeddings)
+| beat | start | panel_id | held |
+|---|---|---|---|
+| 0 | 0.0 | page001_panel_003 | – |
+| 1 | 3.0 | page001_panel_004 | no |
+| 2 | 9.0 | page001_panel_005 | no |
+| 3 | 12.8 | page002_panel_003 | no |
+| 4 | 15.7 | page002_panel_011 | no ✅fall |
+| 5 | 19.3 | page002_panel_014 | no (wanted page003_panel_004) |
+| 6 | 23.4 | page002_panel_014 | yes |
+| 7 | 28.5 | page002_panel_014 | yes (wanted page003_panel_004) |
+| 8 | 32.4 | page003_panel_009 | no (wanted page003_panel_006) |
+| 9 | 34.8 | page003_panel_009 | yes |
+| 10 | 41.9 | page003_panel_009 | yes |
+| 11 | 45.3 | page003_panel_009 | yes (wanted page004_panel_003) |
+| 12 | 52.3 | page003_panel_009 | yes |
+| 13 | 56.6 | page003_panel_009 | yes |
+| 14 | 61.4 | page003_panel_009 | yes |
+
+#### Known Issues — updates
+| K-006 | 🔄 PARTIALLY RESOLVED | Stall root cause (tiny lexical scores vs large penalty) fixed by Gemini embedding scorer — beat 4 now correct, 7 distinct panels vs 4 | Matcher usable but 3/4 checkpoints still off | Two remaining failure modes: (a) `ADVANCE_PENALTY` still tips multi-step-ahead correct panels (beats 5,11); (b) text-only SFX panels (e.g. page003_panel_009 "FUCK!") out-embed real action panels and poison downstream holds (beat 8). Candidate fixes for next session: filter SFX/text-only panels from match targets, and/or lower ADVANCE_PENALTY further — awaiting user call |
+| K-007 | ✅ SUPERSEDED | sentence-transformers path abandoned per user instruction | n/a | Replaced by Gemini embeddings API; sentence-transformers no longer the intended path |
+

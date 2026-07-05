@@ -30,6 +30,7 @@ exporter) consumes:
     }
 """
 
+import hashlib
 import json
 import math
 import os
@@ -38,11 +39,16 @@ from collections import Counter
 
 # ------------------------------------------------------------ tunables
 # How far forward the matcher may look for a better panel on a single beat.
-LOOKAHEAD = 6
+# A stall that compounds needs runway to find the correct panel again, so this
+# is set generously now that embedding scores are meaningful.
+LOOKAHEAD = 8
 # Penalty applied to advancing to a NEW panel, so it prefers holding unless a
 # later panel clearly matches better. Higher = holds panels longer.
-ADVANCE_PENALTY = 0.06
-# Weight of OCR/dialogue match vs. visual-description match.
+# Calibrated for Gemini-embedding cosine scores (~0.6-0.9 range). With lexical
+# fallback scores (~0.0-0.1) this value is far too large and the matcher will
+# stall — the embedding scorer is the intended path.
+ADVANCE_PENALTY = 0.015
+# Weight of OCR/dialogue match vs. visual-description match (lexical fallback).
 # OCR is the highest-signal field (exact character names and dialogue are
 # almost perfectly discriminative), so it gets a majority weight.
 OCR_WEIGHT = 0.55
@@ -51,6 +57,15 @@ DESC_WEIGHT = 0.45
 # the ADVANCE_PENALTY is reduced toward zero so the matcher becomes willing
 # to try the next panel. Forward-only rule is preserved.
 MAX_HELD = 3
+
+# ------------------------------------------------------ Gemini embeddings
+# Real semantic scores come from the Gemini embeddings API (one call per text
+# string). Vectors are cached to disk keyed by text hash so re-runs on the same
+# strings don't re-hit the API.
+GEMINI_EMBED_MODEL = "gemini-embedding-2"
+_EMBED_TASK = "SEMANTIC_SIMILARITY"
+_EMBED_CACHE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "embeddings_cache.json")
 
 _STOP = set("a an the of to in on at and or but with was were is are be been "
             "he she it his her him they them their you your i me my we our as "
@@ -89,6 +104,80 @@ def _try_embed(texts, model_name):
         return None
 
 
+def _load_embed_cache():
+    try:
+        with open(_EMBED_CACHE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_embed_cache(cache):
+    tmp = _EMBED_CACHE_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cache, f)
+    os.replace(tmp, _EMBED_CACHE_PATH)
+
+
+def _text_key(text, model_name):
+    payload = f"{model_name}\x00{_EMBED_TASK}\x00{text}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
+    """Embed each text via the Gemini embeddings API (one call per string).
+
+    Same (texts, model_name) -> np.ndarray|None interface as _try_embed, so
+    build_scorer can use it transparently. Returns an L2-normalized array of
+    vectors, or None if the SDK / GEMINI_API_KEY is unavailable (caller then
+    falls back). Vectors are cached to disk keyed by a hash of the text so
+    repeat runs on the same strings make zero API calls.
+    """
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        from google import genai
+        from google.genai import types
+        import numpy as np
+    except Exception:
+        return None
+
+    cache = _load_embed_cache()
+    client = None
+    dirty = False
+    vectors = []
+    try:
+        for t in texts:
+            key = _text_key(t, model_name)
+            cached = cache.get(key)
+            if cached is not None:
+                vectors.append(cached)
+                continue
+            if client is None:
+                client = genai.Client(api_key=api_key)
+            resp = client.models.embed_content(
+                model=model_name,
+                contents=t if t else " ",
+                config=types.EmbedContentConfig(task_type=_EMBED_TASK),
+            )
+            vec = list(resp.embeddings[0].values)
+            cache[key] = vec
+            vectors.append(vec)
+            dirty = True
+    except Exception:
+        # Partial progress is still worth persisting; the finally block saves.
+        return None
+    finally:
+        if dirty:
+            _save_embed_cache(cache)
+
+    arr = np.asarray(vectors, dtype="float32")
+    norms = np.linalg.norm(arr, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return arr / norms
+
+
 def build_scorer(beats, panels, embed_model):
     """
     Returns score(beat_idx, panel_idx) -> float in [0,1].
@@ -101,8 +190,16 @@ def build_scorer(beats, panels, embed_model):
         for p in panels
     ]
 
-    emb_b = _try_embed(beat_texts, embed_model) if embed_model else None
-    emb_p = _try_embed(panel_texts, embed_model) if embed_model else None
+    # Prefer Gemini embeddings (real semantic scores). Fall back to
+    # sentence-transformers only if an embed_model is explicitly requested,
+    # then to lexical token-overlap as a last resort.
+    emb_b = _gemini_embed(beat_texts)
+    emb_p = _gemini_embed(panel_texts) if emb_b is not None else None
+    method_name = "gemini-embeddings"
+    if emb_b is None or emb_p is None:
+        emb_b = _try_embed(beat_texts, embed_model) if embed_model else None
+        emb_p = _try_embed(panel_texts, embed_model) if embed_model else None
+        method_name = "embeddings"
 
     if emb_b is not None and emb_p is not None:
         import numpy as np
@@ -111,7 +208,7 @@ def build_scorer(beats, panels, embed_model):
 
         def score(bi, pi):
             return float(sim[bi, pi])
-        return score, "embeddings"
+        return score, method_name
 
     # lexical fallback: blend description-match and ocr-match
     def score(bi, pi):
