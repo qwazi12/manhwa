@@ -354,3 +354,26 @@
 | K-006 | 🔄 PARTIALLY RESOLVED | Stall root cause (tiny lexical scores vs large penalty) fixed by Gemini embedding scorer — beat 4 now correct, 7 distinct panels vs 4 | Matcher usable but 3/4 checkpoints still off | Two remaining failure modes: (a) `ADVANCE_PENALTY` still tips multi-step-ahead correct panels (beats 5,11); (b) text-only SFX panels (e.g. page003_panel_009 "FUCK!") out-embed real action panels and poison downstream holds (beat 8). Candidate fixes for next session: filter SFX/text-only panels from match targets, and/or lower ADVANCE_PENALTY further — awaiting user call |
 | K-007 | ✅ SUPERSEDED | sentence-transformers path abandoned per user instruction | n/a | Replaced by Gemini embeddings API; sentence-transformers no longer the intended path |
 
+---
+
+### Session 4 — 2026-07-05 — Reference Video Reverse-Engineering & Gap Analysis (Stage 2 work)
+
+**User input:** Provided reference MP4 (`/Users/kwasiyeboah/Movies/CapCut/0704 (2).mp4`, a manual CapCut edit) showing the desired final output style. Asked for frame-by-frame breakdown and a comparison of what it takes to reach that result vs. where the pipeline is, mapped against the original 9-stage MVP plan (prototype → validation → engine hardening → backend → review UI → URL ingestion → rights controls → semi-automation → scale).
+
+#### Measured analysis of the reference (FFmpeg frames @2FPS + scene detection + faster-whisper + loudness)
+- 22.37s, 1920×1080@30fps. 7 visual beats, avg shot 3.2s, one deliberate **7.5s emotional hold** on an eye close-up spanning two narration sentences.
+- **Narration:** wall-to-wall third-person documentary TTS-style VO, 63 words, **169 WPM**, names characters explicitly. **Audio is voice-ONLY** — narration gaps are digital silence; no music, no SFX. Mean −19dB, peak −3.1dB, −15.9 LUFS.
+- **Visual grammar:** panels rendered as **floating cards with soft drop shadows over a blurred/desaturated blow-up of the artwork itself** (≈#e8e6e3 paper feel). Aspect always preserved (tall slices = full-height center column; wide panels = near-full-width letterboxed). Slow Ken Burns zoom (~2–4%) on every card. Transition vocabulary: hard cut, horizontal push (~4 frames), scale-in entrance, and one inset sub-panel composited over its parent. Original Korean SFX/English bubbles retained in art. **NO burned-in subtitles.**
+- **Critical mechanic:** every panel switch lands within ±0.5s of the narration phrase describing it — i.e., the whole style depends on the matcher being phrase-accurate.
+
+#### Gap analysis (full VIDEO_DNA + production prompt delivered in chat)
+- ✅ Already have: panel extraction w/ tall-slice sub-shots (panel-split), 146/146 descriptions, Chirp TTS + real-duration beats, voice-only mix (accidentally matches reference), basic URL scraper, Whisper alignment.
+- 🔴 **Gap #1 — matcher accuracy (K-006):** 1 of 4 checkpoints correct. Blocks everything; the reference style is unachievable without phrase-accurate panel timing. Pending fixes: filter text-only SFX panels from candidates + lower ADVANCE_PENALTY.
+- 🟠 **Gap #2 — render compositing (render.py):** current renderer fills the frame with the panel; reference needs per-shot FFmpeg filtergraph: blurred-bg layer (gblur~40 + desaturate) + aspect-fit card + drop shadow + zoompan on card only.
+- 🟠 **Gap #3 — transitions:** currently concat hard cuts only; need push/scale-in/hard-cut presets (2–5 frames, xfade/overlay).
+- 🟢 **Gap #4 — subtitles:** reference has none; add a --no-subtitles flag (keep subs.srt sidecar).
+- ⚪ Nice-to-have: inset sub-panel compositing.
+- **Stage position:** Stage 1 ✅ done; **Stage 2 in progress** (this analysis is Stage 2 validation work); Stage 3 partially started (splitter, matcher); Stages 4–9 untouched. Ahead of plan on TTS (Stage 8 item) and URL ingestion (Stage 6 item).
+- **Agreed priority order to close the gap:** (1) matcher fixes → (2) render compositing upgrade → (3) transition presets → (4) subtitle flag → (5) pacing/hold rules.
+- No code changed this session — analysis only. Analysis artifacts (frames, transcript) in session scratchpad, not repo.
+
