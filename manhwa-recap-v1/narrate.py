@@ -179,7 +179,15 @@ not what the panel shows on the page.
 - Convert all dialogue/text below into REPORTED narration, never quoted \
 speech and never quotation marks (panel text "I can't move" becomes: he said \
 that he could not move anymore).
-- Refer to the character using: {NAME_HINT}
+- Name rotation is CONDITIONAL: only when a specific character is actually \
+present and acting in a panel, refer to them using: {NAME_HINT}. In LORE / \
+establishing panels that show NO identified protagonist (worldbuilding, \
+history, wide landscapes, generic or ancestral figures), narrate as PURE \
+history with no protagonist inserted — do NOT invent a main character into \
+these panels or attribute the historical events to "the protagonist" / "the \
+boy". Introduce the protagonist only in the panel that actually introduces \
+them (e.g. an illegitimate heir shown before the throne). Attributing generic \
+history to the protagonist is a hallucination and is banned.
 
 LENGTH BUDGET — per BEAT, not per panel:
 - A single panel file can hold several distinct beats or caption boxes (a \

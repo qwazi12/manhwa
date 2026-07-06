@@ -598,3 +598,11 @@
 - **PROBLEM FOUND (flagged to user, NOT silently accepted):** the name-rotation rule fires on LORE/establishing panels that contain NO protagonist, causing HALLUCINATION — the Moorim-history panels (a bald ancestral martial artist, generic clan leaders) had Ash invented INTO them: "The protagonist started with basic defensive stances", "the boy meditated deeply among ancient scrolls", "The protagonist stood atop a windy cliff". None of that is in the panels. The user's own reference handles this section as PURE history with no protagonist inserted, introducing Ash only at the transition ("This is the story of Prince Ash").
 - **Fix identified (not yet applied — awaiting user judgment):** make name rotation CONDITIONAL — apply only when a specific character is actually present/acting; in LORE mode with no identified protagonist, narrate as pure history/worldbuilding with NO inserted character. This is a lore-mode carve-out to the name-rotation rule.
 - **Status:** stopped per instruction (no TTS/matcher/render/full-chapter). Sample + hallucination flag delivered to user for judgment.
+
+---
+
+#### Plan item 4 (cont.) — conditional name-rotation fix (hallucination resolved)
+- **When:** 2026-07-06
+- **Change (build_prompt only):** name rotation is now CONDITIONAL — applied only when a specific character is actually present and acting. LORE/establishing panels with no identified protagonist are narrated as pure history with no inserted character; the protagonist is introduced only in the panel that actually introduces them.
+- **Re-ran Chapter 2 sample — hallucination gone:** scene 1 (Moorim history) is now pure worldbuilding, no Ash inserted ("...became known to the world as the Moorim."). Scene 2 introduces the protagonist only at the correct panel ("Within this powerful order lived an illegitimate child born to the highest-ranking family. The boy held a rightful claim to the throne."). Action scenes 3-5 keep name rotation + tight register. All four earlier checks still pass (lore breathes, action tight, proportional coverage, no embellishment).
+- **Status:** narration prompt now produces faithful, on-style output on a fresh chapter. Still stopped before TTS/matcher/render/full-chapter per standing instruction — awaiting user go-ahead to scale to full chapter.
