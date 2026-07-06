@@ -40,6 +40,13 @@ import os
 import numpy as np
 from PIL import Image
 
+import vision_segment
+
+# Use the vision model to segment gutterless tall panels into meaning-based
+# beats (preferred over the geometric density window). Auto-disabled when no
+# GEMINI_API_KEY is present — the density-window fallback then handles them.
+USE_VISION_TALL = bool(os.environ.get("GEMINI_API_KEY"))
+
 # --- gutter / panel tunables ---
 BG_COLOR_TOLERANCE = 10        # how close a pixel must be to bg to count as gutter
 GUTTER_FRACTION = 0.985        # fraction of a row/col matching bg to call it a gutter
@@ -235,6 +242,37 @@ def detect_panels(image_path: str):
                 # only sub-split if there's no clean internal gutter already
                 internal = _split_axis(panel_gray, axis=0, bg_color=bg)
                 if len(internal) <= 1:
+                    # Layer 2a: content-aware vision segmentation (preferred).
+                    # A gutterless tall strip's beats are defined by meaning
+                    # (caption + the art it narrates), which geometry can't see.
+                    # The vision model returns the ordered beats with bounds +
+                    # OCR + description in one call, generalizing across manhwa
+                    # styles. Falls back to the density window on any failure.
+                    vbeats = None
+                    if USE_VISION_TALL:
+                        vbeats = vision_segment.segment_tall_panel_image(
+                            img.crop((left, top, right, bottom)))
+                    if vbeats:
+                        boxes = vision_segment.beats_to_pixel_bboxes(
+                            vbeats, right - left, bottom - top)
+                        shots = [{
+                            "shot_id": i + 1,
+                            "bbox": [left, top + bx["bbox"][1], right, top + bx["bbox"][3]],
+                            # carry the vision OCR/description so these sub-beats
+                            # arrive pre-described (no separate describe pass)
+                            "ocr_text": bx["ocr_text"],
+                            "visual_description": bx["visual_description"],
+                        } for i, bx in enumerate(boxes)]
+                        if len(shots) > 1:
+                            panels.append({
+                                "panel_id": panel_id,
+                                "bbox": [left, top, right, bottom],
+                                "type": "continuous_vertical_action",
+                                "segmented_by": "vision",
+                                "shots": shots,
+                            })
+                            continue
+                    # Layer 2b: geometric density-window fallback
                     windows = _sliding_shot_windows(panel_gray, bg)
                     if len(windows) > 1:
                         shots = [{
@@ -245,6 +283,7 @@ def detect_panels(image_path: str):
                             "panel_id": panel_id,
                             "bbox": [left, top, right, bottom],
                             "type": "continuous_vertical_action",
+                            "segmented_by": "density-window",
                             "shots": shots,
                         })
                         continue

@@ -1,18 +1,82 @@
 [
   {
-    "panel_id": "page001_panel_001",
-    "file": "page001_panel_001.png",
+    "panel_id": "page001_panel_001_beat_00",
+    "file": "page001_panel_001_beat_00.png",
     "width": 792,
-    "height": 4213,
+    "height": 864,
     "bbox": [
       0,
       0,
       792,
-      4213
+      864
     ],
-    "ocr_text": "A LONG TIME AGO, FIGHTERS OF JIANGHU LEARNED MARTIAL ARTS IN ORDER TO PROTECT THEMSELVES FROM ENEMIES. / OVER TIME, MARTIAL ARTS EVOLVED FROM USING IT AS A METHOD OF SELF-DEFENSE INTO A TOOL TO KILL ENEMIES / IT GREW TO BE MORE SOPHISTICATED AND COMPLEX AS THE SIMPLE FORMS BECAME A SERIES OF MOVEMENTS AND THE BREATHING TECHNIQUES REPRESENTED THE BASICS OF INTERNAL ENERGY. / THE MARTIAL ARTISTS PASSED ON THEIR TEACHINGS AND HEIRLOOMS TO THE FUTURE GENERATIONS, ALLOWING MARTIAL ARTS TO CONTINUE TO EVOLVE. / THE PEOPLE WHO HAD MASTERED MARTIAL ARTS WERE MORE POWERFUL THAN NORMAL HUMANS, AND THEY WERE SOON CALLED THE MOORIM PEOPLE (WULIN).",
-    "visual_description": "Demonstrating the evolution of martial arts, a bald monk-like fighter transitions from a defensive stance to dynamic kicks, sits in deep meditation surrounded by ancient scrolls, and finally unleashes a powerful, ground-shattering fist strike. This vertical montage is set against a textured, parchment-like background.",
-    "source": "gemini",
+    "ocr_text": "A LONG TIME AGO, FIGHTERS OF JIANGHU LEARNED MARTIAL ARTS IN ORDER TO PROTECT THEMSELVES FROM ENEMIES.",
+    "visual_description": "A bald martial artist stands in a defensive stance on a textured background.",
+    "source": "vision-segment",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_001_beat_01",
+    "file": "page001_panel_001_beat_01.png",
+    "width": 792,
+    "height": 632,
+    "bbox": [
+      0,
+      0,
+      792,
+      632
+    ],
+    "ocr_text": "OVER TIME, MARTIAL ARTS EVOLVED FROM USING IT AS A METHOD OF SELF-DEFENSE INTO A TOOL TO KILL ENEMIES",
+    "visual_description": "The same bald martial artist is shown in a dynamic fighting pose.",
+    "source": "vision-segment",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_001_beat_02",
+    "file": "page001_panel_001_beat_02.png",
+    "width": 792,
+    "height": 821,
+    "bbox": [
+      0,
+      0,
+      792,
+      821
+    ],
+    "ocr_text": "IT GREW TO BE MORE SOPHISTICATED AND COMPLEX AS THE SIMPLE FORMS BECAME A SERIES OF MOVEMENTS AND THE BREATHING TECHNIQUES REPRESENTED THE BASICS OF INTERNAL ENERGY.",
+    "visual_description": "A bald martial artist sits in meditation surrounded by open books and multiple faded figures performing martial arts.",
+    "source": "vision-segment",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_001_beat_03",
+    "file": "page001_panel_001_beat_03.png",
+    "width": 792,
+    "height": 1180,
+    "bbox": [
+      0,
+      0,
+      792,
+      1180
+    ],
+    "ocr_text": "THE MARTIAL ARTISTS PASSED ON THEIR TEACHINGS AND HEIRLOOMS TO THE FUTURE GENERATIONS, ALLOWING MARTIAL ARTS TO CONTINUE TO EVOLVE.",
+    "visual_description": "A powerful fist strikes the ground, causing a massive explosion of debris.",
+    "source": "vision-segment",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_001_beat_04",
+    "file": "page001_panel_001_beat_04.png",
+    "width": 792,
+    "height": 716,
+    "bbox": [
+      0,
+      0,
+      792,
+      716
+    ],
+    "ocr_text": "THE PEOPLE WHO HAD MASTERED MARTIAL ARTS WERE MORE POWERFUL THAN NORMAL HUMANS, AND THEY WERE SOON CALLED THE MOORIM PEOPLE (WULIN).",
+    "visual_description": "A dark, textured background at the bottom of the panel.",
+    "source": "vision-segment",
     "ok": true
   },
   {
@@ -123,7 +187,7 @@
       304
     ],
     "ocr_text": "나노마신 / 喇勞魔神",
-    "visual_description": "Displaying the stylized title logo of the webtoon 'Nano Machine' in dark red, brush-stroke calligraphy with Hanja characters underneath against a white background.",
+    "visual_description": "Displaying the stylized red title logo for the webtoon \"Nano Machine\" against a plain white background, featuring large Korean calligraphy on top and smaller Chinese characters underneath.",
     "source": "gemini",
     "ok": true
   },
@@ -316,6 +380,406 @@
     ],
     "ocr_text": "UGH...! / 쿨럭",
     "visual_description": "Coughing up blood while sitting up in bed, a dark-haired young man in blood-stained robes clutches his mouth in pain. High-angle shot of the character on a traditional floor mat with dramatic speed lines.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_018",
+    "file": "page002_panel_018.png",
+    "width": 178,
+    "height": 57,
+    "bbox": [
+      0,
+      0,
+      178,
+      57
+    ],
+    "ocr_text": "",
+    "visual_description": "Displaying the sharp, spiky top border of a speech bubble or action caption box against a plain white background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_020",
+    "file": "page002_panel_020.png",
+    "width": 792,
+    "height": 490,
+    "bbox": [
+      0,
+      0,
+      792,
+      490
+    ],
+    "ocr_text": "HUH? / WHAT'S THIS? / 끈저억 / WHAT ARE",
+    "visual_description": "Reaching out with a soot-stained hand, a character touches a sticky black substance clinging to the hair of a dark-haired person. Close-up shot showing the viscous black thread stretching between the fingers and hair against a plain background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_023",
+    "file": "page002_panel_023.png",
+    "width": 290,
+    "height": 79,
+    "bbox": [
+      0,
+      0,
+      290,
+      79
+    ],
+    "ocr_text": "SPOTS?",
+    "visual_description": "Displaying a close-up of a speech bubble containing the word 'SPOTS?' in black comic-style text against a white background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_024",
+    "file": "page002_panel_024.png",
+    "width": 792,
+    "height": 895,
+    "bbox": [
+      0,
+      0,
+      792,
+      895
+    ],
+    "ocr_text": "IT SMELLS AWFUL... / 축 / MY WHOLE BODY IS STICKY... / I feel like throwing up / 축 / ARE YOU AWAKE,",
+    "visual_description": "Pulling open his dirty robe, a long-haired man grimaces at the black, sticky residue covering his chest and hands in a medium close-up shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_026",
+    "file": "page002_panel_026.png",
+    "width": 326,
+    "height": 41,
+    "bbox": [
+      0,
+      0,
+      326,
+      41
+    ],
+    "ocr_text": "",
+    "visual_description": "Floating against a white background, a blank rectangular speech bubble features jagged, lightning-like tails on its bottom left and right corners.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_028",
+    "file": "page002_panel_028.png",
+    "width": 151,
+    "height": 42,
+    "bbox": [
+      0,
+      0,
+      151,
+      42
+    ],
+    "ocr_text": "",
+    "visual_description": "Curving smoothly across a plain white background, a single black line forms a simple arc.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_030",
+    "file": "page002_panel_030.png",
+    "width": 780,
+    "height": 533,
+    "bbox": [
+      0,
+      0,
+      780,
+      533
+    ],
+    "ocr_text": "WHAT? / ARE YOU AWAKE,",
+    "visual_description": "Looking sideways in utter shock with wide eyes and a sweating face, a disheveled young man with long, messy purple hair reacts to an off-screen voice. Medium close-up shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_032",
+    "file": "page002_panel_032.png",
+    "width": 326,
+    "height": 40,
+    "bbox": [
+      0,
+      0,
+      326,
+      40
+    ],
+    "ocr_text": "",
+    "visual_description": "Floating against a plain white background, a blank, rectangular speech bubble with jagged, lightning-like tails on both bottom corners is shown in a close-up shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_004",
+    "file": "page003_panel_004.png",
+    "width": 248,
+    "height": 41,
+    "bbox": [
+      0,
+      0,
+      248,
+      41
+    ],
+    "ocr_text": "",
+    "visual_description": "Displaying the upper border of a jagged, empty speech bubble against a plain white background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_006",
+    "file": "page003_panel_006.png",
+    "width": 792,
+    "height": 925,
+    "bbox": [
+      0,
+      0,
+      792,
+      925
+    ],
+    "ocr_text": "WHO... WHO ARE YOU?!",
+    "visual_description": "Recoiling in terror, a disheveled, blood-stained man with long dark hair stares wide-eyed at a figure rising under a blue blanket. Set in a traditional wooden room with bookshelves, shown in a medium shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_007",
+    "file": "page003_panel_007.png",
+    "width": 792,
+    "height": 603,
+    "bbox": [
+      0,
+      0,
+      792,
+      603
+    ],
+    "ocr_text": "THERE ISN'T ANYONE AROUND... WHAT IS THIS... / 두리번 / 두리번 / PLEASE CALM",
+    "visual_description": "Looking around frantically with wide, sweating eyes, a dark-haired man searches his surroundings in an extreme close-up shot. Korean sound effects for looking around flank his face.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_008",
+    "file": "page003_panel_008.png",
+    "width": 422,
+    "height": 303,
+    "bbox": [
+      0,
+      0,
+      422,
+      303
+    ],
+    "ocr_text": "TELEPATHY...? / NO, NOT THAT...",
+    "visual_description": "Floating against a plain white background, a spiky, black-bordered oval speech bubble displays inner thoughts.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_011",
+    "file": "page003_panel_011.png",
+    "width": 452,
+    "height": 330,
+    "bbox": [
+      0,
+      0,
+      452,
+      330
+    ],
+    "ocr_text": "I'VE HEARD IT ONCE BEFORE BUT THIS IS DIF-FERENT...",
+    "visual_description": "Floating on a plain white background, a spiky oval thought bubble contains black text expressing realization or shock.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_012",
+    "file": "page003_panel_012.png",
+    "width": 792,
+    "height": 772,
+    "bbox": [
+      0,
+      0,
+      792,
+      772
+    ],
+    "ocr_text": "THIS SOUNDS LIKE IT'S COMING DIRECTLY FROM MY HEAD... / ......",
+    "visual_description": "Looking sideways with a tense, sweating expression, a long-haired man with dark purple hair reacts to a voice in his head. Close-up profile shot against a plain dark background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_013",
+    "file": "page003_panel_013.png",
+    "width": 171,
+    "height": 45,
+    "bbox": [
+      0,
+      0,
+      171,
+      45
+    ],
+    "ocr_text": "",
+    "visual_description": "Curving downwards against a plain white background, a single thick black line forms a smooth arc resembling the bottom edge of a speech bubble.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_015",
+    "file": "page003_panel_015.png",
+    "width": 792,
+    "height": 859,
+    "bbox": [
+      0,
+      0,
+      792,
+      859
+    ],
+    "ocr_text": "...NO WAY, COULD IT BE COMING FROM MY HEAD? / YOU ARE RIGHT, MASTER. / HUH...!",
+    "visual_description": "Standing in a tense, defensive stance with wide, shocked eyes, a young man with messy dark hair and a blood-stained white martial arts uniform reacts to a voice inside a wooden room with a bookshelf in the background. Medium shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_017",
+    "file": "page003_panel_017.png",
+    "width": 154,
+    "height": 53,
+    "bbox": [
+      0,
+      0,
+      154,
+      53
+    ],
+    "ocr_text": "",
+    "visual_description": "Curving sharply along the bottom edge, a spiky black-outlined speech bubble is shown in a close-up shot against a plain white background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_019",
+    "file": "page003_panel_019.png",
+    "width": 792,
+    "height": 1258,
+    "bbox": [
+      0,
+      0,
+      792,
+      1258
+    ],
+    "ocr_text": "ONCE AGAIN, WHO ARE YOU?! / I CONNECT AND SERVE AS A CORE TO SUPPORT MASTER'S BRAIN. / I AM [SKY CORPORATION'S 7TH",
+    "visual_description": "Standing with fists clenched and shouting in anger, a bruised, long-haired man in a tattered light-colored robe stands inside a traditional room with paper-screen windows. Medium-full shot with dynamic speed lines.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_020",
+    "file": "page003_panel_020.png",
+    "width": 288,
+    "height": 73,
+    "bbox": [
+      0,
+      0,
+      288,
+      73
+    ],
+    "ocr_text": "",
+    "visual_description": "Framing a blank white space, the sharp black outline of a spiky action speech bubble curves upward into three distinct peaks against a white background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_022",
+    "file": "page003_panel_022.png",
+    "width": 792,
+    "height": 702,
+    "bbox": [
+      0,
+      0,
+      792,
+      702
+    ],
+    "ocr_text": "WHAT? WHAT ARE YOU TALKING ABOUT? / WHO ARE YOU AND WHY ARE YOU DOING THIS TO ME?!",
+    "visual_description": "Screaming in anguish and confusion with eyes tightly shut, a bruised, dark-haired man with sweat dripping down his face yells with his mouth wide open. Close-up shot against a simple background with light particles.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_024",
+    "file": "page003_panel_024.png",
+    "width": 277,
+    "height": 84,
+    "bbox": [
+      0,
+      0,
+      277,
+      84
+    ],
+    "ocr_text": "",
+    "visual_description": "Cropping closely on the bottom jagged border of an empty, spiky white speech bubble against a white background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_025",
+    "file": "page003_panel_025.png",
+    "width": 384,
+    "height": 44,
+    "bbox": [
+      0,
+      0,
+      384,
+      44
+    ],
+    "ocr_text": "",
+    "visual_description": "Displaying the upper portion of an empty, jagged-edged speech bubble with sharp, lightning-like corners against a plain white background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_027",
+    "file": "page003_panel_027.png",
+    "width": 792,
+    "height": 791,
+    "bbox": [
+      0,
+      0,
+      792,
+      791
+    ],
+    "ocr_text": "GENERATION NANO MACHINE. / NANO... / EVIL GOD...? / THAT'S CORRECT. A NANO MACHINE. / TN: HE MISHEARD IT AS MUHCHINE WHICH MEANS EVIL GOD",
+    "visual_description": "Standing with his back turned to the viewer, a dark-haired man in a torn, blood-stained white robe looks out of a window. Medium shot of the character inside a traditional wooden room.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_030",
+    "file": "page003_panel_030.png",
+    "width": 316,
+    "height": 31,
+    "bbox": [
+      0,
+      0,
+      316,
+      31
+    ],
+    "ocr_text": "",
+    "visual_description": "Framing an empty, wide speech bubble with jagged tails pointing downwards, set against a plain white background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page003_panel_031",
+    "file": "page003_panel_031.png",
+    "width": 792,
+    "height": 808,
+    "bbox": [
+      0,
+      0,
+      792,
+      808
+    ],
+    "ocr_text": "IS IT TALKING ABOUT THE EVIL GOD... / THE ONE THAT THE DEMONIC CULT WORSHIPS...?!",
+    "visual_description": "Staring wide-eyed in sheer shock and realization, a dark-haired character sweats nervously. This extreme close-up focuses on their panicked eyes against a background of horizontal motion lines, framed by two spiky-bordered inner monologue bubbles.",
     "source": "gemini",
     "ok": true
   }

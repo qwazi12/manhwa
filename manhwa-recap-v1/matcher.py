@@ -140,14 +140,35 @@ _ABSTRACT_OVERRIDE = re.compile(
     r"a thick black arc|stark white background)", re.I)
 
 
+# Minimum crop dimensions for a vision beat to count as real content.
+_MIN_BEAT_PX = 40
+
+
 def is_junk_panel(panel):
-    """True if the panel should be DROPPED from matching. Positive-keep rule:
-    a panel is junk unless its description names a real subject or a real scene
-    — UNLESS it self-declares as abstract/decorative (override), which drops it
-    even if a keep-word appears inside a negation. Content-free fragments (empty
-    bubbles, stray lines, bare SFX/logo words, abstract shapes) are dropped
-    without needing an explicit pattern for each junk variety."""
+    """True if the panel should be DROPPED from matching.
+
+    Two regimes:
+
+    - VISION-SEGMENTED beats (source == "vision-segment"): these are already
+      model-CURATED story beats, not geometric over-splits, so the keyword
+      artifact filter does not apply (it was built for sliver/blank/bubble
+      fragments and false-drops real lore beats like "a bald martial artist
+      stands"). A vision beat is junk ONLY if it is physically empty — a
+      degenerate crop or no text AND no description at all.
+
+    - GEOMETRIC crops (everything else): positive-keep rule — junk unless the
+      description names a real subject or scene, minus an abstract/decorative
+      self-declaration override. Content-free fragments (empty bubbles, stray
+      lines, bare SFX/logo words, abstract shapes) are dropped without needing
+      an explicit pattern for each junk variety.
+    """
     desc = panel.get("visual_description", "") or ""
+    if panel.get("source") == "vision-segment":
+        ocr = panel.get("ocr_text", "") or ""
+        w, h = panel.get("width") or 0, panel.get("height") or 0
+        too_small = (w and w < _MIN_BEAT_PX) or (h and h < _MIN_BEAT_PX)
+        empty = not ocr.strip() and not desc.strip()
+        return bool(too_small or empty)
     if _ABSTRACT_OVERRIDE.search(desc):
         return True
     return not (_KEEP_SUBJECT.search(desc) or _KEEP_SCENE.search(desc))
