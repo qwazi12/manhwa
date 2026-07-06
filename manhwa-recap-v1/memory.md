@@ -582,3 +582,19 @@
 - **Assets preserved:** ch2 crops → `panel-split/review_crops_ch2/` (untracked, like review_crops); ch2 descriptions → `panel-describe/descriptions_ch2.json`.
 - **Compliance note (logged for Stage 7):** test source is an unauthorized aggregator (asurascans). Fine for internal R&D; must be replaced by licensed/approved sources before publication — this is exactly what Stage 7 source-policy controls are for.
 - **Status:** awaiting user style judgment on the revised sample before full-chapter narration. TTS/matcher/render NOT run, per instruction.
+
+---
+
+#### Plan item 4 (cont.) — mode-based narration prompt + Chapter 2 re-sample
+- **When:** 2026-07-06
+- **Change (build_prompt only; scene-grouping/hard-break code untouched per instruction):**
+  1. LENGTH BUDGET is now per BEAT/caption-box, not per panel (multi-beat panels earn more sentences; simple close-ups get one; never a paragraph for one simple panel).
+  2. TWO REGISTERS: LORE/establishing mode (flowing, immersive worldbuilding) vs ACTION/beat mode (short punchy 10-14-word sentences), model picks per panel from content.
+  3. Banned dramatic embellishment / intensity-adjectives ("absolute intensity", "consumed by the moment", etc.) in both modes.
+  4. Banned within-scene repetition of the same noun/location phrase.
+  Kept: no art/drawing language, no invented lore, reported speech (no quotes), name rotation.
+- **Re-ran on Chapter 2 sample** (`--descriptions descriptions_ch2.json --limit-panels 10`; first panels are Moorim history → Ash waking). 5 scenes.
+- **What worked:** lore panels now breathe (scenes 1-2 immersive, atmospheric); action panels tightened correctly (scene 3 eye close-up → "Sweat dripped down the boy's face. He stared straight ahead and refused to look away." — the exact register requested); multi-beat panel (scene 2, 4 panels) got proportional coverage; overt embellishment mostly gone.
+- **PROBLEM FOUND (flagged to user, NOT silently accepted):** the name-rotation rule fires on LORE/establishing panels that contain NO protagonist, causing HALLUCINATION — the Moorim-history panels (a bald ancestral martial artist, generic clan leaders) had Ash invented INTO them: "The protagonist started with basic defensive stances", "the boy meditated deeply among ancient scrolls", "The protagonist stood atop a windy cliff". None of that is in the panels. The user's own reference handles this section as PURE history with no protagonist inserted, introducing Ash only at the transition ("This is the story of Prince Ash").
+- **Fix identified (not yet applied — awaiting user judgment):** make name rotation CONDITIONAL — apply only when a specific character is actually present/acting; in LORE mode with no identified protagonist, narrate as pure history/worldbuilding with NO inserted character. This is a lore-mode carve-out to the name-rotation rule.
+- **Status:** stopped per instruction (no TTS/matcher/render/full-chapter). Sample + hallucination flag delivered to user for judgment.

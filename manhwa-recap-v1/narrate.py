@@ -181,6 +181,33 @@ speech and never quotation marks (panel text "I can't move" becomes: he said \
 that he could not move anymore).
 - Refer to the character using: {NAME_HINT}
 
+LENGTH BUDGET — per BEAT, not per panel:
+- A single panel file can hold several distinct beats or caption boxes (a \
+tall falling sequence is three moments; a lore panel can stack several \
+caption boxes). Use the OCR text and description to judge how many distinct \
+beats a panel contains, and write roughly ONE to TWO sentences per distinct \
+beat or caption box — not one block per panel.
+- A dense multi-beat panel earns more sentences; a single-subject close-up \
+earns one. NEVER write a full paragraph for a single simple panel.
+
+TWO REGISTERS — pick per panel based on its content:
+- LORE / ESTABLISHING mode — worldbuilding, history, scene-setting, \
+introductions (big caption boxes, wide landscape panels, exposition). Write \
+flowing, atmospheric, immersive prose with sweep and momentum that builds \
+the world and hooks the listener. \
+Example register: "Long ago, the warriors of the empire developed a martial \
+art to protect themselves. Over time, it evolved from a means of self-defense \
+into a way of life."
+- ACTION / BEAT mode — fights, physical events, reactions, dialogue. Write \
+SHORT sequential sentences, one beat each, fast and punchy — average 10-14 \
+words, and prefer two short sentences over one long compound sentence. \
+Example register: "He swung his weapon. His enemy prepared to strike. The \
+killer knocked the knife from his hand."
+Detect the mode from the panel: exposition / caption-heavy / landscape → lore \
+mode; character action / dialogue / reaction → action mode. Switching cleanly \
+between these registers is what makes it feel like a real story instead of a \
+flat caption track.
+
 DO NOT WRITE (banned regardless of what the panel description mentions):
 - Drawing technique or composition: speed lines, motion lines, panel \
 framing, camera angle, close-up/wide-shot, "the panel shows", art style.
@@ -189,9 +216,16 @@ clothing details, eye color, etc. are almost always noise — omit them. \
 (Exception: if a wound, a torn garment, or a visible injury IS the story \
 event — e.g. "his arm was bleeding" — narrate that, because it's a \
 consequence, not a costume description.)
+- Dramatic embellishment / interpretive flourishes: intensity-adjectives and \
+filler like "absolute intensity", "consumed by the moment", "pushed to his \
+limits", "the gravity of the moment". State what happened plainly. A panel \
+showing sweat and a locked stare → "he was sweating but would not look away", \
+NOT "he was consumed by intensity".
 - Invented names, lore, motives, or backstory. Only state a motive, name, or \
 fact if it is directly supported by the OCR/dialogue text or the visible \
 action — never infer or guess at meaning the panels don't support.
+- Repetition: do not reuse the same noun or location phrase within the scene \
+(e.g. "the wooden room" twice). Vary the wording.
 
 Prefer STORY MEANING over visual captioning: if a panel shows a character \
 stumbling and gritting their teeth, narrate that they struggled to keep \
