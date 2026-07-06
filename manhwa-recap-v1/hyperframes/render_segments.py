@@ -30,7 +30,10 @@ from segments import build_segments
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RECAP = os.path.abspath(os.path.join(HERE, ".."))
-PANEL_DIR = os.path.abspath(os.path.join(RECAP, "..", "panel-split", "review_crops"))
+PROJ = os.path.abspath(os.path.join(HERE, "..", "..")) # ROOT
+PANELS_SUBDIR = os.environ.get("HF_PANELS_DIR", "panel-split/review_crops")
+DESCRIPTIONS_FILE = os.environ.get("HF_DESCRIPTIONS", "panel-describe/descriptions.json")
+PANEL_DIR = os.path.abspath(os.path.join(PROJ, PANELS_SUBDIR))
 WORK = os.path.join(HERE, "segments-workspace")
 CLIPS = os.path.join(WORK, "clips")
 ASSETS = os.path.join(WORK, "assets")
@@ -168,7 +171,7 @@ def main():
     args = ap.parse_args()
 
     shots = json.load(open(os.path.join(RECAP, BEATSHEET)))
-    panels = json.load(open(os.path.join(RECAP, "..", "panel-describe", "descriptions.json")))
+    panels = json.load(open(os.path.abspath(os.path.join(PROJ, DESCRIPTIONS_FILE))))
     for s in shots:
         s["panel_file"] = os.path.join(PANEL_DIR, f"{s['panel_id']}.png")
 

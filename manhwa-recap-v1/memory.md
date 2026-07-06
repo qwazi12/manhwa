@@ -618,3 +618,17 @@
 - **matcher.is_junk_panel — narrow fix:** vision-segmented beats (`source=="vision-segment"`) BYPASS the keyword artifact filter (built for sliver/blank/bubble over-splits; it false-dropped real lore beats like "a bald martial artist stands"). They now use a minimal content check: min pixel dims + non-empty OCR-or-description. Geometric crops unchanged. **ch1 regression gate re-run: still green** (0 junk, 99 distinct, max hold 5 — vision branch only triggers on that source).
 - **Result on ch2 slice:** page001_panel_001 → **5 clean lore beats, all 5 survive**, each crop shows its own caption with matching OCR ("A LONG TIME AGO" / "OVER TIME" / "IT GREW…INTERNAL ENERGY" / "THE MARTIAL ARTISTS PASSED ON" / "THE PEOPLE…MOORIM") and accurate descriptions. Minor cosmetic bleed of adjacent captions at edges where boxes sit close — does NOT cause OCR/pixel desync. Verified visually.
 - **Status:** STOPPED per user instruction — beat extraction confirmed correct in isolation. NOT run: TTS, narration, matcher, render, 1.5x. Inversion end-to-end (tasks 4-5) paused pending user go-ahead.
+
+---
+
+### Session 10 — 2026-07-06 (later) — Chapter 2 Full Pipeline execution + 1.5x post-processing
+- **When:** 2026-07-06, this session
+- **Action:** proceeded with full Chapter 2 pipeline execution.
+- **Narrate**: Scaled auto-narration script generator on the 28 non-junk panels (from 49 panels total). Extracted clean narration text to `input/script_ch2.txt`.
+- **TTS Synthesis**: Synthesized voice clips for all 65 beats using the Google Cloud REST workaround with Chirp 3 HD (Charon voice). Timeline built from exact durations: 290.9s (4.8 minutes).
+- **Match**: Assigned beats to panels using the Dynamic Programming semantic matcher with `gemini-embedding-2` cosine distance. Output: `build_test/beatsheet_ch2.json` (65 beats mapped to 28 panels, 0 junk, 0 backward jumps).
+- **Render**: Scaffolding updated in `build_composition.py` and `render_segments.py` to support env variable overrides for descriptions, panels, beats, and audio directory. Rendered 28 segments to clips via Puppeteer and concatenated them to `hyperframes/segments-workspace/final.mp4`.
+- **Speed-up Pass**: Executed `speed_up.py` on the finished video to produce `build_test/recap_ch2_1.5x.mp4` (1.5x speedup with pitch-corrected audio).
+- **Stage status**: Stage 3 (harden visual engine) fully complete and validated for Chapter 2.
+- **Output Video**: [recap_ch2_1.5x.mp4](file:///Users/kwasiyeboah/Desktop/manhwa/manhwa-recap-v1/build_test/recap_ch2_1.5x.mp4)
+

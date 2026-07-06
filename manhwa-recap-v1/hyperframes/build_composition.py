@@ -40,12 +40,15 @@ def audio_dur(path):
     return round(float(out), 3)
 PROJ = os.path.join(HERE, "my-video")
 RECAP = os.path.abspath(os.path.join(HERE, ".."))
+ROOT = os.path.abspath(os.path.join(RECAP, ".."))
 
 # Inputs default to the validated 15-beat slice; override via env for the
 # full chapter (HF_BEATSHEET / HF_BEATS / HF_AUDIO_DIR).
 BEATSHEET = os.environ.get("HF_BEATSHEET", "build_test/beatsheet_gemini.json")
 BEATS = os.environ.get("HF_BEATS", "build_test/beats 2.json")
 AUDIO_SUBDIR = os.environ.get("HF_AUDIO_DIR", "build_test/tts 2")
+PANELS_SUBDIR = os.environ.get("HF_PANELS_DIR", "panel-split/review_crops")
+DESCRIPTIONS_FILE = os.environ.get("HF_DESCRIPTIONS", "panel-describe/descriptions.json")
 
 shots = json.load(open(os.path.join(RECAP, BEATSHEET)))
 beats = json.load(open(os.path.join(RECAP, BEATS)))
@@ -54,10 +57,10 @@ beats = json.load(open(os.path.join(RECAP, BEATS)))
 # ---- ~15-min render). Junk/blank panel, missing image, timeline gap -> abort.
 import sys
 sys.path.insert(0, RECAP)
-_PANEL_DIR = os.path.abspath(os.path.join(RECAP, "..", "panel-split", "review_crops"))
+_PANEL_DIR = os.path.abspath(os.path.join(ROOT, PANELS_SUBDIR))
 try:
     import matcher
-    _desc = os.path.join(RECAP, "..", "panel-describe", "descriptions.json")
+    _desc = os.path.abspath(os.path.join(ROOT, DESCRIPTIONS_FILE))
     if os.path.exists(_desc):
         _panels = json.load(open(_desc))
         # resolve every panel's image to where the crops actually live, so the
@@ -80,7 +83,7 @@ except ImportError:
 # ---- copy assets so a fresh checkout is reproducible ----------------------
 # Plain byte-copy (not shutil.copy) — macOS's fcopyfile clonefile fast-path
 # intermittently times out on this volume.
-PANEL_SRC = os.path.abspath(os.path.join(RECAP, "..", "panel-split", "review_crops"))
+PANEL_SRC = os.path.abspath(os.path.join(ROOT, PANELS_SUBDIR))
 AUDIO_SRC = os.path.join(RECAP, AUDIO_SUBDIR)
 os.makedirs(os.path.join(PROJ, "assets", "panels"), exist_ok=True)
 os.makedirs(os.path.join(PROJ, "assets", "audio"), exist_ok=True)
