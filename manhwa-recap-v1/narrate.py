@@ -53,8 +53,8 @@ they had barely waited for the protagonist."""
 NAME_HINT = "protagonist / the guy / the boy / the prince (rotate naturally; do not repeat one name every sentence)"
 
 
-def load_panels():
-    with open(DESCRIPTIONS_PATH, encoding="utf-8") as f:
+def load_panels(descriptions_path=None):
+    with open(descriptions_path or DESCRIPTIONS_PATH, encoding="utf-8") as f:
         panels = json.load(f)
     panels.sort(key=lambda r: _natural_key(r["panel_id"]))
     return [p for p in panels if p.get("ok", True) and not matcher.is_junk_panel(p)]
@@ -64,23 +64,87 @@ def _natural_key(name):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", name)]
 
 
-def group_into_scenes(panels, max_group=4, sim_threshold=0.12):
-    """Chunk consecutive panels into scene groups by lexical continuity.
+# Hard scene-break signals — checked BEFORE the lexical-continuity fallback,
+# so a lexically-similar pair (e.g. two panels in the same room) still splits
+# when one of these fires. Each is a cheap regex proxy for a real signal:
+_REACTION_RE = re.compile(
+    r"\b(shock(ed|ing)?|gasp|stunned|wide[- ]eyed|horror|horrified|"
+    r"stares? (blankly|in disbelief)|recoils?|flinch(es|ed)?|"
+    r"speechless|taken aback)\b", re.I)
+_EFFECT_RE = re.compile(
+    r"\b(flash(es|ed)?|explosion|explodes?|burst(s|ing)?|blast|glow(s|ing)?|"
+    r"sudden(ly)?|reveal(s|ed|ing)?|lightning strikes?)\b", re.I)
+_LOCATION_RE = re.compile(
+    r"\b(room|forest|street|palace|castle|mountain|cliff|field|building|"
+    r"academy|square|kitchen|bath(?:house)?|throne|chamber|dorm|courtyard|"
+    r"battlefield|clearing|estate|corridor|hallway)\b", re.I)
 
-    Consecutive panels stay in the same scene while their descriptions share
-    enough content words (same characters/setting still on screen); a bigger
-    jump starts a new scene. This is a simple, dependency-light stand-in for
-    real shot-boundary detection — good enough for a draft grouping, same
-    spirit as the panel-splitter's own heuristics.
+
+def _panel_text(p):
+    return f"{p.get('visual_description','')} {p.get('ocr_text','')}"
+
+
+def _location_tokens(p):
+    return set(m.lower() for m in _LOCATION_RE.findall(p.get("visual_description", "")))
+
+
+def _forces_new_scene(prev, cur):
+    """True if a hard signal requires a new scene regardless of lexical
+    similarity to the previous panel. Each check is a cheap proxy for a real
+    editorial cue — see the docstring on group_into_scenes for what each maps
+    to; this is a rule-based stand-in for real shot/beat-boundary detection,
+    not a claim of scene understanding."""
+    prev_ocr = (prev.get("ocr_text") or "").strip()
+    cur_ocr = (cur.get("ocr_text") or "").strip()
+    cur_desc = cur.get("visual_description", "")
+
+    # sudden effect / flash / reveal always starts its own beat — these are
+    # high-impact single-panel moments in the source material, never a
+    # continuation of the preceding action
+    if _EFFECT_RE.search(cur_desc):
+        return True
+    # reaction panel immediately after a panel with different/no reaction
+    # framing — a shocked/wide-eyed beat is its own reaction shot, not a
+    # continuation of what caused it
+    if _REACTION_RE.search(cur_desc) and not _REACTION_RE.search(
+            prev.get("visual_description", "")):
+        return True
+    # dialogue/speaker shift: silence -> speech or speech -> silence is a
+    # strong signal the "beat" changed even if the visual is similar
+    if bool(prev_ocr) != bool(cur_ocr):
+        return True
+    # new location: this panel names a place the previous one didn't
+    prev_locs, cur_locs = _location_tokens(prev), _location_tokens(cur)
+    if cur_locs and prev_locs and not (cur_locs & prev_locs):
+        return True
+    return False
+
+
+def group_into_scenes(panels, max_group=4, sim_threshold=0.12):
+    """Chunk consecutive panels into scene groups.
+
+    Two layers, checked in order for each new panel:
+      1. HARD SIGNALS (_forces_new_scene): sudden effect/flash/reveal, a
+         reaction beat following non-reaction art, a dialogue/silence
+         speaker-shift, or a location change. Any of these splits the scene
+         regardless of lexical similarity — a confrontation moving to a new
+         phase, or a reaction shot after an action beat, must not be fused
+         into one narrated moment just because the wording overlaps.
+      2. LEXICAL CONTINUITY (fallback): if no hard signal fires, panels stay
+         together while their descriptions still share enough content words
+         (same characters/setting still on screen).
+
+    This is a simple, dependency-light stand-in for real shot-boundary
+    detection — good enough for a draft grouping, same spirit as the
+    panel-splitter's own density heuristics. Not lexical-only, per review.
     """
     if not panels:
         return []
     groups = [[panels[0]]]
     for prev, cur in zip(panels, panels[1:]):
-        prev_text = f"{prev.get('visual_description','')} {prev.get('ocr_text','')}"
-        cur_text = f"{cur.get('visual_description','')} {cur.get('ocr_text','')}"
-        sim = matcher._lexical_sim(prev_text, cur_text)
-        if sim >= sim_threshold and len(groups[-1]) < max_group:
+        hard_break = _forces_new_scene(prev, cur)
+        sim = matcher._lexical_sim(_panel_text(prev), _panel_text(cur))
+        if not hard_break and sim >= sim_threshold and len(groups[-1]) < max_group:
             groups[-1].append(cur)
         else:
             groups.append([cur])
@@ -98,24 +162,41 @@ def build_prompt(scene_panels):
         lines.append(entry)
     panel_block = "\n".join(lines)
 
-    return f"""You are narrating a manhwa recap in a specific established style.
+    return f"""You are a recap narrator retelling what happens in this scene, \
+the way someone would summarize a story to a friend who hasn't read it — not \
+an art critic describing a comic panel.
 
-STYLE EXAMPLE (match this voice exactly — sentence rhythm, reported speech, \
+VOICE EXAMPLE (match this voice exactly — sentence rhythm, reported speech, \
 tone — do NOT copy its content):
 {STYLE_ANCHOR}
 
-STYLE RULES (mandatory):
-- Third-person omniscient, reported speech only. NEVER use quotation marks. \
-Convert any dialogue shown below into reported speech (e.g. panel text \
-"I can't move" becomes: He said that he could not move anymore).
+WRITE (mandatory):
+- Recap-narrator voice: third-person, past tense, smooth connective \
+storytelling — sentences link into a flowing account, not a list of frames.
+- Narrate EVENTS, ACTIONS, REACTIONS, INTENTIONS, and CONSEQUENCES: what a \
+character DID, what happened TO them, what they WANTED, and what RESULTED —
+not what the panel shows on the page.
+- Convert all dialogue/text below into REPORTED narration, never quoted \
+speech and never quotation marks (panel text "I can't move" becomes: he said \
+that he could not move anymore).
 - Refer to the character using: {NAME_HINT}
-- Short, sequential sentences — one action or thought per sentence.
-- No scene headers, no markdown, no metaphors, no flowery description.
-- State emotions factually (he was scared / he screamed / he was shocked), \
-not poetically.
-- Describe ONLY what is visibly shown in the panels below. Do NOT invent \
-plot points, names, lore, or backstory that isn't depicted. If a panel is \
-ambiguous, describe it plainly rather than guessing at meaning.
+
+DO NOT WRITE (banned regardless of what the panel description mentions):
+- Drawing technique or composition: speed lines, motion lines, panel \
+framing, camera angle, close-up/wide-shot, "the panel shows", art style.
+- Physical appearance UNLESS it is the plot event itself: hair color, \
+clothing details, eye color, etc. are almost always noise — omit them. \
+(Exception: if a wound, a torn garment, or a visible injury IS the story \
+event — e.g. "his arm was bleeding" — narrate that, because it's a \
+consequence, not a costume description.)
+- Invented names, lore, motives, or backstory. Only state a motive, name, or \
+fact if it is directly supported by the OCR/dialogue text or the visible \
+action — never infer or guess at meaning the panels don't support.
+
+Prefer STORY MEANING over visual captioning: if a panel shows a character \
+stumbling and gritting their teeth, narrate that they struggled to keep \
+going and refused to give up — not that "their face is shown in close-up \
+with clenched teeth."
 
 PANELS (in order, all part of the same continuous moment):
 {panel_block}
@@ -157,9 +238,10 @@ if __name__ == "__main__":
     ap.add_argument("--limit-panels", type=int, default=10,
                      help="only use the first N (non-junk) panels — for a cheap style-check sample")
     ap.add_argument("--model", default="gemini-3.5-flash")
+    ap.add_argument("--descriptions", help="override descriptions.json path (e.g. a fresh chapter's subset)")
     args = ap.parse_args()
 
-    panels = load_panels()
+    panels = load_panels(args.descriptions)
     if args.limit_panels:
         panels = panels[:args.limit_panels]
 

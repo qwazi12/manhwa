@@ -1,0 +1,322 @@
+[
+  {
+    "panel_id": "page001_panel_001",
+    "file": "page001_panel_001.png",
+    "width": 792,
+    "height": 4213,
+    "bbox": [
+      0,
+      0,
+      792,
+      4213
+    ],
+    "ocr_text": "A LONG TIME AGO, FIGHTERS OF JIANGHU LEARNED MARTIAL ARTS IN ORDER TO PROTECT THEMSELVES FROM ENEMIES. / OVER TIME, MARTIAL ARTS EVOLVED FROM USING IT AS A METHOD OF SELF-DEFENSE INTO A TOOL TO KILL ENEMIES / IT GREW TO BE MORE SOPHISTICATED AND COMPLEX AS THE SIMPLE FORMS BECAME A SERIES OF MOVEMENTS AND THE BREATHING TECHNIQUES REPRESENTED THE BASICS OF INTERNAL ENERGY. / THE MARTIAL ARTISTS PASSED ON THEIR TEACHINGS AND HEIRLOOMS TO THE FUTURE GENERATIONS, ALLOWING MARTIAL ARTS TO CONTINUE TO EVOLVE. / THE PEOPLE WHO HAD MASTERED MARTIAL ARTS WERE MORE POWERFUL THAN NORMAL HUMANS, AND THEY WERE SOON CALLED THE MOORIM PEOPLE (WULIN).",
+    "visual_description": "Demonstrating the evolution of martial arts, a bald monk-like fighter transitions from a defensive stance to dynamic kicks, sits in deep meditation surrounded by ancient scrolls, and finally unleashes a powerful, ground-shattering fist strike. This vertical montage is set against a textured, parchment-like background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_002",
+    "file": "page001_panel_002.png",
+    "width": 792,
+    "height": 997,
+    "bbox": [
+      0,
+      0,
+      792,
+      997
+    ],
+    "ocr_text": "FIGHTERS WHO WANTED TO BE DISCIPLES OF THE MOORIM PEOPLE GATHERED TO FORM CLANS,",
+    "visual_description": "Standing atop a rocky outcrop, a long-haired figure in a flowing cloak looks out over a vast, windy landscape under a bright, hazy sky. Dry grass and leaves blow in the wind around them in a wide shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_003",
+    "file": "page001_panel_003.png",
+    "width": 785,
+    "height": 1095,
+    "bbox": [
+      0,
+      0,
+      785,
+      1095
+    ],
+    "ocr_text": "AND THOSE CLANS WERE DIVIDED INTO THE FORCES OF JUSTICE AND THE FORCES OF EVIL.",
+    "visual_description": "Standing in front of their respective armies, two martial arts leaders represent opposing factions in a split-screen panel. The left side shows a white-haired man in blue robes under a blue sky, while the right side shows a dark-haired warrior in fur-trimmed armor against a fiery red backdrop.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_004",
+    "file": "page001_panel_004.png",
+    "width": 558,
+    "height": 343,
+    "bbox": [
+      0,
+      0,
+      558,
+      343
+    ],
+    "ocr_text": "AND BETWEEN THE TIGHT / BALANCE OF THOSE TWO FORCES, / THERE WAS ANOTHER GROUP THAT / PURSUED AN ENTIRELY DIFFERENT / ROUTE, SEEKING ONLY STRENGTH...",
+    "visual_description": "Displaying white stylized text on a solid black background, this narrative caption panel contains no characters or setting details.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_005",
+    "file": "page001_panel_005.png",
+    "width": 792,
+    "height": 1278,
+    "bbox": [
+      0,
+      0,
+      792,
+      1278
+    ],
+    "ocr_text": "THE WORLD CALLED THEM THE DEMONIC CULT.",
+    "visual_description": "Standing atop a grand temple staircase, a long-haired leader flanked by six guards addresses a massive crowd of followers wearing matching dark robes. The imposing, dark palace rises behind them under a reddish, smoky sky in a wide shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_006",
+    "file": "page001_panel_006.png",
+    "width": 792,
+    "height": 892,
+    "bbox": [
+      0,
+      0,
+      792,
+      892
+    ],
+    "ocr_text": "THE ILLEGITIMATE CHILD OF THE HIGHEST-RANKING FAMILY IN THE DEMONIC CULT WHO HAS THE RIGHT TO THE THRONE.",
+    "visual_description": "Standing with his back to the viewer, a long-haired man in a yellow and black robe faces a group of bowing subordinates in dark uniforms. Medium shot, set against a hazy background of traditional temple buildings.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page001_panel_008",
+    "file": "page001_panel_008.png",
+    "width": 338,
+    "height": 231,
+    "bbox": [
+      0,
+      0,
+      338,
+      231
+    ],
+    "ocr_text": "THIS IS CHEON YEO / WOON'S STORY.",
+    "visual_description": "Displaying white stylized text on a solid black background, this minimalist panel serves as an introductory title card.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_003",
+    "file": "page002_panel_003.png",
+    "width": 552,
+    "height": 304,
+    "bbox": [
+      0,
+      0,
+      552,
+      304
+    ],
+    "ocr_text": "나노마신 / 喇勞魔神",
+    "visual_description": "Displaying the stylized title logo of the webtoon 'Nano Machine' in dark red, brush-stroke calligraphy with Hanja characters underneath against a white background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_004",
+    "file": "page002_panel_004.png",
+    "width": 39,
+    "height": 29,
+    "bbox": [
+      0,
+      0,
+      39,
+      29
+    ],
+    "ocr_text": "그림",
+    "visual_description": "Displaying the Korean word '그림' in a simple black font against a plain white background, cropped closely around the text.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_005",
+    "file": "page002_panel_005.png",
+    "width": 91,
+    "height": 37,
+    "bbox": [
+      0,
+      0,
+      91,
+      37
+    ],
+    "ocr_text": "금강불괴",
+    "visual_description": "Displaying the stylized Korean text '금강불괴' in a bold, traditional-style font against a plain white background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_006",
+    "file": "page002_panel_006.png",
+    "width": 97,
+    "height": 36,
+    "bbox": [
+      0,
+      0,
+      97,
+      36
+    ],
+    "ocr_text": "한중월야",
+    "visual_description": "Displaying black Korean characters in a traditional serif font against a plain white background, framed in a tight close-up shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_007",
+    "file": "page002_panel_007.png",
+    "width": 715,
+    "height": 19,
+    "bbox": [
+      0,
+      0,
+      715,
+      19
+    ],
+    "ocr_text": "",
+    "visual_description": "Spanning horizontally across a plain white background, a thin grey divider line features two small circular nodes.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_008",
+    "file": "page002_panel_008.png",
+    "width": 714,
+    "height": 19,
+    "bbox": [
+      0,
+      0,
+      714,
+      19
+    ],
+    "ocr_text": "",
+    "visual_description": "Stretching horizontally across a plain white background, a thin grey divider line features small circular dots near its ends.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_009",
+    "file": "page002_panel_009.png",
+    "width": 792,
+    "height": 296,
+    "bbox": [
+      0,
+      0,
+      792,
+      296
+    ],
+    "ocr_text": "",
+    "visual_description": "Staring intensely with a single wide-open purple eye, a sweat-drenched character with dark hair looks forward in an extreme close-up. Strands of hair fall across their face, and sweat drips down their cheek.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_010",
+    "file": "page002_panel_010.png",
+    "width": 792,
+    "height": 1173,
+    "bbox": [
+      0,
+      0,
+      792,
+      1173
+    ],
+    "ocr_text": "UGH!! / 벌떡",
+    "visual_description": "Sitting up abruptly in bed with a shocked, sweating expression, a young man with messy dark hair gasps awake. He wears blood-stained robes in a wooden room. Medium shot.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_011",
+    "file": "page002_panel_011.png",
+    "width": 155,
+    "height": 43,
+    "bbox": [
+      0,
+      0,
+      155,
+      43
+    ],
+    "ocr_text": "",
+    "visual_description": "Curving smoothly across a plain white background, a single thick black line forms a wide arc resembling the top of a speech bubble.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_013",
+    "file": "page002_panel_013.png",
+    "width": 792,
+    "height": 646,
+    "bbox": [
+      0,
+      0,
+      792,
+      646
+    ],
+    "ocr_text": "I'M... / ALIVE? / BUT I'M SURE MY STOMACH WAS PIERCED BY THAT SWORD...?",
+    "visual_description": "Sitting up in bed and staring at his hands in disbelief, a bruised, long-haired young man in tattered, blood-stained robes realizes he is alive. The medium shot shows him in a dimly lit room with wooden window frames and bookshelves in the background.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_014",
+    "file": "page002_panel_014.png",
+    "width": 250,
+    "height": 68,
+    "bbox": [
+      0,
+      0,
+      250,
+      68
+    ],
+    "ocr_text": "",
+    "visual_description": "Curving smoothly across a plain white background, a single black line forms a simple arc resembling the top of a speech bubble.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_016",
+    "file": "page002_panel_016.png",
+    "width": 792,
+    "height": 666,
+    "bbox": [
+      0,
+      0,
+      792,
+      666
+    ],
+    "ocr_text": "HAPPENED...? / 스윽 / WHY IS MY WHOLE BODY SWEATING?",
+    "visual_description": "Wiping sweat from his forehead, a bloodied and bruised young man with long dark hair looks down in shock inside a wooden room.",
+    "source": "gemini",
+    "ok": true
+  },
+  {
+    "panel_id": "page002_panel_017",
+    "file": "page002_panel_017.png",
+    "width": 792,
+    "height": 673,
+    "bbox": [
+      0,
+      0,
+      792,
+      673
+    ],
+    "ocr_text": "UGH...! / 쿨럭",
+    "visual_description": "Coughing up blood while sitting up in bed, a dark-haired young man in blood-stained robes clutches his mouth in pain. High-angle shot of the character on a traditional floor mat with dramatic speed lines.",
+    "source": "gemini",
+    "ok": true
+  }
+]
