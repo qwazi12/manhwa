@@ -54,3 +54,5 @@ manhwa-recap-v1/hyperframes/my-video/.hyperframes/
 # per-segment render workspace (generated clips/assets)
 manhwa-recap-v1/hyperframes/segments-workspace/
 panel-split/review_crops_ch2/
+manhwa-recap-v1/review_ui/thumbnails/
+manhwa-recap-v1/review_ui/review.json

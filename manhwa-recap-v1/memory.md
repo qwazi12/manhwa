@@ -632,3 +632,17 @@
 - **Stage status**: Stage 3 (harden visual engine) fully complete and validated for Chapter 2.
 - **Output Video**: [recap_ch2_1.5x.mp4](file:///Users/kwasiyeboah/Desktop/manhwa/manhwa-recap-v1/build_test/recap_ch2_1.5x.mp4)
 
+
+---
+
+#### Stage 5 begins — Review UI MVP-1 (read-only review + approve) DONE
+- **When:** 2026-07-06
+- **User direction:** build the review/edit UI (Stage 5). Approved MVP-1 (read-only review + approve) then MVP-2 (direct edits). Explicitly deferred rights/source-policy (Stage 7) — do not raise it for now. Noted HyperFrames is versatile enough to back this; asked about hosting on a subdomain (manhwa.kymediamgmt.com — yes, standard web app + DNS/reverse proxy, kept deploy-agnostic).
+- **Built `manhwa-recap-v1/review_ui/`:** FastAPI backend (`server.py`) + self-contained SPA (`static/index.html`, no build step) + README. Thin layer over the existing pipeline — serves `segments.json` + per-segment clips + cached thumbnails; NO logic reimplemented.
+  - Endpoints: `GET /api/project` (manifest+status+counts+durations), `GET /clip/{i}` (FileResponse = HTTP Range so `<video>` seeking works), `GET /thumb/{i}` (ffmpeg-generated 200px JPEG, cached), `POST /api/segments/{i}/status` (approve/reject/pending → `review.json`, never mutates segments.json), `POST /api/export` (concat ONLY approved clips, optional 1.5x via speed_up.py), `POST /api/render-missing` (render_segments --only for clips that don't exist yet).
+  - SPA: 3-pane — preview player, timeline strip (thumbnail + dur + status-color border per segment), inspector (panel img + full narration + approve/reject). Keyboard A/R/←/→.
+- **Ran on a real Chapter-2 inversion result** already in the workspace: 28 segments, 290.6s, 32 clips rendered — INCLUDING the vision-segmented lore beats (page001_panel_001_beat_00.. show "A LONG TIME AGO" / "OVER TIME" / "THE MARTIAL ARTISTS PASSED ON" as separate legible segments). So the tall-panel fix + inversion narration are visibly working in the rendered clips.
+- **Verified end-to-end:** approve seg 0/1/2 + reject seg 3 → counts persist; export approved-only = 27.58s (sum of the 3 approved, rejected #3 excluded ✓); export @1.5x = 18.43s (=27.58/1.5 ✓). Screenshot confirmed layout renders.
+- **Deps:** installed fastapi + uvicorn[standard] + python-multipart into recap venv. `.claude/launch.json` has a `review-ui` config. `review_ui/thumbnails/` and `review_ui/review.json` gitignored.
+- **Note:** the segments.json in the workspace is a prior ch2 inversion run (narrate→TTS→matcher-by-construction→render happened in an earlier turn); MVP-1 consumes it read-only. TTS REST path (certifi CA bundle + TTS_API_KEY, bypassing the hanging SDK) was validated this session for MVP-2's re-TTS.
+- **Status:** MVP-1 complete. Next: MVP-2 direct edits (panel swap top-K, narration re-TTS, retime, single-clip re-render, undo, live preview).

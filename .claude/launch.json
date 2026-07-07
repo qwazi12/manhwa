@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "review-ui",
+      "runtimeExecutable": "manhwa-recap-v1/venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "review_ui.server:app", "--port", "8000", "--app-dir", "manhwa-recap-v1"],
+      "port": 8000
+    }
+  ]
+}

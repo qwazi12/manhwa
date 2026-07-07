@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Manhwa Recap — Review</title>
+<style>
+  :root { --bg:#14151a; --panel:#1e2028; --line:#2c2f3a; --text:#e7e9ee;
+          --muted:#9aa0ad; --green:#2ecc71; --red:#e74c3c; --amber:#c9922b;
+          --accent:#5b8def; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--text); height:100vh;
+         display:flex; flex-direction:column; overflow:hidden; }
+  header { display:flex; align-items:center; gap:16px; padding:10px 16px;
+           background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1 { font-size:15px; margin:0; font-weight:600; }
+  .counts { display:flex; gap:10px; font-size:12px; }
+  .chip { padding:2px 8px; border-radius:10px; background:#262a34; }
+  .chip.g{color:var(--green)} .chip.r{color:var(--red)} .chip.p{color:var(--muted)}
+  header .spacer{ flex:1 }
+  button { background:#2a2e3a; color:var(--text); border:1px solid var(--line);
+           padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px; }
+  button:hover{ background:#333846; }
+  button.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.approve{ background:#1e3a2a; border-color:#2c5a3f; color:var(--green); }
+  button.reject{ background:#3a1e1e; border-color:#5a2c2c; color:var(--red); }
+  .main { flex:1; display:flex; min-height:0; }
+  .preview { flex:1; display:flex; align-items:center; justify-content:center;
+             background:#0d0e12; padding:12px; }
+  .preview video { max-width:100%; max-height:100%; border-radius:6px;
+                   box-shadow:0 8px 30px rgba(0,0,0,.5); background:#000; }
+  .inspector { width:320px; border-left:1px solid var(--line); background:var(--panel);
+               padding:14px; overflow:auto; display:flex; flex-direction:column; gap:12px; }
+  .inspector img { width:100%; border-radius:6px; border:1px solid var(--line); }
+  .meta { font-size:12px; color:var(--muted); }
+  .narr { background:#181a21; border:1px solid var(--line); border-radius:6px;
+          padding:10px; font-size:13px; max-height:180px; overflow:auto; }
+  .status-line{ display:flex; align-items:center; gap:8px; }
+  .dot{ width:10px;height:10px;border-radius:50%; display:inline-block; }
+  .dot.approved{background:var(--green)} .dot.rejected{background:var(--red)}
+  .dot.pending{background:var(--muted)}
+  .actions{ display:flex; gap:8px; }
+  .actions button{ flex:1; }
+  .timeline { height:150px; border-top:1px solid var(--line); background:#101117;
+              display:flex; gap:8px; padding:10px; overflow-x:auto; align-items:stretch; }
+  .card { min-width:130px; width:130px; background:var(--panel); border:1px solid var(--line);
+          border-radius:8px; overflow:hidden; cursor:pointer; display:flex;
+          flex-direction:column; border-bottom-width:3px; }
+  .card.sel { outline:2px solid var(--accent); }
+  .card.approved{ border-bottom-color:var(--green); }
+  .card.rejected{ border-bottom-color:var(--red); }
+  .card.pending{ border-bottom-color:var(--amber); }
+  .card .thumbwrap{ height:78px; background:#000; display:flex; align-items:center;
+                    justify-content:center; overflow:hidden; }
+  .card img{ width:100%; height:100%; object-fit:cover; }
+  .card .cap{ padding:5px 7px; font-size:11px; color:var(--muted);
+              display:flex; justify-content:space-between; }
+  .card .noclip{ color:var(--amber); font-size:10px; }
+  .hint{ font-size:11px; color:var(--muted); }
+  label.speed{ display:flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); }
+  #exportMsg{ font-size:12px; color:var(--green); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 Recap Review</h1>
+  <div class="counts" id="counts"></div>
+  <span class="hint" id="durline"></span>
+  <span class="spacer"></span>
+  <button id="renderMissing">Render missing</button>
+  <label class="speed"><input type="checkbox" id="speed15" /> 1.5×</label>
+  <button class="primary" id="exportBtn">Export approved</button>
+  <span id="exportMsg"></span>
+</header>
+<div class="main">
+  <div class="preview"><video id="player" controls></video></div>
+  <div class="inspector" id="inspector"><div class="hint">Loading…</div></div>
+</div>
+<div class="timeline" id="timeline"></div>
+
+<script>
+let DATA = null, sel = 0;
+const $ = s => document.querySelector(s);
+
+async function load() {
+  DATA = await (await fetch('/api/project')).json();
+  renderCounts(); renderTimeline(); select(Math.min(sel, DATA.segments.length-1));
+}
+function renderCounts() {
+  const c = DATA.counts;
+  $('#counts').innerHTML =
+    `<span class="chip g">✓ ${c.approved}</span>
+     <span class="chip r">✗ ${c.rejected}</span>
+     <span class="chip p">• ${c.pending}</span>`;
+  $('#durline').textContent =
+    `${DATA.n_segments} segments · approved ${DATA.approved_duration}s / ${DATA.total_duration}s`;
+}
+function renderTimeline() {
+  const tl = $('#timeline'); tl.innerHTML = '';
+  DATA.segments.forEach((s, i) => {
+    const div = document.createElement('div');
+    div.className = `card ${s.status} ${i===sel?'sel':''}`;
+    div.onclick = () => select(i);
+    div.innerHTML = `
+      <div class="thumbwrap"><img src="${s.thumb_url}" loading="lazy"/></div>
+      <div class="cap"><span>#${s.seg_index}</span>
+        <span>${s.has_clip ? s.dur+'s' : '<span class=noclip>no clip</span>'}</span></div>`;
+    tl.appendChild(div);
+  });
+}
+function select(i) {
+  sel = i;
+  const s = DATA.segments[i];
+  document.querySelectorAll('.card').forEach((c,ci)=>c.classList.toggle('sel',ci===i));
+  const p = $('#player');
+  if (s.clip_url) { p.src = s.clip_url; p.load(); } else { p.removeAttribute('src'); p.load(); }
+  $('#inspector').innerHTML = `
+    <img src="${s.thumb_url}"/>
+    <div class="meta">segment #${s.seg_index} · ${s.panel_id}<br>
+      ${s.n_beats} beat(s) · ${s.dur ?? '?'}s · ${s.start}s→${s.end}s</div>
+    <div class="status-line"><span class="dot ${s.status}"></span>
+      <b>${s.status}</b></div>
+    <div class="narr">${s.text || '<i>(no narration)</i>'}</div>
+    <div class="actions">
+      <button class="approve" onclick="setStatus('approved')">Approve (A)</button>
+      <button class="reject" onclick="setStatus('rejected')">Reject (R)</button>
+    </div>
+    <button onclick="setStatus('pending')">Reset to pending</button>
+    ${s.has_clip ? '' : '<div class="hint">Clip not rendered — use “Render missing”.</div>'}`;
+}
+async function setStatus(status) {
+  const s = DATA.segments[sel];
+  await fetch(`/api/segments/${s.seg_index}/status`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({status}) });
+  s.status = status; renderCounts(); renderTimeline(); select(sel);
+  // recompute approved duration locally
+  DATA.approved_duration = DATA.segments.filter(x=>x.status==='approved')
+    .reduce((a,x)=>a+(x.dur||0),0).toFixed(2);
+  $('#durline').textContent =
+    `${DATA.n_segments} segments · approved ${DATA.approved_duration}s / ${DATA.total_duration}s`;
+}
+$('#exportBtn').onclick = async () => {
+  $('#exportMsg').textContent = 'Exporting…';
+  const speed = $('#speed15').checked ? 1.5 : 1.0;
+  const r = await fetch('/api/export', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({speed})});
+  if (!r.ok) { $('#exportMsg').textContent = '⚠ '+(await r.json()).detail; return; }
+  const j = await r.json();
+  $('#exportMsg').innerHTML = `✓ ${j.clips} clips → <a href="${j.url}" target="_blank" style="color:var(--accent)">${j.output}</a>`;
+};
+$('#renderMissing').onclick = async () => {
+  $('#exportMsg').textContent = 'Rendering missing clips… (may take a while)';
+  const r = await fetch('/api/render-missing', {method:'POST'});
+  const j = await r.json();
+  $('#exportMsg').textContent = `Rendered ${j.rendered.length}, still missing ${j.still_missing}`;
+  load();
+};
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'a' || e.key==='A') setStatus('approved');
+  else if (e.key === 'r' || e.key==='R') setStatus('rejected');
+  else if (e.key === 'ArrowRight') select(Math.min(sel+1, DATA.segments.length-1));
+  else if (e.key === 'ArrowLeft') select(Math.max(sel-1, 0));
+});
+load();
+</script>
+</body>
+</html>
