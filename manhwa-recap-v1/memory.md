@@ -721,3 +721,9 @@
 - **Fixes:** added `import re` + `sys.path.insert(0, HERE)` to server.py (ingest import).
 - **Verified:** `/api/projects` lists chapter-2 (28 segs); bad URL → 400 with message; valid URL shape → job starts with the 7 stages; Ingest panel renders (URL box, Run, project list). NOT run: a full live ingest (needs a real valid chapter URL + Gemini/TTS spend + ~minutes) — wiring proven, left for the user to trigger.
 - **Known nit:** `scraper.py` `urlopen` has no timeout, so an unreachable URL leaves the scrape stage hanging (in a daemon thread — server stays responsive). Add a timeout when hardening.
+
+#### UI polish + deploy scaffold + (pending) repo move
+- **When:** 2026-07-07
+- **Polish:** app `min-width:1060px` (scrolls horizontally below it instead of collapsing the center player to 1px — was 29px/1px at narrow widths); header items `flex-shrink:0` (no button cut-off); center `minmax(360px,1fr)`; styled scrollbars. Verified center 644px, header no overflow.
+- **Deploy scaffold** (`deploy/`): Dockerfile (python+node+ffmpeg+chromium — NOT serverless-able), docker-compose (studio + Caddy auto-HTTPS), Caddyfile (reverse-proxy `manhwa.kymediamgmt.com`), README. **Two steps need the user's accounts** (can't do from here): 🔑 provision a small VM (note public IP), 🔑 add DNS `A manhwa → VM IP`. Then `docker compose up -d --build` with a `.env` of keys. Flagged: no auth yet (add Caddy basicauth before public), persistence volumes for clips/projects.
+- **Repo move (task 4):** pending — will `mkdir -p ~/dev && mv ~/Desktop/manhwa ~/dev/manhwa` as the FINAL action (stops the preview server first; session paths become stale after). Everything is on GitHub so it's also re-clonable.

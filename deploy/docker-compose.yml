@@ -1,0 +1,26 @@
+# Runs the studio + Caddy (automatic HTTPS via Let's Encrypt) on one VM.
+# 1. Point DNS: manhwa.kymediamgmt.com  A  ->  <this VM's public IP>
+# 2. Put GEMINI_API_KEY / TTS_API_KEY in a .env next to this file.
+# 3. docker compose up -d --build
+services:
+  studio:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    env_file: .env          # GEMINI_API_KEY=..., TTS_API_KEY=...
+    expose: ["8000"]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [studio]
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

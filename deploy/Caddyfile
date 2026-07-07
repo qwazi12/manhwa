@@ -1,0 +1,10 @@
+# Automatic HTTPS + reverse proxy to the studio. Caddy gets a Let's Encrypt
+# cert for the subdomain automatically once DNS points here.
+manhwa.kymediamgmt.com {
+	encode zstd gzip
+	# large uploads / long render polls
+	request_body {
+		max_size 200MB
+	}
+	reverse_proxy studio:8000
+}
