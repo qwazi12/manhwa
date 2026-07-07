@@ -23,6 +23,8 @@
            padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px; }
   button:hover{ background:#333846; }
   button.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.modebtn{ font-size:12px; padding:4px 10px; opacity:.6; }
+  button.modebtn.active{ opacity:1; background:var(--accent); border-color:var(--accent); color:#fff; }
   button.approve{ background:#1e3a2a; border-color:#2c5a3f; color:var(--green); }
   button.reject{ background:#3a1e1e; border-color:#5a2c2c; color:var(--red); }
   .main { flex:1; display:flex; min-height:0; }
@@ -75,18 +77,62 @@
   <span id="exportMsg"></span>
 </header>
 <div class="main">
-  <div class="preview"><video id="player" controls></video></div>
+  <div class="preview">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <button id="modeClip" class="modebtn active">▶ Clip</button>
+      <button id="modeLive" class="modebtn">⚡ Live preview (instant)</button>
+      <span id="jobMsg" class="hint"></span>
+    </div>
+    <video id="player" controls></video>
+    <iframe id="live" style="display:none;width:100%;aspect-ratio:16/9;border:0;border-radius:8px;background:#0b0c10"></iframe>
+  </div>
   <div class="inspector" id="inspector"><div class="hint">Loading…</div></div>
 </div>
 <div class="timeline" id="timeline"></div>
 
 <script>
-let DATA = null, sel = 0;
+let DATA = null, sel = 0, liveMode = false;
 const $ = s => document.querySelector(s);
 
 async function load() {
   DATA = await (await fetch('/api/project')).json();
   renderCounts(); renderTimeline(); select(Math.min(sel, DATA.segments.length-1));
+  if (liveMode) refreshLive();
+}
+
+// Live preview: the composition plays in-browser, so any edit is reflected
+// INSTANTLY by reloading the iframe — no render wait.
+function refreshLive(seekSeg) {
+  const f = $('#live');
+  let url = '/api/preview?t=' + Date.now();
+  f.src = url;
+}
+function setMode(live) {
+  liveMode = live;
+  $('#modeLive').classList.toggle('active', live);
+  $('#modeClip').classList.toggle('active', !live);
+  $('#live').style.display = live ? 'block' : 'none';
+  $('#player').style.display = live ? 'none' : 'block';
+  if (live) refreshLive();
+}
+// Poll a background render job; refresh the clip when done.
+async function pollJob(job, seg_index) {
+  if (!job) return;
+  $('#jobMsg').textContent = 'rendering clip…';
+  for (let i = 0; i < 120; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const j = await (await fetch('/api/jobs/' + job)).json();
+    if (j.status === 'done') {
+      $('#jobMsg').textContent = '✓ clip updated';
+      setTimeout(() => $('#jobMsg').textContent = '', 2500);
+      await load();
+      const s = DATA.segments.find(x => x.seg_index === seg_index);
+      if (s && !liveMode && s.clip_url) { const p = $('#player'); p.src = s.clip_url + '?t=' + Date.now(); p.load(); }
+      return;
+    }
+    if (j.status === 'error') { $('#jobMsg').textContent = '⚠ render failed: ' + j.error; return; }
+    $('#jobMsg').textContent = `rendering… (${j.done}/${j.total})`;
+  }
 }
 function renderCounts() {
   const c = DATA.counts;
@@ -127,20 +173,22 @@ async function dropReorder(from, to) {
   await load();
 }
 async function splitSeg(i) {
-  if (!confirm('Split this segment after its first beat? Both halves will re-render (~30s).')) return;
+  if (!confirm('Split this segment after its first beat? Both halves re-render in the background.')) return;
   const r = await fetch(`/api/segments/${i}/split`, {method:'POST',
     headers:{'Content-Type':'application/json'}, body:JSON.stringify({after:0})});
   if (!r.ok) { alert((await r.json()).detail); return; }
-  await load();
+  const {job, new_seg_index} = await r.json();
+  await load(); pollJob(job, new_seg_index);
 }
 async function mergeNext(i) {
   const pos = DATA.segments.findIndex(s => s.seg_index===i);
   const next = DATA.segments[pos+1];
-  if (!next || !confirm('Merge the next segment into this one (this panel spans both)? Re-renders (~20s).')) return;
+  if (!next || !confirm('Merge the next segment into this one (this panel spans both)?')) return;
   const r = await fetch('/api/segments/merge', {method:'POST',
     headers:{'Content-Type':'application/json'}, body:JSON.stringify({a:i, b:next.seg_index})});
   if (!r.ok) { alert((await r.json()).detail); return; }
-  await load();
+  const {job} = await r.json();
+  await load(); pollJob(job, i);
 }
 function select(i) {
   sel = i;
@@ -189,26 +237,26 @@ async function loadCandidates(i) {
       </div>`).join('') + '</div>';
 }
 async function saveNarration(i) {
-  const s = DATA.segments[i];
+  const s = DATA.segments.find(x => x.seg_index === i);
   const txt = $('#narrEdit').value.trim();
   if (!txt || txt === s.text) return;
-  const btn = $('#saveNarr'); btn.textContent = 're-synthesizing + re-rendering (~20s)…'; btn.disabled = true;
-  // single-beat segments: apply the whole text to the one beat. multi-beat:
-  // apply to the first beat (finer per-beat editing is a later refinement).
+  const btn = $('#saveNarr'); btn.textContent = 're-synthesizing…'; btn.disabled = true;
   const beats = [{index: s.beats[0].index, text: txt}];
   const r = await fetch(`/api/segments/${i}/narration`, {method:'POST',
     headers:{'Content-Type':'application/json'}, body:JSON.stringify({beats})});
   if (!r.ok) { btn.textContent = '⚠ '+(await r.json()).detail; btn.disabled=false; return; }
-  await load();
-  const p = $('#player'); if (DATA.segments[i].clip_url){ p.src = DATA.segments[i].clip_url+'?t='+Date.now(); p.load(); }
+  const {job} = await r.json();
+  await load();               // manifest + live preview update INSTANTLY
+  pollJob(job, i);            // clip re-renders in the background
 }
 async function swapPanel(i, panel_id) {
-  const box = $('#cands'); if (box) box.innerHTML = '<div class="hint">swapping + re-rendering clip (~15s)…</div>';
+  const box = $('#cands'); if (box) box.innerHTML = '<div class="hint">swapping…</div>';
   const r = await fetch(`/api/segments/${i}/panel`, {method:'POST',
     headers:{'Content-Type':'application/json'}, body:JSON.stringify({panel_id})});
   if (!r.ok) { if(box) box.innerHTML = '<div class="hint">⚠ '+(await r.json()).detail+'</div>'; return; }
-  await load();                    // reload manifest (new panel + fresh clip)
-  const p = $('#player'); p.src = DATA.segments[i].clip_url + '?t=' + Date.now(); p.load();
+  const {job} = await r.json();
+  await load();               // manifest + live preview update INSTANTLY
+  pollJob(job, i);            // clip re-renders in the background
 }
 async function setStatus(status) {
   const s = DATA.segments[sel];
@@ -245,8 +293,10 @@ $('#renderMissing').onclick = async () => {
   $('#exportMsg').textContent = `Rendered ${j.rendered.length}, still missing ${j.still_missing}`;
   load();
 };
+$('#modeClip').onclick = () => setMode(false);
+$('#modeLive').onclick = () => setMode(true);
 document.addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'a' || e.key==='A') setStatus('approved');
   else if (e.key === 'r' || e.key==='R') setStatus('rejected');
   else if (e.key === 'ArrowRight') select(Math.min(sel+1, DATA.segments.length-1));

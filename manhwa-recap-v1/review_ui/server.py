@@ -351,11 +351,8 @@ def swap_panel(seg_index: int, body: SwapIn):
     seg["panel_id"] = body.panel_id
     seg["panel_file"] = new_path
     _write_segments(segs)
-    try:
-        _rerender(seg)
-    except Exception as e:
-        raise HTTPException(500, f"re-render failed: {e}")
-    return {"ok": True, "seg_index": seg_index, "panel_id": body.panel_id}
+    job = _start_render([seg_index])   # clip re-renders in background; preview is instant
+    return {"ok": True, "seg_index": seg_index, "panel_id": body.panel_id, "job": job}
 
 
 # --- narration edit → re-TTS (REST; the google-cloud SDK import hangs) -----
@@ -435,11 +432,8 @@ def edit_narration(seg_index: int, body: NarrationIn):
                 raise HTTPException(500, f"TTS failed: {e}")
     _recompute_timeline(segs)          # new audio length shifts timing
     _write_segments(segs)
-    try:
-        _rerender(seg)
-    except Exception as e:
-        raise HTTPException(500, f"re-render failed: {e}")
-    return {"ok": True, "seg_index": seg_index, "dur": seg["dur"]}
+    job = _start_render([seg_index])   # clip re-renders in background; preview is instant
+    return {"ok": True, "seg_index": seg_index, "dur": seg["dur"], "job": job}
 
 
 # --- structural edits: reorder / split / merge --------------------------
@@ -497,10 +491,8 @@ def split_segment(seg_index: int, body: SplitIn):
     segs.insert(pos + 1, tail)
     _recompute_timeline(segs)
     _write_segments(segs)
-    for s in (seg, tail):             # both halves are new content -> re-render
-        _rerender(s)
-    _write_segments(segs)
-    return {"ok": True, "new_seg_index": tail["seg_index"]}
+    job = _start_render([seg["seg_index"], tail["seg_index"]])  # both halves, background
+    return {"ok": True, "new_seg_index": tail["seg_index"], "job": job}
 
 
 class MergeIn(BaseModel):
@@ -523,9 +515,8 @@ def merge_segments(body: MergeIn):
     segs.pop(ib)
     _recompute_timeline(segs)
     _write_segments(segs)
-    _rerender(a)
-    _write_segments(segs)
-    return {"ok": True, "seg_index": a["seg_index"]}
+    job = _start_render([a["seg_index"]])   # merged clip re-renders in background
+    return {"ok": True, "seg_index": a["seg_index"], "job": job}
 
 
 @app.post("/api/undo")
@@ -545,4 +536,152 @@ def undo():
 
 
 # static SPA last so /api and /clip take precedence
+# ======================================================================
+#  LIVE IN-BROWSER PREVIEW  — play the composition HTML directly, so edits
+#  preview INSTANTLY (no render). Same card-over-blurred-blowup + Ken Burns
+#  look as the MP4, driven by one JS clock that switches the active segment
+#  and syncs each beat's audio. MP4 render becomes export-only.
+# ======================================================================
+
+@app.get("/audio/{beat_index}")
+def audio(beat_index: int):
+    path = os.path.join(AUDIO_DIR, f"beat_{beat_index:03d}.mp3")
+    if not os.path.exists(path):
+        raise HTTPException(404, "audio not found")
+    return FileResponse(path, media_type="audio/mpeg")
+
+
+def build_preview_html(segs):
+    """Self-contained full-timeline composition that PLAYS in the browser."""
+    import html as _html
+    total = round(sum(s["dur"] for s in segs), 3)
+    layers, meta, audios = [], [], []
+    tcur = 0.0
+    for i, s in enumerate(segs):
+        pid = s["panel_id"]
+        img = f"/panelimg/{_html.escape(pid)}"
+        dur = s["dur"]
+        layers.append(
+            f'<div class="seg" id="seg{i}" style="opacity:0">'
+            f'<img class="bg" src="{img}" alt="">'
+            f'<div class="veil"></div>'
+            f'<div class="card"><img class="cardimg" id="ci{i}" src="{img}" alt=""></div>'
+            f'</div>')
+        meta.append({"start": round(tcur, 3), "dur": dur,
+                     "even": i % 2 == 0, "text": s["beats"][0]["text"] if s["beats"] else ""})
+        for b in s["beats"]:
+            a = os.path.join(AUDIO_DIR, f"beat_{b['index']:03d}.mp3")
+            if os.path.exists(a):
+                import render_segments as rs
+                audios.append({"id": f"a{b['index']}", "idx": b["index"],
+                               "start": round(b["start"], 3),
+                               "dur": rs.ffprobe_dur(a)})
+        tcur += dur
+    audio_els = "\n".join(
+        f'<audio id="{a["id"]}" src="/audio/{a["idx"]}" preload="auto"></audio>'
+        for a in audios)
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+html,body{{width:100%;height:100%;background:#0b0c10;overflow:hidden;font-family:system-ui}}
+#stage{{position:absolute;inset:0;bottom:44px;background:#e8e6e3;overflow:hidden}}
+.seg{{position:absolute;inset:0;transition:opacity .18s}}
+.bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  filter:blur(42px) saturate(.5) brightness(1.08);transform:scale(1.18)}}
+.veil{{position:absolute;inset:0;background:radial-gradient(ellipse at center,
+  rgba(232,230,227,.25) 0%,rgba(232,230,227,.72) 100%)}}
+.card{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
+.cardimg{{max-width:46%;max-height:90%;object-fit:contain;border-radius:6px;background:#fff;
+  box-shadow:0 30px 70px rgba(0,0,0,.38),0 8px 20px rgba(0,0,0,.22)}}
+#bar{{position:absolute;left:0;right:0;bottom:0;height:44px;background:#15161c;
+  display:flex;align-items:center;gap:10px;padding:0 12px;color:#cfd2dc;font-size:13px}}
+#play{{cursor:pointer;background:#5b8cff;border:0;color:#fff;border-radius:6px;padding:6px 12px}}
+#seek{{flex:1}} #tlabel{{font-variant-numeric:tabular-nums;min-width:96px}}
+#cap{{position:absolute;left:0;right:0;bottom:52px;text-align:center;color:#111;
+  font-size:14px;padding:0 20px;pointer-events:none}}
+</style></head><body>
+<div id="stage">{''.join(layers)}</div>
+<div id="cap"></div>
+<div id="bar"><button id="play">▶</button>
+  <input id="seek" type="range" min="0" max="1000" value="0">
+  <span id="tlabel">0.0 / {total:.1f}s</span></div>
+{audio_els}
+<script>
+const SEGS={json.dumps(meta)}, AUD={json.dumps(audios)}, TOTAL={total};
+let t=0, playing=false, t0=0, raf=null;
+const $=id=>document.getElementById(id);
+function fmt(x){{return x.toFixed(1)}}
+function render(t){{
+  let cap="";
+  SEGS.forEach((s,i)=>{{
+    const on = t>=s.start && t<s.start+s.dur;
+    const el=$("seg"+i); el.style.opacity=on?1:0;
+    if(on){{ const p=(t-s.start)/s.dur; const z=s.even?1+0.035*p:1.035-0.035*p;
+      $("ci"+i).style.transform="scale("+z.toFixed(4)+")"; cap=s.text; }}
+  }});
+  $("cap").textContent=cap;
+  AUD.forEach(a=>{{ const el=$(a.id); const on=t>=a.start && t<a.start+a.dur;
+    if(on){{ if(el.paused){{ try{{el.currentTime=Math.max(0,t-a.start)}}catch(e){{}} el.play().catch(()=>{{}}); }} }}
+    else if(!el.paused) el.pause(); }});
+  $("seek").value=Math.round(t/TOTAL*1000);
+  $("tlabel").textContent=fmt(t)+" / "+fmt(TOTAL)+"s";
+}}
+function loop(now){{ t=(now-t0)/1000; if(t>=TOTAL){{t=TOTAL;pause();}} render(t); if(playing) raf=requestAnimationFrame(loop); }}
+function play(){{ if(t>=TOTAL) t=0; playing=true; $("play").textContent="⏸"; t0=performance.now()-t*1000; raf=requestAnimationFrame(loop); }}
+function pause(){{ playing=false; $("play").textContent="▶"; cancelAnimationFrame(raf); AUD.forEach(a=>{{const el=$(a.id); if(!el.paused)el.pause();}}); }}
+$("play").onclick=()=>playing?pause():play();
+$("seek").oninput=e=>{{ pause(); t=e.target.value/1000*TOTAL; t0=performance.now()-t*1000; render(t); }};
+render(0);
+</script></body></html>"""
+
+
+@app.get("/api/preview")
+def preview():
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(build_preview_html(load_segments()))
+
+
+# ======================================================================
+#  NON-BLOCKING RE-RENDER  — edits return a job id immediately; the clip
+#  re-renders in a background thread; the UI polls /api/jobs/{id}. The live
+#  preview already reflects the edit instantly, so nothing blocks on render.
+# ======================================================================
+import threading
+import uuid
+
+JOBS = {}   # job_id -> {status: queued|running|done|error, done, total, error}
+
+
+def _run_render_job(job_id, seg_indices):
+    JOBS[job_id]["status"] = "running"
+    try:
+        for si in seg_indices:
+            segs = load_segments()
+            seg = next((s for s in segs if s["seg_index"] == si), None)
+            if seg:
+                _rerender(seg)
+                _write_segments(segs)
+            JOBS[job_id]["done"] += 1
+        JOBS[job_id]["status"] = "done"
+    except Exception as e:  # noqa
+        JOBS[job_id]["status"] = "error"
+        JOBS[job_id]["error"] = str(e)
+
+
+def _start_render(seg_indices):
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {"status": "queued", "done": 0, "total": len(seg_indices),
+                    "seg_indices": seg_indices, "error": None}
+    threading.Thread(target=_run_render_job, args=(job_id, seg_indices),
+                     daemon=True).start()
+    return job_id
+
+
+@app.get("/api/jobs/{job_id}")
+def job_status(job_id: str):
+    j = JOBS.get(job_id)
+    if not j:
+        raise HTTPException(404, "job not found")
+    return j
+
+
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")

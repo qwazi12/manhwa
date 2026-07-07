@@ -682,3 +682,13 @@
 - **Frontend:** timeline cards are draggable (drag→reorder); inspector "Structure" section shows ✂ Split (multi-beat segs) and ⇥ Merge with next; card labels now show play-position (#1..) since seg_index is an id, not position.
 - **Verified end-to-end:** reorder [0,1,2,3,4]→[0,3,1,2,4]→undo restored; merge 0+1 → 27 segs (seg0 3 beats, dur 18.82) → undo+re-render restored; split seg1 → 29 segs (new id 28) → undo → 28 restored. State clean at 28 segments.
 - **Remaining MVP-2:** live in-browser HyperFrames preview (play composition HTML, MP4 becomes export-only); non-blocking BackgroundTask re-render with progress polling.
+
+---
+
+#### Review UI MVP-2 (part 4: live preview + non-blocking render) — MVP-2 COMPLETE
+- **When:** 2026-07-07
+- **Live in-browser preview (`GET /api/preview`, `GET /audio/{idx}`):** `build_preview_html(segs)` generates a self-contained full-timeline composition (all segments' blurred-blowup bg + aspect card + Ken Burns + per-beat audio) driven by ONE requestAnimationFrame clock that switches the active segment and syncs each beat's `<audio>` at its global start. Play/pause/seek bar + live caption. Frontend has a **⚡ Live preview** vs **▶ Clip** toggle; in live mode any edit reloads the iframe → reflected INSTANTLY, no render wait. MP4 render is now export-only. Verified in-browser: iframe loads 28 segments + 65 audio tracks, player initializes, seg0 visible at t=0, zero console errors.
+- **Non-blocking re-render (`_start_render` + `GET /api/jobs/{id}`):** swap/narration/split/merge now `_snapshot`+`_write_segments` synchronously (fast) then kick the clip render onto a daemon thread and return a `job` id immediately. Frontend `pollJob()` polls `/api/jobs/{id}` (queued→running→done) and refreshes the clip when done; a job-progress label shows in the preview pane. **Verified: swap endpoint returned in 0.012s (was ~19s), job ran in background.** This also fixes the earlier server-blocking-during-render issue.
+- **Frontend fix:** edit handlers now look up segments by `seg_index` (not array position) — required since reorder made seg_index a stable id ≠ position.
+- **KNOWN ISSUE to harden:** undo pops `versions/vNNNN.json` files[-1]; leftover snapshots from prior operations can make undo restore the WRONG (stale) state. Hit this during testing — 2 segments got mis-restored; fixed by rebuilding from the authoritative `beatsheet_ch2.json`. Fix later: a proper single undo stack keyed to the edit, or clear/scope snapshots per session. Mitigation for now: clear `versions/` between edit sessions.
+- **MVP-2 COMPLETE:** panel swap ✓, narration re-TTS ✓, undo ✓, reorder/split/merge ✓, live preview ✓, non-blocking render ✓.
