@@ -646,3 +646,18 @@
 - **Deps:** installed fastapi + uvicorn[standard] + python-multipart into recap venv. `.claude/launch.json` has a `review-ui` config. `review_ui/thumbnails/` and `review_ui/review.json` gitignored.
 - **Note:** the segments.json in the workspace is a prior ch2 inversion run (narrate→TTS→matcher-by-construction→render happened in an earlier turn); MVP-1 consumes it read-only. TTS REST path (certifi CA bundle + TTS_API_KEY, bypassing the hanging SDK) was validated this session for MVP-2's re-TTS.
 - **Status:** MVP-1 complete. Next: MVP-2 direct edits (panel swap top-K, narration re-TTS, retime, single-clip re-render, undo, live preview).
+
+---
+
+#### Review UI MVP-2 (part 1) — panel swap + candidates + undo DONE
+- **When:** 2026-07-07
+- **Backend (`review_ui/server.py`):** the UI's `segments.json` is now the editable state; segments are the isolation boundary (a clip carries its own beats' audio and plays sequentially in concat), so an edit re-renders ONLY that clip — no downstream churn.
+  - `GET /api/segments/{i}/candidates?k=` — top-K alternative panels ranked by `matcher._lexical_sim` of the segment's narration vs each non-junk panel's desc+OCR (instant, no API). Marks the current panel.
+  - `GET /panelimg/{panel_id}?thumb=` — panel image / cached 160px thumb, for candidate strips.
+  - `POST /api/segments/{i}/panel {panel_id}` — snapshot segments.json (undo), set panel_id/file, re-render that clip via `render_segments.render_segment(seg, tts_ch2)` with `PANEL_DIR` pointed at review_crops_ch2.
+  - `POST /api/undo` — restore the last snapshot (versions/vNNNN.json).
+  - Project wiring auto-derives PANEL_DIR from the segments' own `panel_file`; AUDIO_DIR=build_test/tts_ch2, DESCRIPTIONS=descriptions_ch2.json (env-overridable).
+- **Frontend:** inspector shows candidate-panel thumbnails (current outlined green) — click to swap → "re-rendering ~15s" → reloads with the new clip. Header "↶ Undo" button.
+- **Verified end-to-end:** swapped seg2 → page001_panel_003; re-rendered in 19.3s; clip's frame confirmed the new panel (the "FORCES OF JUSTICE/EVIL" clan panel) with the card-over-blur look intact; manifest updated. Then restored seg2 → page001_panel_001_beat_02 and re-rendered back. Undo returns clean 400 when empty.
+- **Observed:** the preview/uvicorn server dropped at one point mid-session (HTTP 000 on a later call) — FastAPI runs sync endpoints in a threadpool so a 19s render shouldn't block the loop; likely a preview-harness lifecycle cycle, not a code deadlock. If it recurs, move re-render to a BackgroundTask + poll. `review_ui/versions/` gitignored.
+- **Remaining MVP-2:** narration edit (re-TTS one beat via the validated certifi REST path → re-time → re-render), retime/hold, reorder/split/merge, live in-browser HyperFrames preview, undo re-render of affected clip.

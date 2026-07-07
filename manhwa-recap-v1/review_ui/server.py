@@ -225,5 +225,153 @@ def render_missing():
     return {"ok": True, "rendered": done, "still_missing": len(missing) - len(done)}
 
 
+# ================================================================ MVP-2
+# Direct edits. The review UI's segments.json IS the editable state. Each edit
+# snapshots segments.json (undo), mutates it, then re-renders ONLY the affected
+# clip — segments are the isolation boundary (a clip contains its own beats'
+# audio and plays sequentially in the concat), so no downstream clip is touched.
+
+# Project wiring — derived from the loaded segments + env overrides. The panel
+# dir comes from the segments' own panel_file paths; audio + descriptions match
+# the chapter this workspace was built from.
+def _panel_dir():
+    segs = load_segments()
+    if segs and segs[0].get("panel_file"):
+        return os.path.dirname(segs[0]["panel_file"])
+    return os.path.join(RECAP, "..", "panel-split", "review_crops")
+
+AUDIO_DIR = os.environ.get(
+    "REVIEW_AUDIO_DIR", os.path.join(RECAP, "build_test", "tts_ch2"))
+DESCRIPTIONS = os.environ.get(
+    "REVIEW_DESCRIPTIONS",
+    os.path.join(RECAP, "..", "panel-describe", "descriptions_ch2.json"))
+VERSIONS = os.path.join(HERE, "versions")
+os.makedirs(VERSIONS, exist_ok=True)
+
+sys.path.insert(0, RECAP)
+sys.path.insert(0, HF)
+
+
+def _load_descriptions():
+    try:
+        with open(DESCRIPTIONS, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _snapshot():
+    """Save current segments.json as a numbered version for undo."""
+    segs = load_segments()
+    n = len([f for f in os.listdir(VERSIONS) if f.endswith(".json")])
+    with open(os.path.join(VERSIONS, f"v{n:04d}.json"), "w") as f:
+        json.dump(segs, f)
+
+
+def _write_segments(segs):
+    tmp = SEGMENTS_JSON + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(segs, f, indent=2)
+    os.replace(tmp, SEGMENTS_JSON)
+
+
+def _rerender(seg):
+    """Re-render one segment's clip from the (edited) seg dict."""
+    import render_segments as rs
+    rs.PANEL_DIR = _panel_dir()
+    rs.render_segment(seg, AUDIO_DIR)
+    # thumbnail may be stale after a panel swap
+    tp = thumb_path(seg["seg_index"])
+    if os.path.exists(tp):
+        os.remove(tp)
+
+
+@app.get("/api/segments/{seg_index}/candidates")
+def candidates(seg_index: int, k: int = 8):
+    """Top-K alternative panels for this segment, ranked by text similarity to
+    its narration — the matcher's shortlist, so a swap is a click not a guess."""
+    import matcher
+    segs = load_segments()
+    seg = next((s for s in segs if s["seg_index"] == seg_index), None)
+    if not seg:
+        raise HTTPException(404, "segment not found")
+    text = " ".join(b["text"] for b in seg.get("beats", []))
+    panels = [p for p in _load_descriptions()
+              if p.get("ok", True) and not matcher.is_junk_panel(p)]
+    scored = []
+    for p in panels:
+        ptext = f"{p.get('visual_description','')} {p.get('ocr_text','')}"
+        scored.append((matcher._lexical_sim(text, ptext), p))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for score, p in scored[:k]:
+        out.append({
+            "panel_id": p["panel_id"],
+            "score": round(score, 3),
+            "current": p["panel_id"] == seg["panel_id"],
+            "ocr": (p.get("ocr_text") or "")[:60],
+            "desc": (p.get("visual_description") or "")[:80],
+            "thumb_url": f"/panelimg/{p['panel_id']}?thumb=1",
+        })
+    return {"seg_index": seg_index, "current": seg["panel_id"], "candidates": out}
+
+
+@app.get("/panelimg/{panel_id}")
+def panelimg(panel_id: str, thumb: int = 0):
+    path = os.path.join(_panel_dir(), f"{panel_id}.png")
+    if not os.path.exists(path):
+        raise HTTPException(404, "panel not found")
+    if not thumb:
+        return FileResponse(path, media_type="image/png")
+    tp = os.path.join(THUMBS, f"panel_{panel_id}.jpg")
+    if not os.path.exists(tp):
+        try:
+            subprocess.run(["ffmpeg", "-y", "-i", path, "-vf", "scale=160:-1",
+                            "-frames:v", "1", tp], check=True, capture_output=True)
+        except Exception:
+            raise HTTPException(404, "thumb failed")
+    return FileResponse(tp, media_type="image/jpeg")
+
+
+class SwapIn(BaseModel):
+    panel_id: str
+
+
+@app.post("/api/segments/{seg_index}/panel")
+def swap_panel(seg_index: int, body: SwapIn):
+    segs = load_segments()
+    seg = next((s for s in segs if s["seg_index"] == seg_index), None)
+    if not seg:
+        raise HTTPException(404, "segment not found")
+    new_path = os.path.join(_panel_dir(), f"{body.panel_id}.png")
+    if not os.path.exists(new_path):
+        raise HTTPException(400, f"panel {body.panel_id} not found")
+    _snapshot()
+    seg["panel_id"] = body.panel_id
+    seg["panel_file"] = new_path
+    _write_segments(segs)
+    try:
+        _rerender(seg)
+    except Exception as e:
+        raise HTTPException(500, f"re-render failed: {e}")
+    return {"ok": True, "seg_index": seg_index, "panel_id": body.panel_id}
+
+
+@app.post("/api/undo")
+def undo():
+    files = sorted(f for f in os.listdir(VERSIONS) if f.endswith(".json"))
+    if not files:
+        raise HTTPException(400, "nothing to undo")
+    last = os.path.join(VERSIONS, files[-1])
+    with open(last) as f:
+        segs = json.load(f)
+    _write_segments(segs)
+    os.remove(last)
+    # re-render every segment whose panel differs from what's now on disk is
+    # overkill; just re-render the ones that changed is unknown here, so the
+    # caller reloads and can re-render as needed. Return restored state.
+    return {"ok": True, "restored": files[-1], "n_segments": len(segs)}
+
+
 # static SPA last so /api and /clip take precedence
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")

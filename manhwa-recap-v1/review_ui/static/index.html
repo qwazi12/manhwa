@@ -68,6 +68,7 @@
   <div class="counts" id="counts"></div>
   <span class="hint" id="durline"></span>
   <span class="spacer"></span>
+  <button id="undoBtn">↶ Undo</button>
   <button id="renderMissing">Render missing</button>
   <label class="speed"><input type="checkbox" id="speed15" /> 1.5×</label>
   <button class="primary" id="exportBtn">Export approved</button>
@@ -127,7 +128,31 @@ function select(i) {
       <button class="reject" onclick="setStatus('rejected')">Reject (R)</button>
     </div>
     <button onclick="setStatus('pending')">Reset to pending</button>
+    <div style="border-top:1px solid var(--line); margin-top:6px; padding-top:8px;">
+      <div class="meta">Swap panel — pick a better match:</div>
+      <div id="cands" class="hint">loading candidates…</div>
+    </div>
     ${s.has_clip ? '' : '<div class="hint">Clip not rendered — use “Render missing”.</div>'}`;
+  loadCandidates(s.seg_index);
+}
+async function loadCandidates(i) {
+  const box = $('#cands'); if (!box) return;
+  const j = await (await fetch(`/api/segments/${i}/candidates?k=8`)).json();
+  box.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">' +
+    j.candidates.map(c => `
+      <div title="${c.desc.replace(/"/g,'&quot;')}" onclick="swapPanel(${i},'${c.panel_id}')"
+           style="cursor:pointer;width:72px;text-align:center;${c.current?'outline:2px solid var(--green);border-radius:5px;':''}">
+        <img src="${c.thumb_url}" style="width:72px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--line)"/>
+        <div style="font-size:9px;color:var(--muted)">${c.current?'current':c.score}</div>
+      </div>`).join('') + '</div>';
+}
+async function swapPanel(i, panel_id) {
+  const box = $('#cands'); if (box) box.innerHTML = '<div class="hint">swapping + re-rendering clip (~15s)…</div>';
+  const r = await fetch(`/api/segments/${i}/panel`, {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({panel_id})});
+  if (!r.ok) { if(box) box.innerHTML = '<div class="hint">⚠ '+(await r.json()).detail+'</div>'; return; }
+  await load();                    // reload manifest (new panel + fresh clip)
+  const p = $('#player'); p.src = DATA.segments[i].clip_url + '?t=' + Date.now(); p.load();
 }
 async function setStatus(status) {
   const s = DATA.segments[sel];
@@ -149,6 +174,13 @@ $('#exportBtn').onclick = async () => {
   if (!r.ok) { $('#exportMsg').textContent = '⚠ '+(await r.json()).detail; return; }
   const j = await r.json();
   $('#exportMsg').innerHTML = `✓ ${j.clips} clips → <a href="${j.url}" target="_blank" style="color:var(--accent)">${j.output}</a>`;
+};
+$('#undoBtn').onclick = async () => {
+  const r = await fetch('/api/undo', {method:'POST'});
+  if (!r.ok) { $('#exportMsg').textContent = '⚠ '+(await r.json()).detail; return; }
+  const j = await r.json();
+  $('#exportMsg').textContent = `↶ undid ${j.restored} (re-render the affected clip if needed)`;
+  await load(); select(sel);
 };
 $('#renderMissing').onclick = async () => {
   $('#exportMsg').textContent = 'Rendering missing clips… (may take a while)';
