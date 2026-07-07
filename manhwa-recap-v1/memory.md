@@ -699,3 +699,16 @@
 - **Non-blocking render (`_start_render` + `GET /api/jobs/{id}`):** swap/narration/split/merge now snapshot+write the manifest synchronously (fast) then kick the clip re-render onto a daemon thread, returning `{"job": id}` immediately. `JOBS[id] = {status, done, total}`; frontend polls. Verified: swap returned job id instantly, server stayed responsive across polls during the ~20s render, job reached "done". Fixes the earlier server-blocking-during-render issue.
 - **MVP-2 COMPLETE:** panel swap ✓, narration re-TTS ✓, undo ✓, reorder/split/merge ✓, live preview ✓, non-blocking render ✓.
 - **Next: MVP-3** — CapCut-style pro layout (left nav rail, center live-preview player, right Details inspector, bottom multi-track timeline with draggable video-clip thumbnails + audio beat track + synced playhead). Keep every domain feature; re-present only.
+
+#### Review UI MVP-3 — CapCut-style professional layout
+- **When:** 2026-07-07
+- **Full index.html rewrite** into a pro NLE layout; every domain feature preserved, only re-presented:
+  - **Header:** title, live status counts (approved/rejected/pending), clip count + approved/total duration, Undo, Render missing, 1.5× toggle, Export.
+  - **Left rail:** nav — Segments (default), Media (panel library / swap for selected clip), Export (export controls + 1.5×).
+  - **Center:** large live-preview player = the `/api/preview` HyperFrames composition in an iframe (instant playback, no render).
+  - **Right "Details" inspector:** segment thumb + meta, narration editor (→ re-TTS bg job), Approve/Reject/Reset, Structure (Split/Merge), Swap-panel candidate grid.
+  - **Bottom multi-track timeline (the upgrade):** time-scaled ruler; VIDEO track of segment clip-thumbnails (status dot, #, dur) that are click-to-select, drag-to-reorder; AUDIO track of per-beat blocks (waveform texture + narration text) positioned by global beat start; a **playhead** synced to the player.
+- **Cross-iframe sync:** the preview player postMessages `pv-time {t,total,playing}` each frame → parent moves the playhead + clock; parent posts `pv-seek {t}` / `pv-playpause` back (clicking a clip/beat/ruler seeks the player). Added beat `start/end/dur` to `/api/project`.
+- **All edits go through the existing endpoints** and use the MVP-2 background-job poller (toast → poll `/api/jobs/{id}` → reload preview) so the UI never blocks.
+- **Verified in-browser:** no console errors; playhead sync exact (t=12.5s → 560px at 40px/s, clock "12.5s"); 28 video clips + 65 audio beat-blocks rendered; click clip #4 → inspector shows #4 meta + 8 swap candidates; ruler/scrub wired.
+- **Deploy note (for manhwa.kymediamgmt.com):** still a plain FastAPI+static app; needs user to add DNS subdomain + provision a host (their creds). Not started.

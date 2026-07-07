@@ -109,7 +109,10 @@ def project():
             "start": s["start"], "end": s["end"], "dur": s.get("dur"),
             "text": " ".join(b["text"] for b in s.get("beats", [])),
             "n_beats": len(s.get("beats", [])),
-            "beats": [{"index": b["index"], "text": b["text"]} for b in s.get("beats", [])],
+            "beats": [{"index": b["index"], "text": b["text"],
+                       "start": b.get("start"), "end": b.get("end"),
+                       "dur": round(b.get("end", 0) - b.get("start", 0), 3)}
+                      for b in s.get("beats", [])],
             "status": st, "note": note,
             "has_clip": clip_ok,
             "clip_url": f"/clip/{s['seg_index']}" if clip_ok else None,
@@ -624,7 +627,14 @@ function render(t){{
     else if(!el.paused) el.pause(); }});
   $("seek").value=Math.round(t/TOTAL*1000);
   $("tlabel").textContent=fmt(t)+" / "+fmt(TOTAL)+"s";
+  try{{ parent.postMessage({{type:"pv-time", t:t, total:TOTAL, playing:playing}}, "*"); }}catch(e){{}}
 }}
+// let the parent (CapCut timeline) drive seek/playpause
+window.addEventListener("message", e=>{{
+  const m=e.data||{{}};
+  if(m.type==="pv-seek"){{ pause(); t=Math.max(0,Math.min(TOTAL,m.t)); t0=performance.now()-t*1000; render(t); }}
+  else if(m.type==="pv-playpause"){{ playing?pause():play(); }}
+}});
 function loop(now){{ t=(now-t0)/1000; if(t>=TOTAL){{t=TOTAL;pause();}} render(t); if(playing) raf=requestAnimationFrame(loop); }}
 function play(){{ if(t>=TOTAL) t=0; playing=true; $("play").textContent="⏸"; t0=performance.now()-t*1000; raf=requestAnimationFrame(loop); }}
 function pause(){{ playing=false; $("play").textContent="▶"; cancelAnimationFrame(raf); AUD.forEach(a=>{{const el=$(a.id); if(!el.paused)el.pause();}}); }}
