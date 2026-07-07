@@ -1,0 +1,25 @@
+# Render.com Blueprint — one-click deploy of Recap Studio from this repo.
+# Render runs the Docker container (ffmpeg + node + chromium), keeps a
+# persistent disk, and gives it a URL you can alias to manhwa.nodepilot.dev.
+#
+# Deploy: Render dashboard → New → Blueprint → connect this GitHub repo.
+# Then set GEMINI_API_KEY / TTS_API_KEY (they're marked sync:false = secret),
+# and add the custom domain in Settings → Custom Domains.
+services:
+  - type: web
+    name: recap-studio
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+    plan: standard          # ~2 GB RAM — chromium/ffmpeg need headroom
+    healthCheckPath: /api/project
+    autoDeploy: true
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false          # set in dashboard (secret)
+      - key: TTS_API_KEY
+        sync: false
+    disk:
+      name: studio-workspace
+      mountPath: /app/manhwa-recap-v1/hyperframes/segments-workspace
+      sizeGB: 5
