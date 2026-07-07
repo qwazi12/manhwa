@@ -87,6 +87,7 @@ button.ghost{background:transparent}
   </div>
 
   <div id="rail">
+    <button class="navbtn" data-view="ingest" onclick="setView('ingest')"><span class="ic">🔗</span>Ingest</button>
     <button class="navbtn active" data-view="segments" onclick="setView('segments')"><span class="ic">🎞️</span>Segments</button>
     <button class="navbtn" data-view="media" onclick="setView('media')"><span class="ic">🖼️</span>Media</button>
     <button class="navbtn" data-view="export" onclick="setView('export')"><span class="ic">⬆️</span>Export</button>
@@ -192,9 +193,59 @@ $('#ruler').addEventListener('click',e=>{
 /* ---------- right panel (view-dependent) ---------- */
 function setView(v){ view=v; document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active',b.dataset.view===v)); renderRight(); }
 function renderRight(){
+  if(view==='ingest') return renderIngest();
   if(view==='export') return renderExport();
   if(view==='media')  return renderMedia();
   return renderInspector();
+}
+function renderIngest(){
+  $('#right').querySelector('h3').textContent='Ingest a chapter';
+  $('#inspector').innerHTML=`
+    <div class="hint">Paste a chapter URL — it runs the whole pipeline
+      (scrape → split → describe → narrate → voice → match → segment) and opens
+      it here. Clips render on demand after.</div>
+    <input class="field" id="ingurl" placeholder="https://…/chapter/…" style="margin:10px 0"/>
+    <button class="primary" style="width:100%" onclick="runIngest()">▶ Run ingest</button>
+    <div id="ingprog" style="margin-top:12px"></div>
+    <div class="section"><h3 style="margin:0 0 8px">Projects</h3>
+      <div id="projlist" class="hint">loading…</div></div>`;
+  loadProjects();
+}
+const ING_STAGES=['scrape','split','describe','narrate','voice','match','segment'];
+async function runIngest(){
+  const url=$('#ingurl').value.trim(); if(!/^https?:\/\//.test(url)){alert('Paste a full http(s) chapter URL');return;}
+  const r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+  const j=await r.json(); if(!r.ok){alert(j.detail||'failed');return;}
+  pollIngest(j.job);
+}
+function stageBar(cur,pct,msg,err){
+  return `<div style="font-size:12px">${ING_STAGES.map(s=>{
+    const done=ING_STAGES.indexOf(s)<ING_STAGES.indexOf(cur), on=s===cur;
+    return `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;color:${done?'var(--green)':on?'var(--accent)':'var(--muted)'}">
+      <span>${done?'✓':on?'●':'○'}</span>${s}</div>`;}).join('')}</div>
+    <div style="height:6px;background:var(--line);border-radius:3px;margin:8px 0;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:${err?'var(--red)':'var(--accent)'}"></div></div>
+    <div class="hint">${err?('⚠ '+err):msg}</div>`;
+}
+async function pollIngest(job){
+  const box=$('#ingprog');
+  while(true){ const j=await (await fetch('/api/ingest/status/'+job)).json();
+    box.innerHTML=stageBar(j.stage,j.pct,j.msg,j.status==='error'?j.error:null);
+    if(j.status==='done'){ box.innerHTML+=`<button class="primary" style="width:100%;margin-top:8px" onclick="activateProj('${j.project.id}')">Open “${j.project.id}” (${j.project.n_segments} segs)</button>`; loadProjects(); return; }
+    if(j.status==='error') return;
+    await new Promise(r=>setTimeout(r,1500)); }
+}
+async function loadProjects(){
+  const box=$('#projlist'); if(!box)return;
+  const j=await (await fetch('/api/projects')).json();
+  box.innerHTML=j.projects.map(p=>`<div class="row" style="justify-content:space-between;align-items:center">
+    <span>${p.active?'▶ ':''}${p.id} <span class="muted">(${p.n_segments||p.n_segments===0?p.n_segments:'?'} segs)</span></span>
+    ${p.active?'<span class="muted">active</span>':`<button onclick="activateProj('${p.id}')">Open</button>`}</div>`).join('');
+}
+async function activateProj(id){
+  const r=await fetch('/api/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+  if(!r.ok){alert('activate failed');return;}
+  setView('segments'); sel=0; await load(); reloadPreview();
 }
 function select(i){ sel=i; document.querySelectorAll('.vclip').forEach((c,ci)=>c.classList.toggle('sel',ci===i));
   document.querySelectorAll('.aclip').forEach(c=>c.classList.remove('sel')); renderRight(); }

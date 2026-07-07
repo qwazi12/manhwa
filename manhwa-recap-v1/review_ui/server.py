@@ -18,6 +18,7 @@ Everything is deploy-agnostic: put this behind any reverse proxy / subdomain
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -27,6 +28,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)   # so `import ingest` (same dir) resolves
 RECAP = os.path.abspath(os.path.join(HERE, ".."))
 HF = os.path.join(RECAP, "hyperframes")
 WORK = os.path.join(HF, "segments-workspace")
@@ -692,6 +695,93 @@ def job_status(job_id: str):
     if not j:
         raise HTTPException(404, "job not found")
     return j
+
+
+# ======================================================================
+#  CHAPTER-URL INGESTION  — drop a chapter link, run the whole pipeline
+#  (scrape→split→describe→narrate→voice→match→segment) as a background job
+#  with live stage progress, then activate it in the studio.
+# ======================================================================
+INGEST = {}   # job_id -> {stage, pct, msg, status, error, project}
+
+
+def _run_ingest_job(job_id, url):
+    import ingest
+    INGEST[job_id]["status"] = "running"
+
+    def progress(stage, msg, pct):
+        INGEST[job_id].update(stage=stage, msg=msg, pct=pct)
+
+    try:
+        meta = ingest.run_ingest(url, progress)
+        INGEST[job_id].update(status="done", project=meta, pct=100)
+    except subprocess.CalledProcessError as e:
+        INGEST[job_id].update(status="error",
+                              error=(e.stderr or str(e))[-400:])
+    except Exception as e:  # noqa
+        INGEST[job_id].update(status="error", error=str(e))
+
+
+class IngestIn(BaseModel):
+    url: str
+
+
+@app.post("/api/ingest")
+def start_ingest(body: IngestIn):
+    if not re.match(r"^https?://", body.url.strip()):
+        raise HTTPException(400, "please paste a full chapter URL (http/https)")
+    job_id = uuid.uuid4().hex[:12]
+    INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "queued",
+                      "status": "queued", "error": None, "project": None,
+                      "url": body.url.strip()}
+    threading.Thread(target=_run_ingest_job, args=(job_id, body.url.strip()),
+                     daemon=True).start()
+    return {"job": job_id, "stages": ingest_stages()}
+
+
+def ingest_stages():
+    import ingest
+    return ingest.STAGES
+
+
+@app.get("/api/ingest/status/{job_id}")
+def ingest_status(job_id: str):
+    j = INGEST.get(job_id)
+    if not j:
+        raise HTTPException(404, "job not found")
+    return j
+
+
+@app.get("/api/projects")
+def projects_list():
+    import ingest
+    items = [{"id": "chapter-2 (current)", "url": "loaded", "active": True,
+              "n_segments": len(load_segments())}]
+    for m in ingest.list_projects():
+        items.append({**m, "active": False})
+    return {"projects": items}
+
+
+class ActivateIn(BaseModel):
+    id: str
+
+
+@app.post("/api/activate")
+def activate_project(body: ActivateIn):
+    """Point the studio at an ingested project: load its segments + audio."""
+    global AUDIO_DIR
+    import ingest
+    proj = os.path.join(ingest.PROJECTS, body.id)
+    seg = os.path.join(proj, "segments.json")
+    if not os.path.exists(seg):
+        raise HTTPException(404, "project not found")
+    # copy project segments into the workspace the studio machinery uses
+    with open(seg) as f:
+        segs = json.load(f)
+    _write_segments(segs)
+    AUDIO_DIR = os.path.join(proj, "audio")   # honored by re-TTS + preview + render
+    save_review({})                            # fresh review state for this project
+    return {"ok": True, "id": body.id, "n_segments": len(segs)}
 
 
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")

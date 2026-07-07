@@ -712,3 +712,12 @@
 - **All edits go through the existing endpoints** and use the MVP-2 background-job poller (toast → poll `/api/jobs/{id}` → reload preview) so the UI never blocks.
 - **Verified in-browser:** no console errors; playhead sync exact (t=12.5s → 560px at 40px/s, clock "12.5s"); 28 video clips + 65 audio beat-blocks rendered; click clip #4 → inspector shows #4 meta + 8 swap candidates; ruler/scrub wired.
 - **Deploy note (for manhwa.kymediamgmt.com):** still a plain FastAPI+static app; needs user to add DNS subdomain + provision a host (their creds). Not started.
+
+#### Review UI — URL ingestion ("drop a chapter link → run the job")
+- **When:** 2026-07-07
+- **`ingest.py`:** `run_ingest(url, progress)` chains the whole pipeline into a self-contained `review_ui/projects/{slug}/` dir with per-stage progress callbacks: scrape (`scraper.download_chapter`) → split (`split_panels.py --batch`, vision-segments tall panels) → describe (`panel-describe/run.py`, Gemini) → narrate (`narrate.generate_narration` FROM panels) → voice (`beat_segmenter` + REST TTS per beat, builds timeline) → match (DP aligner) → segment (`build_segments`). Writes `segments.json` + `project.json`. Clips are NOT rendered here (stay on-demand) so ingestion finishes fast and is reviewed before paying render time. All stages run under the recap venv.
+- **Endpoints:** `POST /api/ingest {url}` → background job (`INGEST` registry, daemon thread); `GET /api/ingest/status/{job}` → {stage,pct,msg,status,error}; `GET /api/projects` → list; `POST /api/activate {id}` → point the studio at a project (copy its segments into the workspace, repoint `AUDIO_DIR` global, reset review state; `_panel_dir` auto-derives from panel_file).
+- **Frontend:** new "🔗 Ingest" left-rail view — URL input, Run, a live 7-stage progress list + bar, and a Projects list with Open/active. On done → "Open project" activates it and reloads the studio + preview.
+- **Fixes:** added `import re` + `sys.path.insert(0, HERE)` to server.py (ingest import).
+- **Verified:** `/api/projects` lists chapter-2 (28 segs); bad URL → 400 with message; valid URL shape → job starts with the 7 stages; Ingest panel renders (URL box, Run, project list). NOT run: a full live ingest (needs a real valid chapter URL + Gemini/TTS spend + ~minutes) — wiring proven, left for the user to trigger.
+- **Known nit:** `scraper.py` `urlopen` has no timeout, so an unreachable URL leaves the scrape stage hanging (in a daemon thread — server stays responsive). Add a timeout when hardening.
