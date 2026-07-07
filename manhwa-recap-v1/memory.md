@@ -669,3 +669,16 @@
 - **Verified:** edited seg0 to a shorter line → re-TTS dur 6.518s→3.216s (shorter text = shorter audio ✓), re-timed, re-rendered in ~11s; text updated. Restored via undo + audio backup (undo now confirmed working — the earlier undo failures were purely the preview server being down between calls, not a code bug).
 - **MVP-2 status:** panel swap ✓, narration edit + re-TTS ✓, undo ✓, retime ✓. Screenshot confirms full inspector (candidate-swap strip + editable narration + approve/reject) renders.
 - **Remaining MVP-2 (next):** reorder / split / merge segments; live in-browser HyperFrames preview (play the composition HTML directly instead of the rendered MP4, so edits preview instantly and MP4 render becomes export-only); make single-clip re-render a non-blocking BackgroundTask with progress polling.
+
+---
+
+#### iCloud restore recovery + Review UI MVP-2 (part 3: reorder/split/merge)
+- **When:** 2026-07-07
+- **Recovery:** the repo lives under ~/Desktop (iCloud-synced); a sync/restore rolled the LOCAL .git HEAD back to old commit f243837 while leaving working files current. Verified GitHub `origin/main` was actually at e1b012f (all pushes had landed) and the working tree was byte-identical to it (empty `git diff origin/main`). Reconciled non-destructively with `git reset --soft origin/main` — no file loss. **Also repaired venv corruption:** the restore left ~34 EMPTY package dirs in site-packages; `annotated_doc` being empty broke the fastapi import. Removed the empty `annotated_doc*` dirs + reinstalled → server imports OK. The other empty dirs are unused heavy ML deps (torch/transformers/sklearn/scipy/jinja2/rich/typer/joblib/tokenizers/safetensors/networkx — the sentence-transformers fallback the Gemini-embedding matcher doesn't use); left unrepaired (would be ~2GB) — repair on demand if a non-review path needs them. **Lesson reinforced: move repo off the iCloud Desktop.**
+- **Reorder/split/merge (server.py):** seg_index is a STABLE id (clips named seg_<id>.mp4) so reorder never invalidates a clip — only list order (= concat/play order) changes.
+  - `POST /api/segments/reorder {order:[seg_index...]}` — permutation reorder, retime, no re-render (export re-concats in new order).
+  - `POST /api/segments/{i}/split {after:N}` — split after the Nth beat into two segments (tail gets a fresh id), re-render both halves.
+  - `POST /api/segments/merge {a,b}` — merge adjacent (b right after a); a's panel spans both beats' audio; re-render a.
+- **Frontend:** timeline cards are draggable (drag→reorder); inspector "Structure" section shows ✂ Split (multi-beat segs) and ⇥ Merge with next; card labels now show play-position (#1..) since seg_index is an id, not position.
+- **Verified end-to-end:** reorder [0,1,2,3,4]→[0,3,1,2,4]→undo restored; merge 0+1 → 27 segs (seg0 3 beats, dur 18.82) → undo+re-render restored; split seg1 → 29 segs (new id 28) → undo → 28 restored. State clean at 28 segments.
+- **Remaining MVP-2:** live in-browser HyperFrames preview (play composition HTML, MP4 becomes export-only); non-blocking BackgroundTask re-render with progress polling.

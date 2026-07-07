@@ -103,12 +103,44 @@ function renderTimeline() {
     const div = document.createElement('div');
     div.className = `card ${s.status} ${i===sel?'sel':''}`;
     div.onclick = () => select(i);
+    div.draggable = true;
+    div.dataset.pos = i;
+    div.addEventListener('dragstart', e => { dragFrom = i; e.dataTransfer.effectAllowed='move'; });
+    div.addEventListener('dragover', e => { e.preventDefault(); div.style.outline='2px dashed var(--accent)'; });
+    div.addEventListener('dragleave', () => { div.style.outline=''; });
+    div.addEventListener('drop', e => { e.preventDefault(); div.style.outline=''; dropReorder(dragFrom, i); });
     div.innerHTML = `
       <div class="thumbwrap"><img src="${s.thumb_url}" loading="lazy"/></div>
-      <div class="cap"><span>#${s.seg_index}</span>
+      <div class="cap"><span>#${i+1}</span>
         <span>${s.has_clip ? s.dur+'s' : '<span class=noclip>no clip</span>'}</span></div>`;
     tl.appendChild(div);
   });
+}
+let dragFrom = null;
+async function dropReorder(from, to) {
+  if (from === null || from === to) return;
+  const order = DATA.segments.map(s => s.seg_index);
+  const [moved] = order.splice(from, 1);
+  order.splice(to, 0, moved);
+  await fetch('/api/segments/reorder', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({order})});
+  await load();
+}
+async function splitSeg(i) {
+  if (!confirm('Split this segment after its first beat? Both halves will re-render (~30s).')) return;
+  const r = await fetch(`/api/segments/${i}/split`, {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({after:0})});
+  if (!r.ok) { alert((await r.json()).detail); return; }
+  await load();
+}
+async function mergeNext(i) {
+  const pos = DATA.segments.findIndex(s => s.seg_index===i);
+  const next = DATA.segments[pos+1];
+  if (!next || !confirm('Merge the next segment into this one (this panel spans both)? Re-renders (~20s).')) return;
+  const r = await fetch('/api/segments/merge', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({a:i, b:next.seg_index})});
+  if (!r.ok) { alert((await r.json()).detail); return; }
+  await load();
 }
 function select(i) {
   sel = i;
@@ -130,6 +162,14 @@ function select(i) {
       <button class="reject" onclick="setStatus('rejected')">Reject (R)</button>
     </div>
     <button onclick="setStatus('pending')">Reset to pending</button>
+    <div style="border-top:1px solid var(--line); margin-top:6px; padding-top:8px;">
+      <div class="meta">Structure:</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+        ${s.n_beats > 1 ? `<button onclick="splitSeg(${s.seg_index})" title="Split into two segments after beat 1">✂ Split (${s.n_beats} beats)</button>` : ''}
+        ${i < DATA.segments.length-1 ? `<button onclick="mergeNext(${s.seg_index})" title="Merge this segment's panel across the next segment's beats too">⇥ Merge with next</button>` : ''}
+      </div>
+      <div class="hint" style="margin-top:4px;">Drag timeline cards to reorder.</div>
+    </div>
     <div style="border-top:1px solid var(--line); margin-top:6px; padding-top:8px;">
       <div class="meta">Swap panel — pick a better match:</div>
       <div id="cands" class="hint">loading candidates…</div>

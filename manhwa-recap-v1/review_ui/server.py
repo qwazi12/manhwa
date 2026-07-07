@@ -442,6 +442,92 @@ def edit_narration(seg_index: int, body: NarrationIn):
     return {"ok": True, "seg_index": seg_index, "dur": seg["dur"]}
 
 
+# --- structural edits: reorder / split / merge --------------------------
+# seg_index is a STABLE id (clips are named seg_<id>.mp4), so reordering never
+# invalidates a clip — only the LIST ORDER (= play/concat order) changes.
+
+def _clip_rel(seg):
+    return f"clips/seg_{seg['seg_index']:03d}.mp4"
+
+
+def _new_id(segs):
+    return max((s["seg_index"] for s in segs), default=-1) + 1
+
+
+class ReorderIn(BaseModel):
+    order: list   # list of seg_index in the desired play order
+
+
+@app.post("/api/segments/reorder")
+def reorder(body: ReorderIn):
+    segs = load_segments()
+    by_id = {s["seg_index"]: s for s in segs}
+    if sorted(body.order) != sorted(by_id):
+        raise HTTPException(400, "order must be a permutation of all seg_index")
+    _snapshot()
+    segs = [by_id[i] for i in body.order]
+    _recompute_timeline(segs)          # play order changed -> retime
+    _write_segments(segs)              # clips unchanged; export re-concats in new order
+    return {"ok": True, "order": body.order}
+
+
+class SplitIn(BaseModel):
+    after: int    # split this segment after its Nth beat (0-based, within segment)
+
+
+@app.post("/api/segments/{seg_index}/split")
+def split_segment(seg_index: int, body: SplitIn):
+    segs = load_segments()
+    pos = next((i for i, s in enumerate(segs) if s["seg_index"] == seg_index), None)
+    if pos is None:
+        raise HTTPException(404, "segment not found")
+    seg = segs[pos]
+    if not (0 <= body.after < len(seg["beats"]) - 1):
+        raise HTTPException(400, "split point must leave a beat on each side")
+    _snapshot()
+    head_beats = seg["beats"][:body.after + 1]
+    tail_beats = seg["beats"][body.after + 1:]
+    seg["beats"] = head_beats
+    tail = {
+        "seg_index": _new_id(segs),
+        "panel_id": seg["panel_id"], "panel_file": seg.get("panel_file"),
+        "beats": tail_beats, "start": 0.0, "end": 0.0, "dur": 0.0,
+    }
+    tail["clip"] = _clip_rel(tail)
+    segs.insert(pos + 1, tail)
+    _recompute_timeline(segs)
+    _write_segments(segs)
+    for s in (seg, tail):             # both halves are new content -> re-render
+        _rerender(s)
+    _write_segments(segs)
+    return {"ok": True, "new_seg_index": tail["seg_index"]}
+
+
+class MergeIn(BaseModel):
+    a: int        # keep this segment (its panel), absorb b's beats
+    b: int        # must be the segment immediately after a in play order
+
+
+@app.post("/api/segments/merge")
+def merge_segments(body: MergeIn):
+    segs = load_segments()
+    ia = next((i for i, s in enumerate(segs) if s["seg_index"] == body.a), None)
+    ib = next((i for i, s in enumerate(segs) if s["seg_index"] == body.b), None)
+    if ia is None or ib is None:
+        raise HTTPException(404, "segment not found")
+    if ib != ia + 1:
+        raise HTTPException(400, "can only merge two adjacent segments (b right after a)")
+    _snapshot()
+    a, b = segs[ia], segs[ib]
+    a["beats"] = a["beats"] + b["beats"]   # a's panel spans all beats now
+    segs.pop(ib)
+    _recompute_timeline(segs)
+    _write_segments(segs)
+    _rerender(a)
+    _write_segments(segs)
+    return {"ok": True, "seg_index": a["seg_index"]}
+
+
 @app.post("/api/undo")
 def undo():
     files = sorted(f for f in os.listdir(VERSIONS) if f.endswith(".json"))
