@@ -122,7 +122,9 @@ function select(i) {
       ${s.n_beats} beat(s) · ${s.dur ?? '?'}s · ${s.start}s→${s.end}s</div>
     <div class="status-line"><span class="dot ${s.status}"></span>
       <b>${s.status}</b></div>
-    <div class="narr">${s.text || '<i>(no narration)</i>'}</div>
+    <textarea id="narrEdit" class="narr" style="width:100%;resize:vertical;color:var(--text);"
+      rows="4">${s.text || ''}</textarea>
+    <button id="saveNarr" onclick="saveNarration(${s.seg_index})">Save narration → re-TTS + re-render</button>
     <div class="actions">
       <button class="approve" onclick="setStatus('approved')">Approve (A)</button>
       <button class="reject" onclick="setStatus('rejected')">Reject (R)</button>
@@ -145,6 +147,20 @@ async function loadCandidates(i) {
         <img src="${c.thumb_url}" style="width:72px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--line)"/>
         <div style="font-size:9px;color:var(--muted)">${c.current?'current':c.score}</div>
       </div>`).join('') + '</div>';
+}
+async function saveNarration(i) {
+  const s = DATA.segments[i];
+  const txt = $('#narrEdit').value.trim();
+  if (!txt || txt === s.text) return;
+  const btn = $('#saveNarr'); btn.textContent = 're-synthesizing + re-rendering (~20s)…'; btn.disabled = true;
+  // single-beat segments: apply the whole text to the one beat. multi-beat:
+  // apply to the first beat (finer per-beat editing is a later refinement).
+  const beats = [{index: s.beats[0].index, text: txt}];
+  const r = await fetch(`/api/segments/${i}/narration`, {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({beats})});
+  if (!r.ok) { btn.textContent = '⚠ '+(await r.json()).detail; btn.disabled=false; return; }
+  await load();
+  const p = $('#player'); if (DATA.segments[i].clip_url){ p.src = DATA.segments[i].clip_url+'?t='+Date.now(); p.load(); }
 }
 async function swapPanel(i, panel_id) {
   const box = $('#cands'); if (box) box.innerHTML = '<div class="hint">swapping + re-rendering clip (~15s)…</div>';

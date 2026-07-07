@@ -109,6 +109,7 @@ def project():
             "start": s["start"], "end": s["end"], "dur": s.get("dur"),
             "text": " ".join(b["text"] for b in s.get("beats", [])),
             "n_beats": len(s.get("beats", [])),
+            "beats": [{"index": b["index"], "text": b["text"]} for b in s.get("beats", [])],
             "status": st, "note": note,
             "has_clip": clip_ok,
             "clip_url": f"/clip/{s['seg_index']}" if clip_ok else None,
@@ -355,6 +356,90 @@ def swap_panel(seg_index: int, body: SwapIn):
     except Exception as e:
         raise HTTPException(500, f"re-render failed: {e}")
     return {"ok": True, "seg_index": seg_index, "panel_id": body.panel_id}
+
+
+# --- narration edit → re-TTS (REST; the google-cloud SDK import hangs) -----
+GAP_SEC = 0.35  # inter-beat gap, matches tts.GAP_SEC
+
+
+def _tts_key():
+    for line in open(os.path.join(RECAP, "..", ".env")):
+        if line.startswith("TTS_API_KEY"):
+            return line.split("=", 1)[1].strip()
+    return None
+
+
+def _synth_rest(text, out_path):
+    """Synthesize one beat to MP3 via the Chirp REST endpoint + API key,
+    using certifi's CA bundle (avoids the hanging google-cloud SDK import)."""
+    import base64, ssl, urllib.request
+    key = _tts_key()
+    if not key:
+        raise RuntimeError("TTS_API_KEY not found in .env")
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        ctx = ssl.create_default_context()
+    body = {"input": {"text": text},
+            "voice": {"languageCode": "en-US", "name": "en-US-Chirp3-HD-Charon"},
+            "audioConfig": {"audioEncoding": "MP3"}}
+    req = urllib.request.Request(
+        f"https://texttospeech.googleapis.com/v1/text:synthesize?key={key}",
+        data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, context=ctx, timeout=60) as r:
+        audio = base64.b64decode(json.load(r)["audioContent"])
+    with open(out_path, "wb") as f:
+        f.write(audio)
+
+
+def _recompute_timeline(segs):
+    """Rebuild every beat/segment start-end from the CURRENT beat-audio
+    durations (sequential with GAP_SEC between beats), so timing stays exact
+    after a re-TTS changes a clip's length. Only the edited clip re-renders;
+    downstream clips are untouched (concat is sequential), but their manifest
+    times are kept accurate for display."""
+    import render_segments as rs
+    t = 0.0
+    for seg in segs:
+        for b in seg["beats"]:
+            a = os.path.join(AUDIO_DIR, f"beat_{b['index']:03d}.mp3")
+            dur = rs.ffprobe_dur(a) if os.path.exists(a) else (b["end"] - b["start"])
+            b["start"] = round(t, 3)
+            b["end"] = round(t + dur, 3)
+            t += dur + GAP_SEC
+        seg["start"] = seg["beats"][0]["start"]
+        seg["end"] = seg["beats"][-1]["end"]
+        seg["dur"] = round(seg["end"] - seg["start"], 3)
+
+
+class NarrationIn(BaseModel):
+    beats: list   # [{"index": int, "text": str}, ...]
+
+
+@app.post("/api/segments/{seg_index}/narration")
+def edit_narration(seg_index: int, body: NarrationIn):
+    segs = load_segments()
+    seg = next((s for s in segs if s["seg_index"] == seg_index), None)
+    if not seg:
+        raise HTTPException(404, "segment not found")
+    _snapshot()
+    edited = {e["index"]: e["text"].strip() for e in body.beats}
+    for b in seg["beats"]:
+        if b["index"] in edited and edited[b["index"]] and edited[b["index"]] != b["text"]:
+            b["text"] = edited[b["index"]]
+            try:
+                _synth_rest(b["text"],
+                            os.path.join(AUDIO_DIR, f"beat_{b['index']:03d}.mp3"))
+            except Exception as e:
+                raise HTTPException(500, f"TTS failed: {e}")
+    _recompute_timeline(segs)          # new audio length shifts timing
+    _write_segments(segs)
+    try:
+        _rerender(seg)
+    except Exception as e:
+        raise HTTPException(500, f"re-render failed: {e}")
+    return {"ok": True, "seg_index": seg_index, "dur": seg["dur"]}
 
 
 @app.post("/api/undo")
