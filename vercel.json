@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/index.py", "use": "@vercel/python" },
+    { "src": "manhwa-recap-v1/review_ui/static/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/index.py" },
+    { "src": "/audio/(.*)", "dest": "/api/index.py" },
+    { "src": "/clip/(.*)", "dest": "/api/index.py" },
+    { "src": "/thumb/(.*)", "dest": "/api/index.py" },
+    { "src": "/panelimg/(.*)", "dest": "/api/index.py" },
+    { "src": "/", "dest": "/manhwa-recap-v1/review_ui/static/index.html" },
+    { "src": "/(.*)", "dest": "/manhwa-recap-v1/review_ui/static/$1" }
+  ]
+}

@@ -1,0 +1,13 @@
+**/venv/
+**/node_modules/
+**/__pycache__/
+.git/
+manhwa-recap-v1/hyperframes/segments-workspace/
+manhwa-recap-v1/hyperframes/my-video/renders/
+manhwa-recap-v1/review_ui/projects/
+manhwa-recap-v1/review_ui/thumbnails/
+manhwa-recap-v1/review_ui/versions/
+panel-split/review_crops*/
+panel-describe/descriptions_ch2*.json
+manhwa-recap-v1/build/
+manhwa-recap-v1/build_test/

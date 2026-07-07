@@ -17,11 +17,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY manhwa-recap-v1/requirements.txt /app/req-recap.txt
-COPY panel-describe/requirements.txt  /app/req-desc.txt
-RUN pip install --no-cache-dir -r /app/req-recap.txt -r /app/req-desc.txt \
-      "fastapi" "uvicorn[standard]" "python-multipart" "google-genai>=1.0.0" \
-      "sentence-transformers" || true
+# Lean, explicit deps — the review UI + ingestion need only these. (No torch /
+# sentence-transformers: the matcher uses Gemini embeddings, not local models.)
+RUN pip install --no-cache-dir \
+      "fastapi" "uvicorn[standard]" "python-multipart" "pydantic>=2" \
+      "google-genai>=1.0.0" "numpy" "Pillow" "certifi"
 
 COPY . /app
 # hyperframes CLI (pinned via npx at runtime; warm the cache)
