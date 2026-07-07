@@ -9,20 +9,26 @@
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%}
-body{background:var(--bg);color:var(--text);font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
+body{background:var(--bg);color:var(--text);font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow-x:auto;overflow-y:hidden}
+/* pro-tool minimum: never collapse the player — scroll the whole app instead */
+::-webkit-scrollbar{height:10px;width:10px}
+::-webkit-scrollbar-thumb{background:#2c3040;border-radius:6px}
+::-webkit-scrollbar-track{background:transparent}
 button{font:inherit;cursor:pointer;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:6px 10px}
 button:hover{border-color:var(--accent)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.ghost{background:transparent}
 .muted{color:var(--muted)} .hint{color:var(--muted);font-size:11px}
 /* ---- shell grid ---- */
-#app{display:grid;height:100vh;
-  grid-template-columns:66px 1fr 322px;
-  grid-template-rows:50px 1fr 208px;
+#app{display:grid;height:100vh;min-width:1060px;
+  grid-template-columns:66px minmax(360px,1fr) 322px;
+  grid-template-rows:50px 1fr 210px;
   grid-template-areas:"head head head" "rail center right" "rail timeline timeline";}
-#head{grid-area:head;display:flex;align-items:center;gap:14px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+#head{grid-area:head;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+#head>*{flex-shrink:0}
 #head .logo{font-weight:700;letter-spacing:.3px}
-#head .spacer{flex:1}
+#head #counts{min-width:0;overflow:hidden}
+#head .spacer{flex:1 1 auto;min-width:8px}
 #counts{display:flex;gap:10px;align-items:center;font-size:12px}
 #counts b{font-variant-numeric:tabular-nums}
 .pill{display:inline-flex;gap:5px;align-items:center;padding:3px 8px;border-radius:20px;background:var(--panel2);border:1px solid var(--line)}
