@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { next } from '@vercel/edge';
 
 export function middleware(req) {
   const basicAuth = req.headers.get('authorization');
@@ -18,7 +18,7 @@ export function middleware(req) {
           if (process.env.SHARED_SECRET) {
             requestHeaders.set('x-shared-secret', process.env.SHARED_SECRET);
           }
-          return NextResponse.next({
+          return next({
             request: {
               headers: requestHeaders,
             },
@@ -39,8 +39,10 @@ export function middleware(req) {
   }
 
   // If Basic Auth is not configured (e.g. local dev), allow request to pass through
-  return NextResponse.next();
+  return next();
 }
+
+export default middleware;
 
 export const config = {
   matcher: ['/:path*'],
