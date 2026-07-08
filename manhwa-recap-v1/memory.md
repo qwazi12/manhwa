@@ -803,4 +803,6 @@
   - Updated `deploy/Dockerfile` to copy, make executable, and run `entrypoint.sh` on container start.
   - Modified `railway.json` to remove the direct `startCommand` override, allowing the container to run `entrypoint.sh` by default.
   - Re-deployed updates to Railway via `railway up --detach`.
+  - **Verification:** User successfully attached `recap-studio-volume` mounted at `/app/data`. Verified via Railway CLI status and container logs that `entrypoint.sh` detected the volume, initialized folders, mapped symlinks correctly, and uvicorn is running healthy.
+
 
