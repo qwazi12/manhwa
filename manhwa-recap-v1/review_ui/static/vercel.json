@@ -1,4 +1,5 @@
 {
+  "name": "manhwa-studio",
   "version": 2,
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://recap-studio-production.up.railway.app/api/:path*" },
@@ -6,7 +7,6 @@
     { "source": "/thumb/:path*", "destination": "https://recap-studio-production.up.railway.app/thumb/:path*" },
     { "source": "/audio/:path*", "destination": "https://recap-studio-production.up.railway.app/audio/:path*" },
     { "source": "/panelimg/:path*", "destination": "https://recap-studio-production.up.railway.app/panelimg/:path*" },
-    { "source": "/export/:path*", "destination": "https://recap-studio-production.up.railway.app/export/:path*" },
-    { "source": "/(.*)", "destination": "/manhwa-recap-v1/review_ui/static/$1" }
+    { "source": "/export/:path*", "destination": "https://recap-studio-production.up.railway.app/export/:path*" }
   ]
 }

@@ -758,3 +758,28 @@
 - **Decision: did not pursue Vercel further.** Two independent reasons converge: (1) it's the wrong runtime for this app regardless of how deploy is triggered, and (2) the sandbox correctly won't let a pasted live credential flow through automated shell commands here. The reliable path for Vercel, if ever wanted later, is the user running `vercel deploy --prod` from their own terminal (token never enters this session's tool calls) — the minimal deploy folder is ready at `/tmp/vercel_deploy` (ephemeral scratch, not in the repo) if that's revisited, but note it would only serve a non-functional UI shell (no render/ingest/preview) given Vercel's serverless limits.
 
 **Net position:** Railway (`recap-studio-production.up.railway.app`) is the one real, fully-functional deployment. `manhwa.nodepilot.dev` can be pointed at it with one CNAME (Railway → Settings → Custom Domain, gives the target; add that as a CNAME wherever nodepilot.dev's DNS lives) — not yet done, still needs the user's DNS access. No auth is on the Railway deployment yet — anyone with the URL can drive it (and spend the Gemini/TTS keys); worth gating before sharing the link.
+
+---
+
+### Session 11 — 2026-07-07 — Decoupled Vercel + Railway Deployment
+
+#### Decoupled Architecture Configuration
+- **When:** 2026-07-07 20:30 ET
+- **Strategy:** Deploy a static frontend to Vercel that reverse-proxies all backend API and media asset requests to the active containerized Railway backend (`recap-studio-production.up.railway.app`). This keeps the frontend fast, scalable, and served on your custom Vercel domain while letting the heavy-duty pipeline operations (FFmpeg, Chromium, Puppeteer, TTS, SQLite/file persistency) run reliably on Railway.
+- **Action:** Created `vercel.json` inside `manhwa-recap-v1/review_ui/static/` and updated the root `vercel.json` to define reverse proxy rewrites:
+  - `/api/:path*` ──> `https://recap-studio-production.up.railway.app/api/:path*`
+  - `/clip/:path*` ──> `https://recap-studio-production.up.railway.app/clip/:path*`
+  - `/thumb/:path*` ──> `https://recap-studio-production.up.railway.app/thumb/:path*`
+  - `/audio/:path*` ──> `https://recap-studio-production.up.railway.app/audio/:path*`
+  - `/panelimg/:path*` ──> `https://recap-studio-production.up.railway.app/panelimg/:path*`
+  - `/export/:path*` ──> `https://recap-studio-production.up.railway.app/export/:path*`
+
+#### Authentication & Out-of-Band Login
+- **Action:** Triggered Vercel CLI login in out-of-band mode (`vercel login --github --oob`).
+- **Result:** Successfully received the authorization URL, user completed login via browser, and entered the transient verification code (`T4Iiv5dBlTypDkfaFnJsGpfD`) to authenticate the sandbox session.
+
+#### Deployment Execution
+- **Issue:** The host's global Vercel CLI version (`44.2.11`) was rejected by the Vercel API as outdated (required `>= 47.2.2`).
+- **Fix:** Ran the deployment using the latest Vercel CLI via npx (`npx -y vercel@latest --prod --yes`) directly in the static directory to only upload the SPA (`index.html` + `vercel.json`).
+- **Result:** Successful production deployment created and aliased to **`https://manhwa-studio-taupe.vercel.app`**.
+- **Verification:** Ran end-to-end tests fetching `/api/project` through the Vercel production URL. Confirming it successfully proxies to the Railway backend and returns valid project state.
