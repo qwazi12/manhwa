@@ -806,3 +806,14 @@
   - **Verification:** User successfully attached `recap-studio-volume` mounted at `/app/data`. Verified via Railway CLI status and container logs that `entrypoint.sh` detected the volume, initialized folders, mapped symlinks correctly, and uvicorn is running healthy.
 
 
+
+#### Live-state verification (independent recheck, this session)
+- **When:** 2026-07-07 (later same day)
+- Re-verified Sessions 11–12's claims against reality rather than trusting commit messages:
+  - `https://recap-studio-production.up.railway.app/api/project` → HTTP 200, real JSON. ✅
+  - `https://manhwa.nodepilot.dev/` and `/api/project` → HTTP 200, proxies through to Railway correctly (Vercel rewrites in `vercel.json` confirmed in repo). ✅
+  - `https://manhwa-studio-taupe.vercel.app` (Vercel default domain) → HTTP 200. ✅
+  - `railway volume list` → `recap-studio-volume` attached at `/app/data`, status **Ready**, 4MB/5000MB used. ✅ persistent storage genuinely wired, not just configured.
+- **Gap found:** `/api/project` returns `n_segments: 0` — the live deployment has an empty workspace. The Chapter-2 test data (28 segments, narration, TTS audio, rendered clips) that was built and reviewed locally never got copied to the Railway volume — it only ever existed on the local dev machine. The deployed app is fully functional but **has no content until a chapter is ingested through it** (via the `/api/ingest` URL-ingestion feature) or the local workspace is manually copied onto the volume.
+- **Also confirmed:** the deployment is **fully public, no authentication** — anyone with the URL can trigger ingestion (Gemini/TTS spend) or exports. Still open from the earlier session's flag.
+- `render.yaml` / `deploy/docker-compose.yml` (the Render/VM path) are now superseded scaffold — Railway is the actual running deployment. Left in repo as an alternative, not actively used.
