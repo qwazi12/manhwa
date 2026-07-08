@@ -45,6 +45,105 @@ os.makedirs(EXPORTS, exist_ok=True)
 app = FastAPI(title="Manhwa Recap — Review UI")
 
 
+# ------------------------------------------------------------------ auth
+# A single shared-secret gate in front of EVERY route. This is not a login
+# system and there are no user accounts — just one password supplied via the
+# environment (RECAP_AUTH_TOKEN). The secret is accepted three ways so both
+# browsers and curl work, and so native media loads authenticate too (an
+# <img>/<video>/<audio>/<iframe> can't set request headers):
+#   1. HTTP Basic Auth      — browser shows a native prompt; `curl -u user:secret`
+#   2. X-Auth-Token header  — the SPA attaches this to every fetch()
+#   3. auth_token cookie     — the SPA sets it so media subresources carry it
+# If RECAP_AUTH_TOKEN is unset the gate is DISABLED (local dev + the offline
+# pipeline scripts that import this module); it MUST be set on any public
+# deployment to lock the door.
+import base64
+import binascii
+import hmac
+import logging
+
+from starlette.requests import Request
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+AUTH_TOKEN = os.environ.get("RECAP_AUTH_TOKEN", "").strip()
+AUTH_USER = os.environ.get("RECAP_AUTH_USER", "recap").strip() or "recap"
+_auth_log = logging.getLogger("recap.auth")
+if not AUTH_TOKEN:
+    _auth_log.warning(
+        "RECAP_AUTH_TOKEN is not set — the review server is UNAUTHENTICATED and "
+        "anyone with the URL can drive it. Set RECAP_AUTH_TOKEN to lock it down.")
+else:
+    _auth_log.info("Auth gate enabled (shared-secret; user=%s).", AUTH_USER)
+
+
+def _secret_ok(given: str) -> bool:
+    """Constant-time compare against the configured secret."""
+    return bool(given) and hmac.compare_digest(given, AUTH_TOKEN)
+
+
+def _request_authorized(request: Request) -> bool:
+    # 1. X-Auth-Token header (the SPA's fetch wrapper)
+    tok = request.headers.get("x-auth-token")
+    if tok and _secret_ok(tok):
+        return True
+    # 2. Authorization header — Basic (any username, password == secret) or Bearer
+    authz = request.headers.get("authorization", "")
+    if authz:
+        scheme, _, rest = authz.partition(" ")
+        scheme = scheme.lower()
+        if scheme == "basic":
+            try:
+                decoded = base64.b64decode(rest).decode("utf-8", "replace")
+                _, _, pw = decoded.partition(":")
+                if _secret_ok(pw):
+                    return True
+            except (binascii.Error, ValueError):
+                pass
+        elif scheme == "bearer" and _secret_ok(rest.strip()):
+            return True
+    # 3. auth_token cookie (so <img>/<video>/<audio>/<iframe> loads authenticate)
+    ck = request.cookies.get("auth_token")
+    if ck and _secret_ok(ck):
+        return True
+    return False
+
+
+class AuthGateMiddleware:
+    """Pure-ASGI shared-secret gate. Implemented at the ASGI layer (not via
+    Starlette's BaseHTTPMiddleware) because BaseHTTPMiddleware deadlocks under
+    the many concurrent requests a browser fires — returning an early response
+    there leaves keep-alive connections hanging. This class has none of that:
+    it either forwards to the app or sends a self-contained 401."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http" or not AUTH_TOKEN:
+            await self.app(scope, receive, send)
+            return
+        if scope.get("method") == "OPTIONS":          # never block CORS preflight
+            await self.app(scope, receive, send)
+            return
+        if _request_authorized(Request(scope)):
+            await self.app(scope, receive, send)
+            return
+        # NOTE: deliberately NO "WWW-Authenticate: Basic" header. Sending the
+        # Basic challenge makes browsers hijack every 401 into a native auth
+        # flow, which hangs the SPA's own fetch() calls (and errors navigations
+        # with ERR_INVALID_AUTH_CREDENTIALS in headless). We still ACCEPT a
+        # Basic Authorization header (curl -u sends it preemptively), we just
+        # never challenge for it — the SPA shows its own password overlay.
+        resp = JSONResponse(
+            {"detail": "authentication required"},
+            status_code=401,
+        )
+        await resp(scope, receive, send)
+
+
+app.add_middleware(AuthGateMiddleware)
+
+
 # ----------------------------------------------------------------- state
 def load_segments():
     if not os.path.exists(SEGMENTS_JSON):

@@ -125,6 +125,66 @@ button.ghost{background:transparent}
 const $=s=>document.querySelector(s);
 let DATA=null, sel=0, view='segments', PX=90 /*px per second*/, TOTAL=1, curT=0;
 
+// ---- access gate (single shared secret; no accounts) ----------------------
+// The backend (Railway) enforces the secret. The SPA attaches it to every
+// fetch() as X-Auth-Token and also stores it as an auth_token cookie so native
+// media loads (<img>/<video>/<audio>/<iframe> src) authenticate automatically.
+const AUTH_KEY='recap_auth_token';
+const _fetch=window.fetch.bind(window);
+function authToken(){ return localStorage.getItem(AUTH_KEY)||''; }
+function setAuthToken(t){
+  localStorage.setItem(AUTH_KEY,t);
+  document.cookie='auth_token='+encodeURIComponent(t)+'; path=/; max-age=2592000; SameSite=Lax'
+    +(location.protocol==='https:'?'; Secure':'');
+}
+window.fetch=function(input,init){
+  init=init||{};
+  const url=(typeof input==='string')?input:((input&&input.url)||'');
+  const sameOrigin=url.startsWith('/')||url.startsWith(location.origin);
+  const t=authToken();
+  if(sameOrigin&&t){
+    const h=new Headers(init.headers||((typeof input!=='string'&&input.headers))||{});
+    h.set('X-Auth-Token',t);
+    init.headers=h;
+  }
+  return _fetch(input,init);
+};
+async function verifyToken(t){
+  try{ const r=await _fetch('/api/project',{headers:t?{'X-Auth-Token':t}:{}});
+       return r.status!==401 && r.status!==403; }
+  catch(e){ return false; }
+}
+function showGate(){
+  return new Promise(resolve=>{
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:99999;background:var(--bg);display:flex;align-items:center;justify-content:center';
+    ov.innerHTML=`<form id="gate" style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:28px;width:320px">
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px">Recap Studio</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Enter the access password to continue.</div>
+      <input id="gpw" type="password" placeholder="Password" autocomplete="current-password"
+        style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--track);color:var(--text);margin-bottom:12px"/>
+      <button type="submit" class="primary" style="width:100%;padding:10px">Unlock</button>
+      <div id="gerr" style="color:var(--red);font-size:12px;margin-top:10px;min-height:14px"></div>
+    </form>`;
+    document.body.appendChild(ov);
+    const input=ov.querySelector('#gpw'); input.focus();
+    ov.querySelector('#gate').onsubmit=async ev=>{
+      ev.preventDefault();
+      const t=input.value.trim(); if(!t)return;
+      ov.querySelector('#gerr').textContent='Checking…';
+      if(await verifyToken(t)){ setAuthToken(t); ov.remove(); resolve(); }
+      else{ ov.querySelector('#gerr').textContent='Incorrect password.'; input.select(); }
+    };
+  });
+}
+async function boot(){
+  // If the backend isn't enforcing auth, don't nag for a password.
+  if(await verifyToken('')){ load(); return; }
+  let t=authToken();
+  if(t){ setAuthToken(t); if(await verifyToken(t)){ load(); return; } localStorage.removeItem(AUTH_KEY); }
+  await showGate(); load();
+}
+
 function pvMsg(type,extra){ $('#pvframe').contentWindow.postMessage(Object.assign({type},extra||{}),'*'); }
 window.addEventListener('message',e=>{
   const m=e.data||{}; if(m.type!=='pv-time')return;
@@ -347,5 +407,5 @@ async function doExport(fromPanel){ const x15=(fromPanel&&$('#x15b'))?$('#x15b')
   if(box)box.innerHTML=msg; else { const tt=toast('');tt.innerHTML=msg;setTimeout(()=>tt.remove(),8000);} }
 
 window.addEventListener('resize',()=>{ if(DATA)renderTimeline(); });
-load();
+boot();
 </script>

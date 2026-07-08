@@ -41,8 +41,14 @@ auto-HTTPS); point an **A** record at the VM IP. See `deploy/docker-compose.yml`
 ---
 
 ## Notes
-- **Auth:** none yet — anyone with the URL can use it. Add HTTP basic-auth
-  (Caddy) or the host's access control before sharing publicly.
+- **Auth:** the server has a built-in shared-secret gate. Set `RECAP_AUTH_TOKEN`
+  (and optionally `RECAP_AUTH_USER`, default `recap`) in the host's env vars and
+  EVERY route requires it. The SPA prompts for the password in-browser and
+  attaches it automatically; `curl` can use `-H "X-Auth-Token: <secret>"` or
+  `-u <user>:<secret>`. If `RECAP_AUTH_TOKEN` is unset the server is OPEN — so it
+  MUST be set on Railway/Render/VM before the deployment is reachable publicly.
+  (No `WWW-Authenticate` challenge is sent, on purpose: it would make browsers
+  hijack the SPA's own `fetch()` calls into a native auth dialog.)
 - **Persistence:** the disk mount keeps `segments-workspace` (clips/segments)
   across restarts. Add a second mount for `review_ui/projects` if you want
   ingested projects to survive redeploys too.

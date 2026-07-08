@@ -817,3 +817,54 @@
 - **Gap found:** `/api/project` returns `n_segments: 0` — the live deployment has an empty workspace. The Chapter-2 test data (28 segments, narration, TTS audio, rendered clips) that was built and reviewed locally never got copied to the Railway volume — it only ever existed on the local dev machine. The deployed app is fully functional but **has no content until a chapter is ingested through it** (via the `/api/ingest` URL-ingestion feature) or the local workspace is manually copied onto the volume.
 - **Also confirmed:** the deployment is **fully public, no authentication** — anyone with the URL can trigger ingestion (Gemini/TTS spend) or exports. Still open from the earlier session's flag.
 - `render.yaml` / `deploy/docker-compose.yml` (the Render/VM path) are now superseded scaffold — Railway is the actual running deployment. Left in repo as an alternative, not actively used.
+
+
+### Session 13 — 2026-07-08 — Phase 1: Authentication gate ("lock the door")
+
+- **Goal:** stop `manhwa.nodepilot.dev` (+ raw Railway URL) from being publicly usable.
+- **Chosen approach (task option b, hardened):** a single shared-secret gate in
+  the FastAPI app (`review_ui/server.py`), no accounts, no custom login. Secret =
+  `RECAP_AUTH_TOKEN` env var (username `RECAP_AUTH_USER`, default `recap`,
+  cosmetic). Accepted THREE ways so browsers, curl, and native media loads all
+  work: (1) `X-Auth-Token` header (SPA fetch wrapper), (2) `auth_token` cookie
+  (so `<img>/<video>/<audio>/<iframe>` src loads authenticate — they can't set
+  headers), (3) HTTP Basic `Authorization` (curl -u). Unset token → gate DISABLED
+  (local dev + offline pipeline scripts keep working).
+- **Implementation:** pure-ASGI middleware class `AuthGateMiddleware` added via
+  `app.add_middleware`. Frontend (`static/index.html`) gained a `boot()` that
+  probes whether auth is required, shows a password overlay if so, stores the
+  secret in localStorage + cookie, and wraps `window.fetch` to attach the header.
+- **Two real bugs found & fixed during verification (not assumed — caught with a
+  headless Chromium test):**
+  1. First tried `@app.middleware("http")` (Starlette BaseHTTPMiddleware). It
+     **deadlocks under the many concurrent requests a browser fires** — curl saw
+     401 instantly but the browser's fetch hung forever. Rewrote as pure-ASGI
+     middleware. (curl-only testing would have missed this entirely.)
+  2. Even then the browser hung. Root cause: sending `WWW-Authenticate: Basic` on
+     the 401 makes Chromium **hijack every 401 into a native auth flow**, which
+     hangs the SPA's own `fetch()` (and errors navigations with
+     `ERR_INVALID_AUTH_CREDENTIALS`). Fix: **do not send the challenge header**;
+     still accept a Basic `Authorization` header (curl -u sends it preemptively),
+     just never challenge for it. SPA overlay is the browser prompt.
+- **Local verification (real, not memory):** ran uvicorn with the token set and
+  a headless-Chromium topology replica (ungated shell + gated API, same origin).
+  - Unauthenticated curl → **401** on ALL of `/api/project /clip /thumb /audio
+    /panelimg /export /api/preview /api/projects /` AND `POST /api/ingest`.
+  - Authenticated curl (`X-Auth-Token`, `-u`, and `--cookie`) → **200** (404/422
+    only for missing-resource/empty-workspace cases, which are *past* the gate).
+  - Wrong secret (header or cookie) → **401**.
+  - Browser (Chromium): password overlay appears → wrong pw rejected & stays
+    gated → correct pw unlocks, app loads real data, `auth_token` cookie set →
+    reload does not re-prompt. Screenshot captured.
+  - Gate-disabled mode (no env var) → 200 (dev/pipeline unaffected).
+- **NOT yet live — deploy blocker (honest status):** this session has **no
+  Railway CLI/token and no Vercel CLI/token** (prior sessions used interactive
+  logins that aren't present). The auth code is committed but the LIVE Railway
+  backend still runs the old (public) image. **Going live requires: redeploy the
+  Railway container from this branch/commit AND set `RECAP_AUTH_TOKEN` in
+  Railway's env vars.** Until then `recap-studio-production.up.railway.app` and
+  `manhwa.nodepilot.dev` remain PUBLIC. Vercel MCP *is* authenticated (frontend
+  redeploy possible via MCP) but the frontend redeploy alone does not lock the
+  backend — the raw Railway URL is the bypass option (a)/(b) both require closing.
+- Files changed: `review_ui/server.py` (gate), `static/index.html` (overlay +
+  fetch wrapper), `.env.example` + `deploy/README.md` (document `RECAP_AUTH_TOKEN`).
