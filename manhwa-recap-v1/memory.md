@@ -817,3 +817,18 @@
 - **Gap found:** `/api/project` returns `n_segments: 0` — the live deployment has an empty workspace. The Chapter-2 test data (28 segments, narration, TTS audio, rendered clips) that was built and reviewed locally never got copied to the Railway volume — it only ever existed on the local dev machine. The deployed app is fully functional but **has no content until a chapter is ingested through it** (via the `/api/ingest` URL-ingestion feature) or the local workspace is manually copied onto the volume.
 - **Also confirmed:** the deployment is **fully public, no authentication** — anyone with the URL can trigger ingestion (Gemini/TTS spend) or exports. Still open from the earlier session's flag.
 - `render.yaml` / `deploy/docker-compose.yml` (the Render/VM path) are now superseded scaffold — Railway is the actual running deployment. Left in repo as an alternative, not actively used.
+
+---
+
+### Session 13 — 2026-07-08 — Phase 1: Authentication Locked Down (Vercel + Railway)
+
+#### Implementation Details
+- **Frontend Basic Auth**: Added `middleware.js` to `manhwa-recap-v1/review_ui/static/` utilizing `@vercel/edge` runtime to secure the `manhwa-studio` project. Defined `package.json` in the static folder to declare `@vercel/edge` dependency. Set `BASIC_AUTH_USER`, `BASIC_AUTH_PASSWORD`, and `SHARED_SECRET` environment variables on Vercel.
+- **Backend Shared Secret Verification**: Modified `server.py` to require the `x-shared-secret` header for protected paths (`/api`, `/clip`, `/thumb`, `/audio`, `/panelimg`, `/export`). Checked for `SHARED_SECRET` on startup in production, failing fast if missing. Set `SHARED_SECRET` on the Railway container.
+- **Git Push**: Staged, committed, and pushed changes to GitHub (`git push`).
+- **Vercel Deploy**: Deployed optimized static + middleware bundle using `npx vercel@latest --prod --yes` inside `/manhwa-recap-v1/review_ui/static/` (aliased to `manhwa.nodepilot.dev`).
+- **Railway Deploy**: Railway auto-built the container and went online successfully.
+- **Verification**: Verified using `curl`:
+  - Direct Railway API: `401 Unauthorized` without secret; `200 OK` with secret.
+  - Vercel Custom Domain (`manhwa.nodepilot.dev`): `401 Unauthorized` with `WWW-Authenticate: Basic realm="Recap Studio"` without Basic Auth; `200 OK` with Basic Auth.
+
