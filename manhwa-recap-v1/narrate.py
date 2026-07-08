@@ -33,6 +33,15 @@ import sys
 
 import matcher
 
+# Cost/abuse guardrails (review_ui/usage.py) — optional no-op if unavailable.
+_REVIEW_UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "review_ui")
+if os.path.isdir(_REVIEW_UI) and _REVIEW_UI not in sys.path:
+    sys.path.insert(0, _REVIEW_UI)
+try:
+    import usage
+except ImportError:
+    usage = None
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DESCRIPTIONS_PATH = os.path.join(HERE, "..", "panel-describe", "descriptions.json")
 
@@ -253,8 +262,16 @@ def narrate_scene(scene_panels, model="gemini-3.5-flash"):
         sys.exit("GEMINI_API_KEY not set")
     from google import genai
     client = genai.Client(api_key=api_key)
-    resp = client.models.generate_content(
-        model=model, contents=build_prompt(scene_panels))
+
+    def _call():
+        return client.models.generate_content(
+            model=model, contents=build_prompt(scene_panels))
+
+    if usage:
+        with usage.gate("gemini", 1, model=model):
+            resp = _call()
+    else:
+        resp = _call()
     return (resp.text or "").strip()
 
 

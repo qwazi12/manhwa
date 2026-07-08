@@ -27,6 +27,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import usage  # cost/abuse guardrails — same dir, always available here
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)   # so `import ingest` (same dir) resolves
@@ -412,8 +414,13 @@ def _synth_rest(text, out_path):
     req = urllib.request.Request(
         f"https://texttospeech.googleapis.com/v1/text:synthesize?key={key}",
         data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, context=ctx, timeout=60) as r:
-        audio = base64.b64decode(json.load(r)["audioContent"])
+
+    def _call():
+        with urllib.request.urlopen(req, context=ctx, timeout=60) as r:
+            return base64.b64decode(json.load(r)["audioContent"])
+
+    with usage.gate("tts", len(text), model="chirp3-hd-charon"):
+        audio = _call()
     with open(out_path, "wb") as f:
         f.write(audio)
 
@@ -735,11 +742,13 @@ def _run_ingest_job(job_id, url):
         INGEST[job_id].update(stage=stage, msg=msg, pct=pct)
 
     try:
-        meta = ingest.run_ingest(url, progress)
+        meta = ingest.run_ingest(url, progress, job_id=job_id)
         INGEST[job_id].update(status="done", project=meta, pct=100)
     except subprocess.CalledProcessError as e:
         INGEST[job_id].update(status="error",
                               error=(e.stderr or str(e))[-400:])
+    except usage.UsageCapExceeded as e:
+        INGEST[job_id].update(status="error", error=f"USAGE CAP EXCEEDED: {e}")
     except Exception as e:  # noqa
         INGEST[job_id].update(status="error", error=str(e))
 

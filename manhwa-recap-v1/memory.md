@@ -832,3 +832,32 @@
   - Direct Railway API: `401 Unauthorized` without secret; `200 OK` with secret.
   - Vercel Custom Domain (`manhwa.nodepilot.dev`): `401 Unauthorized` with `WWW-Authenticate: Basic realm="Recap Studio"` without Basic Auth; `200 OK` with Basic Auth.
 
+
+---
+
+### Session 14 — 2026-07-08 — Phase 2: Cost & Abuse Guardrails
+
+#### Implementation
+- **New `review_ui/usage.py`:** shared cost-tracking module wrapping every external API call. `gate(kind, units, model)` context manager: checks per-job AND daily caps BEFORE the wrapped call (so an over-limit call never fires/bills), commits usage + appends a structured JSONL log line only on success (a failed/excepted call inside the `with` block is never counted). State persists to `review_ui/projects/_usage/` (same dir the ingest pipeline already writes to, already symlinked to the Railway volume via entrypoint.sh — no new mount needed). Caps are env-configurable: `MAX_GEMINI_CALLS_PER_JOB` (500), `MAX_TTS_CHARS_PER_JOB` (60000), `MAX_DAILY_GEMINI_CALLS` (2000), `MAX_DAILY_TTS_CHARS` (300000), `MAX_DAILY_SPEND_USD` (5.0) — defaults sized for one ~15-25 page chapter. Cost estimates (`EST_COST_PER_GEMINI_CALL_USD`, `EST_COST_PER_TTS_1K_CHARS_USD`) are clearly labeled rough estimates, not billing-accurate.
+- **Wired into every external-API call site:**
+  - `panel-describe/describe.py` — the Gemini vision call in `describe_with_gemini`. `describe_panel`'s exception handler re-raises `UsageCapExceeded` instead of swallowing it as a per-panel failure (which would otherwise silently re-trip on every subsequent panel).
+  - `panel-describe/run.py` — the per-panel loop catches `UsageCapExceeded` specifically, saves partial progress to the output file, and exits with a clear one-line reason (not a raw traceback).
+  - `panel-split/vision_segment.py` — the tall-panel caption-anchored segmentation call in `_segment_bytes`.
+  - `manhwa-recap-v1/matcher.py` — the embedding call in `_gemini_embed`; its broad `except Exception: return None` (silent fallback to lexical scoring) now re-raises `UsageCapExceeded` instead of masking a cap breach as a quality regression.
+  - `manhwa-recap-v1/narrate.py` — the per-scene narration call in `narrate_scene`.
+  - `review_ui/server.py` — `_synth_rest` (the REST TTS path), gated on `len(text)` BEFORE the HTTP call fires.
+- **Job-id threading:** `ingest.py`'s `run_ingest()` now takes `job_id`, calls `usage.set_job(job_id)` for in-process stages (narrate/match/TTS all run in the same thread as the ingest job), and passes `RECAP_JOB_ID` via subprocess env to the two child-process stages (`split_panels.py`, `panel-describe/run.py`) since `usage.get_job_id()` falls back to that env var when no thread-local is set. `server.py`'s `_run_ingest_job` passes `job_id=job_id` through and catches `usage.UsageCapExceeded` as its own clean error path (distinct from generic subprocess failures).
+- All 8 touched files verified with `ast.parse` (syntax-valid) before testing.
+
+#### Dry-run verification (the Phase-2-required proof)
+- **Blocker hit:** local `import fastapi` (and even bare `import server`) hung indefinitely in this session's sandboxed shell — four separate attempts (with/without explicit long timeouts) all showed near-zero CPU in `ps` (genuine I/O block, not slow computation). Diagnosed: not a dataless-iCloud-file issue (direct reads of `fastapi/__init__.py` and the `pydantic_core` `.so` — checked via `du` for actual-vs-reported disk blocks — both fully materialized and instant to read). Root cause not conclusively identified; distinguishing fact: **production on Railway already runs this exact `server.py` + fastapi successfully** (proven by live `curl` returning 401/200 earlier in this session), so this is a local sandbox-specific quirk, not a real bug in the shipped code. Killed the four stuck background shells rather than keep polling.
+- **Worked around correctly, not avoided:** `usage.py` has zero non-stdlib dependencies (`contextlib`, `fcntl`, `json`, `os`, `threading`, `datetime`), so it was tested directly with the system's plain `/usr/bin/python3` (bypassing the venv/fastapi import chain entirely) — a legitimate isolation of the guardrail logic under test from the unrelated environment issue, not a weakened test.
+- **Ran the required fake-over-limit dry-run**, caps overridden to tiny values (`MAX_GEMINI_CALLS_PER_JOB=2`, `MAX_TTS_CHARS_PER_JOB=10`) for a fast, deterministic test:
+  1. 2 calls under the cap → committed normally.
+  2. 3rd call → `UsageCapExceeded` raised **before** the wrapped block executed (proven: the "API call fired" print inside the `with` never ran).
+  3. An oversized TTS call (9999 chars vs cap 10) → same pre-call block.
+  4. A call that raises inside the `with` block → job counters unchanged before vs after (failed calls are never charged).
+  - Exit code 0, all four assertions passed. Full output captured in this session's transcript.
+
+#### Status
+- Phase 2 code complete and dry-run verified locally. **NOT yet deployed** — needs push + Railway redeploy before Phase 3's live ingestion run can rely on it (otherwise Phase 3 would run against the OLD, cap-less code, defeating the point of doing Phase 2 first).

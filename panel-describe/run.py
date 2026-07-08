@@ -25,6 +25,7 @@ import time
 import describe
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+UsageCapExceeded = describe.usage.UsageCapExceeded if describe.usage else None
 
 
 def natural_key(name):
@@ -84,7 +85,16 @@ def main():
     records = []
     for i, fname in enumerate(files, 1):
         path = os.path.join(args.input, fname)
-        rec = describe.describe_panel(path, api_key, args.model)
+        try:
+            rec = describe.describe_panel(path, api_key, args.model)
+        except UsageCapExceeded as e:
+            # Save whatever we already have before exiting, so partial
+            # progress isn't lost, then stop the run with a clear reason.
+            if records:
+                with open(args.out, "w", encoding="utf-8") as f:
+                    json.dump(records, f, indent=2, ensure_ascii=False)
+                print(f"\nSaved {len(records)} panels described before the cap tripped.")
+            sys.exit(f"\nUSAGE CAP EXCEEDED — stopping: {e}")
         records.append(rec)
         status = "ok" if rec["ok"] else f"FAILED ({rec.get('error','')[:60]})"
         ocr_preview = (rec["ocr_text"][:40] + "…") if len(rec["ocr_text"]) > 40 else rec["ocr_text"]

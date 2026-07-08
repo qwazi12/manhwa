@@ -39,13 +39,21 @@ def _slug(url):
     return re.sub(r"[^a-z0-9_-]+", "-", base.lower()) or "chapter"
 
 
-def run_ingest(url, progress, tts_key=None):
+def run_ingest(url, progress, tts_key=None, job_id=None):
     """Run the pipeline for one chapter URL. `progress(stage, msg, pct)` is
-    called as it advances. Returns the finished project dict."""
+    called as it advances. Returns the finished project dict.
+
+    `job_id` scopes the cost/abuse guardrails (usage.py): it's set for this
+    thread (in-process narrate/matcher/TTS calls) and passed via RECAP_JOB_ID
+    env var to the describe subprocess, so every external API call this
+    ingestion makes is attributed to the same job for the per-job cap."""
     sys.path.insert(0, RECAP)
     sys.path.insert(0, os.path.join(RECAP, "hyperframes"))
     import scraper, narrate, beat_segmenter, matcher
     from segments import build_segments
+    import usage
+    job_id = job_id or "unknown"
+    usage.set_job(job_id)
 
     proj_id = _slug(url)
     proj = os.path.join(PROJECTS, proj_id)
@@ -65,21 +73,32 @@ def run_ingest(url, progress, tts_key=None):
 
     # 2. split (with vision segmentation of tall panels) ------------------
     progress("split", "Splitting pages into panels…", 18)
-    subprocess.run(
+    subp_env = {**os.environ, "RECAP_JOB_ID": job_id}
+    split_p = subprocess.run(
         [PY, os.path.join(ROOT, "panel-split", "split_panels.py"),
          "--input", pages, "--out", crops, "--batch"],
-        check=True, cwd=os.path.join(ROOT, "panel-split"),
-        env={**os.environ}, capture_output=True, text=True)
+        cwd=os.path.join(ROOT, "panel-split"),
+        env=subp_env, capture_output=True, text=True)
+    if split_p.returncode != 0:
+        if "USAGE CAP EXCEEDED" in (split_p.stderr or ""):
+            raise usage.UsageCapExceeded(split_p.stderr.strip().splitlines()[-1])
+        raise subprocess.CalledProcessError(split_p.returncode, split_p.args,
+                                            split_p.stdout, split_p.stderr)
     n_crops = len([f for f in os.listdir(crops) if f.lower().endswith(".png")])
     progress("split", f"{n_crops} panel crops.", 30)
 
     # 3. describe ---------------------------------------------------------
     progress("describe", "Describing panels (Gemini vision)…", 35)
-    subprocess.run(
+    desc_p = subprocess.run(
         [PY, os.path.join(ROOT, "panel-describe", "run.py"),
          "--input", crops, "--out", desc_path, "--model", "gemini-3.5-flash"],
-        check=True, cwd=os.path.join(ROOT, "panel-describe"),
-        env={**os.environ}, capture_output=True, text=True)
+        cwd=os.path.join(ROOT, "panel-describe"),
+        env=subp_env, capture_output=True, text=True)
+    if desc_p.returncode != 0:
+        if "USAGE CAP EXCEEDED" in (desc_p.stderr or ""):
+            raise usage.UsageCapExceeded(desc_p.stderr.strip().splitlines()[-1])
+        raise subprocess.CalledProcessError(desc_p.returncode, desc_p.args,
+                                            desc_p.stdout, desc_p.stderr)
     progress("describe", "Descriptions ready.", 55)
 
     # 4. narrate (write narration FROM the panels) -----------------------

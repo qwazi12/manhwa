@@ -33,8 +33,20 @@ for real use.
 import base64
 import json
 import os
+import sys
 import mimetypes
 from PIL import Image
+
+# Cost/abuse guardrails (review_ui/usage.py) — optional: if the review UI isn't
+# alongside this checkout (e.g. standalone testing), guardrails are a no-op.
+_REVIEW_UI = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "..", "manhwa-recap-v1", "review_ui")
+if os.path.isdir(_REVIEW_UI) and _REVIEW_UI not in sys.path:
+    sys.path.insert(0, _REVIEW_UI)
+try:
+    import usage
+except ImportError:
+    usage = None
 
 # ---- the instruction given to the vision model, per panel ----
 VISION_PROMPT = """You are analyzing a single panel from a manhwa/webtoon chapter.
@@ -73,14 +85,21 @@ def describe_with_gemini(path: str, api_key: str, model: str):
     client = genai.Client(api_key=api_key)
     img_b64, mime = _encode_image(path)
 
-    resp = client.models.generate_content(
-        model=model,
-        contents=[
-            types.Part.from_bytes(data=base64.b64decode(img_b64), mime_type=mime),
-            types.Part(text=VISION_PROMPT),
-        ],
-        config=types.GenerateContentConfig(temperature=0.0),
-    )
+    def _call():
+        return client.models.generate_content(
+            model=model,
+            contents=[
+                types.Part.from_bytes(data=base64.b64decode(img_b64), mime_type=mime),
+                types.Part(text=VISION_PROMPT),
+            ],
+            config=types.GenerateContentConfig(temperature=0.0),
+        )
+
+    if usage:
+        with usage.gate("gemini", 1, model=model):
+            resp = _call()
+    else:
+        resp = _call()
     raw = (resp.text or "").strip()
     # strip accidental code fences
     if raw.startswith("```"):
@@ -122,5 +141,10 @@ def describe_panel(path: str, api_key: str | None, model: str):
             rec.update(ocr_text=ocr, visual_description=desc, source="tesseract",
                        ok=bool(ocr))
     except Exception as e:
+        # A guardrail cap breach must HALT the whole run, not be swallowed as
+        # one panel's failure (that would just re-trip on every next panel
+        # while silently marking the whole chapter as "described").
+        if usage and isinstance(e, usage.UsageCapExceeded):
+            raise
         rec["error"] = f"{type(e).__name__}: {e}"
     return rec

@@ -25,6 +25,17 @@ the caller keeps its existing geometric behavior — never worse than today.
 import json
 import mimetypes
 import os
+import sys
+
+# Cost/abuse guardrails (review_ui/usage.py) — optional no-op if unavailable.
+_REVIEW_UI = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "..", "manhwa-recap-v1", "review_ui")
+if os.path.isdir(_REVIEW_UI) and _REVIEW_UI not in sys.path:
+    sys.path.insert(0, _REVIEW_UI)
+try:
+    import usage
+except ImportError:
+    usage = None
 
 # Only bother asking the model when a panel is clearly a tall strip; short
 # panels are handled fine by the gutter pass and shouldn't cost an API call.
@@ -93,13 +104,21 @@ def _segment_bytes(img_bytes, mime, api_key, model):
     from google import genai
     from google.genai import types
     client = genai.Client(api_key=api_key)
-    resp = client.models.generate_content(
-        model=model,
-        contents=[types.Part.from_bytes(data=img_bytes, mime_type=mime),
-                  types.Part(text=_PROMPT)],
-        config=types.GenerateContentConfig(
-            temperature=0.0, response_mime_type="application/json"),
-    )
+
+    def _call():
+        return client.models.generate_content(
+            model=model,
+            contents=[types.Part.from_bytes(data=img_bytes, mime_type=mime),
+                      types.Part(text=_PROMPT)],
+            config=types.GenerateContentConfig(
+                temperature=0.0, response_mime_type="application/json"),
+        )
+
+    if usage:
+        with usage.gate("gemini", 1, model=model):
+            resp = _call()
+    else:
+        resp = _call()
     return _clean(json.loads(resp.text))
 
 

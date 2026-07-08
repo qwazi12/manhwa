@@ -35,7 +35,17 @@ import json
 import math
 import os
 import re
+import sys
 from collections import Counter
+
+# Cost/abuse guardrails (review_ui/usage.py) — optional no-op if unavailable.
+_REVIEW_UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "review_ui")
+if os.path.isdir(_REVIEW_UI) and _REVIEW_UI not in sys.path:
+    sys.path.insert(0, _REVIEW_UI)
+try:
+    import usage as _usage
+except ImportError:
+    _usage = None
 
 # ------------------------------------------------------------ tunables
 # The matcher aligns the beat sequence to the panel sequence with a GLOBAL
@@ -263,16 +273,29 @@ def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
                 continue
             if client is None:
                 client = genai.Client(api_key=api_key)
-            resp = client.models.embed_content(
-                model=model_name,
-                contents=t if t else " ",
-                config=types.EmbedContentConfig(task_type=_EMBED_TASK),
-            )
+
+            def _call():
+                return client.models.embed_content(
+                    model=model_name,
+                    contents=t if t else " ",
+                    config=types.EmbedContentConfig(task_type=_EMBED_TASK),
+                )
+
+            if _usage:
+                with _usage.gate("gemini", 1, model=model_name):
+                    resp = _call()
+            else:
+                resp = _call()
             vec = list(resp.embeddings[0].values)
             cache[key] = vec
             vectors.append(vec)
             dirty = True
-    except Exception:
+    except Exception as e:
+        # A guardrail cap breach must HALT the job, not silently degrade to
+        # the (known-bad) lexical fallback — that would mask the stop as a
+        # quality regression instead of a clear, loud cap-exceeded error.
+        if _usage and isinstance(e, _usage.UsageCapExceeded):
+            raise
         # Partial progress is still worth persisting; the finally block saves.
         return None
     finally:
