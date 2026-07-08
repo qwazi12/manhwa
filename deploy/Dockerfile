@@ -28,6 +28,9 @@ COPY . /app
 RUN cd manhwa-recap-v1/review_ui && npx --yes hyperframes --version || true
 
 EXPOSE 8000
+# Make entrypoint script executable
+RUN chmod +x /app/deploy/entrypoint.sh
+
 # secrets provided at runtime via env (GEMINI_API_KEY, TTS_API_KEY) or an .env
 WORKDIR /app/manhwa-recap-v1/review_ui
-CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/deploy/entrypoint.sh"]

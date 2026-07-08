@@ -783,3 +783,24 @@
 - **Fix:** Ran the deployment using the latest Vercel CLI via npx (`npx -y vercel@latest --prod --yes`) directly in the static directory to only upload the SPA (`index.html` + `vercel.json`).
 - **Result:** Successful production deployment created and aliased to **`https://manhwa-studio-taupe.vercel.app`**.
 - **Verification:** Ran end-to-end tests fetching `/api/project` through the Vercel production URL. Confirming it successfully proxies to the Railway backend and returns valid project state.
+
+---
+
+### Session 12 — 2026-07-07 — Custom Domain Connection & Persistent Volume Setup
+
+#### Custom Domain Setup
+- **Action:** Added subdomain `manhwa.nodepilot.dev` to the Vercel project `manhwa-studio` using Vercel CLI (`npx vercel domains add manhwa.nodepilot.dev manhwa-studio`).
+- **Result:** Domain added successfully. Ran verification (`npx vercel domains verify manhwa.nodepilot.dev`) which confirmed that since `nodepilot.dev` is already configured with Vercel Nameservers, Vercel automatically routed and verified the subdomain.
+- **Verification:** Tested `https://manhwa.nodepilot.dev/api/project` and the root path `/` end-to-end; both serve the static SPA and proxy API requests successfully.
+
+#### Persistent Storage Strategy (Railway Volume Setup)
+- **Problem:** Because container environments are ephemeral, newly ingested chapters, custom audio, and edited segments would be lost on container restart.
+- **Solution:** Designed a unified symlink strategy to handle multiple persistent folders using a single Railway Volume:
+  - Created `deploy/entrypoint.sh` to auto-detect if a volume is mounted at `/app/data`. If present, it migrates and symlinks:
+    - `/app/manhwa-recap-v1/hyperframes/segments-workspace` ──> `/app/data/segments-workspace`
+    - `/app/manhwa-recap-v1/review_ui/projects` ──> `/app/data/projects`
+    - `/app/panel-split/review_crops` ──> `/app/data/review_crops`
+  - Updated `deploy/Dockerfile` to copy, make executable, and run `entrypoint.sh` on container start.
+  - Modified `railway.json` to remove the direct `startCommand` override, allowing the container to run `entrypoint.sh` by default.
+  - Re-deployed updates to Railway via `railway up --detach`.
+
