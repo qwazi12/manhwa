@@ -1,0 +1,7 @@
+{
+  "name": "manhwa-studio-frontend",
+  "version": "1.0.0",
+  "dependencies": {
+    "@vercel/edge": "^1.1.2"
+  }
+}
