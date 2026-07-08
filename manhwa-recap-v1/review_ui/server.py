@@ -22,7 +22,7 @@ import re
 import subprocess
 import sys
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -43,6 +43,28 @@ os.makedirs(THUMBS, exist_ok=True)
 os.makedirs(EXPORTS, exist_ok=True)
 
 app = FastAPI(title="Manhwa Recap — Review UI")
+
+
+# Fail-fast check for SHARED_SECRET in production environment
+if os.environ.get("RAILWAY_ENVIRONMENT") and not os.environ.get("SHARED_SECRET"):
+    raise RuntimeError("Missing SHARED_SECRET environment variable in production")
+
+
+@app.middleware("http")
+async def verify_shared_secret(request: Request, call_next):
+    path = request.url.path
+    protected_prefixes = ("/api", "/clip", "/thumb", "/audio", "/panelimg", "/export")
+    if any(path.startswith(prefix) for prefix in protected_prefixes):
+        expected_secret = os.environ.get("SHARED_SECRET")
+        if expected_secret:
+            auth_header = request.headers.get("x-shared-secret")
+            if auth_header != expected_secret:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Unauthorized: Invalid or missing shared secret"}
+                )
+    return await call_next(request)
+
 
 
 # ----------------------------------------------------------------- state
