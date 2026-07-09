@@ -861,3 +861,10 @@
 
 #### Status
 - Phase 2 code complete and dry-run verified locally. **NOT yet deployed** — needs push + Railway redeploy before Phase 3's live ingestion run can rely on it (otherwise Phase 3 would run against the OLD, cap-less code, defeating the point of doing Phase 2 first).
+
+#### Phase 2 — deployed and verified live
+- Pushed to GitHub, `railway up --detach` → new deployment `c18ab26b` reached **SUCCESS** (Railway deployment list, confirmed via polling to terminal state).
+- `railway status`: service **● Online**, volume still mounted (0.1GB/4.9GB).
+- `curl https://recap-studio-production.up.railway.app/api/project` (no auth header) → **HTTP 401** — auth from Phase 1 still enforced on the new build.
+- `railway logs` tail: clean boot — `Symlinks successfully mapped to persistent volume` → `Application startup complete` → `Uvicorn running on http://0.0.0.0:8080` — no crash/exception from the new `usage.py` import or any of the 5 wired call sites.
+- **Phase 2 complete: code written, dry-run cap-trip proven, deployed, live-verified.** Moving to Phase 3.
