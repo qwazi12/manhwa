@@ -390,9 +390,18 @@ GAP_SEC = 0.35  # inter-beat gap, matches tts.GAP_SEC
 
 
 def _tts_key():
-    for line in open(os.path.join(RECAP, "..", ".env")):
-        if line.startswith("TTS_API_KEY"):
-            return line.split("=", 1)[1].strip()
+    # Production (Railway etc.) sets TTS_API_KEY as a real env var — no .env
+    # file exists in the container, so check the environment FIRST. Only fall
+    # back to reading a local .env (for bare local dev) if one is present, and
+    # never crash with a raw FileNotFoundError if neither source has the key.
+    env_key = os.environ.get("TTS_API_KEY")
+    if env_key:
+        return env_key
+    dotenv_path = os.path.join(RECAP, "..", ".env")
+    if os.path.exists(dotenv_path):
+        for line in open(dotenv_path):
+            if line.startswith("TTS_API_KEY"):
+                return line.split("=", 1)[1].strip()
     return None
 
 
@@ -402,7 +411,7 @@ def _synth_rest(text, out_path):
     import base64, ssl, urllib.request
     key = _tts_key()
     if not key:
-        raise RuntimeError("TTS_API_KEY not found in .env")
+        raise RuntimeError("TTS_API_KEY not set (checked env var and local .env)")
     try:
         import certifi
         ctx = ssl.create_default_context(cafile=certifi.where())
