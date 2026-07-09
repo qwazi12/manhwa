@@ -21,17 +21,19 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import usage  # cost/abuse guardrails — same dir, always available here
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
-    sys.path.insert(0, HERE)   # so `import ingest` (same dir) resolves
+    sys.path.insert(0, HERE)   # so same-dir modules (usage, ingest) resolve
+                               # regardless of launch cwd/app-dir
+import usage  # cost/abuse guardrails — same dir (path set just above)
+
 RECAP = os.path.abspath(os.path.join(HERE, ".."))
 HF = os.path.join(RECAP, "hyperframes")
 WORK = os.path.join(HF, "segments-workspace")
@@ -740,15 +742,73 @@ def job_status(job_id: str):
 #  (scrape→split→describe→narrate→voice→match→segment) as a background job
 #  with live stage progress, then activate it in the studio.
 # ======================================================================
-INGEST = {}   # job_id -> {stage, pct, msg, status, error, project}
+INGEST = {}   # job_id -> {stage, pct, msg, status, error, project, url, ts}
+# Ingest job status is ALSO persisted to a small JSON file per job on the
+# volume, so the Logs tab and status polling survive a container restart
+# (in-memory INGEST is lost on restart; the files are not).
+import ingest as _ingest_mod
+_JOBS_DIR = os.path.join(_ingest_mod.PROJECTS, "_jobs")
+os.makedirs(_JOBS_DIR, exist_ok=True)
+
+
+def _persist_ingest(job_id):
+    try:
+        with open(os.path.join(_JOBS_DIR, f"{job_id}.json"), "w") as f:
+            json.dump(INGEST[job_id], f)
+    except Exception:
+        pass
+
+
+def _load_ingest(job_id):
+    """In-memory first, else the durable file (survives restart)."""
+    if job_id in INGEST:
+        return INGEST[job_id]
+    p = os.path.join(_JOBS_DIR, f"{job_id}.json")
+    if os.path.exists(p):
+        try:
+            return json.load(open(p))
+        except Exception:
+            return None
+    return None
+
+
+def _all_ingest_jobs():
+    """Every ingest job (in-memory + persisted), newest first."""
+    jobs = {}
+    if os.path.isdir(_JOBS_DIR):
+        for f in os.listdir(_JOBS_DIR):
+            if f.endswith(".json"):
+                try:
+                    j = json.load(open(os.path.join(_JOBS_DIR, f)))
+                    jobs[f[:-5]] = j
+                except Exception:
+                    pass
+    jobs.update(INGEST)  # in-memory is freshest
+    out = [{"job": k, **v} for k, v in jobs.items()]
+    out.sort(key=lambda j: j.get("ts", 0), reverse=True)
+    return out
+
+
+def _active_ingest_for_url(url):
+    """Return the job_id of a running/queued job for this URL's project, if any
+    — so submitting the same chapter twice reuses the one job (no double spend,
+    no folder race)."""
+    slug = _ingest_mod._slug(url)
+    for jid, j in INGEST.items():
+        if j.get("status") in ("queued", "running") and \
+                _ingest_mod._slug(j.get("url", "")) == slug:
+            return jid
+    return None
 
 
 def _run_ingest_job(job_id, url):
     import ingest
     INGEST[job_id]["status"] = "running"
+    _persist_ingest(job_id)
 
     def progress(stage, msg, pct):
         INGEST[job_id].update(stage=stage, msg=msg, pct=pct)
+        _persist_ingest(job_id)
 
     try:
         meta = ingest.run_ingest(url, progress, job_id=job_id)
@@ -760,6 +820,8 @@ def _run_ingest_job(job_id, url):
         INGEST[job_id].update(status="error", error=f"USAGE CAP EXCEEDED: {e}")
     except Exception as e:  # noqa
         INGEST[job_id].update(status="error", error=str(e))
+    INGEST[job_id]["ended"] = time.time()
+    _persist_ingest(job_id)
 
 
 class IngestIn(BaseModel):
@@ -768,15 +830,22 @@ class IngestIn(BaseModel):
 
 @app.post("/api/ingest")
 def start_ingest(body: IngestIn):
-    if not re.match(r"^https?://", body.url.strip()):
+    url = body.url.strip()
+    if not re.match(r"^https?://", url):
         raise HTTPException(400, "please paste a full chapter URL (http/https)")
+    # DEDUPE: if this chapter is already ingesting, return that job — do not
+    # start a second one (avoids a folder race + doubled Gemini/TTS spend).
+    existing = _active_ingest_for_url(url)
+    if existing:
+        return {"job": existing, "stages": ingest_stages(), "existing": True}
     job_id = uuid.uuid4().hex[:12]
     INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "queued",
                       "status": "queued", "error": None, "project": None,
-                      "url": body.url.strip()}
-    threading.Thread(target=_run_ingest_job, args=(job_id, body.url.strip()),
+                      "url": url, "ts": time.time()}
+    _persist_ingest(job_id)
+    threading.Thread(target=_run_ingest_job, args=(job_id, url),
                      daemon=True).start()
-    return {"job": job_id, "stages": ingest_stages()}
+    return {"job": job_id, "stages": ingest_stages(), "existing": False}
 
 
 def ingest_stages():
@@ -786,10 +855,32 @@ def ingest_stages():
 
 @app.get("/api/ingest/status/{job_id}")
 def ingest_status(job_id: str):
-    j = INGEST.get(job_id)
+    j = _load_ingest(job_id)
     if not j:
         raise HTTPException(404, "job not found")
     return j
+
+
+@app.get("/api/logs/usage")
+def logs_usage(n: int = 100):
+    """Tail the structured API-call log + today's running cost totals."""
+    lines = []
+    if os.path.exists(usage.LOG_PATH):
+        with open(usage.LOG_PATH, encoding="utf-8") as f:
+            raw = f.readlines()[-n:]
+        for ln in raw:
+            try:
+                lines.append(json.loads(ln))
+            except Exception:
+                pass
+    lines.reverse()  # newest first
+    return {"calls": lines, "summary": usage.daily_summary()}
+
+
+@app.get("/api/logs/ingest")
+def logs_ingest():
+    """Every ingest job (durable across restarts), newest first."""
+    return {"jobs": _all_ingest_jobs()}
 
 
 @app.get("/api/projects")
@@ -797,9 +888,21 @@ def projects_list():
     import ingest
     items = [{"id": "chapter-2 (current)", "url": "loaded", "active": True,
               "n_segments": len(load_segments())}]
+    finished_slugs = set()
     for m in ingest.list_projects():
         items.append({**m, "active": False})
-    return {"projects": items}
+        finished_slugs.add(m.get("id"))
+    # IN-PROGRESS ingests (running/queued) — clickable to watch live status.
+    in_progress = []
+    for jid, j in INGEST.items():
+        if j.get("status") in ("queued", "running"):
+            in_progress.append({
+                "job": jid, "url": j.get("url"),
+                "slug": ingest._slug(j.get("url", "")),
+                "stage": j.get("stage"), "pct": j.get("pct", 0),
+                "status": j.get("status"),
+            })
+    return {"projects": items, "in_progress": in_progress}
 
 
 class ActivateIn(BaseModel):

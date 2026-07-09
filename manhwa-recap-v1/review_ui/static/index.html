@@ -97,6 +97,7 @@ button.ghost{background:transparent}
     <button class="navbtn active" data-view="segments" onclick="setView('segments')"><span class="ic">🎞️</span>Segments</button>
     <button class="navbtn" data-view="media" onclick="setView('media')"><span class="ic">🖼️</span>Media</button>
     <button class="navbtn" data-view="export" onclick="setView('export')"><span class="ic">⬆️</span>Export</button>
+    <button class="navbtn" data-view="logs" onclick="setView('logs')"><span class="ic">📋</span>Logs</button>
   </div>
 
   <div id="center">
@@ -202,6 +203,7 @@ function renderRight(){
   if(view==='ingest') return renderIngest();
   if(view==='export') return renderExport();
   if(view==='media')  return renderMedia();
+  if(view==='logs')   return renderLogs();
   return renderInspector();
 }
 function renderIngest(){
@@ -215,14 +217,26 @@ function renderIngest(){
     <div id="ingprog" style="margin-top:12px"></div>
     <div class="section"><h3 style="margin:0 0 8px">Projects</h3>
       <div id="projlist" class="hint">loading…</div></div>`;
+  paintIngest();                 // restore live progress if a job is running
+  if(activeJob()) startIngestPoller();
   loadProjects();
 }
 const ING_STAGES=['scrape','split','describe','narrate','voice','match','segment'];
+// The active ingest job is tracked GLOBALLY and persisted to localStorage, so a
+// running job survives switching tabs, reloading, or closing/reopening the page.
+// A single poller runs while a job is active regardless of which view is shown;
+// it stashes the latest status and repaints the Ingest progress box if visible.
+let ingestState=null;           // latest {job,stage,pct,msg,status,error,project}
+let ingestPolling=false;
+function activeJob(){ return localStorage.getItem('activeIngestJob'); }
+function setActiveJob(id){ if(id) localStorage.setItem('activeIngestJob',id); else localStorage.removeItem('activeIngestJob'); }
+
 async function runIngest(){
   const url=$('#ingurl').value.trim(); if(!/^https?:\/\//.test(url)){alert('Paste a full http(s) chapter URL');return;}
   const r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
   const j=await r.json(); if(!r.ok){alert(j.detail||'failed');return;}
-  pollIngest(j.job);
+  if(j.existing) toast('That chapter is already ingesting — showing that job.');
+  setActiveJob(j.job); startIngestPoller();
 }
 function stageBar(cur,pct,msg,err){
   return `<div style="font-size:12px">${ING_STAGES.map(s=>{
@@ -233,20 +247,72 @@ function stageBar(cur,pct,msg,err){
       <div style="height:100%;width:${pct}%;background:${err?'var(--red)':'var(--accent)'}"></div></div>
     <div class="hint">${err?('⚠ '+err):msg}</div>`;
 }
-async function pollIngest(job){
-  const box=$('#ingprog');
-  while(true){ const j=await (await fetch('/api/ingest/status/'+job)).json();
-    box.innerHTML=stageBar(j.stage,j.pct,j.msg,j.status==='error'?j.error:null);
-    if(j.status==='done'){ box.innerHTML+=`<button class="primary" style="width:100%;margin-top:8px" onclick="activateProj('${j.project.id}')">Open “${j.project.id}” (${j.project.n_segments} segs)</button>`; loadProjects(); return; }
-    if(j.status==='error') return;
-    await new Promise(r=>setTimeout(r,1500)); }
+function paintIngest(){
+  const box=$('#ingprog'); if(!box||!ingestState) return;
+  const j=ingestState;
+  box.innerHTML=stageBar(j.stage,j.pct,j.msg,j.status==='error'?j.error:null);
+  if(j.status==='done'&&j.project){ box.innerHTML+=`<button class="primary" style="width:100%;margin-top:8px" onclick="activateProj('${j.project.id}')">Open “${j.project.id}” (${j.project.n_segments} segs)</button>`; }
 }
+async function startIngestPoller(){
+  if(ingestPolling) return; ingestPolling=true;
+  try{
+    while(activeJob()){
+      let j; try{ j=await (await fetch('/api/ingest/status/'+activeJob())).json(); }
+      catch(e){ await new Promise(r=>setTimeout(r,2000)); continue; }
+      ingestState=j; if(view==='ingest') paintIngest();
+      if(j.status==='done'||j.status==='error'){ setActiveJob(null); loadProjects(); break; }
+      await new Promise(r=>setTimeout(r,1500));
+    }
+  } finally { ingestPolling=false; }
+}
+// resume a job that was running before a tab switch / reload / reopen
+if(activeJob()) startIngestPoller();
+
 async function loadProjects(){
   const box=$('#projlist'); if(!box)return;
   const j=await (await fetch('/api/projects')).json();
-  box.innerHTML=j.projects.map(p=>`<div class="row" style="justify-content:space-between;align-items:center">
+  let html='';
+  if((j.in_progress||[]).length){
+    html+='<div class="muted" style="margin:4px 0 2px">In progress</div>'+
+      j.in_progress.map(p=>`<div class="row" style="justify-content:space-between;align-items:center">
+        <span style="cursor:pointer" onclick="watchJob('${p.job}')">⏳ ${p.slug} <span class="muted">(${p.stage} · ${p.pct}%)</span></span>
+        <button onclick="watchJob('${p.job}')">Watch</button></div>`).join('');
+    html+='<div class="muted" style="margin:8px 0 2px">Finished</div>';
+  }
+  html+=j.projects.map(p=>`<div class="row" style="justify-content:space-between;align-items:center">
     <span>${p.active?'▶ ':''}${p.id} <span class="muted">(${p.n_segments||p.n_segments===0?p.n_segments:'?'} segs)</span></span>
     ${p.active?'<span class="muted">active</span>':`<button onclick="activateProj('${p.id}')">Open</button>`}</div>`).join('');
+  box.innerHTML=html;
+}
+function watchJob(job){ setActiveJob(job); setView('ingest'); startIngestPoller(); }
+
+function renderLogs(){
+  $('#right').querySelector('h3').textContent='Logs';
+  $('#inspector').innerHTML=`
+    <div class="hint">Live job history + every external API call (cost-tracked). Survives restarts.</div>
+    <button style="width:100%;margin:8px 0" onclick="loadLogs()">↻ Refresh</button>
+    <div class="section"><h3 style="margin:0 0 6px">Ingest jobs</h3><div id="logjobs" class="hint">loading…</div></div>
+    <div class="section"><h3 style="margin:0 0 6px">API usage (today)</h3><div id="logusage" class="hint">loading…</div></div>`;
+  loadLogs();
+}
+async function loadLogs(){
+  try{
+    const ij=await (await fetch('/api/logs/ingest')).json();
+    $('#logjobs').innerHTML=(ij.jobs||[]).slice(0,20).map(j=>{
+      const col=j.status==='done'?'var(--green)':j.status==='error'?'var(--red)':'var(--accent)';
+      return `<div style="border-bottom:1px solid var(--line);padding:4px 0;font-size:12px">
+        <div style="color:${col}">${j.status} · ${j.stage||''} ${j.pct?('· '+j.pct+'%'):''}</div>
+        <div class="muted" style="word-break:break-all">${(j.url||'').replace('https://','')}</div>
+        ${j.error?`<div style="color:var(--red)">⚠ ${j.error}</div>`:''}</div>`;
+    }).join('')||'<span class=muted>No jobs yet.</span>';
+    const uj=await (await fetch('/api/logs/usage?n=60')).json();
+    const s=uj.summary||{};
+    $('#logusage').innerHTML=`<div style="font-size:12px;margin-bottom:6px">
+      <b>${s.gemini_calls||0}</b> Gemini calls · <b>${(s.tts_chars||0).toLocaleString()}</b> TTS chars ·
+      est <b>$${(s.est_cost_usd||0).toFixed(3)}</b> today (${s.date||''})</div>`+
+      (uj.calls||[]).slice(0,40).map(c=>`<div class="muted" style="font-size:11px;border-bottom:1px solid var(--line);padding:2px 0">
+        ${c.kind||c.provider||'?'} · ${c.units||c.tokens||c.chars||''} · $${(c.est_cost_usd||c.cost||0).toFixed?(c.est_cost_usd||c.cost||0).toFixed(4):0} <span style="opacity:.6">${(c.job||'').slice(0,8)}</span></div>`).join('');
+  }catch(e){ $('#logjobs').innerHTML='<span class=muted>Failed to load logs.</span>'; }
 }
 async function activateProj(id){
   const r=await fetch('/api/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
