@@ -76,8 +76,10 @@ button.ghost{background:transparent}
 .aclip.sel{border-color:var(--accent)}
 .aclip .wave{position:absolute;inset:0;opacity:.5;background:repeating-linear-gradient(90deg,transparent 0 2px,#6a74d8 2px 3px)}
 .aclip .atext{position:relative;font-size:9px;color:#cfd3ff;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:2}
-#playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);z-index:8;pointer-events:none;box-shadow:0 0 6px var(--accent)}
-#playhead::before{content:"";position:absolute;top:-2px;left:-4px;border:5px solid transparent;border-top-color:var(--accent)}
+#playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);z-index:8;cursor:ew-resize;box-shadow:0 0 6px var(--accent)}
+/* wide invisible grab zone so the thin line is easy to catch and drag */
+#playhead::after{content:"";position:absolute;top:0;bottom:0;left:-7px;right:-7px}
+#playhead::before{content:"";position:absolute;top:-2px;left:-4px;border:5px solid transparent;border-top-color:var(--accent);cursor:ew-resize}
 .toast{position:fixed;bottom:220px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--accent);border-radius:8px;padding:8px 14px;z-index:30;font-size:12px}
 </style>
 
@@ -193,9 +195,26 @@ function renderTimeline(){
   }));
   $('#playhead').style.left=(60+curT*PX)+'px';
 }
-$('#ruler').addEventListener('click',e=>{
-  const x=e.offsetX-0; const t=Math.max(0,x/PX); pvMsg('pv-seek',{t});
-});
+/* click-or-DRAG to scrub: grab the ruler (or the playhead) and drag the line.
+   x is measured from the ruler's left edge minus the 60px track-label gutter,
+   plus the horizontal scroll of #tracks so it stays aligned when scrolled. */
+let scrubbing=false;
+function scrubAt(clientX){
+  const r=$('#ruler').getBoundingClientRect();
+  const x=(clientX-r.left)-60+($('#tracks').scrollLeft||0);
+  const t=Math.max(0,Math.min(TOTAL, x/PX));
+  curT=t;
+  $('#playhead').style.left=(60+t*PX)+'px';
+  $('#tlclock').textContent=t.toFixed(1)+'s';
+  pvMsg('pv-seek',{t});
+}
+function startScrub(e){ scrubbing=true; scrubAt(e.clientX); e.preventDefault(); }
+$('#ruler').addEventListener('mousedown',startScrub);
+$('#playhead').addEventListener('mousedown',startScrub);
+document.addEventListener('mousemove',e=>{ if(scrubbing) scrubAt(e.clientX); });
+document.addEventListener('mouseup',()=>{ scrubbing=false; });
+/* keep the ruler scrolled in lockstep with the tracks so ticks stay aligned */
+$('#tracks').addEventListener('scroll',()=>{ $('#ruler').style.transform=`translateX(${-$('#tracks').scrollLeft}px)`; });
 
 /* ---------- right panel (view-dependent) ---------- */
 function setView(v){ view=v; document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active',b.dataset.view===v)); renderRight(); }
