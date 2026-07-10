@@ -896,3 +896,14 @@
 - **Media tab — real fix + a bug:** was a stub reusing swap candidates. Now `/api/media` returns the active chapter's real panel library (thumbnails, used-markers, click-to-swap). **Bug fixed:** `activate_project` updated AUDIO_DIR but not DESCRIPTIONS, so opening an ingested project (ch3/painter) showed chapter-2 panels — now switches DESCRIPTIONS to the project's file.
 - **Guardrail note:** painter ch1 ingest halted at match/90% on `MAX_GEMINI_CALLS_PER_JOB=500` — Phase-2 cap working as designed; big chapters need the cap raised (user decision).
 - **Local test blocked:** local venv corrupted again by iCloud (repo still on Desktop) — `from fastapi import FastAPI` hangs (`typing_extensions` dir empty; reinstall itself timed out). Verified both files' SYNTAX with system python3 + node instead; runtime-testing against the deployed container (clean venv) rather than fighting local corruption.
+
+#### DEPLOYED + LIVE-VERIFIED (all 4 fixes)
+- **When:** 2026-07-10
+- **Deploy path that worked:** `railway up` from the Desktop repo hangs forever at "Indexing…" (iCloud placeholder-file filesystem walk). Deployed from the off-iCloud clone `~/dev/manhwa` instead (git reset --hard origin/main → f8c1cae, `railway link -p 20b15eed… -s recap-studio`, `railway up`). First attempt (`dbfb31ef`) wedged 27min at "Initializing" (built OK, container never healthy — stuck rollout, not a code bug); a fresh `railway up` (`39e93de5`) succeeded in ~40s.
+- **Live verification against the deployed Railway backend (curl + shared secret):**
+  - `/api/preview` contains `playing && t>=a.start` → autoplay gate live ✓
+  - `/api/media` → HTTP 200; empty on fresh boot (DESCRIPTIONS defaults to the .railwayignore'd ch2 file), then after `POST /api/activate {id:"3"}` → **79 panels, 78 used** ✓ — this also proves the activate-DESCRIPTIONS fix (media shows the project's OWN panels now).
+  - `/api/project` → 78 segments, per-beat text+start intact ✓
+- **Frontend (Vercel) live** at manhwa.nodepilot.dev with Scripts tab + per-line Details + Media UI.
+- **Known behavior:** after any redeploy the container boots with no active project; user clicks "Open" on their project to re-activate (sets AUDIO_DIR + DESCRIPTIONS). Segments persist on the volume; only the active-pointer resets.
+- **Could NOT local-runtime-test:** local venv corrupted again by iCloud (fastapi import hangs, typing_extensions emptied). Verified syntax with system python3+node; all runtime verification done against the live deployment.
