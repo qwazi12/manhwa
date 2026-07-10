@@ -665,7 +665,10 @@ function render(t){{
       $("ci"+i).style.transform="scale("+z.toFixed(4)+")"; cap=s.text; }}
   }});
   $("cap").textContent=cap;
-  AUD.forEach(a=>{{ const el=$(a.id); const on=t>=a.start && t<a.start+a.dur;
+  // Audio plays ONLY while actually playing — never on open (render(0)),
+  // never on scrub/seek, never on a timeline jump unless already playing.
+  // (Previously render() started the first clip at t=0 on load = "autoplay".)
+  AUD.forEach(a=>{{ const el=$(a.id); const on = playing && t>=a.start && t<a.start+a.dur;
     if(on){{ if(el.paused){{ try{{el.currentTime=Math.max(0,t-a.start)}}catch(e){{}} el.play().catch(()=>{{}}); }} }}
     else if(!el.paused) el.pause(); }});
   $("seek").value=Math.round(t/TOTAL*1000);
@@ -912,7 +915,7 @@ class ActivateIn(BaseModel):
 @app.post("/api/activate")
 def activate_project(body: ActivateIn):
     """Point the studio at an ingested project: load its segments + audio."""
-    global AUDIO_DIR
+    global AUDIO_DIR, DESCRIPTIONS
     import ingest
     proj = os.path.join(ingest.PROJECTS, body.id)
     seg = os.path.join(proj, "segments.json")
@@ -923,8 +926,33 @@ def activate_project(body: ActivateIn):
         segs = json.load(f)
     _write_segments(segs)
     AUDIO_DIR = os.path.join(proj, "audio")   # honored by re-TTS + preview + render
+    # point panel candidates / media / swap at THIS project's descriptions,
+    # not the default chapter-2 file (was a bug: ingested projects showed ch2 panels)
+    pdesc = os.path.join(proj, "descriptions.json")
+    if os.path.exists(pdesc):
+        DESCRIPTIONS = pdesc
     save_review({})                            # fresh review state for this project
     return {"ok": True, "id": body.id, "n_segments": len(segs)}
+
+
+@app.get("/api/media")
+def media():
+    """The active chapter's panel library — every real (non-junk) panel with a
+    thumbnail — for the Media tab. Sourced from the active project's
+    descriptions (kept in sync by /api/activate)."""
+    import matcher
+    panels = [p for p in _load_descriptions()
+              if p.get("ok", True) and not matcher.is_junk_panel(p)]
+    # which panels are currently placed on the timeline?
+    used = {s["panel_id"] for s in load_segments()}
+    out = [{
+        "panel_id": p["panel_id"],
+        "thumb_url": f"/panelimg/{p['panel_id']}?thumb=1",
+        "ocr": (p.get("ocr_text") or "")[:80],
+        "desc": (p.get("visual_description") or "")[:120],
+        "used": p["panel_id"] in used,
+    } for p in panels]
+    return {"panels": out, "count": len(out), "used": len(used)}
 
 
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")

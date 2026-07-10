@@ -97,6 +97,7 @@ button.ghost{background:transparent}
   <div id="rail">
     <button class="navbtn" data-view="ingest" onclick="setView('ingest')"><span class="ic">🔗</span>Ingest</button>
     <button class="navbtn active" data-view="segments" onclick="setView('segments')"><span class="ic">🎞️</span>Segments</button>
+    <button class="navbtn" data-view="scripts" onclick="setView('scripts')"><span class="ic">📝</span>Scripts</button>
     <button class="navbtn" data-view="media" onclick="setView('media')"><span class="ic">🖼️</span>Media</button>
     <button class="navbtn" data-view="export" onclick="setView('export')"><span class="ic">⬆️</span>Export</button>
     <button class="navbtn" data-view="logs" onclick="setView('logs')"><span class="ic">📋</span>Logs</button>
@@ -220,6 +221,7 @@ $('#tracks').addEventListener('scroll',()=>{ $('#ruler').style.transform=`transl
 function setView(v){ view=v; document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active',b.dataset.view===v)); renderRight(); }
 function renderRight(){
   if(view==='ingest') return renderIngest();
+  if(view==='scripts')return renderScripts();
   if(view==='export') return renderExport();
   if(view==='media')  return renderMedia();
   if(view==='logs')   return renderLogs();
@@ -349,9 +351,9 @@ function renderInspector(){
     <div class="muted">#${sel+1} · ${s.panel_id}</div>
     <div class="muted" style="font-size:11px">${s.n_beats} beat(s) · ${s.dur}s · ${s.start}s→${s.end}s</div>
     <div class="row"><span class="dot ${s.status}"></span><b style="text-transform:capitalize">${s.status}</b></div>
-    <textarea class="field" id="narr" rows="4">${s.text||''}</textarea>
-    <button style="width:100%;margin-top:6px" onclick="saveNarr(${s.seg_index})">💬 Save narration → re-TTS</button>
-    <div class="row">
+    <h3 style="margin:8px 0 4px">Narration ${s.n_beats>1?`(${s.n_beats} lines)`:''}</h3>
+    ${s.beats.map(b=>beatEditor(s.seg_index,b,'dt')).join('')}
+    <div class="row" style="margin-top:10px">
       <button class="seg-btn approve" onclick="setStatus('approved')">✓ Approve</button>
       <button class="seg-btn reject" onclick="setStatus('rejected')">✕ Reject</button>
     </div>
@@ -372,11 +374,88 @@ async function loadCands(i){
     <div class="cand ${c.current?'cur':''}" title="${(c.desc||'').replace(/"/g,'&quot;')}" onclick="swapPanel(${i},'${c.panel_id}')">
       <img src="${c.thumb_url}"><small>${c.current?'current':c.score}</small></div>`).join('')+'</div>';
 }
-function renderMedia(){
+async function renderMedia(){
   $('#right').querySelector('h3').textContent='Media — panel library';
-  const s=DATA.segments[sel];
-  $('#inspector').innerHTML=`<div class="hint">Pick a replacement panel for selected clip #${sel+1}.</div><div id="cands" class="hint">loading…</div>`;
-  loadCands(s.seg_index);
+  $('#inspector').innerHTML='<div class="hint">loading chapter panels…</div>';
+  try{
+    const j=await (await fetch('/api/media')).json();
+    $('#inspector').innerHTML=
+      `<div class="hint">${j.count} panels in this chapter · ${j.used} used on the timeline.
+        Click a panel to swap it into the selected clip (#${sel+1}).</div>
+       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">`+
+      j.panels.map(p=>`<div class="cand ${p.used?'cur':''}" style="width:100%"
+        title="${(p.desc||'').replace(/"/g,'&quot;')}"
+        onclick="swapPanel(DATA.segments[sel].seg_index,'${p.panel_id}')">
+        <img src="${p.thumb_url}" style="width:100%;height:70px;object-fit:cover;border-radius:5px;border:1px solid var(--line)">
+        <small style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.panel_id}${p.used?' ✓':''}</small>
+      </div>`).join('')+'</div>';
+  }catch(e){ $('#inspector').innerHTML='<div class="hint">Failed to load media.</div>'; }
+}
+
+/* ---------- per-line narration editing (shared by Details + Scripts) ---------- */
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtTime(x){ x=x||0; const m=Math.floor(x/60), s=(x%60); return m+':'+(s<10?'0':'')+s.toFixed(1); }
+function beatEditor(segIndex,b,ctx){
+  const id=`${ctx}_${segIndex}_${b.index}`;
+  return `<div style="border-top:1px solid var(--line);padding-top:6px;margin-top:6px">
+    <div class="muted" style="font-size:10px">line · ${fmtTime(b.start)} · ${b.dur||'?'}s</div>
+    <textarea class="field" id="ta_${id}" rows="2" style="margin-top:3px">${esc(b.text)}</textarea>
+    <div class="row" style="margin:4px 0;align-items:center">
+      <button onclick="saveBeat(${segIndex},${b.index},'ta_${id}','st_${id}')">💬 Save → re-TTS</button>
+      <span id="st_${id}" style="font-size:10px" class="muted"></span>
+    </div></div>`;
+}
+async function saveBeat(segIndex,beatIndex,taId,stId){
+  const ta=document.getElementById(taId), st=document.getElementById(stId);
+  const txt=(ta.value||'').trim(); if(!txt) return;
+  const setSt=(m,c)=>{ if(st){st.textContent=m;st.style.color=c||'var(--muted)';} };
+  setSt('⏳ re-synthesizing…','var(--amber)');
+  let j;
+  try{
+    const r=await fetch(`/api/segments/${segIndex}/narration`,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({beats:[{index:beatIndex,text:txt}]})});
+    j=await r.json(); if(!r.ok){ setSt('⚠ '+(j.detail||'failed'),'var(--red)'); return; }
+  }catch(e){ setSt('⚠ network error','var(--red)'); return; }
+  if(j.job){ setSt('⏳ re-rendering clip…','var(--amber)');
+    while(true){ const p=await (await fetch('/api/jobs/'+j.job)).json();
+      if(p.status==='done') break;
+      if(p.status==='error'){ setSt('⚠ '+p.error,'var(--red)'); return; }
+      await new Promise(r=>setTimeout(r,1200)); } }
+  setSt('✓ saved','var(--green)');
+  const keep=view; await load(); reloadPreview();
+  if(view!==keep){ view=keep; renderRight(); }
+}
+/* move preview + timeline playhead to a spot WITHOUT changing the right panel */
+function jumpTo(i,t){ sel=i;
+  document.querySelectorAll('.vclip').forEach((c,ci)=>c.classList.toggle('sel',ci===i));
+  curT=t; $('#playhead').style.left=(60+t*PX)+'px'; $('#tlclock').textContent=(t||0).toFixed(1)+'s';
+  pvMsg('pv-seek',{t}); }
+
+function renderScripts(){
+  $('#right').querySelector('h3').textContent='Scripts — full narration';
+  if(!DATA||!DATA.segments.length){ $('#inspector').innerHTML='<div class="hint">No chapter loaded.</div>'; return; }
+  const full=DATA.segments.map(s=>s.beats.map(b=>b.text).join(' ')).join('\n\n');
+  let rows='';
+  DATA.segments.forEach((s,i)=>s.beats.forEach(b=>{
+    const id=`sc_${s.seg_index}_${b.index}`;
+    rows+=`<div style="display:flex;gap:8px;border-bottom:1px solid var(--line);padding:8px 0">
+      <img src="${s.thumb_url}" onclick="jumpTo(${i},${b.start||s.start})" loading="lazy"
+        style="width:54px;height:36px;object-fit:cover;border-radius:4px;border:1px solid var(--line);cursor:pointer;flex:0 0 auto"
+        title="jump to this line">
+      <div style="flex:1;min-width:0">
+        <div class="muted" style="font-size:10px;cursor:pointer" onclick="jumpTo(${i},${b.start||s.start})">#${i+1} · ${s.panel_id} · ${fmtTime(b.start)}</div>
+        <textarea class="field" id="ta_${id}" rows="2" style="margin-top:3px">${esc(b.text)}</textarea>
+        <div class="row" style="margin:3px 0;align-items:center">
+          <button onclick="saveBeat(${s.seg_index},${b.index},'ta_${id}','st_${id}')">💬 Save → re-TTS</button>
+          <span id="st_${id}" style="font-size:10px" class="muted"></span>
+        </div>
+      </div></div>`;
+  }));
+  $('#inspector').innerHTML=
+    `<div class="hint">Every narration line in order. Edit inline and Save → re-synthesizes just that line and preserves the rest. Click a thumbnail to jump the player there.</div>
+     <details style="margin:8px 0"><summary class="muted" style="cursor:pointer;font-size:11px">📄 Whole script (read-only)</summary>
+       <textarea class="field" readonly rows="8" style="margin-top:6px;font-size:11px">${esc(full)}</textarea></details>
+     ${rows}`;
 }
 function renderExport(){
   $('#right').querySelector('h3').textContent='Export';
