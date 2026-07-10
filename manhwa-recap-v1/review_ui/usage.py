@@ -54,11 +54,17 @@ def _envf(name, default):
         return default
 
 
-# ---- caps (env-configurable; defaults sized for one ~15-25 page chapter) ---
-MAX_GEMINI_CALLS_PER_JOB = int(_envf("MAX_GEMINI_CALLS_PER_JOB", 500))
-MAX_TTS_CHARS_PER_JOB = int(_envf("MAX_TTS_CHARS_PER_JOB", 60000))
-MAX_DAILY_GEMINI_CALLS = int(_envf("MAX_DAILY_GEMINI_CALLS", 2000))
-MAX_DAILY_TTS_CHARS = int(_envf("MAX_DAILY_TTS_CHARS", 300000))
+# ---- caps (env-configurable) --------------------------------------------
+# Per-job cap is a RUNAWAY-LOOP guard, not the spend limit — size it so one
+# real full chapter never trips it: describe (~1 Gemini call/panel) + narrate
+# (~1/scene) + match (embeds every beat AND every panel). A long chapter
+# (167 beats + ~160 panels, like "A Painter Who Draws Dungeons" ch.1) needs
+# ~530 calls; 2000 leaves headroom for the biggest chapters while still
+# catching an infinite loop. The DAILY SPEND cap ($5) is the real wallet guard.
+MAX_GEMINI_CALLS_PER_JOB = int(_envf("MAX_GEMINI_CALLS_PER_JOB", 2000))
+MAX_TTS_CHARS_PER_JOB = int(_envf("MAX_TTS_CHARS_PER_JOB", 120000))
+MAX_DAILY_GEMINI_CALLS = int(_envf("MAX_DAILY_GEMINI_CALLS", 6000))
+MAX_DAILY_TTS_CHARS = int(_envf("MAX_DAILY_TTS_CHARS", 400000))
 MAX_DAILY_SPEND_USD = _envf("MAX_DAILY_SPEND_USD", 5.0)
 
 # Rough, clearly-labeled ESTIMATES (not billing-accurate) used only to give
