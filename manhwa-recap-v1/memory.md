@@ -907,3 +907,10 @@
 - **Frontend (Vercel) live** at manhwa.nodepilot.dev with Scripts tab + per-line Details + Media UI.
 - **Known behavior:** after any redeploy the container boots with no active project; user clicks "Open" on their project to re-activate (sets AUDIO_DIR + DESCRIPTIONS). Segments persist on the volume; only the active-pointer resets.
 - **Could NOT local-runtime-test:** local venv corrupted again by iCloud (fastapi import hangs, typing_extensions emptied). Verified syntax with system python3+node; all runtime verification done against the live deployment.
+
+#### Usage-cap fix — per-job Gemini cap was too small for a full chapter
+- **When:** 2026-07-10
+- **Symptom:** painter ch1 ingest died at match stage: `USAGE CAP EXCEEDED: MAX_GEMINI_CALLS_PER_JOB=500`. Not a bug — the Phase-2 guardrail worked, but 500 is below what a real full chapter needs: describe (~1 call/panel ≈160) + narrate (~1/scene) + match (embeds every beat AND every panel ≈327 for 167 beats + panels) ≈ 530 calls.
+- **Fix:** raised code defaults in `usage.py` — per-job Gemini 500→**2000**, per-job TTS chars 60k→120k, daily Gemini 2000→6000, daily TTS 300k→400k. **Daily SPEND cap stays $5** = the real runaway-wallet backstop; the per-job cap is just a loop guard sized so one legit chapter never trips it. Committed `bb3122b`.
+- **Applied live WITHOUT a rebuild:** `railway variables --set MAX_GEMINI_CALLS_PER_JOB=2000 …` (env change = fast restart, not a Docker build). Confirmed: backend healthy (HTTP 200) in ~10s, running container reports cap=2000. (`railway variables --set` streams a redeploy and hangs the CLI at the 2-min tool limit — run it backgrounded; it also left stale `.git/*.lock` files from a killed chained commit that had to be removed.)
+- **To finish the painter chapter:** just re-run its ingest — it'll now pass the cap. Re-run re-describes (Gemini spend ~$0.60), since ingest isn't stage-resumable yet.
