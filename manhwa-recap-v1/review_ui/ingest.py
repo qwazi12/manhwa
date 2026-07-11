@@ -192,20 +192,46 @@ def _dur(path):
     return float(out.strip())
 
 
+def _derive_series_chapter(pid, data):
+    """Series + chapter titles by the NEW ingest naming convention.
+
+    Prefer the project's stored `url` (authoritative — this is what a fresh
+    ingest parses), so legacy projects whose folder id predates the convention
+    (e.g. "3") still resolve to a proper name like "Nano Machine" / "Chapter 3".
+    Fall back to the composite folder id, then the raw id, if there is no url.
+    """
+    url = data.get("url")
+    if url and url not in ("loaded",) and "/" in url:
+        s, c = parse_series_chapter(url)
+        return to_title_case(clean_series_slug(s)), to_title_case(c)
+    parts = pid.split("_")
+    series = to_title_case(clean_series_slug(parts[0]))
+    chapter = to_title_case(parts[1]) if len(parts) > 1 else pid
+    return series, chapter
+
+
 def list_projects():
     if not os.path.isdir(PROJECTS):
         return []
     out = []
     for pid in sorted(os.listdir(PROJECTS)):
         pj = os.path.join(PROJECTS, pid, "project.json")
-        if os.path.exists(pj):
+        if not os.path.exists(pj):
+            continue
+        try:
+            data = json.load(open(pj))
+        except Exception:
+            continue
+        series, chapter = _derive_series_chapter(pid, data)
+        # Self-healing backfill: persist the proper names for any legacy project
+        # whose stored series/chapter are missing or folder-id-derived, so it's
+        # durable and every future read (and the folder grouping) is consistent.
+        if data.get("series") != series or data.get("chapter") != chapter:
+            data["series"], data["chapter"] = series, chapter
             try:
-                data = json.load(open(pj))
-                if "series" not in data or "chapter" not in data:
-                    parts = pid.split("_")
-                    data["series"] = data.get("series", to_title_case(clean_series_slug(parts[0])))
-                    data["chapter"] = data.get("chapter", to_title_case(parts[1]) if len(parts) > 1 else pid)
-                out.append(data)
+                with open(pj, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
             except Exception:
                 pass
+        out.append(data)
     return out
