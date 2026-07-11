@@ -33,10 +33,36 @@ PY = sys.executable  # recap venv python (has google-genai, numpy, PIL, whisper)
 STAGES = ["scrape", "split", "describe", "narrate", "voice", "match", "segment"]
 
 
+def parse_series_chapter(url):
+    url_clean = url.strip().rstrip("/").lower()
+    m1 = re.search(r"/comics/([^/]+)/chapter/([^/]+)", url_clean)
+    if m1:
+        return m1.group(1), m1.group(2)
+    m2 = re.search(r"/comics/([^/]+)/chapters?/([^/]+)", url_clean)
+    if m2:
+        return m2.group(1), m2.group(2)
+    m3 = re.search(r"/([^/]+)/chapter/([^/]+)", url_clean)
+    if m3:
+        return m3.group(1), m3.group(2)
+    parts = [p for p in url_clean.split("/") if p]
+    if len(parts) >= 2:
+        return parts[-2], parts[-1]
+    return "unknown-series", "chapter"
+
+
+def clean_series_slug(slug):
+    return re.sub(r"-[a-f0-9]{8}$", "", slug)
+
+
+def to_title_case(slug):
+    return slug.replace("-", " ").title()
+
+
 def _slug(url):
-    m = re.search(r"/chapter/([^/?#]+)", url) or re.search(r"([^/?#]+)/?$", url)
-    base = (m.group(1) if m else "chapter")[:40]
-    return re.sub(r"[^a-z0-9_-]+", "-", base.lower()) or "chapter"
+    series, chapter = parse_series_chapter(url)
+    series_slug = re.sub(r"[^a-z0-9_-]+", "-", clean_series_slug(series))
+    chapter_slug = re.sub(r"[^a-z0-9_-]+", "-", chapter)
+    return f"{series_slug}_{chapter_slug}"
 
 
 def run_ingest(url, progress, tts_key=None, job_id=None):
@@ -142,9 +168,13 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
         s["clip"] = f"clips/seg_{s['seg_index']:03d}.mp4"
     json.dump(segs, open(os.path.join(proj, "segments.json"), "w"), indent=2)
     os.makedirs(os.path.join(proj, "clips"), exist_ok=True)
+    series, chapter = parse_series_chapter(url)
+    series_title = to_title_case(clean_series_slug(series))
+    chapter_title = to_title_case(chapter)
     meta = {"id": proj_id, "url": url, "crops": crops, "audio": audio,
             "descriptions": desc_path, "n_segments": len(segs),
-            "duration": round(shots[-1]["end"], 1) if shots else 0}
+            "duration": round(shots[-1]["end"], 1) if shots else 0,
+            "series": series_title, "chapter": chapter_title}
     json.dump(meta, open(os.path.join(proj, "project.json"), "w"), indent=2)
     progress("segment", f"Done — {len(segs)} segments, {meta['duration']}s.", 100)
     return meta
@@ -164,5 +194,13 @@ def list_projects():
     for pid in sorted(os.listdir(PROJECTS)):
         pj = os.path.join(PROJECTS, pid, "project.json")
         if os.path.exists(pj):
-            out.append(json.load(open(pj)))
+            try:
+                data = json.load(open(pj))
+                if "series" not in data or "chapter" not in data:
+                    parts = pid.split("_")
+                    data["series"] = data.get("series", to_title_case(clean_series_slug(parts[0])))
+                    data["chapter"] = data.get("chapter", to_title_case(parts[1]) if len(parts) > 1 else pid)
+                out.append(data)
+            except Exception:
+                pass
     return out

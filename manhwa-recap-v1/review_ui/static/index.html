@@ -22,8 +22,9 @@ button.ghost{background:transparent}
 /* ---- shell grid ---- */
 #app{display:grid;height:100vh;min-width:1060px;
   grid-template-columns:66px minmax(360px,1fr) 322px;
-  grid-template-rows:50px 1fr 210px;
-  grid-template-areas:"head head head" "rail center right" "rail timeline timeline";}
+  grid-template-rows:auto 50px 1fr 210px;
+  grid-template-areas:"banner banner banner" "head head head" "rail center right" "rail timeline timeline";}
+#health-warn-banner{grid-area:banner;display:none}
 #head{grid-area:head;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line)}
 #head>*{flex-shrink:0}
 #head .logo{font-weight:700;letter-spacing:.3px}
@@ -84,8 +85,17 @@ button.ghost{background:transparent}
 </style>
 
 <div id="app">
+  <div id="health-warn-banner" style="display:none;background:rgba(229,161,58,0.15);border-bottom:1px solid var(--amber);color:var(--amber);padding:6px 16px;font-size:11px;align-items:center;gap:10px">
+    <span style="font-size:14px">⚠️</span>
+    <span id="health-warn-msg" style="flex:1;font-weight:500"></span>
+    <button style="padding:2px 6px;font-size:10px" onclick="dismissBanner()">Dismiss</button>
+  </div>
   <div id="head">
     <span class="logo">🎬 Recap Studio</span>
+    <span id="health-indicator" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 8px;border-radius:12px;background:var(--panel2);border:1px solid var(--line)" onclick="setView('logs')">
+      <span class="dot" id="health-dot" style="background:var(--green);width:8px;height:8px;border-radius:50%"></span>
+      <span id="health-status">System OK</span>
+    </span>
     <div id="counts"></div>
     <div class="spacer"></div>
     <button class="ghost" onclick="undo()">↶ Undo</button>
@@ -294,15 +304,35 @@ async function loadProjects(){
   const j=await (await fetch('/api/projects')).json();
   let html='';
   if((j.in_progress||[]).length){
-    html+='<div class="muted" style="margin:4px 0 2px">In progress</div>'+
-      j.in_progress.map(p=>`<div class="row" style="justify-content:space-between;align-items:center">
-        <span style="cursor:pointer" onclick="watchJob('${p.job}')">⏳ ${p.slug} <span class="muted">(${p.stage} · ${p.pct}%)</span></span>
-        <button onclick="watchJob('${p.job}')">Watch</button></div>`).join('');
-    html+='<div class="muted" style="margin:8px 0 2px">Finished</div>';
+    html+='<div class="muted" style="margin:4px 0 4px;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px">In Progress</div>'+
+      j.in_progress.map(p=>`<div class="row" style="justify-content:space-between;align-items:center;background:var(--panel2);padding:6px 10px;border-radius:6px;margin:4px 0">
+        <span style="cursor:pointer;font-size:12px" onclick="watchJob('${p.job}')">⏳ ${p.slug} <span class="muted" style="display:block;font-size:10px">${p.stage} · ${p.pct}%</span></span>
+        <button style="padding:2px 8px;font-size:11px" onclick="watchJob('${p.job}')">Watch</button></div>`).join('');
   }
-  html+=j.projects.map(p=>`<div class="row" style="justify-content:space-between;align-items:center">
-    <span>${p.active?'▶ ':''}${p.id} <span class="muted">(${p.n_segments||p.n_segments===0?p.n_segments:'?'} segs)</span></span>
-    ${p.active?'<span class="muted">active</span>':`<button onclick="activateProj('${p.id}')">Open</button>`}</div>`).join('');
+  
+  html+='<div class="muted" style="margin:12px 0 6px;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px">Series & Chapters</div>';
+  
+  // Group finished projects by series
+  const grouped = {};
+  j.projects.forEach(p => {
+    const s = p.series || (p.id === "chapter-2 (current)" ? "Default Workspace" : "Other Series");
+    if (!grouped[s]) grouped[s] = [];
+    grouped[s].push(p);
+  });
+  
+  for (const series in grouped) {
+    html += `<div style="margin-top:8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;overflow:hidden">
+      <div style="font-weight:600;font-size:12px;color:var(--text);padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--line)">📚 ${series}</div>
+      <div style="padding:4px 8px">`;
+    grouped[series].forEach(p => {
+      const label = p.chapter || (p.id === "chapter-2 (current)" ? "Chapter 2" : p.id);
+      html += `<div class="row" style="justify-content:space-between;align-items:center;margin:4px 0;padding:4px">
+        <span style="font-size:12px">${p.active?'▶ ':''}${label} <span class="hint">(${p.n_segments} segs${p.duration ? ' · ' + p.duration + 's' : ''})</span></span>
+        ${p.active?'<span class="muted" style="font-size:11px;padding:2px 6px">active</span>':`<button style="padding:2px 6px;font-size:11px" onclick="activateProj('${p.id}')">Open</button>`}
+      </div>`;
+    });
+    html += `</div></div>`;
+  }
   box.innerHTML=html;
 }
 function watchJob(job){ setActiveJob(job); setView('ingest'); startIngestPoller(); }
@@ -509,6 +539,59 @@ async function doExport(fromPanel){ const x15=(fromPanel&&$('#x15b'))?$('#x15b')
   const link=`/export/${j.output}`;
   const box=$('#exresult'); const msg=`✓ Exported ${j.clips} clips → <a href="${link}" style="color:var(--accent)" download>${j.output}</a>`;
   if(box)box.innerHTML=msg; else { const tt=toast('');tt.innerHTML=msg;setTimeout(()=>tt.remove(),8000);} }
+
+let bannerDismissed = false;
+function dismissBanner() {
+  $('#health-warn-banner').style.display = 'none';
+  bannerDismissed = true;
+}
+
+async function checkHealth(){
+  try {
+    const r = await fetch('/api/health');
+    if (!r.ok) throw new Error();
+    const h = await r.json();
+    const dot = $('#health-dot');
+    const txt = $('#health-status');
+    
+    if (h.status === 'OK') {
+      dot.style.background = 'var(--green)';
+      txt.textContent = 'System OK';
+      dot.style.boxShadow = 'none';
+    } else if (h.status === 'WARNING') {
+      dot.style.background = 'var(--amber)';
+      txt.textContent = 'Warning';
+      dot.style.boxShadow = '0 0 6px var(--amber)';
+    } else {
+      dot.style.background = 'var(--red)';
+      txt.textContent = 'Critical';
+      dot.style.boxShadow = '0 0 8px var(--red)';
+    }
+    
+    const banner = $('#health-warn-banner');
+    if (h.caps.warnings.length > 0 && !bannerDismissed) {
+      $('#health-warn-msg').textContent = h.caps.warnings.join(' | ');
+      banner.style.display = 'flex';
+      if (h.status === 'CRITICAL') {
+        banner.style.background = 'rgba(239,95,107,0.15)';
+        banner.style.borderBottom = '1px solid var(--red)';
+        banner.style.color = 'var(--red)';
+      } else {
+        banner.style.background = 'rgba(229,161,58,0.15)';
+        banner.style.borderBottom = '1px solid var(--amber)';
+        banner.style.color = 'var(--amber)';
+      }
+    } else if (h.caps.warnings.length === 0) {
+      banner.style.display = 'none';
+      bannerDismissed = false; // Reset dismissal when health goes green
+    }
+  } catch (e) {
+    $('#health-dot').style.background = 'var(--muted)';
+    $('#health-status').textContent = 'Offline';
+  }
+}
+setInterval(checkHealth, 10000);
+checkHealth();
 
 window.addEventListener('resize',()=>{ if(DATA)renderTimeline(); });
 load();

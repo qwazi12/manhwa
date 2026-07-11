@@ -955,4 +955,85 @@ def media():
     return {"panels": out, "count": len(out), "used": len(used)}
 
 
+@app.get("/health")
+def liveness():
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+def readiness():
+    # Verify workspace is writable
+    test_file = os.path.join(WORK, ".ready_test")
+    try:
+        with open(test_file, "w") as f:
+            f.write("ready")
+        os.remove(test_file)
+        return {"status": "ready"}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Workspace not writeable: {e}")
+
+
+@app.get("/api/health")
+def health():
+    import usage
+    import shutil
+    
+    # Disk space check on WORK directory
+    total_gb, used_gb, free_gb, pct = 0.0, 0.0, 0.0, 0.0
+    try:
+        total, used, free = shutil.disk_usage(WORK)
+        total_gb = round(total / (1024**3), 2)
+        used_gb = round(used / (1024**3), 2)
+        free_gb = round(free / (1024**3), 2)
+        pct = round((used / total) * 100, 1)
+    except Exception:
+        pass
+        
+    # Usage caps check
+    summary = usage.daily_summary()
+    gemini_calls = summary.get("gemini_calls", 0)
+    tts_chars = summary.get("tts_chars", 0)
+    est_cost_usd = summary.get("est_cost_usd", 0.0)
+    
+    warnings = []
+    if pct > 85.0:
+        warnings.append(f"Low disk space: {pct}% used on persistent volume.")
+    if gemini_calls >= usage.MAX_DAILY_GEMINI_CALLS * 0.9:
+        warnings.append(f"Gemini daily calls are near limit ({gemini_calls}/{usage.MAX_DAILY_GEMINI_CALLS}).")
+    if tts_chars >= usage.MAX_DAILY_TTS_CHARS * 0.9:
+        warnings.append(f"TTS daily characters are near limit ({tts_chars}/{usage.MAX_DAILY_TTS_CHARS}).")
+    if est_cost_usd >= usage.MAX_DAILY_SPEND_USD * 0.9:
+        warnings.append(f"Daily spend is near cap (${est_cost_usd:.2f}/${usage.MAX_DAILY_SPEND_USD:.2f}).")
+        
+    status = "OK"
+    if len(warnings) > 0:
+        status = "WARNING"
+    if pct > 95.0 or est_cost_usd >= usage.MAX_DAILY_SPEND_USD:
+        status = "CRITICAL"
+        
+    return {
+        "status": status,
+        "disk": {
+            "total_gb": total_gb,
+            "used_gb": used_gb,
+            "free_gb": free_gb,
+            "percent": pct
+        },
+        "caps": {
+            "gemini_calls": gemini_calls,
+            "gemini_limit": usage.MAX_DAILY_GEMINI_CALLS,
+            "tts_chars": tts_chars,
+            "tts_limit": usage.MAX_DAILY_TTS_CHARS,
+            "est_cost_usd": est_cost_usd,
+            "spend_limit_usd": usage.MAX_DAILY_SPEND_USD,
+            "warnings": warnings
+        },
+        "config": {
+            "gemini_api_key_configured": bool(os.environ.get("GEMINI_API_KEY")),
+            "tts_api_key_configured": bool(os.environ.get("TTS_API_KEY") or os.environ.get("GEMINI_API_KEY"))
+        }
+    }
+
+
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")
+
