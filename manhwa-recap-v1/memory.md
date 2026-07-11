@@ -933,3 +933,18 @@
   - Tested health endpoints via `curl` and verified correct status codes and payloads.
   - Verified layout and grouping in browser subagent.
 
+
+#### Legacy-project series backfill (self-healing) — DONE + live-verified
+- **When:** 2026-07-11
+- **Bug:** `list_projects` derived series/chapter from the FOLDER ID (legacy "3" → series "3") instead of the authoritative stored `url`. Fresh ingests parse fine; pre-convention projects showed the raw id.
+- **Fix (`ingest.py`):** new `_derive_series_chapter(pid, data)` — parses `data["url"]` via `parse_series_chapter` → `clean_series_slug` → `to_title_case` (the exact new-ingest convention); falls back to composite-id split, then raw id, only when no url. `list_projects` now derives this way AND **persists** corrected series/chapter back to `project.json` when they differ → self-healing backfill on first read, durable on the volume. Folder id is NOT renamed (would break clip paths + active pointer); only the display metadata is corrected.
+- **Deployed** from the off-iCloud clone `~/dev/manhwa` (`railway up`; Desktop copy still hangs indexing iCloud). Live in ~45s.
+- **Verified live:** `/api/projects` → project "3" now `series="Nano Machine", chapter="3"`. Browser UI (manhwa.nodepilot.dev, plain-URL login so in-page fetch works) renders "📚 Nano Machine → 3 (78 segs)" under SERIES & CHAPTERS; health widget "System OK".
+- **Note (cosmetic):** real projects render the chapter as the raw value ("3") while the synthetic Default Workspace shows "Chapter 2" — minor label-format inconsistency, not addressed.
+
+#### Remaining roadmap (stated to user 2026-07-11)
+- **Phase 3 (incomplete):** first full live chapter run end-to-end on Railway with artifact capture + validate_beatsheet/check_matcher vs baseline + full browser edit→re-TTS→export workflow. Painter ch1 still not re-run to completion after the cap raise.
+- **Phase 4:** honest completion report.
+- **Deferred bucket:** rights/source-policy gating (Stage 7); render-scaffold cleanup; key rotation (user action — keys leaked in transcript).
+- **Feature asks:** export→YouTube auto-scheduling; ingest stage-resumability (cost saver); disk-cleanup action.
+- **Optional polish:** matcher precision, finer sub-shots, flag-gated reference visual polish (warm tint, transitions).
