@@ -71,32 +71,71 @@ async def verify_shared_secret(request: Request, call_next):
 
 
 
+# ----------------------------------------------------------------- project-scoped workspace
+def get_active_project_id():
+    path = os.path.join(WORK, "active_project.txt")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception:
+            pass
+    return ""
+
+
+def active_project_dir():
+    pid = get_active_project_id()
+    if pid:
+        import ingest
+        return os.path.join(ingest.PROJECTS, pid)
+    return WORK
+
+
+def active_exports_dir():
+    path = os.path.join(active_project_dir(), "exports")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 # ----------------------------------------------------------------- state
 def load_segments():
-    if not os.path.exists(SEGMENTS_JSON):
+    path = os.path.join(active_project_dir(), "segments.json")
+    if not os.path.exists(path):
         return []
-    with open(SEGMENTS_JSON, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
+def _write_segments(segs):
+    path = os.path.join(active_project_dir(), "segments.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(segs, f, indent=2)
+    os.replace(tmp, path)
+
+
 def load_review():
+    path = os.path.join(active_project_dir(), "review.json")
     try:
-        with open(REVIEW_JSON, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
 
 def save_review(state):
-    tmp = REVIEW_JSON + ".tmp"
+    path = os.path.join(active_project_dir(), "review.json")
+    tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2)
-    os.replace(tmp, REVIEW_JSON)
+    os.replace(tmp, path)
 
 
 # ------------------------------------------------------------- thumbnails
 def thumb_path(seg_index):
-    return os.path.join(THUMBS, f"seg_{seg_index:03d}.jpg")
+    t_dir = os.path.join(active_project_dir(), "thumbnails")
+    os.makedirs(t_dir, exist_ok=True)
+    return os.path.join(t_dir, f"seg_{seg_index:03d}.jpg")
 
 
 def ensure_thumb(seg):
@@ -128,7 +167,7 @@ def project():
     for s in segs:
         st = review.get(str(s["seg_index"]), {}).get("status", "pending")
         note = review.get(str(s["seg_index"]), {}).get("note", "")
-        clip_ok = os.path.exists(os.path.join(WORK, s.get("clip", "")))
+        clip_ok = os.path.exists(os.path.join(active_project_dir(), s.get("clip", "")))
         if st == "approved":
             approved_dur += s.get("dur", 0)
         ensure_thumb(s)
@@ -165,7 +204,7 @@ def clip(seg_index: int):
     seg = next((s for s in segs if s["seg_index"] == seg_index), None)
     if not seg:
         raise HTTPException(404, "segment not found")
-    path = os.path.join(WORK, seg.get("clip", ""))
+    path = os.path.join(active_project_dir(), seg.get("clip", ""))
     if not os.path.exists(path):
         raise HTTPException(404, "clip not rendered yet")
     # FileResponse handles HTTP Range requests -> <video> seeking works
@@ -211,20 +250,20 @@ def export(body: ExportIn):
     approved = [s for s in segs
                 if review.get(str(s["seg_index"]), {}).get("status") == "approved"]
     approved = [s for s in approved
-                if os.path.exists(os.path.join(WORK, s.get("clip", "")))]
+                if os.path.exists(os.path.join(active_project_dir(), s.get("clip", "")))]
     if not approved:
         raise HTTPException(400, "no approved clips with rendered video")
-    listfile = os.path.join(EXPORTS, "concat.txt")
+    listfile = os.path.join(active_exports_dir(), "concat.txt")
     with open(listfile, "w") as f:
         for s in approved:
-            f.write(f"file '{os.path.join(WORK, s['clip'])}'\n")
-    out = os.path.join(EXPORTS, "review_export.mp4")
+            f.write(f"file '{os.path.join(active_project_dir(), s['clip'])}'\n")
+    out = os.path.join(active_exports_dir(), "review_export.mp4")
     subprocess.run(
         ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listfile,
          "-c", "copy", out], check=True, capture_output=True)
     final = out
     if abs(body.speed - 1.0) > 1e-3:
-        sped = os.path.join(EXPORTS, f"review_export_{body.speed}x.mp4")
+        sped = os.path.join(active_exports_dir(), f"review_export_{body.speed}x.mp4")
         subprocess.run(
             [sys.executable, os.path.join(RECAP, "speed_up.py"),
              out, sped, str(body.speed)], check=True, capture_output=True)
@@ -235,7 +274,7 @@ def export(body: ExportIn):
 
 @app.get("/export/{name}")
 def get_export(name: str):
-    path = os.path.join(EXPORTS, os.path.basename(name))
+    path = os.path.join(active_exports_dir(), os.path.basename(name))
     if not os.path.exists(path):
         raise HTTPException(404, "export not found")
     return FileResponse(path, media_type="video/mp4")
@@ -245,14 +284,18 @@ def get_export(name: str):
 def render_missing():
     """Render any segment that lacks a clip, via render_segments.py --only."""
     segs = load_segments()
+    pdir = active_project_dir()
     missing = [s["seg_index"] for s in segs
-               if not os.path.exists(os.path.join(WORK, s.get("clip", "")))]
+               if not os.path.exists(os.path.join(pdir, s.get("clip", "")))]
     done = []
     for i in missing:
+        env = os.environ.copy()
+        env["HF_WORKSPACE"] = pdir
+        env["HF_AUDIO_DIR"] = AUDIO_DIR
         r = subprocess.run(
             [sys.executable, os.path.join(HF, "render_segments.py"),
              "--only", str(i)],
-            capture_output=True, text=True)
+            capture_output=True, text=True, env=env)
         if r.returncode == 0:
             done.append(i)
     return {"ok": True, "rendered": done, "still_missing": len(missing) - len(done)}
@@ -278,6 +321,24 @@ AUDIO_DIR = os.environ.get(
 DESCRIPTIONS = os.environ.get(
     "REVIEW_DESCRIPTIONS",
     os.path.join(RECAP, "..", "panel-describe", "descriptions_ch2.json"))
+
+
+def init_active_project():
+    global AUDIO_DIR, DESCRIPTIONS
+    pid = get_active_project_id()
+    if pid:
+        import ingest
+        proj = os.path.join(ingest.PROJECTS, pid)
+        if os.path.exists(proj):
+            AUDIO_DIR = os.path.join(proj, "audio")
+            pdesc = os.path.join(proj, "descriptions.json")
+            if os.path.exists(pdesc):
+                DESCRIPTIONS = pdesc
+            print(f"--- Restored persistent active project: {pid} ---", file=sys.stderr)
+
+
+init_active_project()
+
 VERSIONS = os.path.join(HERE, "versions")
 os.makedirs(VERSIONS, exist_ok=True)
 
@@ -301,17 +362,14 @@ def _snapshot():
         json.dump(segs, f)
 
 
-def _write_segments(segs):
-    tmp = SEGMENTS_JSON + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(segs, f, indent=2)
-    os.replace(tmp, SEGMENTS_JSON)
-
-
 def _rerender(seg):
     """Re-render one segment's clip from the (edited) seg dict."""
     import render_segments as rs
     rs.PANEL_DIR = _panel_dir()
+    rs.WORK = active_project_dir()
+    rs.CLIPS = os.path.join(rs.WORK, "clips")
+    rs.ASSETS = os.path.join(rs.WORK, "assets")
+    rs.ensure_project()
     rs.render_segment(seg, AUDIO_DIR)
     # thumbnail may be stale after a panel swap
     tp = thumb_path(seg["seg_index"])
@@ -356,7 +414,9 @@ def panelimg(panel_id: str, thumb: int = 0):
         raise HTTPException(404, "panel not found")
     if not thumb:
         return FileResponse(path, media_type="image/png")
-    tp = os.path.join(THUMBS, f"panel_{panel_id}.jpg")
+    t_dir = os.path.join(active_project_dir(), "thumbnails")
+    os.makedirs(t_dir, exist_ok=True)
+    tp = os.path.join(t_dir, f"panel_{panel_id}.jpg")
     if not os.path.exists(tp):
         try:
             subprocess.run(["ffmpeg", "-y", "-i", path, "-vf", "scale=160:-1",
@@ -921,17 +981,36 @@ def activate_project(body: ActivateIn):
     seg = os.path.join(proj, "segments.json")
     if not os.path.exists(seg):
         raise HTTPException(404, "project not found")
-    # copy project segments into the workspace the studio machinery uses
-    with open(seg) as f:
-        segs = json.load(f)
-    _write_segments(segs)
-    AUDIO_DIR = os.path.join(proj, "audio")   # honored by re-TTS + preview + render
-    # point panel candidates / media / swap at THIS project's descriptions,
-    # not the default chapter-2 file (was a bug: ingested projects showed ch2 panels)
+
+    # Persist the active project ID
+    try:
+        os.makedirs(WORK, exist_ok=True)
+        with open(os.path.join(WORK, "active_project.txt"), "w", encoding="utf-8") as f:
+            f.write(body.id)
+    except Exception as e:
+        print(f"Failed to save active project file: {e}", file=sys.stderr)
+
+    AUDIO_DIR = os.path.join(proj, "audio")
     pdesc = os.path.join(proj, "descriptions.json")
     if os.path.exists(pdesc):
         DESCRIPTIONS = pdesc
-    save_review({})                            # fresh review state for this project
+
+    # Initialize review.json if not present
+    rpath = os.path.join(proj, "review.json")
+    if not os.path.exists(rpath):
+        try:
+            with open(rpath, "w", encoding="utf-8") as f:
+                json.dump({}, f)
+        except Exception as e:
+            print(f"Failed to init review.json: {e}", file=sys.stderr)
+
+    # Load segments count
+    try:
+        with open(seg, encoding="utf-8") as f:
+            segs = json.load(f)
+    except Exception:
+        segs = []
+
     return {"ok": True, "id": body.id, "n_segments": len(segs)}
 
 
