@@ -34,6 +34,7 @@ STAGES = ["scrape", "split", "describe", "narrate", "voice", "match", "segment"]
 
 
 def parse_series_chapter(url):
+    import hashlib
     url_clean = url.strip().rstrip("/").lower()
     m1 = re.search(r"/comics/([^/]+)/chapter/([^/]+)", url_clean)
     if m1:
@@ -46,8 +47,12 @@ def parse_series_chapter(url):
         return m3.group(1), m3.group(2)
     parts = [p for p in url_clean.split("/") if p]
     if len(parts) >= 2:
+        if "." in parts[-2] or len(parts[-2]) < 2:
+            h = hashlib.md5(url.encode("utf-8")).hexdigest()[:8]
+            return "series", h
         return parts[-2], parts[-1]
-    return "unknown-series", "chapter"
+    h = hashlib.md5(url.encode("utf-8")).hexdigest()[:8]
+    return "series", h
 
 
 def clean_series_slug(slug):
