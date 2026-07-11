@@ -914,3 +914,22 @@
 - **Fix:** raised code defaults in `usage.py` — per-job Gemini 500→**2000**, per-job TTS chars 60k→120k, daily Gemini 2000→6000, daily TTS 300k→400k. **Daily SPEND cap stays $5** = the real runaway-wallet backstop; the per-job cap is just a loop guard sized so one legit chapter never trips it. Committed `bb3122b`.
 - **Applied live WITHOUT a rebuild:** `railway variables --set MAX_GEMINI_CALLS_PER_JOB=2000 …` (env change = fast restart, not a Docker build). Confirmed: backend healthy (HTTP 200) in ~10s, running container reports cap=2000. (`railway variables --set` streams a redeploy and hangs the CLI at the 2-min tool limit — run it backgrounded; it also left stale `.git/*.lock` files from a killed chained commit that had to be removed.)
 - **To finish the painter chapter:** just re-run its ingest — it'll now pass the cap. Re-run re-describes (Gemini spend ~$0.60), since ingest isn't stage-resumable yet.
+
+---
+
+### Session 15 — 2026-07-11 — Multi-Series Support & Advanced Health Monitoring
+
+#### Implementation
+- **Multi-Series Ingestion**: Modified `ingest.py` to parse series names and chapter numbers from URLs using regexes, falling back to a short MD5 hash of the full URL if the URL is non-standard, which prevents folder collisions. Modified `_slug(url)` to output `f"{series_slug}_{chapter_slug}"`. Added fallback support in `list_projects()` for legacy projects.
+- **Advanced Health Monitoring & Alerts**:
+  - Added `/health` (liveness), `/ready` (readiness, write permissions verification), and `/api/health` (authenticated system metrics) endpoints to `server.py`.
+  - Added a system health indicator in the header of the frontend (`index.html`) that polls `/api/health` every 10 seconds.
+  - Implemented tab sleep optimization: the health poll pauses when the document is hidden (`document.hidden`).
+  - Added a grid-mapped warning banner (`#health-warn-banner`) that dynamically appears when warning/critical metrics (e.g. disk space >85%, spend limits) are hit.
+- **Git & Deployments**:
+  - Committed and pushed all changes to GitHub.
+  - Deployed updated frontend to Vercel and backend to Railway (working around iCloud indexing issue by deploying from `/Users/kwasiyeboah/dev/manhwa` off-iCloud clone).
+- **Verification**:
+  - Tested health endpoints via `curl` and verified correct status codes and payloads.
+  - Verified layout and grouping in browser subagent.
+
