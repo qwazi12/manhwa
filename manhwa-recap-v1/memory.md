@@ -977,3 +977,30 @@ The review UI originally used a shared global workspace (`hyperframes/segments-w
 #### End-to-End Browser Verification
 - Launched a browser subagent which successfully logged in, activated **A Painter Who Draws Dungeons**, verified that segments/thumbnails were properly isolated (showing the Painter's crops instead of Nano Machine), generated thumbnails dynamically on the fly, approved a segment, and tested the export configuration.
 - Captured recording: `/Users/kwasiyeboah/.gemini/antigravity-ide/brain/37f01aaf-91c3-4b2d-b439-c2bd2c22d290/verify_project_scoped_workspace_1783814488553.webp`.
+
+---
+
+### Session 17 — 2026-07-12 — YOLO Panel splitting & Two-Pass Narration Overhaul
+
+#### Implementation Details
+- **YOLO Panel Detection**:
+  - Integrated `ultralytics` YOLO panel detection into [split_panels.py](file:///Users/kwasiyeboah/Desktop/manhwa/panel-split/split_panels.py).
+  - Uses the pretrained layout model `yolo_panel_detector.pt` to predict panel coordinates.
+  - Groups overlapping crops vertically into rows and sorts left-to-right to maintain standard webtoon/manhwa reading order.
+  - Automatically falls back to the original geometric gutter-based slicing if YOLO is disabled or fails.
+- **Contour-Aware Bleed Guard**:
+  - Added `_apply_bleed_guard` to expand panel crop bounding boxes by up to 30px dynamically if high-contrast drawing elements (speech bubbles, limbs, action effects) extend into the gutters, preventing graphic clipping.
+- **Two-Pass Narration Engine**:
+  - Refactored [narrate.py](file:///Users/kwasiyeboah/Desktop/manhwa/manhwa-recap-v1/narrate.py) to support a two-pass generation pipeline:
+    - **Pass 1 (Global Beatsheet)**: Analyzes all chapter panel descriptions and OCR text to draft a global story guide (mapping characters, pacing flow, action peaks, and emotional progression).
+    - **Pass 2 (Scene Narration)**: Feeds the global beatsheet outline as context to individual scene generation prompts to ensure logical story flow and name consistency.
+  - Upgraded default generation model to `gemini-3.1-pro-preview` for high-quality storytelling.
+  - Re-wrote the narration voice guidelines to match `Script _story_sample (1).md` style (detailed visual descriptions, past-tense omniscient voice, reported speech).
+- **Direct HTTP REST Bypass**:
+  - Created `call_gemini_rest` helper in [narrate.py](file:///Users/kwasiyeboah/Desktop/manhwa/manhwa-recap-v1/narrate.py) to run raw JSON POST requests to Gemini API via python's `urllib.request`. This completely bypasses the headless macOS Keychain lock issue that hangs the Google GenAI SDK client on credentials lookup.
+
+#### Verification
+- Verified that `ultralytics` imports, loads the custom weights, and performs inference on dummy arrays in under 3 seconds.
+- Ran the two-pass scripting pipeline on *A Painter Who Draws Dungeons* chapter 2 panels, producing a cohesive global beat sheet and narration matching the sample script's style.
+- Committed and pushed all changes to GitHub (`main`) using Git plumbing commands to bypass iCloud status indexing locks.
+
