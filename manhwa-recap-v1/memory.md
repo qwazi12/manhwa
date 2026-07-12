@@ -948,3 +948,32 @@
 - **Deferred bucket:** rights/source-policy gating (Stage 7); render-scaffold cleanup; key rotation (user action — keys leaked in transcript).
 - **Feature asks:** export→YouTube auto-scheduling; ingest stage-resumability (cost saver); disk-cleanup action.
 - **Optional polish:** matcher precision, finer sub-shots, flag-gated reference visual polish (warm tint, transitions).
+
+---
+
+### Session 16 — 2026-07-11/12 — Phase 5: Transition to Project-Scoped Workspace
+
+#### Problem Solved
+The review UI originally used a shared global workspace (`hyperframes/segments-workspace/`) for active assets. Consequently, switching projects in the UI did not refresh rendered clips or status reviews correctly, causing A Painter Who Draws Dungeons to display stale Nano Machine clips/data.
+
+#### Project-Scoped Directory Mapping
+- Modified `server.py` to route all project-specific assets (`segments.json`, `review.json`, `clips`, `thumbnails`, `exports`) directly under each project's own directory `/app/data/projects/{project_id}/`.
+- Defined `active_project_dir()` and `active_exports_dir()` helper functions to dynamically resolve paths using the active project's ID.
+- Updated `/api/project`, `/clip/{seg_index}`, `/thumb/{seg_index}`, `/api/export`, `/export/{name}`, and `/panelimg/{panel_id}` to use these helpers.
+
+#### Durable Project Activation & Boot-time Restoration
+- Modified `/api/activate` to write the active project ID to `active_project.txt` under `WORK` (which is `/app/data/segments-workspace/`). It now initializes `review.json` with `{}` if not present, preventing any state erasure when activating an existing project.
+- Added `init_active_project()` called on server boot/startup to read `active_project.txt` and automatically restore `AUDIO_DIR` and `DESCRIPTIONS` variables to point to the active project's path. This persists the workspace selection across container restarts and Docker builds.
+
+#### CLI Workspace Override
+- Modified `hyperframes/render_segments.py` to accept `HF_WORKSPACE` environment variable, overriding the default `WORK` directory.
+- Updated `_rerender` and `/api/render-missing` in `server.py` to pass the correct active project directory via `HF_WORKSPACE` to `render_segments.py`, ensuring clip updates are written directly to the project's folder.
+
+#### Git & Deployments
+- Deleted a stale `index.lock` file and terminated hung git processes on the local system.
+- Committed and pushed all changes to GitHub (`main`).
+- Deployed updated backend to Railway via `railway up --detach` (succeeded as deployment `55f9e8ca-5783-459c-a016-4484925e54a3`).
+
+#### End-to-End Browser Verification
+- Launched a browser subagent which successfully logged in, activated **A Painter Who Draws Dungeons**, verified that segments/thumbnails were properly isolated (showing the Painter's crops instead of Nano Machine), generated thumbnails dynamically on the fly, approved a segment, and tested the export configuration.
+- Captured recording: `/Users/kwasiyeboah/.gemini/antigravity-ide/brain/37f01aaf-91c3-4b2d-b439-c2bd2c22d290/verify_project_scoped_workspace_1783814488553.webp`.
