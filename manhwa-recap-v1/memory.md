@@ -1004,3 +1004,25 @@ The review UI originally used a shared global workspace (`hyperframes/segments-w
 - Ran the two-pass scripting pipeline on *A Painter Who Draws Dungeons* chapter 2 panels, producing a cohesive global beat sheet and narration matching the sample script's style.
 - Committed and pushed all changes to GitHub (`main`) using Git plumbing commands to bypass iCloud status indexing locks.
 
+
+---
+
+### Session 18 — 2026-07-12 — Hard-Status Audit (evidence-based, all claims live-verified)
+
+**Method:** re-verified every claim against the live system (curl to Railway direct + through Vercel proxy, `railway deployment list`, `git diff` against origin, `.railwayignore`/`.gitignore` inspection) rather than trusting prior memory.md entries.
+
+#### Verified live (just now)
+- Railway direct: `/health`→200, `/ready`→200, `/api/health`→`status:OK`, disk 9.9% (0.45/4.51GB), both API keys configured, secret enforced (401 without header).
+- Vercel: root 401 unauth → 200 with Basic Auth; `/api/*` proxy to Railway returns real project JSON through `manhwa.nodepilot.dev`.
+- `/api/projects` live: `("Nano Machine","3",78 segs)`, `("A Painter Who Draws Dungeons","1",81 segs)` — multi-series naming + legacy backfill confirmed live.
+- `/api/logs/ingest` live: painter ch1 shows a **completed** run (`done · segment · 100%`, 81 segments) alongside the earlier cap-tripped attempt — Phase-3 "does a brand-new chapter complete end-to-end on live Railway" is now proven with evidence, not assumption.
+- Frontend has had zero code changes since Session 15 (`git diff 02e117a..origin/main -- static/` empty) → no Vercel drift; deployed HTML confirmed to contain the health widget.
+
+#### Problems found (new, not previously logged)
+1. **GitHub ≠ production drift:** local commit `0dbbbd9` ("add CPU-only PyTorch and ultralytics to Dockerfile") was deployed to Railway via `railway up` from `~/dev/manhwa` but **never pushed** — `git status` showed `ahead 1`. Anyone redeploying from GitHub would silently lose the YOLO dependency. **User instructed to push it — action pending confirmation.**
+2. **Cost-estimator/model mismatch:** `usage.py`'s `EST_COST_PER_GEMINI_CALL_USD=0.001` is flash-tier pricing, but `narrate.py` now defaults to `gemini-3.1-pro-preview` (materially more expensive per call) for both the global-beatsheet pass and per-scene narration. The $5/day spend cap is being enforced against an underestimate — real spend can exceed the intended guardrail. Not yet fixed.
+3. **YOLO weights (`yolo_panel_detector.pt`, 119MB) are gitignored** (`**/*.pt`) and exist only on two local Macs (Desktop + `~/dev/manhwa` clone) — no cloud backup, provenance (where/how trained) undocumented. `.railwayignore` does NOT exclude `.pt`, so it does upload with `railway up`, but this is a single point of failure for reproducing a deploy from scratch.
+4. **Unverified-in-production items** (worked locally per Session 17, not yet exercised on the deployed container since the latest deploy): YOLO detection path actually engaging (vs. silently falling back to geometric splitting), the two-pass narration pipeline, and the browser leg of edit-line → re-TTS → export-cut.
+
+#### Final verdict at audit time: PARTIAL — live and functional, not yet fully drift-safe
+Priority actions handed to user: (1) push `0dbbbd9`, (2) fix per-model cost accounting, (3) run one scripted live validation closing the matcher-invariant + full browser-workflow gap, (4) back up the YOLO weights + document provenance, (5) retire the iCloud Desktop working copy in favor of `~/dev/manhwa`, (6) rotate the four credentials that have appeared in session transcripts (Gemini key, TTS key, shared secret, Vercel Basic Auth password).
