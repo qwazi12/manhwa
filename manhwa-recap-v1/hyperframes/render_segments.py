@@ -141,9 +141,16 @@ def render_segment(seg, audio_dir):
     dst = os.path.join(CLIPS, f"seg_{seg['seg_index']:03d}.mp4")
     if os.path.exists(dst):
         os.remove(dst)
-    subprocess.run(["npx", "hyperframes", "render", "-o", dst],
-                   cwd=WORK, check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # --yes: npx must never hit its interactive install prompt in a non-TTY
+    # container (that prompt aborts with exit 1). Capture output so a render
+    # failure raises WITH the real reason instead of a blind exit status.
+    r = subprocess.run(["npx", "--yes", "hyperframes", "render", "-o", dst],
+                       cwd=WORK, capture_output=True, text=True)
+    if r.returncode != 0:
+        tail = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()[-800:]
+        raise RuntimeError(
+            f"hyperframes render failed (exit {r.returncode}) for "
+            f"seg_{seg['seg_index']:03d}: {tail}")
     return dst
 
 

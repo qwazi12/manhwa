@@ -288,6 +288,7 @@ def render_missing():
     missing = [s["seg_index"] for s in segs
                if not os.path.exists(os.path.join(pdir, s.get("clip", "")))]
     done = []
+    errors = {}
     for i in missing:
         env = os.environ.copy()
         env["HF_WORKSPACE"] = pdir
@@ -298,7 +299,18 @@ def render_missing():
             capture_output=True, text=True, env=env)
         if r.returncode == 0:
             done.append(i)
-    return {"ok": True, "rendered": done, "still_missing": len(missing) - len(done)}
+        else:
+            tail = ((r.stderr or "") + (r.stdout or "")).strip()[-600:]
+            errors[str(i)] = tail
+            print(f"[render-missing] seg {i} FAILED: {tail}", flush=True)
+            if len(errors) >= 3 and not done:
+                # every attempt failing identically — stop burning CPU on all 81
+                print("[render-missing] aborting after 3 consecutive failures",
+                      flush=True)
+                break
+    return {"ok": True, "rendered": done,
+            "still_missing": len(missing) - len(done),
+            "errors": errors}
 
 
 # ================================================================ MVP-2
