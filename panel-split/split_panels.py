@@ -37,6 +37,7 @@ Usage:
 import argparse
 import json
 import os
+import sys
 import numpy as np
 from PIL import Image
 
@@ -207,6 +208,116 @@ def _sliding_shot_windows(panel_gray: np.ndarray, bg_color: int):
 
 # ----------------------------------------------------------- main detect
 
+# ----------------------------------------------------------- yolo detect
+def detect_panels_yolo(image_path: str, model_path: str = None) -> list:
+    """Detect panels using the pretrained YOLO model.
+    Returns a list of bounding boxes: [[x0, y0, x1, y1], ...] sorted in reading order.
+    """
+    if model_path is None:
+        model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yolo_panel_detector.pt")
+    if not os.path.exists(model_path):
+        print(f"YOLO model not found at {model_path}, falling back to geometric splits.", file=sys.stderr)
+        return []
+    
+    try:
+        from ultralytics import YOLO
+        model = YOLO(model_path)
+        # Run inference (conf=0.3 is standard for layouts)
+        results = model.predict(source=image_path, conf=0.3, verbose=False)
+        boxes = []
+        if results and len(results) > 0:
+            for box in results[0].boxes:
+                coords = box.xyxy[0].tolist()
+                x0, y0, x1, y1 = [int(round(c)) for c in coords]
+                boxes.append([x0, y0, x1, y1])
+        
+        if not boxes:
+            return []
+            
+        # Group boxes by row to resolve reading order (overlap threshold = 40%)
+        boxes.sort(key=lambda b: b[1])  # sort by top coordinate first
+        rows = []
+        for b in boxes:
+            placed = False
+            for r in rows:
+                r_top = min(x[1] for x in r)
+                r_bot = max(x[3] for x in r)
+                overlap = max(0, min(b[3], r_bot) - max(b[1], r_top))
+                h = b[3] - b[1]
+                if overlap > 0.4 * h or overlap > 0.4 * (r_bot - r_top):
+                    r.append(b)
+                    placed = True
+                    break
+            if not placed:
+                rows.append([b])
+        
+        sorted_boxes = []
+        for r in rows:
+            r.sort(key=lambda b: b[0])  # sort left-to-right in the row
+            sorted_boxes.extend(r)
+            
+        return sorted_boxes
+    except Exception as e:
+        print(f"YOLO detection failed: {e}. Falling back.", file=sys.stderr)
+        return []
+
+
+def _apply_bleed_guard(bbox, gray_full, bg_color, max_expand=30):
+    """Expand the bbox coordinates if there are non-background pixels on the borders,
+    preventing clipping of character limbs/art bleeding into the gutters.
+    """
+    x0, y0, x1, y1 = bbox
+    h_full, w_full = gray_full.shape
+    
+    # Check left border (x0)
+    max_exp = max_expand
+    while x0 > 0 and max_exp > 0:
+        col = gray_full[y0:y1, x0]
+        non_bg_ratio = np.mean(np.abs(col.astype(np.int16) - bg_color) > BG_COLOR_TOLERANCE)
+        if non_bg_ratio > 0.05:
+            x0 -= 1
+            max_exp -= 1
+        else:
+            break
+            
+    # Check right border (x1)
+    max_exp = max_expand
+    while x1 < w_full and max_exp > 0:
+        col = gray_full[y0:y1, x1 - 1]
+        non_bg_ratio = np.mean(np.abs(col.astype(np.int16) - bg_color) > BG_COLOR_TOLERANCE)
+        if non_bg_ratio > 0.05:
+            x1 += 1
+            max_exp -= 1
+        else:
+            break
+            
+    # Check top border (y0)
+    max_exp = max_expand
+    while y0 > 0 and max_exp > 0:
+        row = gray_full[y0, x0:x1]
+        non_bg_ratio = np.mean(np.abs(row.astype(np.int16) - bg_color) > BG_COLOR_TOLERANCE)
+        if non_bg_ratio > 0.05:
+            y0 -= 1
+            max_exp -= 1
+        else:
+            break
+            
+    # Check bottom border (y1)
+    max_exp = max_expand
+    while y1 < h_full and max_exp > 0:
+        row = gray_full[y1 - 1, x0:x1]
+        non_bg_ratio = np.mean(np.abs(row.astype(np.int16) - bg_color) > BG_COLOR_TOLERANCE)
+        if non_bg_ratio > 0.05:
+            y1 += 1
+            max_exp -= 1
+        else:
+            break
+            
+    return [x0, y0, x1, y1]
+
+
+# ----------------------------------------------------------- main detect
+
 def detect_panels(image_path: str):
     """Return (PIL image, list of panel dicts). Each panel dict:
         {
@@ -223,65 +334,57 @@ def detect_panels(image_path: str):
     panels = []
     panel_id = 0
 
-    for (r0, r1) in _split_axis(gray, axis=0, bg_color=bg):
-        strip = gray[r0:r1, :]
-        for (c0, c1) in _split_axis(strip, axis=1, bg_color=bg):
-            top = min(r0 + EDGE_MARGIN, r1)
-            bottom = max(r1 - EDGE_MARGIN, top + 1)
-            left = min(c0 + EDGE_MARGIN, c1)
-            right = max(c1 - EDGE_MARGIN, left + 1)
-            pw, ph = right - left, bottom - top
+    # Try YOLO-based panel detection first
+    yolo_boxes = detect_panels_yolo(image_path)
+    if yolo_boxes:
+        print(f"YOLO detected {len(yolo_boxes)} panels.", file=sys.stderr)
+        for bbox in yolo_boxes:
+            # Apply Bleed Guard to prevent cutting off overflow content
+            bbox = _apply_bleed_guard(bbox, gray, bg)
+            x0, y0, x1, y1 = bbox
+            pw = x1 - x0
+            ph = y1 - y0
             if pw < MIN_PANEL_SIZE or ph < MIN_PANEL_SIZE:
                 continue
 
             panel_id += 1
-            panel_gray = gray[top:bottom, left:right]
+            panel_gray = gray[y0:y1, x0:x1]
 
             # Layer 2: is this a tall continuous panel needing sub-shots?
             if ph / pw >= TALL_RATIO:
-                # only sub-split if there's no clean internal gutter already
                 internal = _split_axis(panel_gray, axis=0, bg_color=bg)
                 if len(internal) <= 1:
-                    # Layer 2a: content-aware vision segmentation (preferred).
-                    # A gutterless tall strip's beats are defined by meaning
-                    # (caption + the art it narrates), which geometry can't see.
-                    # The vision model returns the ordered beats with bounds +
-                    # OCR + description in one call, generalizing across manhwa
-                    # styles. Falls back to the density window on any failure.
                     vbeats = None
                     if USE_VISION_TALL:
                         vbeats = vision_segment.segment_tall_panel_image(
-                            img.crop((left, top, right, bottom)))
+                            img.crop((x0, y0, x1, y1)))
                     if vbeats:
                         boxes = vision_segment.beats_to_pixel_bboxes(
-                            vbeats, right - left, bottom - top)
+                            vbeats, pw, ph)
                         shots = [{
                             "shot_id": i + 1,
-                            "bbox": [left, top + bx["bbox"][1], right, top + bx["bbox"][3]],
-                            # carry the vision OCR/description so these sub-beats
-                            # arrive pre-described (no separate describe pass)
+                            "bbox": [x0, y0 + bx["bbox"][1], x1, y0 + bx["bbox"][3]],
                             "ocr_text": bx["ocr_text"],
                             "visual_description": bx["visual_description"],
                         } for i, bx in enumerate(boxes)]
                         if len(shots) > 1:
                             panels.append({
                                 "panel_id": panel_id,
-                                "bbox": [left, top, right, bottom],
+                                "bbox": [x0, y0, x1, y1],
                                 "type": "continuous_vertical_action",
                                 "segmented_by": "vision",
                                 "shots": shots,
                             })
                             continue
-                    # Layer 2b: geometric density-window fallback
                     windows = _sliding_shot_windows(panel_gray, bg)
                     if len(windows) > 1:
                         shots = [{
                             "shot_id": i + 1,
-                            "bbox": [left, top + wy0, right, top + wy1],
+                            "bbox": [x0, y0 + wy0, x1, y0 + wy1],
                         } for i, (wy0, wy1) in enumerate(windows)]
                         panels.append({
                             "panel_id": panel_id,
-                            "bbox": [left, top, right, bottom],
+                            "bbox": [x0, y0, x1, y1],
                             "type": "continuous_vertical_action",
                             "segmented_by": "density-window",
                             "shots": shots,
@@ -290,10 +393,73 @@ def detect_panels(image_path: str):
 
             panels.append({
                 "panel_id": panel_id,
-                "bbox": [left, top, right, bottom],
+                "bbox": [x0, y0, x1, y1],
                 "type": "single",
-                "shots": [{"shot_id": 1, "bbox": [left, top, right, bottom]}],
+                "shots": [{"shot_id": 1, "bbox": [x0, y0, x1, y1]}],
             })
+    else:
+        # Fall back to original axis-based gutter split logic
+        for (r0, r1) in _split_axis(gray, axis=0, bg_color=bg):
+            strip = gray[r0:r1, :]
+            for (c0, c1) in _split_axis(strip, axis=1, bg_color=bg):
+                top = min(r0 + EDGE_MARGIN, r1)
+                bottom = max(r1 - EDGE_MARGIN, top + 1)
+                left = min(c0 + EDGE_MARGIN, c1)
+                right = max(c1 - EDGE_MARGIN, left + 1)
+                pw, ph = right - left, bottom - top
+                if pw < MIN_PANEL_SIZE or ph < MIN_PANEL_SIZE:
+                    continue
+
+                panel_id += 1
+                panel_gray = gray[top:bottom, left:right]
+
+                # Layer 2: is this a tall continuous panel needing sub-shots?
+                if ph / pw >= TALL_RATIO:
+                    internal = _split_axis(panel_gray, axis=0, bg_color=bg)
+                    if len(internal) <= 1:
+                        vbeats = None
+                        if USE_VISION_TALL:
+                            vbeats = vision_segment.segment_tall_panel_image(
+                                img.crop((left, top, right, bottom)))
+                        if vbeats:
+                            boxes = vision_segment.beats_to_pixel_bboxes(
+                                vbeats, right - left, bottom - top)
+                            shots = [{
+                                "shot_id": i + 1,
+                                "bbox": [left, top + bx["bbox"][1], right, top + bx["bbox"][3]],
+                                "ocr_text": bx["ocr_text"],
+                                "visual_description": bx["visual_description"],
+                            } for i, bx in enumerate(boxes)]
+                            if len(shots) > 1:
+                                panels.append({
+                                    "panel_id": panel_id,
+                                    "bbox": [left, top, right, bottom],
+                                    "type": "continuous_vertical_action",
+                                    "segmented_by": "vision",
+                                    "shots": shots,
+                                })
+                                continue
+                        windows = _sliding_shot_windows(panel_gray, bg)
+                        if len(windows) > 1:
+                            shots = [{
+                                "shot_id": i + 1,
+                                "bbox": [left, top + wy0, right, top + wy1],
+                            } for i, (wy0, wy1) in enumerate(windows)]
+                            panels.append({
+                                "panel_id": panel_id,
+                                "bbox": [left, top, right, bottom],
+                                "type": "continuous_vertical_action",
+                                "segmented_by": "density-window",
+                                "shots": shots,
+                            })
+                            continue
+
+                panels.append({
+                    "panel_id": panel_id,
+                    "bbox": [left, top, right, bottom],
+                    "type": "single",
+                    "shots": [{"shot_id": 1, "bbox": [left, top, right, bottom]}],
+                })
 
     if not panels:
         w, h = img.size

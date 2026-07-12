@@ -160,124 +160,150 @@ def group_into_scenes(panels, max_group=4, sim_threshold=0.12):
     return groups
 
 
-def build_prompt(scene_panels):
+def call_gemini_rest(model, prompt, api_key):
+    import json
+    import urllib.request
+    import ssl
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }],
+        "generationConfig": {
+            "temperature": 0.2
+        }
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"}
+    )
+    
+    context = ssl._create_unverified_context()
+    with urllib.request.urlopen(req, context=context) as response:
+        res = json.loads(response.read().decode("utf-8"))
+        try:
+            return res["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except (KeyError, IndexError) as e:
+            print(f"Gemini REST response error: {res}", file=sys.stderr)
+            raise e
+
+
+def build_prompt(scene_panels, global_beatsheet=None):
     lines = []
     for i, p in enumerate(scene_panels, 1):
         desc = p.get("visual_description", "").strip()
         ocr = p.get("ocr_text", "").strip()
-        entry = f"Panel {i}: {desc}"
+        entry = f"Panel {i} (ID: {p.get('panel_id')}): {desc}"
         if ocr:
             entry += f'\n  Dialogue/text visible in this panel: "{ocr}"'
         lines.append(entry)
     panel_block = "\n".join(lines)
 
-    return f"""You are a recap narrator retelling what happens in this scene, \
-the way someone would summarize a story to a friend who hasn't read it — not \
-an art critic describing a comic panel.
+    global_context_block = ""
+    if global_beatsheet:
+        global_context_block = f"""
+--- GLOBAL CHAPTER SUMMARY & PACING DIRECTIVE ---
+Here is the overall storyline outline and emotional pacing flow for the entire chapter. Use this to ensure continuity of plot, character motivations, and natural transitions across scene boundaries:
+{global_beatsheet}
+------------------------------------------------
+"""
 
-VOICE EXAMPLE (match this voice exactly — sentence rhythm, reported speech, \
-tone — do NOT copy its content):
-{STYLE_ANCHOR}
+    return f"""You are a master comic-recap narrator writing a highly immersive, descriptive voiceover script for a video. Your style is detailed, dramatic, and visual, designed to pull the listener into the story.
+
+{global_context_block}
+
+VOICE & STYLE ANCHOR (match this level of visual detail, reported speech flow, and narrative cadence exactly):
+- "At night in the mountains covered with fog. A barefoot boy with long hair Ash in a robe ran through the forest. His clothes were torn and he himself was scared. He did not notice a snag and tripped over it. The boy lost his balance and rolled down a steep slope. He raised himself from the ground on his right hand and cursed. It seemed to him that the strength from under his feet was disappearing..."
+- "While the killer wasn’t looking, the guy plunged the blade into his throat. The dead man’s partners perked up. The guy landed. His enemy was choking on blood. The prince rubbed his neck, smiled, and agreed that it was funny."
 
 WRITE (mandatory):
-- Recap-narrator voice: third-person, past tense, smooth connective \
-storytelling — sentences link into a flowing account, not a list of frames.
-- Narrate EVENTS, ACTIONS, REACTIONS, INTENTIONS, and CONSEQUENCES: what a \
-character DID, what happened TO them, what they WANTED, and what RESULTED —
-not what the panel shows on the page.
-- Convert all dialogue/text below into REPORTED narration, never quoted \
-speech and never quotation marks (panel text "I can't move" becomes: he said \
-that he could not move anymore).
-- Name rotation is CONDITIONAL: only when a specific character is actually \
-present and acting in a panel, refer to them using: {NAME_HINT}. In LORE / \
-establishing panels that show NO identified protagonist (worldbuilding, \
-history, wide landscapes, generic or ancestral figures), narrate as PURE \
-history with no protagonist inserted — do NOT invent a main character into \
-these panels or attribute the historical events to "the protagonist" / "the \
-boy". Introduce the protagonist only in the panel that actually introduces \
-them (e.g. an illegitimate heir shown before the throne). Attributing generic \
-history to the protagonist is a hallucination and is banned.
+- **Recap-narrator voice**: Third-person past tense. Write smooth, highly detailed, connective storytelling.
+- **Cinematic Visuals & Action Detail**: Describe the specific actions, movements, settings, and events as they unfold panel-by-panel. Focus on specific verbs and physical descriptions (e.g. "rolled down a steep slope", "plunged the blade", "vomited", "vomiting right on the floor", "sweating", "kneeling").
+- **Physical & Appearance Details**: Retain visual details (e.g., hair style/color, robe/clothing states, environment fog, lightning auras) if they set the atmosphere or characterize the moment. Do NOT sanitize or genericize these details.
+- **Natural Reported Dialogue**: Seamlessly blend dialogue and text into reported narration (no quotes). Convert all visible text into narrative action or thought (e.g., panel text "Who are you?" becomes: Ash asked the figure who he was).
+- **Character Motivation & Emotion**: Describe what the characters are feeling, thinking, and their reactions (e.g., feeling humiliated, crying, determined, despondent).
+- **Pacing & Length**: Write roughly 2 to 3 flowing sentences per panel or distinct visual beat. Ensure the sentences flow naturally from one to the next, building up a cohesive, gripping story.
 
-LENGTH BUDGET — per BEAT, not per panel:
-- A single panel file can hold several distinct beats or caption boxes (a \
-tall falling sequence is three moments; a lore panel can stack several \
-caption boxes). Use the OCR text and description to judge how many distinct \
-beats a panel contains, and write roughly ONE to TWO sentences per distinct \
-beat or caption box — not one block per panel.
-- A dense multi-beat panel earns more sentences; a single-subject close-up \
-earns one. NEVER write a full paragraph for a single simple panel.
+DO NOT WRITE:
+- Comic terminologies: "speed lines", "panel borders", "the panel shows", "extreme close-up", "in the next frame", "the page has".
+- Preamble or labels: Output only the raw storytelling text.
 
-TWO REGISTERS — pick per panel based on its content:
-- LORE / ESTABLISHING mode — worldbuilding, history, scene-setting, \
-introductions (big caption boxes, wide landscape panels, exposition). Write \
-flowing, atmospheric, immersive prose with sweep and momentum that builds \
-the world and hooks the listener. \
-Example register: "Long ago, the warriors of the empire developed a martial \
-art to protect themselves. Over time, it evolved from a means of self-defense \
-into a way of life."
-- ACTION / BEAT mode — fights, physical events, reactions, dialogue. Write \
-SHORT sequential sentences, one beat each, fast and punchy — average 10-14 \
-words, and prefer two short sentences over one long compound sentence. \
-Example register: "He swung his weapon. His enemy prepared to strike. The \
-killer knocked the knife from his hand."
-Detect the mode from the panel: exposition / caption-heavy / landscape → lore \
-mode; character action / dialogue / reaction → action mode. Switching cleanly \
-between these registers is what makes it feel like a real story instead of a \
-flat caption track.
-
-DO NOT WRITE (banned regardless of what the panel description mentions):
-- Drawing technique or composition: speed lines, motion lines, panel \
-framing, camera angle, close-up/wide-shot, "the panel shows", art style.
-- Physical appearance UNLESS it is the plot event itself: hair color, \
-clothing details, eye color, etc. are almost always noise — omit them. \
-(Exception: if a wound, a torn garment, or a visible injury IS the story \
-event — e.g. "his arm was bleeding" — narrate that, because it's a \
-consequence, not a costume description.)
-- Dramatic embellishment / interpretive flourishes: intensity-adjectives and \
-filler like "absolute intensity", "consumed by the moment", "pushed to his \
-limits", "the gravity of the moment". State what happened plainly. A panel \
-showing sweat and a locked stare → "he was sweating but would not look away", \
-NOT "he was consumed by intensity".
-- Invented names, lore, motives, or backstory. Only state a motive, name, or \
-fact if it is directly supported by the OCR/dialogue text or the visible \
-action — never infer or guess at meaning the panels don't support.
-- Repetition: do not reuse the same noun or location phrase within the scene \
-(e.g. "the wooden room" twice). Vary the wording.
-
-Prefer STORY MEANING over visual captioning: if a panel shows a character \
-stumbling and gritting their teeth, narrate that they struggled to keep \
-going and refused to give up — not that "their face is shown in close-up \
-with clenched teeth."
-
-PANELS (in order, all part of the same continuous moment):
+PANELS (in order):
 {panel_block}
 
-Write the narration for this moment now. Plain text only, no preamble, no \
-labels, just the narration sentences."""
+Write the narration script for this scene now:"""
 
 
-def narrate_scene(scene_panels, model="gemini-3.5-flash"):
+def generate_global_beatsheet(panels, model="gemini-3.1-pro-preview"):
+    """First pass of the narration pipeline: compiles all panel metadata for the chapter
+    and generates a cohesive, chronological plot and pacing outline.
+    """
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.exit("GEMINI_API_KEY not set")
-    from google import genai
-    client = genai.Client(api_key=api_key)
+        
+    lines = []
+    for i, p in enumerate(panels, 1):
+        desc = p.get("visual_description", "").strip()
+        ocr = p.get("ocr_text", "").strip()
+        entry = f"Panel {i} ({p.get('panel_id')}): {desc}"
+        if ocr:
+            entry += f" [Dialogue: {ocr}]"
+        lines.append(entry)
+    chapter_block = "\n".join(lines)
+    
+    prompt = f"""You are a master story editor preparing a chapter-wide outline and pacing guide for a comic-recap video script. 
+Analyze the full sequence of panels below for this chapter. 
+
+Develop a clear, cohesive, chronological chapter story outline (a "beat sheet"). 
+Your outline must:
+1. Identify all key characters, their roles, names, and physical descriptions (e.g., Ash the long-haired barefoot boy, James the bodyguard, Weiss the old advisor).
+2. Trace the clear flow of plot points, scene transitions, action peaks (fights/explosions), and quiet lore/worldbuilding exposition.
+3. Define the narrative tone progression (e.g., starts in high tension/flight, shifts to mystery/lore, ends in determination).
+4. Summarize the overall narrative arc so that scene-by-scene script generators know how each local moment fits into the larger story.
+
+PANELS SEQUENCE:
+{chapter_block}
+
+Write the story outline and pacing beat sheet now. Plain text only, no formatting fluff."""
 
     def _call():
-        return client.models.generate_content(
-            model=model, contents=build_prompt(scene_panels))
+        return call_gemini_rest(model, prompt, api_key)
 
     if usage:
         with usage.gate("gemini", 1, model=model):
-            resp = _call()
+            return _call()
     else:
-        resp = _call()
-    return (resp.text or "").strip()
+        return _call()
 
 
-def generate_narration(panels, model="gemini-3.5-flash", verbose=True):
+def narrate_scene(scene_panels, model="gemini-3.1-pro-preview", global_beatsheet=None):
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        sys.exit("GEMINI_API_KEY not set")
+
+    def _call():
+        return call_gemini_rest(model, build_prompt(scene_panels, global_beatsheet), api_key)
+
+    if usage:
+        with usage.gate("gemini", 1, model=model):
+            return _call()
+    else:
+        return _call()
+
+
+def generate_narration(panels, model="gemini-3.1-pro-preview", verbose=True):
     """Run the full pipeline over `panels` (already filtered/ordered) and
     return (full_script_text, [(scene_panels, scene_text), ...])."""
+    # Pass 1: Generate global pacing beatsheet for the entire chapter
+    if verbose:
+        print(f"Generating global pacing beatsheet using {model}...", file=sys.stderr)
+    global_beatsheet = generate_global_beatsheet(panels, model)
+    
+    # Pass 2: Scene grouping and panel-level generation with global context
     scenes = group_into_scenes(panels)
     results = []
     for i, scene in enumerate(scenes, 1):
@@ -285,7 +311,7 @@ def generate_narration(panels, model="gemini-3.5-flash", verbose=True):
         if verbose:
             print(f"[scene {i}/{len(scenes)}] {len(scene)} panel(s): {ids}",
                   file=sys.stderr)
-        text = narrate_scene(scene, model)
+        text = narrate_scene(scene, model, global_beatsheet)
         results.append((scene, text))
     full_script = "\n\n".join(text for _, text in results)
     return full_script, results
@@ -296,7 +322,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Generate narration from panels")
     ap.add_argument("--limit-panels", type=int, default=10,
                      help="only use the first N (non-junk) panels — for a cheap style-check sample")
-    ap.add_argument("--model", default="gemini-3.5-flash")
+    ap.add_argument("--model", default="gemini-3.1-pro-preview")
     ap.add_argument("--descriptions", help="override descriptions.json path (e.g. a fresh chapter's subset)")
     args = ap.parse_args()
 
