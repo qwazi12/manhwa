@@ -21,7 +21,9 @@ WORKDIR /app
 # sentence-transformers: the matcher uses Gemini embeddings, not local models.)
 RUN pip install --no-cache-dir \
       "fastapi" "uvicorn[standard]" "python-multipart" "pydantic>=2" \
-      "google-genai>=1.0.0" "numpy" "Pillow" "certifi"
+      "google-genai>=1.0.0" "numpy" "Pillow" "certifi" \
+    && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir "ultralytics"
 
 COPY . /app
 # hyperframes CLI (pinned via npx at runtime; warm the cache)
