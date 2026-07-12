@@ -59,3 +59,13 @@ manhwa-recap-v1/review_ui/review.json
 manhwa-recap-v1/review_ui/versions/
 manhwa-recap-v1/review_ui/projects/
 .vercel
+
+# --- Large model weights (store on Railway volume, not git) ---
+**/*.pt
+**/*.pth
+**/*.onnx
+**/*.weights
+
+# --- Test artifacts ---
+panel-split/test_dummy_page.jpg
+panel-split/test_output*/
