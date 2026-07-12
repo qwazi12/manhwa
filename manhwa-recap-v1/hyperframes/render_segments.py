@@ -132,7 +132,12 @@ def ensure_project():
 def render_segment(seg, audio_dir):
     """Render one segment to clips/seg_NNN.mp4 via the hyperframes CLI."""
     pid = seg["panel_id"]
-    copy(os.path.join(PANEL_DIR, f"{pid}.png"), os.path.join(ASSETS, f"{pid}.png"))
+    # Prefer the segment's own absolute panel_file (project-scoped crops live
+    # inside the project dir); fall back to the legacy shared PANEL_DIR.
+    src_png = seg.get("panel_file") or ""
+    if not (src_png and os.path.isabs(src_png) and os.path.exists(src_png)):
+        src_png = os.path.join(PANEL_DIR, f"{pid}.png")
+    copy(src_png, os.path.join(ASSETS, f"{pid}.png"))
     for b in seg["beats"]:
         a = os.path.join(audio_dir, f"beat_{b['index']:03d}.mp3")
         if os.path.exists(a):
@@ -177,6 +182,32 @@ def main():
     ap.add_argument("--concat-only", action="store_true", help="skip rendering, just concat existing clips")
     args = ap.parse_args()
 
+    # ---- project-scoped mode (HF_WORKSPACE set by the review UI server) ----
+    # The workspace's segments.json IS the manifest (written at ingest, edited
+    # by the UI). Do NOT rebuild from the legacy beatsheet, do NOT overwrite
+    # segments.json, and do NOT force a concat (clips may be partially built).
+    if os.environ.get("HF_WORKSPACE"):
+        seg_path = os.path.join(WORK, "segments.json")
+        if not os.path.exists(seg_path):
+            raise SystemExit(f"ABORT: no segments.json in workspace {WORK}")
+        segments = json.load(open(seg_path))
+        audio_dir = os.environ.get("HF_AUDIO_DIR", os.path.join(WORK, "audio"))
+        ensure_project()
+        if args.concat_only:
+            concat(segments, os.path.join(WORK, "final.mp4"))
+            return
+        if args.only is not None:
+            seg = next(s for s in segments if s["seg_index"] == args.only)
+            render_segment(seg, audio_dir)
+            print(f"Rendered segment {args.only} ({seg['panel_id']})")
+            return
+        todo = segments[:args.limit] if args.limit else segments
+        for i, seg in enumerate(todo, 1):
+            render_segment(seg, audio_dir)
+            print(f"[{i}/{len(todo)}] seg {seg['seg_index']:3} {seg['panel_id']}")
+        return
+
+    # ---- legacy standalone mode (chapter-2-era fixed paths) ----------------
     shots = json.load(open(os.path.join(RECAP, BEATSHEET)))
     panels = json.load(open(os.path.abspath(os.path.join(PROJ, DESCRIPTIONS_FILE))))
     for s in shots:
