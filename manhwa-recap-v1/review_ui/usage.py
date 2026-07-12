@@ -69,8 +69,32 @@ MAX_DAILY_SPEND_USD = _envf("MAX_DAILY_SPEND_USD", 5.0)
 
 # Rough, clearly-labeled ESTIMATES (not billing-accurate) used only to give
 # the daily spend cap a concrete number. Override via env if pricing changes.
+# EST_COST_PER_GEMINI_CALL_USD is the FALLBACK for unrecognized models (sized
+# for flash-tier describe calls, the historical default).
 EST_COST_PER_GEMINI_CALL_USD = _envf("EST_COST_PER_GEMINI_CALL_USD", 0.001)
 EST_COST_PER_TTS_1K_CHARS_USD = _envf("EST_COST_PER_TTS_1K_CHARS_USD", 0.016)
+
+# Per-model per-call estimates. Matched by PREFIX (first hit wins), so version
+# suffixes like "-preview" still resolve. Deliberately conservative (high) so
+# the daily spend cap errs on the safe side: narration now uses a pro-tier
+# model whose long-context calls cost far more per call than flash describe
+# calls, and embedding calls cost far less — pricing them all at the flash
+# rate understated real spend (the 2026-07-12 audit finding).
+EST_GEMINI_MODEL_COST_USD = [
+    ("gemini-3.1-pro",    _envf("EST_COST_PRO_CALL_USD", 0.02)),
+    ("gemini-3-pro",      _envf("EST_COST_PRO_CALL_USD", 0.02)),
+    ("gemini-embedding",  _envf("EST_COST_EMBED_CALL_USD", 0.0002)),
+    ("gemini-3.5-flash",  EST_COST_PER_GEMINI_CALL_USD),
+    ("gemini-3.1-flash",  EST_COST_PER_GEMINI_CALL_USD),
+]
+
+
+def _gemini_call_cost(model):
+    m = (model or "").lower()
+    for prefix, cost in EST_GEMINI_MODEL_COST_USD:
+        if m.startswith(prefix):
+            return cost
+    return EST_COST_PER_GEMINI_CALL_USD
 
 
 class UsageCapExceeded(RuntimeError):
@@ -128,9 +152,9 @@ def _flock():
         fh.close()
 
 
-def _est_cost(kind, units):
+def _est_cost(kind, units, model=""):
     if kind == "gemini":
-        return units * EST_COST_PER_GEMINI_CALL_USD
+        return units * _gemini_call_cost(model)
     return units / 1000.0 * EST_COST_PER_TTS_1K_CHARS_USD
 
 
@@ -141,7 +165,7 @@ def gate(kind, units, model=""):
     call if it would breach a per-job or daily cap; commits usage + logs
     only if the wrapped call completes without raising."""
     job_id = get_job_id()
-    est_cost = _est_cost(kind, units)
+    est_cost = _est_cost(kind, units, model)
 
     with _flock():
         d = _load_counts()

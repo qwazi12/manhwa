@@ -1026,3 +1026,20 @@ The review UI originally used a shared global workspace (`hyperframes/segments-w
 
 #### Final verdict at audit time: PARTIAL — live and functional, not yet fully drift-safe
 Priority actions handed to user: (1) push `0dbbbd9`, (2) fix per-model cost accounting, (3) run one scripted live validation closing the matcher-invariant + full browser-workflow gap, (4) back up the YOLO weights + document provenance, (5) retire the iCloud Desktop working copy in favor of `~/dev/manhwa`, (6) rotate the four credentials that have appeared in session transcripts (Gemini key, TTS key, shared secret, Vercel Basic Auth password).
+
+---
+
+### Session 19 — 2026-07-12 — Rule 0 + drift closure + model-aware cost accounting
+
+#### 1. Universal passive-save rule (Rule 0) — DONE
+- Created repo-root **CLAUDE.md** and **AGENTS.md** (identical): every session, any IDE/agent, must (1) append significant work to memory.md, (2) commit+push at every checkpoint (unpushed work = lost work), (3) never let GitHub drift from deployed reality. Also documents ~/dev/manhwa as the only reliable working copy and where everything lives. Persisted the same rule in the agent's cross-session memory.
+
+#### 1.5 GitHub drift (0dbbbd9) — CLOSED, evidence
+- `0dbbbd9` = deploy/Dockerfile +3/-1: adds CPU-only torch/torchvision + ultralytics (required by the deployed YOLO panel-split path; production deployment 2adbf947 was built from it via `railway up`).
+- Before (audit): `git status -sb` → `ahead 1`. Pushed last session (`0dbbbd9..b7babfe main -> main`). After: `git rev-list --left-right --count origin/main...HEAD` → `0 0`. GitHub == local == deployed input. **Verified live.**
+
+#### 2. Model-aware cost accounting (usage.py) — DONE, tested
+- **Bug (audit finding):** `_est_cost` priced every Gemini call at flat `EST_COST_PER_GEMINI_CALL_USD=$0.001` (flash-tier), but narrate.py now uses `gemini-3.1-pro-preview` for beatsheet+scene calls → daily $5 spend cap enforced against an underestimate.
+- **Fix (smallest correct):** `EST_GEMINI_MODEL_COST_USD` prefix-matched table — pro `$0.02/call` (env `EST_COST_PRO_CALL_USD`), embeddings `$0.0002` (env `EST_COST_EMBED_CALL_USD`), flash keeps `$0.001`; unknown models fall back to flash rate. `_est_cost(kind, units, model)` + threaded `model` at the single gate() call site. All gate callers already passed `model=` (describe/narrate/matcher/TTS) — zero caller changes.
+- **Old vs new (painter-ch1-sized: 160 describe + 82 pro narration + 327 embeds):** OLD $0.569 → NEW **$1.865** (3.3×; pro counted honestly, embeds now cheaper than before). Dry-run test (isolated tmp counters): gate books 1 pro + 1 embed = $0.0202 exactly; spend-cap trip test with $0.05 cap raised UsageCapExceeded on the 3rd pro call. ✅
+- **Consequence:** ~2 full pro-narrated chapters/day fit under the $5 cap — raise MAX_DAILY_SPEND_USD env if more is wanted.
