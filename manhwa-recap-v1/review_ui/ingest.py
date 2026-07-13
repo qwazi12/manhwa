@@ -119,18 +119,21 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
     progress("split", f"{n_crops} panel crops.", 30)
 
     # 3. describe ---------------------------------------------------------
-    progress("describe", "Describing panels (Gemini vision)…", 35)
-    desc_p = subprocess.run(
-        [PY, os.path.join(ROOT, "panel-describe", "run.py"),
-         "--input", crops, "--out", desc_path, "--model", "gemini-3.5-flash"],
-        cwd=os.path.join(ROOT, "panel-describe"),
-        env=subp_env, capture_output=True, text=True)
-    if desc_p.returncode != 0:
-        if "USAGE CAP EXCEEDED" in (desc_p.stderr or ""):
-            raise usage.UsageCapExceeded(desc_p.stderr.strip().splitlines()[-1])
-        raise subprocess.CalledProcessError(desc_p.returncode, desc_p.args,
-                                            desc_p.stdout, desc_p.stderr)
-    progress("describe", "Descriptions ready.", 55)
+    if os.path.exists(desc_path):
+        progress("describe", "Descriptions exist, skipping vision description.", 55)
+    else:
+        progress("describe", "Describing panels (Gemini vision)…", 35)
+        desc_p = subprocess.run(
+            [PY, os.path.join(ROOT, "panel-describe", "run.py"),
+             "--input", crops, "--out", desc_path, "--model", "gemini-3.5-flash"],
+            cwd=os.path.join(ROOT, "panel-describe"),
+            env=subp_env, capture_output=True, text=True)
+        if desc_p.returncode != 0:
+            if "USAGE CAP EXCEEDED" in (desc_p.stderr or ""):
+                raise usage.UsageCapExceeded(desc_p.stderr.strip().splitlines()[-1])
+            raise subprocess.CalledProcessError(desc_p.returncode, desc_p.args,
+                                                desc_p.stdout, desc_p.stderr)
+        progress("describe", "Descriptions ready.", 55)
 
     # 4. narrate (write narration FROM the panels) -----------------------
     progress("narrate", "Writing narration from panels…", 60)
