@@ -132,12 +132,7 @@ def ensure_project():
 def render_segment(seg, audio_dir):
     """Render one segment to clips/seg_NNN.mp4 via the hyperframes CLI."""
     pid = seg["panel_id"]
-    # Prefer the segment's own absolute panel_file (project-scoped crops live
-    # inside the project dir); fall back to the legacy shared PANEL_DIR.
-    src_png = seg.get("panel_file") or ""
-    if not (src_png and os.path.isabs(src_png) and os.path.exists(src_png)):
-        src_png = os.path.join(PANEL_DIR, f"{pid}.png")
-    copy(src_png, os.path.join(ASSETS, f"{pid}.png"))
+    copy(os.path.join(PANEL_DIR, f"{pid}.png"), os.path.join(ASSETS, f"{pid}.png"))
     for b in seg["beats"]:
         a = os.path.join(audio_dir, f"beat_{b['index']:03d}.mp3")
         if os.path.exists(a):
@@ -146,16 +141,9 @@ def render_segment(seg, audio_dir):
     dst = os.path.join(CLIPS, f"seg_{seg['seg_index']:03d}.mp4")
     if os.path.exists(dst):
         os.remove(dst)
-    # --yes: npx must never hit its interactive install prompt in a non-TTY
-    # container (that prompt aborts with exit 1). Capture output so a render
-    # failure raises WITH the real reason instead of a blind exit status.
-    r = subprocess.run(["npx", "--yes", "hyperframes", "render", "-o", dst],
-                       cwd=WORK, capture_output=True, text=True)
-    if r.returncode != 0:
-        tail = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()[-800:]
-        raise RuntimeError(
-            f"hyperframes render failed (exit {r.returncode}) for "
-            f"seg_{seg['seg_index']:03d}: {tail}")
+    subprocess.run(["npx", "hyperframes", "render", "-o", dst],
+                   cwd=WORK, check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return dst
 
 
@@ -182,53 +170,33 @@ def main():
     ap.add_argument("--concat-only", action="store_true", help="skip rendering, just concat existing clips")
     args = ap.parse_args()
 
-    # ---- project-scoped mode (HF_WORKSPACE set by the review UI server) ----
-    # The workspace's segments.json IS the manifest (written at ingest, edited
-    # by the UI). Do NOT rebuild from the legacy beatsheet, do NOT overwrite
-    # segments.json, and do NOT force a concat (clips may be partially built).
-    if os.environ.get("HF_WORKSPACE"):
-        seg_path = os.path.join(WORK, "segments.json")
-        if not os.path.exists(seg_path):
-            raise SystemExit(f"ABORT: no segments.json in workspace {WORK}")
-        segments = json.load(open(seg_path))
-        audio_dir = os.environ.get("HF_AUDIO_DIR", os.path.join(WORK, "audio"))
+    segments_path = os.path.join(WORK, "segments.json")
+    if os.path.exists(segments_path):
+        print(f"Loading segments directly from {segments_path}...")
+        segments = json.load(open(segments_path))
+    else:
+        shots = json.load(open(os.path.join(RECAP, BEATSHEET)))
+        panels = json.load(open(os.path.abspath(os.path.join(PROJ, DESCRIPTIONS_FILE))))
+        for s in shots:
+            s["panel_file"] = os.path.join(PANEL_DIR, f"{s['panel_id']}.png")
+
+        # pre-render gate
+        sys.path.insert(0, RECAP)
+        import matcher
+        for p in panels:
+            if p.get("file") and not os.path.isabs(p["file"]):
+                p["file"] = os.path.join(PANEL_DIR, p["file"])
+        problems = matcher.validate_beatsheet(shots, panels)
+        if problems:
+            print(f"ABORT: {len(problems)} validation problem(s):")
+            for p in problems[:20]:
+                print("  -", p)
+            raise SystemExit(1)
+
+        segments = build_segments(shots)
         ensure_project()
-        if args.concat_only:
-            concat(segments, os.path.join(WORK, "final.mp4"))
-            return
-        if args.only is not None:
-            seg = next(s for s in segments if s["seg_index"] == args.only)
-            render_segment(seg, audio_dir)
-            print(f"Rendered segment {args.only} ({seg['panel_id']})")
-            return
-        todo = segments[:args.limit] if args.limit else segments
-        for i, seg in enumerate(todo, 1):
-            render_segment(seg, audio_dir)
-            print(f"[{i}/{len(todo)}] seg {seg['seg_index']:3} {seg['panel_id']}")
-        return
+        json.dump(segments, open(segments_path, "w"), indent=2)
 
-    # ---- legacy standalone mode (chapter-2-era fixed paths) ----------------
-    shots = json.load(open(os.path.join(RECAP, BEATSHEET)))
-    panels = json.load(open(os.path.abspath(os.path.join(PROJ, DESCRIPTIONS_FILE))))
-    for s in shots:
-        s["panel_file"] = os.path.join(PANEL_DIR, f"{s['panel_id']}.png")
-
-    # pre-render gate
-    sys.path.insert(0, RECAP)
-    import matcher
-    for p in panels:
-        if p.get("file") and not os.path.isabs(p["file"]):
-            p["file"] = os.path.join(PANEL_DIR, p["file"])
-    problems = matcher.validate_beatsheet(shots, panels)
-    if problems:
-        print(f"ABORT: {len(problems)} validation problem(s):")
-        for p in problems[:20]:
-            print("  -", p)
-        raise SystemExit(1)
-
-    segments = build_segments(shots)
-    ensure_project()
-    json.dump(segments, open(os.path.join(WORK, "segments.json"), "w"), indent=2)
     audio_dir = os.path.join(RECAP, AUDIO_SUBDIR)
     final = os.path.join(WORK, "final.mp4")
 
