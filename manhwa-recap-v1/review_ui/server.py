@@ -668,21 +668,20 @@ def build_preview_html(segs):
         pid = s["panel_id"]
         img = f"/panelimg/{_html.escape(pid)}"
         dur = s["dur"]
-        has_crop = s.get("crop_bbox") is not None and s.get("scale_w") is not None
+        has_crop = s.get("crop_bbox_norm") is not None
         if has_crop:
-            ar = s["crop_ar"]
-            max_w, max_h = 0.46 * 1920, 0.90 * 1080
-            if ar > max_w / max_h:
-                w_px, h_px = max_w, max_w / ar
-            else:
-                h_px, w_px = max_h, max_h * ar
+            import sys
+            if RECAP not in sys.path:
+                sys.path.insert(0, RECAP)
+            from shot_planner import get_crop_layout
+            layout = get_crop_layout(s["crop_bbox_norm"], s.get("width"), s.get("height"))
             layers.append(
                 f'<div class="seg" id="seg{i}" style="opacity:0">'
                 f'<img class="bg" src="{img}" alt="">'
                 f'<div class="veil"></div>'
                 f'<div class="card">'
-                f'<div class="crop-container" id="ci{i}" style="position:relative; overflow:hidden; width:{w_px:.1f}px; height:{h_px:.1f}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">'
-                f'<img class="cardimg" src="{img}" style="position:absolute; width:{s["scale_w"]}%; height:{s["scale_h"]}%; left:{s["left"]}%; top:{s["top"]}%; max-width:none; max-height:none;" alt="">'
+                f'<div class="crop-container" id="ci{i}" style="position:relative; overflow:hidden; width:{layout["w"]:.1f}px; height:{layout["h"]:.1f}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">'
+                f'<img class="cardimg" src="{img}" style="position:absolute; width:{layout["scale_w"]}%; height:{layout["scale_h"]}%; left:{layout["left"]}%; top:{layout["top"]}%; max-width:none; max-height:none;" alt="">'
                 f'</div>'
                 f'</div>'
                 f'</div>')

@@ -68,18 +68,17 @@ def seg_html(seg, audio_dir):
     z0, z1 = (1.0, 1.035) if seg["seg_index"] % 2 == 0 else (1.035, 1.0)
     audio_layers, tl = [], []
 
-    has_crop = seg.get("crop_bbox") is not None and seg.get("scale_w") is not None
+    has_crop = seg.get("crop_bbox_norm") is not None
     if has_crop:
-        ar = seg["crop_ar"]
-        max_w, max_h = 0.46 * W, 0.90 * H
-        if ar > max_w / max_h:
-            w_px, h_px = max_w, max_w / ar
-        else:
-            h_px, w_px = max_h, max_h * ar
+        import sys
+        if RECAP not in sys.path:
+            sys.path.insert(0, RECAP)
+        from shot_planner import get_crop_layout
+        layout = get_crop_layout(seg["crop_bbox_norm"], seg.get("width"), seg.get("height"))
         
         card_html = f"""  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
-    <div class="crop-container" id="card_container" style="position:relative; overflow:hidden; width:{w_px:.1f}px; height:{h_px:.1f}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">
-      <img class="cardimg" src="{src}" style="position:absolute; width:{seg["scale_w"]}%; height:{seg["scale_h"]}%; left:{seg["left"]}%; top:{seg["top"]}%; max-width:none; max-height:none;" alt="" />
+    <div class="crop-container" id="card_container" style="position:relative; overflow:hidden; width:{layout["w"]:.1f}px; height:{layout["h"]:.1f}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">
+      <img class="cardimg" src="{src}" style="position:absolute; width:{layout["scale_w"]}%; height:{layout["scale_h"]}%; left:{layout["left"]}%; top:{layout["top"]}%; max-width:none; max-height:none;" alt="" />
     </div>
   </div>"""
         target_el = "#card_container"
