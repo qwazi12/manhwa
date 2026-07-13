@@ -29,13 +29,21 @@ def build_segments(shots):
     segments = []
     cur = None
     for s in shots:
-        if cur is None or s["panel_id"] != cur["panel_id"]:
+        if cur is None or s["panel_id"] != cur["panel_id"] or s.get("crop_bbox") != cur.get("crop_bbox"):
             if cur is not None:
                 segments.append(cur)
             cur = {
                 "seg_index": len(segments),
                 "panel_id": s["panel_id"],
                 "panel_file": s.get("panel_file"),
+                "crop_bbox": s.get("crop_bbox"),
+                "crop_ar": s.get("crop_ar"),
+                "framing_mode": s.get("framing_mode"),
+                "focus_reason": s.get("focus_reason"),
+                "scale_w": s.get("scale_w"),
+                "scale_h": s.get("scale_h"),
+                "left": s.get("left"),
+                "top": s.get("top"),
                 "start": float(s["start"]),
                 "end": float(s["end"]),
                 "beats": [],

@@ -668,12 +668,31 @@ def build_preview_html(segs):
         pid = s["panel_id"]
         img = f"/panelimg/{_html.escape(pid)}"
         dur = s["dur"]
-        layers.append(
-            f'<div class="seg" id="seg{i}" style="opacity:0">'
-            f'<img class="bg" src="{img}" alt="">'
-            f'<div class="veil"></div>'
-            f'<div class="card"><img class="cardimg" id="ci{i}" src="{img}" alt=""></div>'
-            f'</div>')
+        has_crop = s.get("crop_bbox") is not None and s.get("scale_w") is not None
+        if has_crop:
+            ar = s["crop_ar"]
+            max_w, max_h = 0.46 * 1920, 0.90 * 1080
+            if ar > max_w / max_h:
+                w_px, h_px = max_w, max_w / ar
+            else:
+                h_px, w_px = max_h, max_h * ar
+            layers.append(
+                f'<div class="seg" id="seg{i}" style="opacity:0">'
+                f'<img class="bg" src="{img}" alt="">'
+                f'<div class="veil"></div>'
+                f'<div class="card">'
+                f'<div class="crop-container" id="ci{i}" style="position:relative; overflow:hidden; width:{w_px:.1f}px; height:{h_px:.1f}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">'
+                f'<img class="cardimg" src="{img}" style="position:absolute; width:{s["scale_w"]}%; height:{s["scale_h"]}%; left:{s["left"]}%; top:{s["top"]}%; max-width:none; max-height:none;" alt="">'
+                f'</div>'
+                f'</div>'
+                f'</div>')
+        else:
+            layers.append(
+                f'<div class="seg" id="seg{i}" style="opacity:0">'
+                f'<img class="bg" src="{img}" alt="">'
+                f'<div class="veil"></div>'
+                f'<div class="card"><img class="cardimg" id="ci{i}" src="{img}" alt=""></div>'
+                f'</div>')
         meta.append({"start": round(tcur, 3), "dur": dur,
                      "even": i % 2 == 0, "text": s["beats"][0]["text"] if s["beats"] else ""})
         for b in s["beats"]:
@@ -1113,6 +1132,32 @@ def health():
             "tts_api_key_configured": bool(os.environ.get("TTS_API_KEY") or os.environ.get("GEMINI_API_KEY"))
         }
     }
+
+
+@app.get("/api/debug/test-planner")
+def debug_test_planner():
+    pdir = active_project_dir()
+    segments_path = os.path.join(pdir, "segments.json")
+    if not os.path.exists(segments_path):
+        return {"error": "no segments found"}
+    import sys
+    sys.path.insert(0, os.path.join(RECAP, "hyperframes"))
+    import shot_planner
+    with open(segments_path) as f:
+        segs = json.load(f)
+    shots = []
+    for seg in segs:
+        for b in seg["beats"]:
+            shots.append({
+                "index": b["index"],
+                "beat_text": b["text"],
+                "panel_id": seg["panel_id"],
+                "panel_file": os.path.join(pdir, "crops", f"{seg['panel_id']}.png"),
+                "width": 1000,
+                "height": 1000
+            })
+    planned = shot_planner.plan_shots(shots[:5], os.path.join(pdir, "descriptions.json"), os.path.join(pdir, "crops"))
+    return {"planned": planned}
 
 
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")

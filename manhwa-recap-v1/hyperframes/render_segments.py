@@ -67,7 +67,29 @@ def seg_html(seg, audio_dir):
     dur = seg["dur"]
     z0, z1 = (1.0, 1.035) if seg["seg_index"] % 2 == 0 else (1.035, 1.0)
     audio_layers, tl = [], []
-    tl.append(f'  tl.fromTo("#card .cardimg", {{ scale: {z0} }}, '
+
+    has_crop = seg.get("crop_bbox") is not None and seg.get("scale_w") is not None
+    if has_crop:
+        ar = seg["crop_ar"]
+        max_w, max_h = 0.46 * W, 0.90 * H
+        if ar > max_w / max_h:
+            w_px, h_px = max_w, max_w / ar
+        else:
+            h_px, w_px = max_h, max_h * ar
+        
+        card_html = f"""  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
+    <div class="crop-container" id="card_container" style="position:relative; overflow:hidden; width:{w_px:.1f}px; height:{h_px:.1f}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">
+      <img class="cardimg" src="{src}" style="position:absolute; width:{seg["scale_w"]}%; height:{seg["scale_h"]}%; left:{seg["left"]}%; top:{seg["top"]}%; max-width:none; max-height:none;" alt="" />
+    </div>
+  </div>"""
+        target_el = "#card_container"
+    else:
+        card_html = f"""  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
+    <img class="cardimg" src="{src}" alt="" />
+  </div>"""
+        target_el = "#card .cardimg"
+
+    tl.append(f'  tl.fromTo("{target_el}", {{ scale: {z0} }}, '
               f'{{ scale: {z1}, duration: {dur}, ease: "none" }}, 0);')
     tl.append(f'  tl.fromTo("#bg", {{ scale: 1.15 }}, '
               f'{{ scale: 1.22, duration: {dur}, ease: "none" }}, 0);')
@@ -105,9 +127,7 @@ html,body {{ width:{W}px; height:{H}px; overflow:hidden; background:#e8e6e3; }}
   data-duration="{dur}" data-width="{W}" data-height="{H}">
   <img class="clip" id="bg" data-start="0" data-duration="{dur}" data-track-index="0" src="{src}" alt="" />
   <div id="veil"></div>
-  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
-    <img class="cardimg" src="{src}" alt="" />
-  </div>
+{card_html}
 {os.linesep.join(audio_layers)}
 </div>
 <script>

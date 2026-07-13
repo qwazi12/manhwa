@@ -166,6 +166,10 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
     shots = matcher.build_timeline(beats, pj, assigns)
     progress("match", f"{len({s['panel_id'] for s in shots})} distinct panels.", 95)
 
+    import shot_planner
+    progress("match", "Planning precise shot crops…", 96)
+    shots = shot_planner.plan_shots(shots, desc_path, crops)
+
     # 7. segment ----------------------------------------------------------
     progress("segment", "Building render segments…", 97)
     segs = build_segments(shots)

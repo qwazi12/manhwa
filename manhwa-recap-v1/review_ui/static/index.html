@@ -380,6 +380,7 @@ function renderInspector(){
     <img class="insp-img" src="${s.thumb_url}">
     <div class="muted">#${sel+1} · ${s.panel_id}</div>
     <div class="muted" style="font-size:11px">${s.n_beats} beat(s) · ${s.dur}s · ${s.start}s→${s.end}s</div>
+    ${s.crop_bbox ? `<div style="font-size:11px;margin:4px 0;background:#1b1d24;padding:4px;border-radius:4px;border:1px solid var(--line)"><b style="color:var(--accent)">🔍 Framing:</b> ${s.framing_mode || 'full'} (${s.crop_bbox.join(', ')})<br><b style="color:var(--accent)">💡 Focus:</b> ${s.focus_reason || 'none'}</div>` : ''}
     <div class="row"><span class="dot ${s.status}"></span><b style="text-transform:capitalize">${s.status}</b></div>
     <h3 style="margin:8px 0 4px">Narration ${s.n_beats>1?`(${s.n_beats} lines)`:''}</h3>
     ${s.beats.map(b=>beatEditor(s.seg_index,b,'dt')).join('')}
