@@ -1167,10 +1167,18 @@ def debug_test_planner():
 
 @app.get("/api/debug/ps")
 def debug_ps():
-    import subprocess
+    import os
     try:
-        out = subprocess.check_output(["ps", "aux"], text=True)
-        return {"ok": True, "ps": out}
+        import ingest
+        proj_dir = os.path.join(ingest.PROJECTS, "dungeon-odyssey_1")
+        if not os.path.exists(proj_dir):
+            return {"ok": True, "msg": "dungeon-odyssey_1 project dir does not exist", "projects_dir": ingest.PROJECTS}
+        files_list = []
+        for root, dirs, files in os.walk(proj_dir):
+            for file in files:
+                rel = os.path.relpath(os.path.join(root, file), proj_dir)
+                files_list.append(rel)
+        return {"ok": True, "files": sorted(files_list)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
