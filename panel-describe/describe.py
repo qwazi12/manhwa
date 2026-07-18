@@ -77,30 +77,101 @@ def _encode_image(path: str):
 
 # ------------------------------------------------------------------ Gemini
 
-def describe_with_gemini(path: str, api_key: str, model: str):
-    """Single call: returns (ocr_text, visual_description). Raises on failure."""
-    from google import genai
-    from google.genai import types
+def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, certifi_path: str | None = None) -> str:
+    """Call the new Interactions API (/v1beta/interactions) with a multimodal input.
+    Returns raw response text."""
+    import urllib.request, urllib.error, ssl
 
-    client = genai.Client(api_key=api_key)
+    url = "https://generativelanguage.googleapis.com/v1beta/interactions"
+
+    # Build multimodal input using parts
+    body = json.dumps({
+        "model": model,
+        "input": [
+            {"inlineData": {"mimeType": mime, "data": img_b64}},
+            {"text": VISION_PROMPT},
+        ]
+    }).encode("utf-8")
+
+    ctx = None
+    if certifi_path:
+        ctx = ssl.create_default_context(cafile=certifi_path)
+
+    req = urllib.request.Request(url, data=body,
+        headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
+        method="POST")
+
+    with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+        data = json.loads(resp.read())
+
+    # Extract text from interactions response
+    for step in data.get("steps", []):
+        model_out = step.get("modelOutput") or step.get("model_output")
+        if model_out:
+            for part in model_out.get("content", []):
+                if part.get("text"):
+                    return part["text"].get("text", "") if isinstance(part["text"], dict) else part["text"]
+    # Fallback: check output_text
+    if data.get("output_text"):
+        return data["output_text"]
+    if data.get("outputText"):
+        return data["outputText"]
+    raise ValueError(f"Unexpected interactions response structure: {list(data.keys())}")
+
+
+def describe_with_gemini(path: str, api_key: str, model: str):
+    """Single call: returns (ocr_text, visual_description). Raises on failure.
+
+    Routes to the Interactions API for new auth-key format (AQ.) models like
+    gemini-3.5-flash, and falls back to the legacy generateContent API for
+    older models / standard API keys.
+    """
     img_b64, mime = _encode_image(path)
 
-    def _call():
-        return client.models.generate_content(
-            model=model,
-            contents=[
-                types.Part.from_bytes(data=base64.b64decode(img_b64), mime_type=mime),
-                types.Part(text=VISION_PROMPT),
-            ],
-            config=types.GenerateContentConfig(temperature=0.0),
-        )
+    # Detect auth key format — new Google AI Studio auth keys start with "AQ."
+    use_interactions = api_key.startswith("AQ.")
 
-    if usage:
-        with usage.gate("gemini", 1, model=model):
-            resp = _call()
+    if use_interactions:
+        # New Interactions API path (gemini-3.5-flash + auth keys)
+        try:
+            import certifi
+            certifi_path = certifi.where()
+        except ImportError:
+            certifi_path = None
+
+        def _call():
+            raw = _call_interactions_api(api_key, model, img_b64, mime, certifi_path)
+            return raw
+
+        if usage:
+            with usage.gate("gemini", 1, model=model):
+                raw = _call()
+        else:
+            raw = _call()
     else:
-        resp = _call()
-    raw = (resp.text or "").strip()
+        # Legacy generateContent API path (standard AIzaSy API keys)
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+
+        def _call():
+            return client.models.generate_content(
+                model=model,
+                contents=[
+                    types.Part.from_bytes(data=base64.b64decode(img_b64), mime_type=mime),
+                    types.Part(text=VISION_PROMPT),
+                ],
+                config=types.GenerateContentConfig(temperature=0.0),
+            )
+
+        if usage:
+            with usage.gate("gemini", 1, model=model):
+                resp = _call()
+        else:
+            resp = _call()
+        raw = (resp.text or "").strip()
+
     # strip accidental code fences
     if raw.startswith("```"):
         raw = raw.split("```", 2)[1] if "```" in raw[3:] else raw.strip("`")
