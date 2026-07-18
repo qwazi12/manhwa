@@ -1183,6 +1183,24 @@ def debug_ps():
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/debug/cat")
+def debug_cat(path: str):
+    import os
+    try:
+        import ingest
+        full_path = os.path.abspath(os.path.join(ingest.PROJECTS, "dungeon-odyssey_1", path))
+        # Sandbox check to ensure it stays in project dir
+        if not full_path.startswith(os.path.abspath(os.path.join(ingest.PROJECTS, "dungeon-odyssey_1"))):
+            return {"ok": False, "error": "access denied"}
+        if not os.path.exists(full_path):
+            return {"ok": False, "error": "file not found"}
+        with open(full_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"ok": True, "content": content}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")
 
 
