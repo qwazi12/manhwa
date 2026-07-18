@@ -185,6 +185,12 @@ def project():
             "has_clip": clip_ok,
             "clip_url": f"/clip/{s['seg_index']}" if clip_ok else None,
             "thumb_url": f"/thumb/{s['seg_index']}",
+            "crop_bbox_norm": s.get("crop_bbox_norm"),
+            "focus_source": s.get("focus_source"),
+            "focus_reason": s.get("focus_reason"),
+            "focus_confidence": s.get("focus_confidence"),
+            "width": s.get("width"),
+            "height": s.get("height"),
         })
     counts = {"approved": 0, "rejected": 0, "pending": 0}
     for s in out:
