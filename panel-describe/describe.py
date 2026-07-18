@@ -79,17 +79,30 @@ def _encode_image(path: str):
 
 def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, certifi_path: str | None = None) -> str:
     """Call the new Interactions API (/v1beta/interactions) with a multimodal input.
-    Returns raw response text."""
+    Returns raw response text.
+
+    Correct request schema (discovered via probing):
+      input: [{ type: "user_input", content: [
+          { type: "image", data: "<b64>", mime_type: "image/png" },
+          { type: "text", text: "..." }
+      ]}]
+
+    Response text is in: steps[n] where type=="model_output" → content[0]["text"]
+    """
     import urllib.request, urllib.error, ssl
 
     url = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
-    # Build multimodal input using parts
     body = json.dumps({
         "model": model,
         "input": [
-            {"inlineData": {"mimeType": mime, "data": img_b64}},
-            {"text": VISION_PROMPT},
+            {
+                "type": "user_input",
+                "content": [
+                    {"type": "image", "data": img_b64, "mime_type": mime},
+                    {"type": "text", "text": VISION_PROMPT},
+                ]
+            }
         ]
     }).encode("utf-8")
 
@@ -101,22 +114,16 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
         headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
         method="POST")
 
-    with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+    with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
         data = json.loads(resp.read())
 
-    # Extract text from interactions response
+    # Extract text: find model_output step → content[0]["text"]
     for step in data.get("steps", []):
-        model_out = step.get("modelOutput") or step.get("model_output")
-        if model_out:
-            for part in model_out.get("content", []):
-                if part.get("text"):
-                    return part["text"].get("text", "") if isinstance(part["text"], dict) else part["text"]
-    # Fallback: check output_text
-    if data.get("output_text"):
-        return data["output_text"]
-    if data.get("outputText"):
-        return data["outputText"]
-    raise ValueError(f"Unexpected interactions response structure: {list(data.keys())}")
+        if step.get("type") == "model_output":
+            for part in step.get("content", []):
+                if part.get("type") == "text" and part.get("text"):
+                    return part["text"]
+    raise ValueError(f"No model_output text found in steps. Step types: {[s.get('type') for s in data.get('steps', [])]}")
 
 
 def describe_with_gemini(path: str, api_key: str, model: str):
