@@ -1056,3 +1056,18 @@ Priority actions handed to user: (1) push `0dbbbd9`, (2) fix per-model cost acco
 
 #### Final verdict (reported to user; append was delayed by a classifier outage)
 **PASS with one caveat.** (1) Drift CLOSED, verified live (0/0 ahead-behind). (2) Cost fix DEPLOYED (d580579f), dry-run-proven. (3) Browser verification PASS on every step except continuous audible playback, which cannot be judged from the headless pane (rAF throttling) — needs a 30-second human check in a visible tab. Render/export chain proven live (seg0 clip 8.64s with edited audio; 3-clip export 30.17s downloaded). Open: full-cut export after 81/81 clips; YOLO weights backup+provenance; retire Desktop copy; rotate the 4 transcript-exposed credentials. Painter renders later completed 81/81 (verified at the start of Session 20).
+
+---
+
+### Session 20 — 2026-07-18 — Project Status Audit & API Crop Details Fix
+
+#### Status Audit
+- **Railway Backend**: Deployed and fully **Online** at `https://recap-studio-production.up.railway.app` (active project restoration and symlinks working on boot).
+- **Vercel Frontend**: Deployed and fully **Online** at `https://manhwa.nodepilot.dev`.
+- **Ruler of Darkness**: Chapter 1 ingestion has fully completed. It produced **230 segments** representing a 2287.7-second (~38 minute) video timeline storyboard recap.
+
+#### API Crop Details Fix
+- **Problem**: The `/api/project` route in `server.py` did not propagate the new framing/crop metadata fields (`crop_bbox_norm`, `focus_source`, `focus_reason`, `focus_confidence`, `width`, `height`) in the returned segments payload. As a result, the crop/focus card in the Details section of the frontend remained hidden, even though `segments.json` on the persistent volume contained these fields.
+- **Fix**: Modified `server.py` to propagate these 6 crop/focus metadata fields in `/api/project`.
+- **Verification**: Committed changes, pushed to GitHub (`main`), and redeployed backend to Railway. Verified via curl request that the crop details (e.g. segment 0 crop `[0.35, 0.2, 0.85, 0.7]` with reason *"To highlight the main character, his white robes..."*) are now fully present in the segment response payload and visible to the frontend.
+
