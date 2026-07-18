@@ -1165,5 +1165,16 @@ def debug_test_planner():
     return {"planned": planned}
 
 
+@app.get("/api/debug/ps")
+def debug_ps():
+    import subprocess
+    try:
+        out = subprocess.check_output(["ps", "aux"], text=True)
+        return {"ok": True, "ps": out}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")
+
 
