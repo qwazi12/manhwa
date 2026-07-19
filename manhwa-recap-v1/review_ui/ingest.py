@@ -219,7 +219,12 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
     pj = [p for p in pj if p.get("ok", True) and p.get("width") and p.get("height")]
     assigns, method = matcher.match_beats_to_panels(beats, pj)
     shots = matcher.build_timeline(beats, pj, assigns)
-    progress("match", f"{len({s['panel_id'] for s in shots})} distinct panels.", 95)
+    progress("match", f"{len({s['panel_id'] for s in shots})} distinct panels "
+                      f"({method}).", 95)
+    # Persist the match method so anyone can verify (via project.json /
+    # /api/projects) whether provenance-constrained matching actually ran —
+    # not just infer it from the code that was deployed.
+    match_method = method
 
     import shot_planner
     progress("match", "Planning precise shot crops…", 96)
@@ -238,7 +243,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
     meta = {"id": proj_id, "url": url, "crops": crops, "audio": audio,
             "descriptions": desc_path, "n_segments": len(segs),
             "duration": round(shots[-1]["end"], 1) if shots else 0,
-            "series": series_title, "chapter": chapter_title}
+            "series": series_title, "chapter": chapter_title,
+            "match_method": match_method}
     json.dump(meta, open(os.path.join(proj, "project.json"), "w"), indent=2)
     progress("segment", f"Done — {len(segs)} segments, {meta['duration']}s.", 100)
     return meta

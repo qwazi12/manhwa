@@ -1350,13 +1350,17 @@ def debug_ps():
 
 
 @app.get("/api/debug/cat")
-def debug_cat(path: str):
+def debug_cat(path: str, project: str = ""):
+    """Read a text file from a project dir (default: the ACTIVE project —
+    was hardcoded to dungeon-odyssey_1 during Session-21 debugging)."""
     import os
     try:
         import ingest
-        full_path = os.path.abspath(os.path.join(ingest.PROJECTS, "dungeon-odyssey_1", path))
+        pdir = (os.path.join(ingest.PROJECTS, project) if project
+                else active_project_dir())
+        full_path = os.path.abspath(os.path.join(pdir, path))
         # Sandbox check to ensure it stays in project dir
-        if not full_path.startswith(os.path.abspath(os.path.join(ingest.PROJECTS, "dungeon-odyssey_1"))):
+        if not full_path.startswith(os.path.abspath(pdir)):
             return {"ok": False, "error": "access denied"}
         if not os.path.exists(full_path):
             return {"ok": False, "error": "file not found"}
