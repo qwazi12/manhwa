@@ -1136,3 +1136,18 @@ Wrong fields (all 400): `inlineData`, `inline_data`, `parts`, `source`, `image_u
 - `dungeon_odyssey_sample.py` written but NOT run yet — describes 30 panels, generates Script A + B, saves to `~/Desktop/dungeon-odyssey-review/`.
 - Full 30-panel sample + 2 scripts still needs to be executed for user review.
 
+
+---
+
+### Session 22 — 2026-07-19 (Claude Code)
+
+#### New persistent rule (user directive)
+- **Rule 0 item 0 added to CLAUDE.md and AGENTS.md**: every agent, in every IDE,
+  must READ `manhwa-recap-v1/memory.md` FIRST — before any other action — to
+  learn what was last done and confirm where the project stands. Never assume
+  state from code/git/conversation alone.
+- Also saved to Claude Code's cross-session auto-memory so Claude sessions
+  apply it even before opening the repo files.
+- Immediate proof of value: reading the tail surfaced Session 21 (AQ. auth-key
+  migration, Interactions API schema, `dungeon_odyssey_sample.py` written but
+  not yet run) which this session did not know about.

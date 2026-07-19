@@ -3,6 +3,12 @@
 ## Rule 0 — Passive persistence (NON-NEGOTIABLE)
 Every working session, regardless of IDE, agent, or machine:
 
+0. **READ `manhwa-recap-v1/memory.md` FIRST, before doing anything else** — at
+   minimum the last few entries. It is the only reliable record of what was
+   last done and where the project stands; never assume state from the code,
+   git log, or a previous conversation alone. Confirm the project's current
+   state from it before taking any action.
+
 1. **Log every significant action to `manhwa-recap-v1/memory.md`** — append-only,
    newest at the bottom. Inputs received, decisions made, code changed, deploys,
    verifications (with evidence), failures and their root causes. The file is the
