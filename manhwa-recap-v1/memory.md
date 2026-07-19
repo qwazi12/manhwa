@@ -1225,3 +1225,24 @@ Wrong fields (all 400): `inlineData`, `inline_data`, `parts`, `source`, `image_u
   before `railway up` — a mid-job restart would kill the ingest.
 - SECURITY: user pasted a Gemini AQ key into chat transcript — needs rotation
   along with the 4 previously-leaked credentials (user-side TODO).
+
+#### Session 22 (cont.) — deploy verified, TTS key EXPIRED (blocker), sample render attempt
+- User ran `railway up` — deployment 8f628772 SUCCESS 12:40 EDT. Build passing
+  PROVES YOLO weights shipped (Dockerfile sha256 assert would fail the build).
+- Sample-render attempt (render_sample.py in ~/dev/dungeon-odyssey-review/,
+  drives system beat_segmenter -> server._synth_rest -> matcher -> segments ->
+  hyperframes): TTS immediately 400s.
+- ROOT CAUSE (verified by direct probe, key never printed): TTS_API_KEY on
+  Railway (AIza… standard key) is EXPIRED — "API key expired. Please renew".
+  AQ. Gemini key CANNOT substitute: TTS endpoint rejects it 401 ("API keys are
+  not supported by this API" — auth keys are Gemini-restricted). USER ACTION
+  REQUIRED: create/renew a standard API key with Cloud Text-to-Speech enabled,
+  set as TTS_API_KEY on Railway (and locally for sample renders).
+  Blocks: sample videos w/ audio + voice stage of all ingests.
+- review_table.html added to ~/dev/dungeon-odyssey-review/ — 30 rows:
+  panel image | system OCR | system description | Script A line | Script B line.
+  Deliverables stay LOCAL-ONLY (repo is public; scraped content must not be
+  pushed — Stage-7 safety rail).
+- Re-triggered ingest on new deployment: job da7cfaaddceb (verifies YOLO
+  split + merge describe + narrate fix in prod; expected to stop at voice on
+  the expired TTS key). Monitoring.
