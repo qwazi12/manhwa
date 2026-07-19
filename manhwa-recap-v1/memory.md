@@ -1419,3 +1419,39 @@ PROPOSED FIX PLAN (no work started — awaiting user approval):
 4. Re-match + re-render the sample cut after 1-3; regenerate video_plan +
    combined table so the fix is verifiable row-by-row.
 Order: 3 (5 min) -> 1 (~15 min incl. render) -> 2 (renderer feature) -> 4.
+
+#### Session 22 (cont.) — ROOT CAUSE: why Script placement ≠ On-screen timing (user question)
+- Quantified on the sample cut: only 78% of beats (62/80) landed on the panel
+  the script was authored against; 22% (18/80) drifted — mostly tall panels
+  absorbing neighboring paragraphs (e.g. seg 4 holds ¶4+¶5 beats though it
+  was authored for ¶6; seg 7 absorbs ¶10's beats).
+- ARCHITECTURAL CAUSE (verified in code): narration provenance is DISCARDED.
+  narrate.generate_narration() RETURNS [(scene_panels, scene_text), ...] —
+  it KNOWS which panels each scene's text came from — but ingest.py does
+  `script, _ = generate_narration(...)`, throws the mapping away, and stage 6
+  pays the embeddings+DP matcher to reverse-engineer it (~78% faithful).
+  The same blind-matching happened in the local sample render. Two logics:
+  authored intent (table's Script placement) vs statistical re-guess
+  (matcher) — the user's observed discrepancy is exactly this.
+
+#### Plan additions (appended to the attentive-editor plan; AWAITING APPROVAL)
+Change 5 — PROVENANCE-FIRST MATCHING (systemic, not a local patch):
+  - narrate emits structured script: [{scene_id, panel_ids, text}] persisted
+    as script.json next to script.txt (script.txt stays for TTS/humans).
+  - beat_segmenter tags every beat with its source scene_id/panel_ids.
+  - matcher becomes CONSTRAINED: a beat may only land on its own scene's
+    panels (embeddings just pick WITHIN the scene / split durations);
+    full re-matching only for text with no provenance (manual edits).
+  - Acceptance: >= 95% beat->authored-panel agreement on the golden fixture;
+    zero cross-scene bleed; tall panels can no longer absorb neighbors.
+Change 6 — INTERACTIVE STORYBOARD AS THE REVIEW SURFACE (institutionalized):
+  - Server-side route in review_ui/server.py: GET /storyboard/{project} ->
+    generates the combined table (story placement + timing + badges) from
+    the project's own artifacts. No hand steps; works for every project.
+  - Interactive controls on each row wired to EXISTING endpoints: swap panel
+    (candidates API), edit beat text (re-TTS), re-render segment, junk-flag
+    panel, approve. Storyboard approval gates full render.
+  - Direction per user: this replaces the current front-end as the primary
+    review tool (old UI stays for video playback until parity).
+User verdict logged: combined table is institutionalized as the pre-render
+review gate; catches misassignment/dead holds/junk before render spend.
