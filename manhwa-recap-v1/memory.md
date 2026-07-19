@@ -1071,3 +1071,68 @@ Priority actions handed to user: (1) push `0dbbbd9`, (2) fix per-model cost acco
 - **Fix**: Modified `server.py` to propagate these 6 crop/focus metadata fields in `/api/project`.
 - **Verification**: Committed changes, pushed to GitHub (`main`), and redeployed backend to Railway. Verified via curl request that the crop details (e.g. segment 0 crop `[0.35, 0.2, 0.85, 0.7]` with reason *"To highlight the main character, his white robes..."*) are now fully present in the segment response payload and visible to the frontend.
 
+
+---
+
+### Session 21 — 2026-07-18/19 — Gemini Auth Key Migration & Interactions API Integration
+
+#### Context
+User wanted to ingest **Dungeon Odyssey Chapter 1** (`https://asurascans.com/comics/dungeon-odyssey-1d35e5bd/chapter/1`) and produce 20–50 sample panel images plus two narration scripts for quality review.
+
+#### Problem 1: API Key Invalid (hours of troubleshooting)
+- Key `AIzaSyCzenx...` → `400 INVALID_ARGUMENT: API key not valid`
+- Key `AIzaSyCW...` → `403 PERMISSION_DENIED` (Generative Language API not enabled on project)
+- **Root cause**: Google has migrated to **authorization (auth) keys** (`AQ.` prefix). All new AI Studio keys are auth keys. They authenticate via `X-goog-api-key` header only — NOT the `?key=` URL param.
+
+#### Problem 2: Wrong API Endpoint
+- `gemini-3.5-flash` (new model from docs) returns 404 on old `generateContent` endpoint.
+- New model only exists on the **Interactions API** (`/v1beta/interactions`).
+- `gemini-2.5-flash` still works on `generateContent` with auth keys.
+
+#### Correct Interactions API Multimodal Schema (discovered via systematic probing)
+```
+Request body:
+{
+  "model": "gemini-3.5-flash",
+  "input": [{
+    "type": "user_input",
+    "content": [
+      {"type": "image", "data": "<base64>", "mime_type": "image/png"},
+      {"type": "text", "text": "...prompt..."}
+    ]
+  }]
+}
+
+Response text: steps[n].content[0].text  where  step.type == "model_output"
+```
+Wrong fields (all 400): `inlineData`, `inline_data`, `parts`, `source`, `image_url`
+
+#### Code Changes Committed to origin/main
+| Commit | File | Change |
+|---|---|---|
+| 7f56e22 | ingest.py | Write subprocess stdout/stderr to disk logs; prevent pipe deadlock |
+| 422cc91 | server.py | Add /api/debug/cat endpoint to read container log files |
+| b170ec7 | describe.py, ingest.py | Add Interactions API support for AQ. keys; fix model to gemini-3.5-flash |
+| 1f4a7b1 | describe.py | Fix multimodal schema (data+mime_type) and response extraction path |
+
+#### Railway State
+- Auth key (`AQ.Ab8...`) set as `GEMINI_API_KEY` on Railway (set via script reading transcript — never printed to output per security rules).
+- Final working deployment: `a180a682` — panel describe confirmed working (51/268 panels ok before server restart).
+- Ingest job `4bfca87af66a` was in describe stage at restart — status unknown.
+
+#### narrate.py — NOT YET FIXED
+- `narrate.py` → `call_gemini_rest()` uses old generateContent with `?key=` URL param.
+- Will fail with AQ. tokens. **TODO: update to Interactions API.**
+
+#### User's Approved Script Quality Requirements
+- Story-first, not panel-first — smooth narrative retelling, not caption track.
+- Each sentence = event / reaction / realization / intention / consequence.
+- Dialogue → reported narration (no quotation marks).
+- No art/panel language: no "the panel shows", speed lines, camera angles, hair/clothing unless plot-relevant.
+- **Script A** (enriched): narrator may infer motives, backstory from visual context.
+- **Script B** (grounded): strictly what panels show — zero invented motives or backstory.
+
+#### Pending at Session End (server restart 2026-07-19 11:36 EDT)
+- `dungeon_odyssey_sample.py` written but NOT run yet — describes 30 panels, generates Script A + B, saves to `~/Desktop/dungeon-odyssey-review/`.
+- Full 30-panel sample + 2 scripts still needs to be executed for user review.
+
