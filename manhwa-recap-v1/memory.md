@@ -1246,3 +1246,25 @@ Wrong fields (all 400): `inlineData`, `inline_data`, `parts`, `source`, `image_u
 - Re-triggered ingest on new deployment: job da7cfaaddceb (verifies YOLO
   split + merge describe + narrate fix in prod; expected to stop at voice on
   the expired TTS key). Monitoring.
+
+#### Session 22 (cont.) — FULL-chapter table delivered; TTS still blocked (wrong key type)
+- Job da7cfaaddceb (new deployment, first YOLO prod run): split -> 126 crops
+  (vs 268 geometric), describe used only 90 new Gemini calls (merge cache
+  reused 36, ghost purge dropped the stale 268) — fixes verified in prod
+  data. Currently in narrate (long-running; fixed code will surface any 400
+  with Google's reason).
+- Pulled fresh descriptions.json (126 panels); regenerated YOLO crops
+  locally: 126/126 id match, 121 dim-identical (5 tall-panel slices differ
+  slightly: server sliced via Gemini vision, local used density fallback).
+- DELIVERED ~/dev/dungeon-odyssey-review/full/: script_full_enriched.txt
+  (43 paragraphs, whole chapter incl. recovered prologue lore) +
+  review_table_full.html — all 126 panels: 70 narrated / 37 folded /
+  19 left out, each row shows the exact placement or exclusion reason.
+- TTS STILL BLOCKED: user set TTS_API_KEY to an AQ. auth key — Cloud TTS
+  rejects auth keys entirely (401 "API keys are not supported by this API").
+  Needs a STANDARD AIza key from Cloud Console with Cloud Text-to-Speech API
+  enabled, restricted to TTS. Full video + sample videos + prod voice stage
+  all wait on this.
+- Cost tracking (2.8): usage.py live — today 416 gemini calls / $0.416 est;
+  per-job: db7216d976ce 326 calls, da7cfaaddceb 90 calls. Ruler full-chapter
+  reference: 606 calls + 36,684 TTS chars ≈ $2.21/day est.
