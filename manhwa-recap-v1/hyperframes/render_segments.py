@@ -280,16 +280,24 @@ window.__timelines["main"] = tl;
     if r.returncode != 0:
         print(f"title card failed (skipping): {(r.stderr or r.stdout or '')[-160:]}")
         return False
-    # give the silent card an audio track so concat streams stay uniform
+    # Re-encode the card to EXACTLY match the segment clips' stream params
+    # (h264 High yuv420p 30fps + AAC-LC 48k stereo) and give it a silent
+    # audio track — so the final concat can ALWAYS stream-copy. Re-encoding
+    # the whole concat instead pads every clip's video to its audio tail
+    # (~+0.7s each, +37s over 50 clips of frozen frames — measured).
     tmp = dst + ".a.mp4"
     r2 = subprocess.run(
         ["ffmpeg", "-y", "-i", dst, "-f", "lavfi",
-         "-i", f"anullsrc=r=44100:cl=stereo:d={dur}",
-         "-c:v", "copy", "-c:a", "aac", "-shortest", tmp],
+         "-i", f"anullsrc=r=48000:cl=stereo:d={dur}",
+         "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
+         "-r", "30", "-video_track_timescale", "15360",
+         "-c:a", "aac", "-ar", "48000", "-ac", "2", "-shortest", tmp],
         capture_output=True, text=True)
     if r2.returncode == 0:
         os.replace(tmp, dst)
-    return True
+        return True
+    print(f"card stream-match failed (skipping card): {(r2.stderr or '')[-160:]}")
+    return False
 
 
 def _mix_bgm(final_path, bgm_path):
@@ -333,11 +341,11 @@ def concat(segments, final_path):
     with open(listing, "w") as f:
         for e in entries:
             f.write(f"file '{e}'\n")
-    # Title cards are separately-encoded streams; concat re-encodes only when
-    # cards are present, else stays stream-copy fast.
-    codec = ["-c", "copy"] if not title else []
+    # Cards are stream-matched to the segment clips, so concat ALWAYS
+    # stream-copies (a full re-encode pads every clip's video to its audio
+    # tail — +37s of frozen frames over 50 clips, measured).
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listing,
-                    *codec, final_path], check=True,
+                    "-c", "copy", final_path], check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print(f"Concatenated {len(entries)} clips -> {final_path}")
     bgm = os.environ.get("HF_BGM", os.path.join(WORK, "bgm.mp3"))

@@ -294,11 +294,12 @@ def export(body: ExportIn):
         if cards and cards[1]:
             f.write(f"file '{cards[1]}'\n")
     out = os.path.join(active_exports_dir(), "review_export.mp4")
-    # cards are separately-encoded -> re-encode when present, else stream-copy
-    codec = [] if (cards and (cards[0] or cards[1])) else ["-c", "copy"]
+    # cards are stream-matched by _title_card, so always stream-copy (a
+    # re-encode pads each clip's video to its audio tail — accumulating
+    # frozen frames across the whole export)
     subprocess.run(
         ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listfile,
-         *codec, out], check=True, capture_output=True)
+         "-c", "copy", out], check=True, capture_output=True)
     # E4: optional BGM bed — drop a licensed bgm.mp3 into the project dir
     bgm = os.path.join(pdir, "bgm.mp3")
     if os.path.exists(bgm):
