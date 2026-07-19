@@ -74,6 +74,23 @@ def segment_beats(script_text: str):
             for i, t in enumerate(merged)]
 
 
+def segment_beats_scenes(scenes):
+    """Provenance-aware segmentation (B1): `scenes` is the structured script
+    [{"scene_id", "panel_ids", "text"}, ...] written by narrate. Each scene's
+    text is segmented independently, beats are re-indexed globally, and every
+    beat carries its scene_id + panel_ids so the matcher can constrain
+    placement to the panels the text was actually written about."""
+    beats, idx = [], 0
+    for sc in scenes:
+        for b in segment_beats(sc["text"]):
+            b["index"] = idx
+            b["scene_id"] = sc["scene_id"]
+            b["panel_ids"] = list(sc.get("panel_ids") or [])
+            beats.append(b)
+            idx += 1
+    return beats
+
+
 if __name__ == "__main__":
     import sys, json
     text = open(sys.argv[1]).read() if len(sys.argv) > 1 else sys.stdin.read()

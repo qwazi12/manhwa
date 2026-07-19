@@ -148,17 +148,33 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
     progress("describe", "Descriptions ready.", 55)
 
     # 4. narrate (write narration FROM the panels) -----------------------
+    # script.txt = plain narration (humans, TTS); script.json = the same
+    # narration WITH provenance [{scene_id, panel_ids, text}] (B1) so the
+    # matcher is constrained to the panels each line was written about
+    # instead of reverse-engineering the mapping statistically.
     script_path = os.path.join(proj, "script.txt")
+    prov_path = os.path.join(proj, "script.json")
     _cached_script = open(script_path).read().strip() if os.path.exists(script_path) else ""
+    scenes = None
     if _cached_script:
         progress("narrate", "Script exists, loading cached narration…", 60)
         script = _cached_script
+        if os.path.exists(prov_path):
+            try:
+                scenes = json.load(open(prov_path))
+            except json.JSONDecodeError:
+                scenes = None
     else:
         progress("narrate", "Writing narration from panels…", 60)
         panels = narrate.load_panels(desc_path)
-        script, _ = narrate.generate_narration(panels, verbose=False)
+        script, results = narrate.generate_narration(panels, verbose=False)
         open(script_path, "w").write(script)
-    beats = beat_segmenter.segment_beats(script)
+        scenes = narrate.provenance(results)
+        json.dump(scenes, open(prov_path, "w"), indent=1)
+    if scenes:
+        beats = beat_segmenter.segment_beats_scenes(scenes)
+    else:
+        beats = beat_segmenter.segment_beats(script)
     if not beats:
         # An empty/garbage script must stop the job HERE with a clear error —
         # letting it flow on poisons voice/match (job 4bfca87af66a died at
@@ -178,7 +194,13 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
             srv._synth_rest(b["text"], out)
         d = _dur(out)
         b["start"], b["end"] = round(t, 3), round(t + d, 3)
-        t += d + 0.35
+        # E3: scene-aware rhythm — a longer breath at scene boundaries,
+        # tighter flow within a scene (flat 0.35s when no provenance).
+        nxt = beats[i + 1] if i + 1 < len(beats) else None
+        if nxt is not None and "scene_id" in b and "scene_id" in nxt:
+            t += d + (0.6 if nxt["scene_id"] != b["scene_id"] else 0.25)
+        else:
+            t += d + 0.35
         if i % 10 == 0:
             progress("voice", f"beat {i+1}/{len(beats)} · {t:.0f}s", 72 + int(15 * i / len(beats)))
     progress("voice", f"Narration timeline {t:.0f}s.", 88)

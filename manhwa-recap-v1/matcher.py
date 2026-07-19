@@ -373,6 +373,79 @@ def build_scorer(beats, panels, embed_model):
 
 
 # ------------------------------------------- global monotonic DP aligner
+def panel_importance(p, max_area=None):
+    """Local editorial-importance heuristic (A2), zero API calls.
+
+    area (bigger art = bigger story moment, normalized to the chapter's max)
+    + real dialogue (>=4 OCR words) + a description naming both a subject and
+    a scene. Range ~0..1.8. Used as a match-score bonus so beats gravitate to
+    story panels, and by the hold-cap redistribution to pick fill targets.
+    """
+    w, h = p.get("width") or 0, p.get("height") or 0
+    area = (w * h) / max_area if max_area else 0.0
+    ocr_words = len((p.get("ocr_text") or "").split())
+    desc = p.get("visual_description") or ""
+    return (min(area, 1.0)
+            + (0.5 if ocr_words >= 4 else 0.0)
+            + (0.3 if (_KEEP_SUBJECT.search(desc) and _KEEP_SCENE.search(desc)) else 0.0))
+
+
+# A beat may only land on a panel from its own scene (B1 provenance). The
+# violation cost is steep-but-finite so the DP stays soluble even if a
+# provenance list is malformed.
+CONSTRAINT_COST = -1e6
+IMPORTANCE_W = 0.15
+HOLD_CAP_S = 12.0   # A2: max seconds one panel may stay on screen
+
+
+def _provenance_sets(beats):
+    """Per-beat allowed panel-id sets, or None to disable constraints.
+
+    Constraints engage only when most beats carry provenance (>=80%) — a
+    hand-edited or legacy script without panel_ids falls back to free
+    matching rather than half-constrained nonsense.
+    """
+    sets = [set(b["panel_ids"]) if b.get("panel_ids") else None for b in beats]
+    tagged = sum(1 for s in sets if s)
+    if not beats or tagged / len(beats) < 0.8:
+        return None
+    return sets
+
+
+def enforce_hold_cap(beats, panels, assignments, cap_s=HOLD_CAP_S):
+    """A2 post-pass: a single-panel hold longer than cap_s spreads its
+    trailing beats across UNUSED non-junk panels lying between it and the
+    next assigned panel (monotonic order preserved). Mirrors what a human
+    editor does with a long narration stretch over a tall action sequence."""
+    if not assignments or not beats or "start" not in beats[0]:
+        return assignments
+    junk = [is_junk_panel(p) for p in panels]
+    used = {a["panel_index"] for a in assignments}
+    i = 0
+    while i < len(assignments):
+        j = i
+        while (j + 1 < len(assignments)
+               and assignments[j + 1]["panel_index"] == assignments[i]["panel_index"]):
+            j += 1
+        run = assignments[i:j + 1]
+        dur = beats[run[-1]["beat_index"]]["end"] - beats[run[0]["beat_index"]]["start"]
+        if dur > cap_s and len(run) >= 2:
+            lo = assignments[i]["panel_index"]
+            hi = assignments[j + 1]["panel_index"] if j + 1 < len(assignments) else len(panels)
+            gap = [k for k in range(lo + 1, hi) if k not in used and not junk[k]]
+            if gap:
+                # spread the run's beats evenly across [lo] + gap panels
+                targets = [lo] + gap
+                per = max(1, len(run) // len(targets))
+                for n, a in enumerate(run):
+                    t = targets[min(n // per, len(targets) - 1)]
+                    a["panel_index"] = t
+                    a["held"] = n % per > 0
+                    used.add(t)
+        i = j + 1
+    return assignments
+
+
 def match_beats_to_panels(beats, panels, embed_model=None):
     """
     Assign one panel per beat, monotonically non-decreasing in panel index
@@ -411,12 +484,26 @@ def match_beats_to_panels(beats, panels, embed_model=None):
         print(f"Excluded {n_junk} junk/blank panels of {len(panels)} "
               f"(steep cost; avoided unless nothing else is reachable).")
 
+    # B1: provenance constraints (beat may only land in its own scene) and
+    # A2: importance bonus (beats gravitate to story panels).
+    allowed = _provenance_sets(beats)
+    if allowed:
+        method += "+provenance"
+    max_area = max((p.get("width") or 0) * (p.get("height") or 0)
+                   for p in panels) or None
+    imp = [panel_importance(p, max_area) for p in panels]
+    pid = [p.get("panel_id") for p in panels]
+
     NEG = -1e18        # sentinel for an unreachable DP state
     JUNK_COST = -100.0  # finite: junk is avoided but not impossible (last resort)
     R = max(1, MAX_HOLD)  # number of run-length buckets
 
     def cost(bi, pi):
-        return JUNK_COST if junk[pi] else raw_score(bi, pi)
+        if allowed and allowed[bi] and pid[pi] not in allowed[bi]:
+            return CONSTRAINT_COST
+        if junk[pi]:
+            return JUNK_COST
+        return raw_score(bi, pi) + IMPORTANCE_W * imp[pi]
 
     n_b, n_p = len(beats), len(panels)
     if n_b == 0 or n_p == 0:
@@ -486,6 +573,7 @@ def match_beats_to_panels(beats, panels, embed_model=None):
             "score": round(cost(i, path[i]), 4),
             "held": not advanced,
         })
+    assignments = enforce_hold_cap(beats, panels, assignments)
     return assignments, method + "+dp"
 
 

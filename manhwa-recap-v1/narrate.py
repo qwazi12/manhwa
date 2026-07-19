@@ -260,30 +260,30 @@ Here is the overall storyline outline and emotional pacing flow for the entire c
 ------------------------------------------------
 """
 
-    return f"""You are a master comic-recap narrator writing a highly immersive, descriptive voiceover script for a video. Your style is detailed, dramatic, and visual, designed to pull the listener into the story.
+    return f"""You are a master comic-recap narrator writing the voiceover script for a recap video. You retell the chapter as one smooth story — you are NOT captioning images.
 
 {global_context_block}
 
-VOICE & STYLE ANCHOR (match this level of visual detail, reported speech flow, and narrative cadence exactly):
-- "At night in the mountains covered with fog. A barefoot boy with long hair Ash in a robe ran through the forest. His clothes were torn and he himself was scared. He did not notice a snag and tripped over it. The boy lost his balance and rolled down a steep slope. He raised himself from the ground on his right hand and cursed. It seemed to him that the strength from under his feet was disappearing..."
-- "While the killer wasn’t looking, the guy plunged the blade into his throat. The dead man’s partners perked up. The guy landed. His enemy was choking on blood. The prince rubbed his neck, smiled, and agreed that it was funny."
+STYLE CONTRACT (every rule mandatory):
+1. Third-person, past tense, story-first: retell events as one flowing narrative.
+2. Every sentence must carry an EVENT, REACTION, REALIZATION, INTENTION, or CONSEQUENCE. A sentence that only describes how something looks gets cut, or its detail folded into an action.
+3. Convert all visible dialogue/text into reported narration — never quotation marks (panel text "Who are you?" becomes: he demanded to know who the stranger was).
+4. No panel/framing/camera/art language, ever: never "the panel/image/frame shows", "close-up", "speed lines", "we see".
+5. Appearance, clothing, and setting details appear ONLY when plot-relevant or atmosphere-setting — one economical touch, not an inventory.
+6. Enrichment policy: infer motive, emotion, and subtext when the art or dialogue clearly implies it; smooth small gaps the way a recap narrator who knows the story would. NEVER invent names, numbers, backstory, or events without support in the panels.
+7. DENSITY IS EDITORIAL, NOT MECHANICAL: narrate the story, not the panels. A run of panels showing one continuous action gets ONE sentence. A filler/transition panel earns ZERO sentences. Only a true story peak earns 2-3 sentences. Never average "sentences per panel".
 
-WRITE (mandatory):
-- **Recap-narrator voice**: Third-person past tense. Write smooth, highly detailed, connective storytelling.
-- **Cinematic Visuals & Action Detail**: Describe the specific actions, movements, settings, and events as they unfold panel-by-panel. Focus on specific verbs and physical descriptions (e.g. "rolled down a steep slope", "plunged the blade", "vomited", "vomiting right on the floor", "sweating", "kneeling").
-- **Physical & Appearance Details**: Retain visual details (e.g., hair style/color, robe/clothing states, environment fog, lightning auras) if they set the atmosphere or characterize the moment. Do NOT sanitize or genericize these details.
-- **Natural Reported Dialogue**: Seamlessly blend dialogue and text into reported narration (no quotes). Convert all visible text into narrative action or thought (e.g., panel text "Who are you?" becomes: Ash asked the figure who he was).
-- **Character Motivation & Emotion**: Describe what the characters are feeling, thinking, and their reactions (e.g., feeling humiliated, crying, determined, despondent).
-- **Pacing & Length**: Write roughly 2 to 3 flowing sentences per panel or distinct visual beat. Ensure the sentences flow naturally from one to the next, building up a cohesive, gripping story.
+VOICE ANCHOR (match this cadence — sentences that move, reported speech, zero scenery padding):
+- "The war with the labyrinth had raged for decades — humanity against the things that boiled up from below, soldiers emptying their guns into biomechanical horrors while monsters charged in roaring hordes."
+- "The plea did no good. The club came down anyway, and the man who had once been the ninth-ranked warrior alive could do nothing but shield his head and take it."
+- "Somewhere in that laughter, something in him finally settled. He had needed the reminder, he thought, that he was no longer the man from those glory days."
 
-DO NOT WRITE:
-- Comic terminologies: "speed lines", "panel borders", "the panel shows", "extreme close-up", "in the next frame", "the page has".
-- Preamble or labels: Output only the raw storytelling text.
+OUTPUT: only the raw storytelling text — no preamble, labels, or panel references.
 
 PANELS (in order):
 {panel_block}
 
-Write the narration script for this scene now:"""
+Write the narration for this scene now, at story density (often far fewer sentences than panels):"""
 
 
 def generate_global_beatsheet(panels, model="gemini-3.5-flash"):
@@ -313,6 +313,7 @@ Your outline must:
 2. Trace the clear flow of plot points, scene transitions, action peaks (fights/explosions), and quiet lore/worldbuilding exposition.
 3. Define the narrative tone progression (e.g., starts in high tension/flight, shifts to mystery/lore, ends in determination).
 4. Summarize the overall narrative arc so that scene-by-scene script generators know how each local moment fits into the larger story.
+5. Mark PACING explicitly: name the story peaks that deserve detailed narration, and name the filler/transition stretches (repeated action panels, establishing shots, promo/credits cards) that the narration should compress to one sentence or pass over entirely. The final video should feel like a tight 6-10 minute recap, not a panel-by-panel caption track.
 
 PANELS SEQUENCE:
 {chapter_block}
@@ -364,6 +365,16 @@ def generate_narration(panels, model="gemini-3.5-flash", verbose=True):
         results.append((scene, text))
     full_script = "\n\n".join(text for _, text in results)
     return full_script, results
+
+
+def provenance(results):
+    """Structured script (B1): which panels each scene's text was written
+    about. Persisted as script.json so downstream stages never have to
+    reverse-engineer the panel<->narration mapping the narrator already knew."""
+    return [{"scene_id": i,
+             "panel_ids": [p["panel_id"] for p in scene_panels],
+             "text": text}
+            for i, (scene_panels, text) in enumerate(results)]
 
 
 if __name__ == "__main__":
