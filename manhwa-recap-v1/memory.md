@@ -1600,3 +1600,32 @@ Every change committed+pushed individually; per-change verification evidence bel
   Review surface links to hand to user: https://manhwa.nodepilot.dev/storyboard
   (proxy) — TO VERIFY the Vercel proxy passes /storyboard; if it only
   proxies /api/*, storyboard needs a proxy rule or direct-URL access.
+
+#### Session 22 (cont.) — CH2 PRODUCTION PROOF + verifiability fixes
+- Job 419ce549eb52 (dungeon-odyssey ch2) COMPLETED on the new pipeline:
+  project dungeon-odyssey_2, 32 segments, 248.8s (4:09) — vs ch1 old
+  pipeline: 234 segments / 44:20. Cost: 252 gemini calls + 3,968 TTS chars
+  ≈ $0.19 (day total est $1.58 of $5 cap).
+- Verified live: ZERO holds >12s in ch2 segments (A2), junk filter excluded
+  50/119 crops (incl. promo), critique pass ran in prod ("critique: 5
+  issue(s), revised 3 unit(s)" in service logs — A3), storyboard serves.
+- Activated dungeon-odyssey_2 as the review project.
+- Vercel: /storyboard proxy rewrite added + middleware dep fix
+  (package.json with @vercel/edge — newer CLIs don't bundle it); deployed;
+  https://manhwa.nodepilot.dev/storyboard now 401s (auth) instead of 404 ->
+  reachable for the user behind Basic Auth.
+- E7 verified live: backup_projects.sh pulled all 4 projects to
+  ~/dev/manhwa-backups/2026-07-19/ (3, a-painter 640M!, dungeon_1, ruler).
+  BACKLOG: also exclude raw page images from backup tars (old projects
+  carry them; that's the 640M).
+- HONESTY GAP + FIX: "matcher ran +provenance" for ch2 was only verifiable
+  from deployed code, not the system's own API (segments strip beat
+  provenance; debug/cat was HARDCODED to dungeon-odyssey_1 — session-21
+  debug hack). Fixed in repo: match_method persisted into project.json;
+  debug/cat now takes ?project= and defaults to the ACTIVE project.
+  Pushed; Railway redeploy retrying in background (BadRecordMac flakes
+  persist tonight). Once live: verify script.json via
+  /api/debug/cat?project=dungeon-odyssey_2&path=script.json and future
+  projects' match_method via /api/projects.
+- BACKLOG (tracked): fresh=1 ingest flag (regenerate ch1 under new
+  pipeline); job-cancel endpoint; backup excludes page images.
