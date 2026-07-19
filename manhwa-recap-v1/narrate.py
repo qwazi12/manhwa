@@ -161,29 +161,55 @@ def group_into_scenes(panels, max_group=4, sim_threshold=0.12):
 
 
 def call_gemini_rest(model, prompt, api_key):
+    """Call Gemini for text generation. Routes to Interactions API for AQ. auth
+    keys (gemini-3.5-flash), falls back to generateContent for legacy AIzaSy keys."""
     import json
     import urllib.request
     import ssl
-    
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }],
-        "generationConfig": {
-            "temperature": 0.2
+
+    try:
+        import certifi
+        context = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        context = ssl._create_unverified_context()
+
+    if api_key.startswith("AQ."):
+        # New Interactions API path (required for gemini-3.5-flash + auth keys)
+        url = "https://generativelanguage.googleapis.com/v1beta/interactions"
+        payload = {
+            "model": model,
+            "input": [{
+                "type": "user_input",
+                "content": [{"type": "text", "text": prompt}]
+            }]
         }
-    }
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"}
-    )
-    
-    context = ssl._create_unverified_context()
-    with urllib.request.urlopen(req, context=context) as response:
-        res = json.loads(response.read().decode("utf-8"))
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "X-goog-api-key": api_key}
+        )
+        with urllib.request.urlopen(req, timeout=120, context=context) as response:
+            res = json.loads(response.read().decode("utf-8"))
+        for step in res.get("steps", []):
+            if step.get("type") == "model_output":
+                for part in step.get("content", []):
+                    if part.get("type") == "text" and part.get("text"):
+                        return part["text"].strip()
+        raise ValueError(f"No model_output text in interactions response. Keys: {list(res.keys())}")
+    else:
+        # Legacy generateContent path (AIzaSy standard keys)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2}
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=120, context=context) as response:
+            res = json.loads(response.read().decode("utf-8"))
         try:
             return res["candidates"][0]["content"]["parts"][0]["text"].strip()
         except (KeyError, IndexError) as e:
@@ -237,7 +263,7 @@ PANELS (in order):
 Write the narration script for this scene now:"""
 
 
-def generate_global_beatsheet(panels, model="gemini-3.1-pro-preview"):
+def generate_global_beatsheet(panels, model="gemini-3.5-flash"):
     """First pass of the narration pipeline: compiles all panel metadata for the chapter
     and generates a cohesive, chronological plot and pacing outline.
     """
@@ -280,7 +306,7 @@ Write the story outline and pacing beat sheet now. Plain text only, no formattin
         return _call()
 
 
-def narrate_scene(scene_panels, model="gemini-3.1-pro-preview", global_beatsheet=None):
+def narrate_scene(scene_panels, model="gemini-3.5-flash", global_beatsheet=None):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.exit("GEMINI_API_KEY not set")
@@ -295,7 +321,7 @@ def narrate_scene(scene_panels, model="gemini-3.1-pro-preview", global_beatsheet
         return _call()
 
 
-def generate_narration(panels, model="gemini-3.1-pro-preview", verbose=True):
+def generate_narration(panels, model="gemini-3.5-flash", verbose=True):
     """Run the full pipeline over `panels` (already filtered/ordered) and
     return (full_script_text, [(scene_panels, scene_text), ...])."""
     # Pass 1: Generate global pacing beatsheet for the entire chapter
@@ -322,7 +348,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Generate narration from panels")
     ap.add_argument("--limit-panels", type=int, default=10,
                      help="only use the first N (non-junk) panels — for a cheap style-check sample")
-    ap.add_argument("--model", default="gemini-3.1-pro-preview")
+    ap.add_argument("--model", default="gemini-3.5-flash")
     ap.add_argument("--descriptions", help="override descriptions.json path (e.g. a fresh chapter's subset)")
     args = ap.parse_args()
 

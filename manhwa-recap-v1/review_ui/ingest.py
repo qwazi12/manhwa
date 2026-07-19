@@ -140,9 +140,10 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
 
     # 4. narrate (write narration FROM the panels) -----------------------
     script_path = os.path.join(proj, "script.txt")
-    if os.path.exists(script_path):
+    _cached_script = open(script_path).read().strip() if os.path.exists(script_path) else ""
+    if _cached_script:
         progress("narrate", "Script exists, loading cached narration…", 60)
-        script = open(script_path).read()
+        script = _cached_script
     else:
         progress("narrate", "Writing narration from panels…", 60)
         panels = narrate.load_panels(desc_path)
