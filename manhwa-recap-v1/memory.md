@@ -1363,3 +1363,22 @@ wasted describe calls already landed separately.
 - Prod job 55df049167d1 (post-redeploy): split+describe near-free (merge
   cache), narrate in progress. Prior job da7cfaaddceb killed by the redeploy
   mid-narrate (expected).
+
+#### Session 22 (cont.) — MILESTONE: first fully-successful production ingest of dungeon-odyssey ch1
+- Job 55df049167d1 completed ALL stages: scrape -> split (YOLO, first prod
+  run) -> describe (merge cache) -> narrate (fixed Interactions call) ->
+  voice (new TTS key, 265 beats / 45,009 chars) -> match (no crash; shot
+  planner ran) -> segment. Project "dungeon-odyssey_1" REGISTERED:
+  234 segments, 2660.4s (~44:20) runtime. Reviewable at
+  https://manhwa.nodepilot.dev after activation.
+- Definitive full-chapter cost (fixed pipeline, per usage.py):
+  job 55df049167d1 = 466 gemini calls + 45,009 TTS chars ≈ $0.47 + $0.72
+  ≈ $1.19 est. Day total (incl. 2 failed attempts + local sample work):
+  951 calls / 45,009 chars / $1.36 est. Caps far from tripped.
+- PACING EVIDENCE for the attentive-editor plan: system cut = 265 beats /
+  44:20 for the same chapter the hand-authored enriched cut covers in 85
+  beats / 7:27. Caption-density narration confirmed as THE main quality gap.
+- All Session-22 fixes now verified live end-to-end. Remaining known issues:
+  narrate stage reports no per-scene progress (opaque long "60%"), no
+  storyboard gate yet, importance/hold-cap changes not yet implemented
+  (plan logged above, awaiting user go).
