@@ -1199,3 +1199,29 @@ Wrong fields (all 400): `inlineData`, `inline_data`, `parts`, `source`, `image_u
   (~/Desktop is TCC-blocked for the agent shell; copy attempt unverifiable.)
 - FINDING: junk panels (credits card, recruiting banner) reach describe =
   wasted calls; cheap pre-describe junk filter would save spend.
+
+#### Session 22 (cont.) — Pipeline hardening fixes (commit 3b1335f)
+- Read-first rule paid off again: found Session-21-continued (other IDE) had
+  already fixed narrate.py AQ routing + ingest empty-script cache guard
+  (4766810), redeployed (ceea182e), and started fresh job db7216d976ce.
+  Confirmed root cause chain of the match crash: AQ key -> old ?key= URL ->
+  silent empty script.txt -> 0 beats -> empty embed array -> numpy axis crash.
+- Verified LIVE: Gemini embeddings DO work under AQ. auth keys (SDK header
+  auth) — matcher keeps real semantic scores, no lexical degradation.
+  (2-call probe, key from Railway env, never printed.)
+- New fixes (3b1335f, pushed):
+  1. YOLO weights shipped: panel-split/weights/*.part-* (<100MB git chunks,
+     119MB total; joined + sha256-verified in deploy/Dockerfile at build).
+     Also solves the weights-backup TODO. (GitHub blocks >100MB files; gh CLI
+     absent and credential extraction blocked -> chunk approach chosen.)
+  2. split_panels.py: missing-weights fallback now LOUD WARNING (stdout+stderr).
+  3. matcher._gemini_embed: guards empty input + degenerate (non-2D) arrays.
+  4. ingest.py: narrate stage aborts loudly on 0 beats.
+  5. panel-describe/run.py: sliver crops (<40px min-dim or <10k px^2) skip
+     Gemini pre-describe; merge cache re-describes when crop DIMENSIONS
+     changed (filename is not identity across splitter changes — critical
+     now that YOLO returns to prod and renames-in-place all crops).
+- Deploy PENDING: waiting for job db7216d976ce (was narrate 60%) to finish
+  before `railway up` — a mid-job restart would kill the ingest.
+- SECURITY: user pasted a Gemini AQ key into chat transcript — needs rotation
+  along with the 4 previously-leaked credentials (user-side TODO).
