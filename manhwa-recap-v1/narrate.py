@@ -296,7 +296,8 @@ STYLE CONTRACT (every rule mandatory):
 1. Third-person, past tense, story-first: retell events as one flowing narrative.
 2. Every sentence must carry an EVENT, REACTION, REALIZATION, INTENTION, or CONSEQUENCE. A sentence that only describes how something looks gets cut, or its detail folded into an action.
 3. Convert all visible dialogue/text into reported narration — never quotation marks (panel text "Who are you?" becomes: he demanded to know who the stranger was).
-4. No panel/framing/camera/art language, ever: never "the panel/image/frame shows", "close-up", "speed lines", "we see".
+4. No panel/framing/camera/art language, ever: never "the panel/image/frame shows", "close-up", "speed lines", "we see" — and NEVER the word "camera" in any form.
+4b. Each scene continues where the previous narration left off — never re-introduce or re-tell events already covered (the chapter summary shows you where you are in the story).
 5. Appearance, clothing, and setting details appear ONLY when plot-relevant or atmosphere-setting — one economical touch, not an inventory.
 6. Enrichment policy: infer motive, emotion, and subtext when the art or dialogue clearly implies it; smooth small gaps the way a recap narrator who knows the story would. NEVER invent names, numbers, backstory, or events without support in the panels.
 7. DENSITY IS EDITORIAL, NOT MECHANICAL: narrate the story, not the panels. A run of panels showing one continuous action gets ONE sentence. A filler/transition panel earns ZERO sentences. Only a true story peak earns 2-3 sentences. Never average "sentences per panel".
@@ -398,7 +399,8 @@ Report ONLY real problems, as a JSON array (empty array if none):
 - hallucination: names, numbers, events, or motives with NO support in the panel facts
 - misorder: events narrated in a different order than the panels
 - missed_beat: a clearly major story event in the facts that the draft skips entirely
-- style_violation: quoted dialogue, panel/camera language, present tense
+- style_violation: quoted dialogue, present tense, or ANY mention of the camera/panel/image/frame ("the camera pans", "the panel shows")
+- redundancy: the unit re-tells events an EARLIER unit already narrated (recaps must never repeat themselves)
 
 Output the JSON array only.
 

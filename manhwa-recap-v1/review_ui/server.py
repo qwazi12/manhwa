@@ -287,8 +287,14 @@ def get_export(name: str):
 
 
 @app.post("/api/render-missing")
-def render_missing():
-    """Render any segment that lacks a clip, via render_segments.py --only."""
+def render_missing(force: bool = False):
+    """Render any segment that lacks a clip, via render_segments.py --only.
+
+    Gated by storyboard approval (D1): bulk render spend happens only after
+    the storyboard has been reviewed — pass ?force=true to override."""
+    if not force and not storyboard_approved():
+        raise HTTPException(409, "storyboard not approved — review /storyboard "
+                                 "first, or call with ?force=true")
     segs = load_segments()
     pdir = active_project_dir()
     missing = [s["seg_index"] for s in segs
@@ -1057,6 +1063,44 @@ def media():
         "used": p["panel_id"] in used,
     } for p in panels]
     return {"panels": out, "count": len(out), "used": len(used)}
+
+
+# ---- D1: interactive storyboard (pre-render review gate) ----------------
+from fastapi.responses import HTMLResponse
+from storyboard import STORYBOARD_HTML
+
+
+def _approval_path():
+    return os.path.join(active_project_dir(), "storyboard.json")
+
+
+def storyboard_approved():
+    try:
+        return bool(json.load(open(_approval_path())).get("approved"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return False
+
+
+@app.get("/storyboard")
+def storyboard_page():
+    return HTMLResponse(STORYBOARD_HTML)
+
+
+@app.get("/api/storyboard/approval")
+def storyboard_approval():
+    return {"approved": storyboard_approved()}
+
+
+class ApproveIn(BaseModel):
+    approved: bool
+
+
+@app.post("/api/storyboard/approve")
+def storyboard_approve(body: ApproveIn):
+    import time
+    json.dump({"approved": body.approved, "ts": time.time()},
+              open(_approval_path(), "w"))
+    return {"ok": True, "approved": body.approved}
 
 
 @app.get("/health")
