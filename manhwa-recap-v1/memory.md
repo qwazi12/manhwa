@@ -1178,3 +1178,24 @@ Wrong fields (all 400): `inlineData`, `inline_data`, `parts`, `source`, `image_u
 - Verify segments.json produced after segment stage.
 - Review output via Review UI at `https://manhwa.nodepilot.dev`.
 
+
+#### Session 22 (cont.) — Dungeon Odyssey Ch.1 full-system sample test DELIVERED
+- Rule-0.0 catch-up first: memory.md revealed Session 21's state; server probe
+  then showed job `4bfca87af66a` got FURTHER than logged — describe AND narrate
+  completed; ingest died at match 90%: "axis 1 is out of bounds for array of
+  dimension 1" (matcher bug, OPEN).
+- Server volume still holds the full describe output: 268 panels described
+  (verbatim gemini-3.5-flash Interactions output) — fetched via /api/debug/cat,
+  ZERO new Gemini spend.
+- FINDING: deployed splitter runs WITHOUT YOLO — yolo_panel_detector.pt is
+  gitignored so `railway up` never ships it; container silently falls back to
+  geometric splits (268 crops vs 126 with YOLO locally). Reproduced fallback
+  locally: 257/259 crops dimension-identical to server-described panels.
+- Deliverable (real system artifacts end-to-end: system scraper -> system
+  split (fallback parity) -> server describe output -> scripts authored from
+  that output only): ~/dev/dungeon-odyssey-review/
+  {crops/ 30 pngs, sample_descriptions.json, script_a_enriched.txt,
+   script_b_grounded.txt, review.md w/ side-by-side + findings}.
+  (~/Desktop is TCC-blocked for the agent shell; copy attempt unverifiable.)
+- FINDING: junk panels (credits card, recruiting banner) reach describe =
+  wasted calls; cheap pre-describe junk filter would save spend.
