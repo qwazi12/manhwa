@@ -73,10 +73,24 @@ def main():
             for rec in json.load(f):
                 existing[rec["panel_id"]] = rec
         if not args.force_rerun:
-            # Skip panels that already have a good description
-            files = [f for f in files
-                     if os.path.splitext(f)[0] not in existing
-                     or not existing[os.path.splitext(f)[0]].get("ok", False)]
+            # Skip panels that already have a good description — but only if
+            # the crop on disk is still the SAME crop that was described.
+            # Filename alone is not identity: a splitter change (e.g. YOLO
+            # weights appearing/disappearing) reuses names for different
+            # content, and stale descriptions then poison narrate/match.
+            # Recorded width/height vs the file's current dimensions is a
+            # cheap, reliable staleness check.
+            def _still_valid(f):
+                rec = existing.get(os.path.splitext(f)[0])
+                if not rec or not rec.get("ok", False):
+                    return False
+                try:
+                    from PIL import Image
+                    with Image.open(os.path.join(args.input, f)) as im:
+                        return im.size == (rec.get("width"), rec.get("height"))
+                except Exception:
+                    return False
+            files = [f for f in files if not _still_valid(f)]
             print(f"Merge mode: {len(files)} panels need (re)description, skipping the rest.\n")
 
     print(f"Describing {len(files)} panels "
@@ -85,6 +99,26 @@ def main():
     records = []
     for i, fname in enumerate(files, 1):
         path = os.path.join(args.input, fname)
+        # Pre-describe junk gate: sliver crops (stray gutter lines, cut-off
+        # SFX fragments) can never carry a narration beat — the matcher's
+        # junk filter drops them by content anyway. Skipping them here saves
+        # one Gemini call each (dungeon-odyssey ch1: dozens of such slivers).
+        # Conservative floor: nothing story-bearing is this small on a
+        # 712px-wide webtoon page.
+        try:
+            from PIL import Image
+            with Image.open(path) as _im:
+                _w, _h = _im.size
+        except Exception:
+            _w = _h = 0
+        if _w and _h and (min(_w, _h) < 40 or _w * _h < 10000):
+            rec = {"panel_id": os.path.splitext(fname)[0], "file": fname,
+                   "width": _w, "height": _h, "bbox": [0, 0, _w, _h],
+                   "ocr_text": "", "visual_description": "",
+                   "source": "size-filter", "ok": True}
+            records.append(rec)
+            print(f"[{i:>3}/{len(files)}] {fname:32} skipped (sliver {_w}x{_h})")
+            continue
         try:
             rec = describe.describe_panel(path, api_key, args.model)
         except UsageCapExceeded as e:

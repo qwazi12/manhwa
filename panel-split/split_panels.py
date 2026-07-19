@@ -216,7 +216,14 @@ def detect_panels_yolo(image_path: str, model_path: str = None) -> list:
     if model_path is None:
         model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yolo_panel_detector.pt")
     if not os.path.exists(model_path):
-        print(f"YOLO model not found at {model_path}, falling back to geometric splits.", file=sys.stderr)
+        # Loud, greppable, on BOTH streams: a deployment without the weights
+        # silently produced 2x the crops (268 vs 126 on dungeon-odyssey ch1)
+        # before anyone noticed — never let this degrade quietly again.
+        msg = (f"WARNING: YOLO WEIGHTS MISSING at {model_path} — "
+               f"falling back to geometric splits (worse crops). "
+               f"Ship yolo_panel_detector.pt into the image (see deploy/Dockerfile).")
+        print(msg)
+        print(msg, file=sys.stderr)
         return []
     
     try:

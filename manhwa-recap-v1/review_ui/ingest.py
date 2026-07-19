@@ -150,6 +150,13 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
         script, _ = narrate.generate_narration(panels, verbose=False)
         open(script_path, "w").write(script)
     beats = beat_segmenter.segment_beats(script)
+    if not beats:
+        # An empty/garbage script must stop the job HERE with a clear error —
+        # letting it flow on poisons voice/match (job 4bfca87af66a died at
+        # match with an opaque numpy crash caused by exactly this).
+        raise RuntimeError(
+            "narrate produced 0 beats (empty or unusable script.txt) — "
+            "aborting before voice/match")
     progress("narrate", f"{len(beats)} narration beats.", 70)
 
     # 5. voice (TTS each beat via REST; recompute timeline) --------------

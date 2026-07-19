@@ -251,7 +251,7 @@ def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
     repeat runs on the same strings make zero API calls.
     """
     api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
+    if not api_key or not texts:
         return None
     try:
         from google import genai
@@ -303,6 +303,11 @@ def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
             _save_embed_cache(cache)
 
     arr = np.asarray(vectors, dtype="float32")
+    # Guard against a degenerate result (empty input, poisoned cache entry):
+    # a 1-D/empty array here would crash np.linalg.norm(axis=1) downstream
+    # ("axis 1 is out of bounds for array of dimension 1" — job 4bfca87af66a).
+    if arr.ndim != 2 or arr.shape[0] != len(texts):
+        return None
     norms = np.linalg.norm(arr, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     return arr / norms

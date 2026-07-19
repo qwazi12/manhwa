@@ -35,6 +35,13 @@ RUN pip install --no-cache-dir \
     && pip install --no-cache-dir "ultralytics"
 
 COPY . /app
+# Reassemble the YOLO panel-detector weights (119MB — too big for one git
+# file, stored as <100MB chunks in panel-split/weights/; the joined .pt is
+# gitignored). Without this the splitter SILENTLY fell back to geometric
+# splits in production (268 vs 126 crops on dungeon-odyssey ch1). The sha256
+# assert makes a corrupt/partial join fail the BUILD, not the ingest.
+RUN cat panel-split/weights/yolo_panel_detector.pt.part-* > panel-split/yolo_panel_detector.pt \
+    && python3 -c "import hashlib;h=hashlib.sha256(open('panel-split/yolo_panel_detector.pt','rb').read()).hexdigest();assert h=='566e9ff59ec146afb695eb48a8aaae983b43bb72c3a57f63afafe12f3b349af4', h"
 # hyperframes CLI (pinned via npx at runtime; warm the cache), then bake its
 # Chrome-for-testing into the image so renders never download at runtime
 # (the runtime download inside the container ended in "Browser not available").
