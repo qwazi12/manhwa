@@ -1382,3 +1382,40 @@ wasted describe calls already landed separately.
   narrate stage reports no per-scene progress (opaque long "60%"), no
   storyboard gate yet, importance/hold-cap changes not yet implemented
   (plan logged above, awaiting user go).
+
+#### Session 22 (cont.) — User review of video_plan; PROPOSAL for tall-panel treatment (AWAITING APPROVAL)
+- User reviewed video_plan.html and flagged segments #4,5,7,8,20(mild),26,39,49.
+  Verified root causes:
+  * #4,5,7,8,26,39 = WHOLE tall panels (AR 3.9-8.2, up to 720x5890) shown
+    un-sliced -> unreadable skinny strips holding 13-32s with 3-5 beats each.
+  * #20 borderline (AR 2.2) — same class as #31 (AR 2.3) which reads fine.
+  * #49 = Asura recruitment banner: survived matcher junk filter (its
+    description names a "subject", passing positive-keep) and got matched to
+    the closing narration line. Pure junk leak.
+- KEY FINDING: the system ALREADY has the intended mechanism — shot_planner
+  plans per-beat crop_bbox_norm sub-crops and render_segments.py renders
+  them (crop-container layout). The local sample render simply bypassed
+  shot_planner (api_key=None). The prod job DID run "Planning precise shot
+  crops". So the flagged look is partly a sample-render shortcut, not only a
+  system gap.
+- Combined table delivered: full/review_table_combined.html — merges story
+  alignment + render timing; badges: ⚠ long hold, 📜 tall strip, ⚑ user flag.
+
+PROPOSED FIX PLAN (no work started — awaiting user approval):
+1. Re-render sample WITH the system's shot_planner (pass GEMINI key):
+   tall multi-beat panels become per-beat framed sub-crops sized like #31/34.
+   Cost ~10-20 flash-vision calls (~$0.02). Fastest path; uses system as
+   designed; directly fixes #26-style "3 beats should be 3 pieces".
+2. ADD vertical scroll-pan mode to render_segments.py seg_html() for any
+   panel with AR >= 3.0 that still lands whole (no crop plan): width-fitted
+   card (same on-screen width class as #31/34), image pans top->bottom over
+   the segment duration (ease at ends), replacing Ken Burns for that segment.
+   Renderer-only change; benefits BOTH prod and local; no API cost.
+   Threshold 3.0 keeps #20/#31 static (they read fine per user).
+3. Junk-filter hardening for promo/credits assets (fixes #49): in
+   matcher.is_junk_panel add a PROMO blocklist that overrides positive-keep
+   when OCR/description contains aggregator-promo markers (recruit/discord/
+   asurascans/credits TL/PR/QC etc.). Also drops #1 credits card from pools.
+4. Re-match + re-render the sample cut after 1-3; regenerate video_plan +
+   combined table so the fix is verifiable row-by-row.
+Order: 3 (5 min) -> 1 (~15 min incl. render) -> 2 (renderer feature) -> 4.
