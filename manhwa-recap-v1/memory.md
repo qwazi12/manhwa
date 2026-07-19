@@ -1572,3 +1572,31 @@ Every change committed+pushed individually; per-change verification evidence bel
   log shows orphan sweep, re-ingest dungeon ch1 (~$0.15: narrate ~15 flash
   calls + ~5k TTS chars; describe fully cached) to produce the first
   provenance-matched production project, then storyboard review.
+
+#### Session 22 (cont.) — DEPLOY LIVE + first live verifications (all evidence below)
+- Deploy: user's CLI hit Railway-side "snapshot" timeouts (206e2cda failed —
+  Railway's own diagnosis: transient internal issue; do NOT adopt their
+  suggested RAILPACK railway.json — ours must stay DOCKERFILE/deploy/Dockerfile).
+  Agent retry loop landed build 0f7afeb6. Verified live: GET /storyboard =
+  200, app booted clean.
+- E1 verified LIVE: ghost job da7cfaaddceb now reads status=error, "aborted
+  by server restart (deploy/env change) — re-submit the chapter URL…" (boot
+  sweep worked on real volume data).
+- Ch2 end-to-end proof job STARTED: 419ce549eb52 for
+  https://asurascans.com/comics/dungeon-odyssey-1d35e5bd/chapter/2 (~$0.30
+  est, usage-gated). WHY ch2 not ch1: ch1's project keeps its cached
+  44-min script by design (cache guard reuses non-empty script.txt), so only
+  a fresh chapter demonstrates the new narration/provenance path in prod.
+  KNOWN GAP (backlog): /api/ingest needs a fresh=1 flag to force re-narrate
+  a chapter with a cached script (needed to regenerate ch1 under the new
+  pipeline). No job-cancel endpoint exists either (second backlog item).
+- OPERATING PRINCIPLE (user directive, standing): the SYSTEM must be able to
+  run without the agent. No agent-side side-channel fixes: anything the
+  pipeline needs must live in the repo/deploy, be documented here, and be
+  reachable through the UI/API. All issues found + fixes applied must be
+  reported to the user explicitly.
+- Pending user-visible verifications when 419ce549eb52 completes:
+  script.json present, match method "+provenance", storyboard populated.
+  Review surface links to hand to user: https://manhwa.nodepilot.dev/storyboard
+  (proxy) — TO VERIFY the Vercel proxy passes /storyboard; if it only
+  proxies /api/*, storyboard needs a proxy rule or direct-URL access.
