@@ -58,10 +58,35 @@ def copy(src, dst):
         f.write(data)
 
 
+def _png_size(path):
+    """(width, height) from a PNG's IHDR — no image library needed."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+        if head[:8] == b"\x89PNG\r\n\x1a\n":
+            import struct
+            return struct.unpack(">II", head[16:24])
+    except OSError:
+        pass
+    return None, None
+
+
+# C2: a panel at least this tall-for-its-width, with no planned sub-crop,
+# scroll-pans top->bottom instead of sitting as one unreadably small card.
+TALL_AR = 3.0
+
+
 def seg_html(seg, audio_dir):
     """Standalone HyperFrames composition for one segment: blurred blow-up
     background + aspect-preserved card + Ken Burns, with the segment's beat
-    audio placed at within-segment offsets so narration timing is preserved."""
+    audio placed at within-segment offsets so narration timing is preserved.
+
+    Three card regimes:
+      - planned sub-crop (shot planner): fixed crop viewport, Ken Burns
+      - tall strip (h/w >= TALL_AR, no crop): readable-width viewport that
+        scroll-pans the strip top->bottom over the hold (C2)
+      - normal panel: aspect-fit card, Ken Burns
+    """
     pid = seg["panel_id"]
     src = f"assets/{pid}.png"
     dur = seg["dur"]
@@ -69,27 +94,44 @@ def seg_html(seg, audio_dir):
     audio_layers, tl = [], []
 
     has_crop = seg.get("crop_bbox_norm") is not None
+    pw, ph = seg.get("width"), seg.get("height")
+    if not (pw and ph):
+        pw, ph = _png_size(os.path.join(ASSETS, f"{pid}.png"))
+    tall = (not has_crop) and pw and ph and (ph / pw) >= TALL_AR
+
     if has_crop:
         import sys
         if RECAP not in sys.path:
             sys.path.insert(0, RECAP)
         from shot_planner import get_crop_layout
         layout = get_crop_layout(seg["crop_bbox_norm"], seg.get("width"), seg.get("height"))
-        
+
         card_html = f"""  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
     <div class="crop-container" id="card_container" style="position:relative; overflow:hidden; width:{layout["w"]:.1f}px; height:{layout["h"]:.1f}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">
       <img class="cardimg" src="{src}" style="position:absolute; width:{layout["scale_w"]}%; height:{layout["scale_h"]}%; left:{layout["left"]}%; top:{layout["top"]}%; max-width:none; max-height:none;" alt="" />
     </div>
   </div>"""
         target_el = "#card_container"
+        tl.append(f'  tl.fromTo("{target_el}", {{ scale: {z0} }}, '
+                  f'{{ scale: {z1}, duration: {dur}, ease: "none" }}, 0);')
+    elif tall:
+        img_w = int(W * 0.40)                # framed-card width, like a normal panel
+        img_h = int(ph * img_w / pw)
+        pan = max(0, img_h - int(H * 0.92))  # travel distance inside the viewport
+        card_html = f"""  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
+    <div id="pan_viewport" style="position:relative; overflow:hidden; width:{img_w}px; height:{int(H*0.92)}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">
+      <img class="cardimg" id="panimg" src="{src}" style="position:absolute; left:0; top:0; width:{img_w}px; max-width:none; max-height:none;" alt="" />
+    </div>
+  </div>"""
+        tl.append(f'  tl.fromTo("#panimg", {{ y: 0 }}, '
+                  f'{{ y: {-pan}, duration: {dur}, ease: "none" }}, 0);')
     else:
         card_html = f"""  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
     <img class="cardimg" src="{src}" alt="" />
   </div>"""
-        target_el = "#card .cardimg"
+        tl.append(f'  tl.fromTo("#card .cardimg", {{ scale: {z0} }}, '
+                  f'{{ scale: {z1}, duration: {dur}, ease: "none" }}, 0);')
 
-    tl.append(f'  tl.fromTo("{target_el}", {{ scale: {z0} }}, '
-              f'{{ scale: {z1}, duration: {dur}, ease: "none" }}, 0);')
     tl.append(f'  tl.fromTo("#bg", {{ scale: 1.15 }}, '
               f'{{ scale: 1.22, duration: {dur}, ease: "none" }}, 0);')
     tl.append('  tl.from("#card", { opacity: 0, scale: 0.94, duration: 0.4, '
@@ -151,7 +193,12 @@ def ensure_project():
 def render_segment(seg, audio_dir):
     """Render one segment to clips/seg_NNN.mp4 via the hyperframes CLI."""
     pid = seg["panel_id"]
-    copy(os.path.join(PANEL_DIR, f"{pid}.png"), os.path.join(ASSETS, f"{pid}.png"))
+    # Prefer the segment's own absolute panel_file (project-scoped crops);
+    # fall back to the legacy shared PANEL_DIR only when it's absent.
+    src_png = seg.get("panel_file") or ""
+    if not (src_png and os.path.isabs(src_png) and os.path.exists(src_png)):
+        src_png = os.path.join(PANEL_DIR, f"{pid}.png")
+    copy(src_png, os.path.join(ASSETS, f"{pid}.png"))
     for b in seg["beats"]:
         a = os.path.join(audio_dir, f"beat_{b['index']:03d}.mp3")
         if os.path.exists(a):
@@ -160,9 +207,16 @@ def render_segment(seg, audio_dir):
     dst = os.path.join(CLIPS, f"seg_{seg['seg_index']:03d}.mp4")
     if os.path.exists(dst):
         os.remove(dst)
-    subprocess.run(["npx", "hyperframes", "render", "-o", dst],
-                   cwd=WORK, check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # --yes: npx must never hit its interactive install prompt in a non-TTY
+    # container (that prompt aborts with exit 1). Capture output so a render
+    # failure raises WITH the real reason instead of a blind exit status.
+    r = subprocess.run(["npx", "--yes", "hyperframes", "render", "-o", dst],
+                       cwd=WORK, capture_output=True, text=True)
+    if r.returncode != 0:
+        tail = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()[-800:]
+        raise RuntimeError(
+            f"hyperframes render failed (exit {r.returncode}) for "
+            f"seg_{seg['seg_index']:03d}: {tail}")
     return dst
 
 
