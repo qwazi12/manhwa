@@ -1649,3 +1649,33 @@ Every change committed+pushed individually; per-change verification evidence bel
 - Repo-root vercel.json/middleware/package.json belong to the unused
   "manhwa" Vercel project — BACKLOG: consolidate to one project to prevent
   this split-brain again.
+
+#### Session 22 (cont.) — USER REVIEW VERDICT: /storyboard is 3 steps behind the approved combined table — REBUILD PLANNED (logged before work, per directive)
+- User compared live /storyboard against the approved artifact
+  (~/dev/dungeon-odyssey-review/full/review_table_combined.html) and
+  rejected the storyboard: it shows ONLY the 32 timeline segments; the
+  approved table shows ALL extracted panels (126) with: system OCR (full),
+  system description (full), SCRIPT PLACEMENT color-coded (blue narrated
+  ¶N / yellow folded / red left-out+reason), and the render timing column
+  joined per panel; header meta + badges (⚠ hold>12s, 📜 tall strip).
+- DIRECTIVE (standing): the system must produce THIS level of output
+  "from inception to presenting the work" — the combined table IS the
+  template for the storyboard.
+- REBUILD PLAN:
+  1) matcher.junk_reason(panel) helper (promo/credits | abstract/fragment |
+     no-subject-or-scene) so left-out rows can say WHY.
+  2) New endpoint GET /api/storyboard/data: every panel from
+     descriptions.json in reading order, full OCR/desc, dims, junk+reason,
+     unit (scene_id) + unit text from script.json (provenance), joined
+     segments [{seg_index,start,end,dur,beats,crop info}], header meta
+     {project, n_panels, n_segments, runtime, match_method, usage}.
+  3) storyboard.py page rewritten to the approved combined-table template
+     (same columns, color states, badges) with the interactive controls
+     kept per row (swap/edit/approve/reject; project approve gate).
+  4) Placement states: BLUE=carries screen time (has segment);
+     YELLOW=folded (in a unit's panel_ids but no segment of its own);
+     RED=left out (junk, with reason); GREY=unmatched non-junk (should not
+     happen under provenance — visible if it does).
+  5) Local TestClient verification with fixture data (incl. synthetic
+     script.json to exercise all color states), then Railway deploy +
+     live verify on dungeon-odyssey_2, then hand link back to user.
