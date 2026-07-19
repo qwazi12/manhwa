@@ -259,14 +259,57 @@ def export(body: ExportIn):
                 if os.path.exists(os.path.join(active_project_dir(), s.get("clip", "")))]
     if not approved:
         raise HTTPException(400, "no approved clips with rendered video")
+    # E5: intro/outro title cards from project metadata (best-effort — the
+    # export must never fail because a card couldn't render).
+    pdir = active_project_dir()
+    cards = []
+    try:
+        import ingest as _ing
+        series, chapter = _ing.parse_series_chapter(
+            json.load(open(os.path.join(pdir, "project.json"))).get("url", "")) \
+            if os.path.exists(os.path.join(pdir, "project.json")) else ("", "")
+        title = (series or "").replace("-", " ").title()
+        if title:
+            env = os.environ.copy()
+            env.update({"HF_WORKSPACE": pdir,
+                        "HF_TITLE": title,
+                        "HF_SUBTITLE": f"Chapter {chapter} — RECAP",
+                        "HF_OUTRO": "To be continued…"})
+            subprocess.run(
+                [sys.executable, os.path.join(HF, "render_segments.py"),
+                 "--cards-only"], capture_output=True, text=True, env=env,
+                timeout=180)
+            intro = os.path.join(pdir, "clips", "intro.mp4")
+            outro = os.path.join(pdir, "clips", "outro.mp4")
+            cards = [os.path.exists(intro) and intro,
+                     os.path.exists(outro) and outro]
+    except Exception:
+        cards = []
     listfile = os.path.join(active_exports_dir(), "concat.txt")
     with open(listfile, "w") as f:
+        if cards and cards[0]:
+            f.write(f"file '{cards[0]}'\n")
         for s in approved:
             f.write(f"file '{os.path.join(active_project_dir(), s['clip'])}'\n")
+        if cards and cards[1]:
+            f.write(f"file '{cards[1]}'\n")
     out = os.path.join(active_exports_dir(), "review_export.mp4")
+    # cards are separately-encoded -> re-encode when present, else stream-copy
+    codec = [] if (cards and (cards[0] or cards[1])) else ["-c", "copy"]
     subprocess.run(
         ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listfile,
-         "-c", "copy", out], check=True, capture_output=True)
+         *codec, out], check=True, capture_output=True)
+    # E4: optional BGM bed — drop a licensed bgm.mp3 into the project dir
+    bgm = os.path.join(pdir, "bgm.mp3")
+    if os.path.exists(bgm):
+        tmp = out + ".bgm.mp4"
+        r = subprocess.run(
+            ["ffmpeg", "-y", "-i", out, "-stream_loop", "-1", "-i", bgm,
+             "-filter_complex",
+             "[1:a]volume=0.12[q];[0:a][q]amix=inputs=2:duration=first:dropout_transition=0",
+             "-c:v", "copy", "-shortest", tmp], capture_output=True)
+        if r.returncode == 0:
+            os.replace(tmp, out)
     final = out
     if abs(body.speed - 1.0) > 1e-3:
         sped = os.path.join(active_exports_dir(), f"review_export_{body.speed}x.mp4")
@@ -1153,6 +1196,32 @@ def storyboard_approve(body: ApproveIn):
     json.dump({"approved": body.approved, "ts": time.time()},
               open(_approval_path(), "w"))
     return {"ok": True, "approved": body.approved}
+
+
+# ---- E7: project backup (volume data is as precious as unpushed code) ---
+@app.get("/api/backup/{project_id}")
+def backup_project(project_id: str):
+    """Tar.gz of one project's PAID artifacts: descriptions (Gemini spend),
+    audio (TTS spend), scripts, segments, review state. Excludes clips/ and
+    crops/ — both regenerable locally at zero API cost."""
+    import io
+    import tarfile
+    import ingest as _ing
+    pdir = os.path.join(_ing.PROJECTS, project_id)
+    if not os.path.isdir(pdir) or "/" in project_id or ".." in project_id:
+        raise HTTPException(404, "unknown project")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for root, dirs, files in os.walk(pdir):
+            dirs[:] = [d for d in dirs if d not in ("clips", "crops")]
+            for fn in files:
+                full = os.path.join(root, fn)
+                tar.add(full, arcname=os.path.relpath(full, _ing.PROJECTS))
+    buf.seek(0)
+    from fastapi.responses import Response
+    return Response(content=buf.read(), media_type="application/gzip",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{project_id}.tar.gz"'})
 
 
 @app.get("/health")

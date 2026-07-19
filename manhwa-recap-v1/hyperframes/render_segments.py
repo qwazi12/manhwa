@@ -190,8 +190,10 @@ def ensure_project():
                   open(hf, "w"), indent=2)
 
 
-def render_segment(seg, audio_dir):
-    """Render one segment to clips/seg_NNN.mp4 via the hyperframes CLI."""
+def stage_assets(seg, audio_dir):
+    """Copy the segment's panel + beat audio into the shared assets dir.
+    Kept separate from rendering so parallel mode (E6) can stage everything
+    serially first — no concurrent writes to the same asset path."""
     pid = seg["panel_id"]
     # Prefer the segment's own absolute panel_file (project-scoped crops);
     # fall back to the legacy shared PANEL_DIR only when it's absent.
@@ -203,7 +205,26 @@ def render_segment(seg, audio_dir):
         a = os.path.join(audio_dir, f"beat_{b['index']:03d}.mp3")
         if os.path.exists(a):
             copy(a, os.path.join(ASSETS, f"beat_{b['index']:03d}.mp3"))
-    open(os.path.join(WORK, "index.html"), "w").write(seg_html(seg, audio_dir))
+
+
+def render_segment(seg, audio_dir, workdir=None):
+    """Render one segment to clips/seg_NNN.mp4 via the hyperframes CLI.
+
+    workdir: an isolated per-segment dir (parallel mode) with its own
+    index.html + hyperframes.json and a symlink to the shared assets/;
+    default is the shared WORK dir (serial mode)."""
+    stage_assets(seg, audio_dir)
+    wd = workdir or WORK
+    if workdir:
+        os.makedirs(wd, exist_ok=True)
+        link = os.path.join(wd, "assets")
+        if not os.path.exists(link):
+            os.symlink(ASSETS, link)
+        hf = os.path.join(wd, "hyperframes.json")
+        if not os.path.exists(hf):
+            json.dump({"name": "segments", "width": W, "height": H, "fps": 30},
+                      open(hf, "w"), indent=2)
+    open(os.path.join(wd, "index.html"), "w").write(seg_html(seg, audio_dir))
     dst = os.path.join(CLIPS, f"seg_{seg['seg_index']:03d}.mp4")
     if os.path.exists(dst):
         os.remove(dst)
@@ -211,7 +232,7 @@ def render_segment(seg, audio_dir):
     # container (that prompt aborts with exit 1). Capture output so a render
     # failure raises WITH the real reason instead of a blind exit status.
     r = subprocess.run(["npx", "--yes", "hyperframes", "render", "-o", dst],
-                       cwd=WORK, capture_output=True, text=True)
+                       cwd=wd, capture_output=True, text=True)
     if r.returncode != 0:
         tail = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()[-800:]
         raise RuntimeError(
@@ -220,20 +241,108 @@ def render_segment(seg, audio_dir):
     return dst
 
 
+def _title_card(text, sub, dst, dur=3.0):
+    """E5: render an intro/outro title card through hyperframes itself — the
+    same render path as every segment, so typography and encoding are always
+    consistent and there is no ffmpeg-drawtext/font dependency (the local
+    ffmpeg build has no drawtext; the container's does — this way it doesn't
+    matter)."""
+    import html as _html
+    wd = os.path.join(WORK, ".card")
+    os.makedirs(wd, exist_ok=True)
+    json.dump({"name": "card", "width": W, "height": H, "fps": 30},
+              open(os.path.join(wd, "hyperframes.json"), "w"))
+    page = f"""<!doctype html><html><head><meta charset="UTF-8" />
+<meta name="viewport" content="width={W}, height={H}" />
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<style>* {{margin:0;padding:0;box-sizing:border-box}}
+html,body {{width:{W}px;height:{H}px;overflow:hidden;background:#101014}}
+#root {{position:relative;width:{W}px;height:{H}px;background:radial-gradient(ellipse at center,#1c1c24 0%,#101014 70%)}}
+.wrap {{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}}
+h1 {{color:#fff;font:800 76px -apple-system,Helvetica,sans-serif;letter-spacing:.5px;text-align:center;max-width:86%}}
+p {{color:#9a9aa5;font:500 34px -apple-system,Helvetica,sans-serif;letter-spacing:4px;text-transform:uppercase}}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="{dur}" data-width="{W}" data-height="{H}">
+  <div class="clip wrap" id="w" data-start="0" data-duration="{dur}" data-track-index="0">
+    <h1>{_html.escape(text)}</h1><p>{_html.escape(sub)}</p>
+  </div>
+</div>
+<script>
+window.__timelines = window.__timelines || {{}};
+const tl = gsap.timeline({{ paused: true }});
+tl.from("#w", {{ opacity: 0, duration: 0.5, ease: "power2.out" }}, 0);
+tl.to("#w", {{ opacity: 0, duration: 0.5, ease: "power2.in" }}, {dur - 0.5});
+window.__timelines["main"] = tl;
+</script></body></html>"""
+    open(os.path.join(wd, "index.html"), "w").write(page)
+    r = subprocess.run(["npx", "--yes", "hyperframes", "render", "-o", dst],
+                       cwd=wd, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"title card failed (skipping): {(r.stderr or r.stdout or '')[-160:]}")
+        return False
+    # give the silent card an audio track so concat streams stay uniform
+    tmp = dst + ".a.mp4"
+    r2 = subprocess.run(
+        ["ffmpeg", "-y", "-i", dst, "-f", "lavfi",
+         "-i", f"anullsrc=r=44100:cl=stereo:d={dur}",
+         "-c:v", "copy", "-c:a", "aac", "-shortest", tmp],
+        capture_output=True, text=True)
+    if r2.returncode == 0:
+        os.replace(tmp, dst)
+    return True
+
+
+def _mix_bgm(final_path, bgm_path):
+    """E4: loop a background track under the narration, quiet and padded to
+    the video's length. No track ships with the repo (rights) — drop a
+    licensed bgm.mp3 into the workspace (or point HF_BGM at one) to enable."""
+    tmp = final_path + ".bgm.mp4"
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-i", final_path, "-stream_loop", "-1", "-i", bgm_path,
+         "-filter_complex",
+         "[1:a]volume=0.12[quiet];[0:a][quiet]amix=inputs=2:duration=first:dropout_transition=0",
+         "-c:v", "copy", "-shortest", tmp],
+        capture_output=True, text=True)
+    if r.returncode == 0:
+        os.replace(tmp, final_path)
+        print(f"BGM mixed under narration ({os.path.basename(bgm_path)})")
+    else:
+        print(f"BGM mix failed (kept clean audio): {(r.stderr or '')[-200:]}")
+
+
 def concat(segments, final_path):
-    """Concatenate all segment clips in order into the final video."""
+    """Concatenate all segment clips in order into the final video, with
+    optional intro/outro title cards (E5) and background music bed (E4)."""
     listing = os.path.join(WORK, "concat.txt")
+    entries = []
+    title = os.environ.get("HF_TITLE", "")
+    if title:
+        intro = os.path.join(CLIPS, "intro.mp4")
+        if _title_card(title, os.environ.get("HF_SUBTITLE", "RECAP"), intro):
+            entries.append(intro)
+    for seg in segments:
+        clip = os.path.join(WORK, seg["clip"])
+        if not os.path.exists(clip):
+            raise SystemExit(f"missing clip for segment {seg['seg_index']} "
+                             f"— render it first")
+        entries.append(os.path.abspath(clip))
+    if title:
+        outro = os.path.join(CLIPS, "outro.mp4")
+        if _title_card(os.environ.get("HF_OUTRO", "To be continued…"), title, outro):
+            entries.append(outro)
     with open(listing, "w") as f:
-        for seg in segments:
-            clip = os.path.join(WORK, seg["clip"])
-            if not os.path.exists(clip):
-                raise SystemExit(f"missing clip for segment {seg['seg_index']} "
-                                 f"— render it first")
-            f.write(f"file '{os.path.abspath(clip)}'\n")
+        for e in entries:
+            f.write(f"file '{e}'\n")
+    # Title cards are separately-encoded streams; concat re-encodes only when
+    # cards are present, else stays stream-copy fast.
+    codec = ["-c", "copy"] if not title else []
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listing,
-                    "-c", "copy", final_path], check=True,
+                    *codec, final_path], check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"Concatenated {len(segments)} clips -> {final_path}")
+    print(f"Concatenated {len(entries)} clips -> {final_path}")
+    bgm = os.environ.get("HF_BGM", os.path.join(WORK, "bgm.mp3"))
+    if os.path.exists(bgm):
+        _mix_bgm(final_path, bgm)
 
 
 def main():
@@ -241,7 +350,22 @@ def main():
     ap.add_argument("--only", type=int, help="re-render just this segment index, then re-concat")
     ap.add_argument("--limit", type=int, help="render only the first N segments (test)")
     ap.add_argument("--concat-only", action="store_true", help="skip rendering, just concat existing clips")
+    ap.add_argument("--force", action="store_true", help="re-render segments even if their clip exists (E6: default skips existing)")
+    ap.add_argument("--workers", type=int, default=1, help="parallel local renders (E6); keep 1 on memory-tight hosts (Railway)")
+    ap.add_argument("--cards-only", action="store_true", help="render just intro/outro title cards (E5) from HF_TITLE/HF_SUBTITLE/HF_OUTRO")
     args = ap.parse_args()
+
+    if args.cards_only:
+        ensure_project()
+        title = os.environ.get("HF_TITLE", "")
+        if not title:
+            raise SystemExit("--cards-only needs HF_TITLE")
+        ok1 = _title_card(title, os.environ.get("HF_SUBTITLE", "RECAP"),
+                          os.path.join(CLIPS, "intro.mp4"))
+        ok2 = _title_card(os.environ.get("HF_OUTRO", "To be continued…"), title,
+                          os.path.join(CLIPS, "outro.mp4"))
+        print(f"cards: intro={'ok' if ok1 else 'FAIL'} outro={'ok' if ok2 else 'FAIL'}")
+        return
 
     segments_path = os.path.join(WORK, "segments.json")
     if os.path.exists(segments_path):
@@ -284,10 +408,35 @@ def main():
         return
 
     todo = segments[:args.limit] if args.limit else segments
-    for i, seg in enumerate(todo, 1):
-        render_segment(seg, audio_dir)
-        print(f"[{i}/{len(todo)}] seg {seg['seg_index']:3} {seg['panel_id']} "
-              f"({seg['dur']:.1f}s, {len(seg['beats'])} beat(s))")
+    if not args.force:  # E6: incremental — only render what's missing
+        missing = [s for s in todo if not os.path.exists(
+            os.path.join(CLIPS, f"seg_{s['seg_index']:03d}.mp4"))]
+        if len(missing) < len(todo):
+            print(f"Incremental: {len(todo) - len(missing)} clip(s) exist, "
+                  f"rendering {len(missing)} (use --force to redo all)")
+        todo = missing
+
+    if args.workers > 1 and len(todo) > 1:
+        # E6 parallel: stage all assets serially (no copy races), then render
+        # in isolated per-segment workdirs.
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        for seg in todo:
+            stage_assets(seg, audio_dir)
+        par = os.path.join(WORK, ".par")
+        os.makedirs(par, exist_ok=True)
+        with ThreadPoolExecutor(max_workers=args.workers) as ex:
+            futs = {ex.submit(render_segment, seg, audio_dir,
+                              os.path.join(par, f"seg_{seg['seg_index']:03d}")): seg
+                    for seg in todo}
+            for n, fut in enumerate(as_completed(futs), 1):
+                seg = futs[fut]
+                fut.result()  # re-raise render errors with their real reason
+                print(f"[{n}/{len(todo)}] seg {seg['seg_index']:3} {seg['panel_id']}")
+    else:
+        for i, seg in enumerate(todo, 1):
+            render_segment(seg, audio_dir)
+            print(f"[{i}/{len(todo)}] seg {seg['seg_index']:3} {seg['panel_id']} "
+                  f"({seg['dur']:.1f}s, {len(seg['beats'])} beat(s))")
     if not args.limit:
         concat(segments, final)
 
