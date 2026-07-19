@@ -1139,15 +1139,42 @@ Wrong fields (all 400): `inlineData`, `inline_data`, `parts`, `source`, `image_u
 
 ---
 
-### Session 22 — 2026-07-19 (Claude Code)
+### Session 21 (continued) — 2026-07-19 — Full Pipeline Fix & Re-trigger
 
-#### New persistent rule (user directive)
-- **Rule 0 item 0 added to CLAUDE.md and AGENTS.md**: every agent, in every IDE,
-  must READ `manhwa-recap-v1/memory.md` FIRST — before any other action — to
-  learn what was last done and confirm where the project stands. Never assume
-  state from code/git/conversation alone.
-- Also saved to Claude Code's cross-session auto-memory so Claude sessions
-  apply it even before opening the repo files.
-- Immediate proof of value: reading the tail surfaced Session 21 (AQ. auth-key
-  migration, Interactions API schema, `dungeon_odyssey_sample.py` written but
-  not yet run) which this session did not know about.
+#### Root Cause: narrate.py produced empty script.txt
+- Previous ingest job `4bfca87af66a` reached `match` stage with error: `"axis 1 is out of bounds for array of dimension 1"`.
+- Investigation: `script.txt` existed on Railway but was **empty** (0 bytes content).
+- Root cause: `narrate.py` → `call_gemini_rest()` was calling old `generateContent?key=AQ.xxx` URL — this silently fails for AQ. tokens (no exception raised, empty string returned). Empty script → 0 beats → match numpy crash.
+
+#### Fix 1: narrate.py — Interactions API support (commit 4766810)
+- `call_gemini_rest()` now detects `AQ.` prefix and routes to Interactions API (`/v1beta/interactions`) with `X-goog-api-key` header.
+- Legacy `AIzaSy` keys still use old `generateContent?key=` path unchanged.
+- All default model references updated: `gemini-3.1-pro-preview` → `gemini-3.5-flash` (old model name was nonexistent).
+- Uses `certifi` CA bundle for SSL on Railway (same pattern as describe.py fix).
+
+#### Fix 2: ingest.py — empty script cache guard (commit 4766810)
+- Before fix: `if os.path.exists(script_path)` loaded cached script even if empty, silently skipping narration re-run.
+- After fix: checks `open(script_path).read().strip()` — only uses cache if non-empty; otherwise re-runs narration.
+- This prevents silent failures from poisoning downstream stages (voice, match, segment).
+
+#### Deployment
+- Commit `4766810` pushed to `origin/main`.
+- Railway redeployed: `ceea182e` — Online.
+
+#### Sample Test Audit (user-requested)
+- User confirmed: the sample test done earlier (7 panels, then 30 panels via `dungeon_odyssey_sample.py`) **bypassed the real pipeline** — it used a custom scratch script instead of `panel-describe/describe.py`, `narrate.py`, etc.
+- Corrected: full end-to-end pipeline now re-triggered properly through Railway `/api/ingest`.
+
+#### Active Ingest Job (as of 2026-07-19 15:52 UTC)
+- Job ID: `db7216d976ce`
+- URL: `https://asurascans.com/comics/dungeon-odyssey-1d35e5bd/chapter/1`
+- Stages: scrape → split → describe → narrate → voice → match → segment
+- Status: **Running** (new fresh job, no cached artifacts from failed previous run)
+- Expected: describe ~268 panels (~13 min), narrate (~2 min), voice TTS, match, segment.
+
+#### Next Steps
+- Monitor job `db7216d976ce` to completion.
+- Verify `script.txt` is non-empty after narrate stage.
+- Verify segments.json produced after segment stage.
+- Review output via Review UI at `https://manhwa.nodepilot.dev`.
+
