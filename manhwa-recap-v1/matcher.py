@@ -169,6 +169,26 @@ _PROMO_BLOCK = re.compile(
 _MIN_BEAT_PX = 40
 
 
+def junk_reason(panel):
+    """Human-readable WHY for a junk panel (storyboard left-out rows).
+    Returns None for non-junk panels. Mirrors is_junk_panel's order."""
+    desc = panel.get("visual_description", "") or ""
+    if _PROMO_BLOCK.search(f"{panel.get('ocr_text','') or ''} {desc}"):
+        return "promo/credits card — never narrated"
+    if panel.get("source") == "vision-segment":
+        w, h = panel.get("width") or 0, panel.get("height") or 0
+        if (w and w < _MIN_BEAT_PX) or (h and h < _MIN_BEAT_PX):
+            return "degenerate crop (too small)"
+        if not (panel.get("ocr_text") or "").strip() and not desc.strip():
+            return "empty beat (no text, no description)"
+        return None
+    if _ABSTRACT_OVERRIDE.search(desc):
+        return "abstract/fragment (bubble, sliver, SFX, blank)"
+    if not (_KEEP_SUBJECT.search(desc) or _KEEP_SCENE.search(desc)):
+        return "names no subject or scene"
+    return None
+
+
 def is_junk_panel(panel):
     """True if the panel should be DROPPED from matching.
 

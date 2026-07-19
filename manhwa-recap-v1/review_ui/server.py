@@ -1163,7 +1163,7 @@ def media():
 
 # ---- D1: interactive storyboard (pre-render review gate) ----------------
 from fastapi.responses import HTMLResponse
-from storyboard import STORYBOARD_HTML
+import storyboard as _storyboard
 
 
 def _approval_path():
@@ -1179,7 +1179,12 @@ def storyboard_approved():
 
 @app.get("/storyboard")
 def storyboard_page():
-    return HTMLResponse(STORYBOARD_HTML)
+    """The combined review table (approved template): EVERY extracted panel,
+    OCR/description, script placement, render timing, live controls."""
+    import matcher
+    return HTMLResponse(_storyboard.build_storyboard_html(
+        active_project_dir(), matcher, load_review(),
+        usage.daily_summary(), storyboard_approved()))
 
 
 @app.get("/api/storyboard/approval")
