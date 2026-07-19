@@ -1341,3 +1341,25 @@ Log this plan BEFORE implementation (user directive 2026-07-19).
 5) Storyboard gate (server-side HTML gen, zero API cost)
 Est. added cost per chapter: <= $0.05. Est. saved: fewer re-renders + fewer
 wasted describe calls already landed separately.
+
+#### Session 22 (cont.) — TTS fixed by user; FULL VIDEO + video-plan table delivered
+- New TTS_API_KEY (standard AIza) verified working by direct probe.
+- Full enriched-cut video rendered end-to-end with SYSTEM components:
+  beat_segmenter (85 beats) -> server._synth_rest TTS (446s narration,
+  usage-gated) -> matcher gemini-embeddings+dp (85-panel non-junk pool) ->
+  build_segments (50 segments) -> render_segments.py (50 clips, concat).
+  OUTPUT: ~/dev/dungeon-odyssey-review/full/dungeon_odyssey_ch1_enriched_fullcut.mp4
+  (7:27, h264+aac, 184MB). Verified via ffprobe; opened for user.
+- video_plan.html delivered (same folder): renderer's ACTUAL timeline from
+  segments.json + real TTS durations — 50 rows: time in/out, hold length,
+  Ken Burns direction (even=push-in/odd=pull-out), 0.4s fade/scale entrance,
+  hard-cut transitions, per-beat narration offsets; 9 holds >12s flagged
+  (evidence FOR plan Change 2).
+- Renderer interface note: current render_segments.py (7a463cf+) loads
+  segments.json directly and takes HF_PANELS_DIR (how server.py drives it);
+  the "ensure_project" scaffolding is NOT auto-run in this path — workspace
+  needs assets/ clips/ + hyperframes.json pre-created (render_sample.py
+  handles it via mkdir now).
+- Prod job 55df049167d1 (post-redeploy): split+describe near-free (merge
+  cache), narrate in progress. Prior job da7cfaaddceb killed by the redeploy
+  mid-narrate (expected).
