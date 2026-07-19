@@ -1679,3 +1679,19 @@ Every change committed+pushed individually; per-change verification evidence bel
   5) Local TestClient verification with fixture data (incl. synthetic
      script.json to exercise all color states), then Railway deploy +
      live verify on dungeon-odyssey_2, then hand link back to user.
+
+#### Session 22 (cont.) — REBUILT STORYBOARD VERIFIED LIVE (approved template, all panels)
+- Deploy landed (3rd upload attempt; Railway TLS flakes persist). Live
+  verification on dungeon-odyssey_2 via authenticated fetch of /storyboard:
+  120 rows = EVERY extracted crop; 30 blue on-screen · 39 yellow folded ·
+  51 red left-out (each with junk_reason) · 0 gray. Header matches approved
+  template: "combined: all 120 panels · story placement · render timing
+  (32 segments, 4:08)".
+- 0 gray rows = every non-junk panel carries provenance -> script.json
+  used in production, CONFIRMED. Also direct: /api/debug/cat?project=
+  dungeon-odyssey_2&path=script.json returns the units (fixed endpoint
+  live).
+- User link (unchanged): https://manhwa.nodepilot.dev/storyboard
+- Remaining watch-item: user to judge extraction depth (ch2: 120 crops vs
+  ch1: 126) now that ALL crops are visible on the board; splitter tuning
+  only if the board shows real misses.
