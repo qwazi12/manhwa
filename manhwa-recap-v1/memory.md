@@ -1455,3 +1455,27 @@ Change 6 — INTERACTIVE STORYBOARD AS THE REVIEW SURFACE (institutionalized):
     review tool (old UI stays for video playback until parity).
 User verdict logged: combined table is institutionalized as the pre-render
 review gate; catches misassignment/dead holds/junk before render spend.
+
+#### Session 22 (cont.) — Consolidated improvement program presented for approval
+- All prior proposals unified into 4 tracks (A narration quality, B correct
+  panel-narration binding, C visual presentation, D review workflow) — see
+  the approval message to user 2026-07-19; IDs A1-A4, B1-B2, C1-C2, D1-D3.
+- NEW additional candidates proposed (not yet in plan, pending user interest):
+  E1 job resume-safety (server restart currently kills running ingest
+     silently — mark aborted on boot + optional auto-resume from cached
+     stages; observed with job da7cfaaddceb killed by redeploy)
+  E2 hash-keyed TTS cache (beat mp3 keyed by text hash, not index — script
+     edits then only re-TTS changed sentences; index-keyed cache breaks on
+     any insertion)
+  E3 scene-aware pause rhythm (uniform 0.35s beat gap -> longer pause at
+     scene boundaries, shorter within — cheap watchability win)
+  E4 background-music bed at concat (ffmpeg amix, license-safe track,
+     volume-ducked under narration)
+  E5 intro/outro title cards (series+chapter from scraped metadata; cheap
+     hyperframes segments)
+  E6 incremental + parallel clip rendering (only changed segments re-render
+     [--only exists]; 2-4 parallel local workers; keep serial on Railway)
+  E7 Railway volume backup routine (periodic download of projects/ snapshot;
+     unpushed volume data = same risk class as unpushed code)
+  E8 SECURITY (user-side, still open): rotate creds pasted into chat
+     transcripts (incl. the AQ. Gemini key) + the 4 previously-leaked ones.
