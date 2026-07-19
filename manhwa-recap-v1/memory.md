@@ -1629,3 +1629,23 @@ Every change committed+pushed individually; per-change verification evidence bel
   projects' match_method via /api/projects.
 - BACKLOG (tracked): fresh=1 ingest flag (regenerate ch1 under new
   pipeline); job-cancel endpoint; backup excludes page images.
+
+#### Session 22 (cont.) — storyboard 404 root cause + fix
+- User hit 404 at manhwa.nodepilot.dev/storyboard. My earlier "401 =
+  reachable" check was WRONG: middleware 401s before routing, so it proved
+  nothing about the rewrite (lesson: verify THROUGH auth, or via deployment
+  inspection).
+- ROOT CAUSE: two Vercel projects exist. The domain is served by
+  "manhwa-studio" rooted at review_ui/static/ (own vercel.json+middleware);
+  my earlier deploy went to the unused repo-root project "manhwa".
+- FIX: /storyboard rewrite added to static/vercel.json; deployed from
+  static/ (vercel link --project manhwa-studio); `vercel inspect
+  manhwa.nodepilot.dev` confirms the domain now serves deployment
+  manhwa-studio-oq9imm77y (the one WITH the rewrite). Committed+pushed.
+- NOTE: could not curl-verify with Basic Auth (creds pulled via `vercel env
+  pull` fail even on / which the user logs into daily -> my cred parsing is
+  wrong; did not dig further into auth secrets). Final confirmation =
+  user retries the link.
+- Repo-root vercel.json/middleware/package.json belong to the unused
+  "manhwa" Vercel project — BACKLOG: consolidate to one project to prevent
+  this split-brain again.
