@@ -1268,3 +1268,76 @@ Wrong fields (all 400): `inlineData`, `inline_data`, `parts`, `source`, `image_u
 - Cost tracking (2.8): usage.py live — today 416 gemini calls / $0.416 est;
   per-job: db7216d976ce 326 calls, da7cfaaddceb 90 calls. Ruler full-chapter
   reference: 606 calls + 36,684 TTS chars ≈ $2.21/day est.
+
+---
+
+### PLAN (approved direction, NOT yet implemented) — "Attentive-editor" narration upgrade
+User approved the diagnosis (Session 22): the pipeline must behave like the
+hand-authored samples — read -> draft -> verify, with editorial judgment.
+Log this plan BEFORE implementation (user directive 2026-07-19).
+
+#### Gap analysis (what the hand-made samples did that the system doesn't)
+(a) SELECTION: samples scored panels (pixel area + dialogue-OCR bonus) and
+    let junk/filler carry zero narration; the system narrates all non-junk
+    panels and force-matches EVERY panel 1:1 -> dead 20-48s holds (ruler
+    baseline: mean hold 22.4s, max 48.1s).
+(b) STYLE CONTRACT: samples followed explicit rules (story-first, third
+    person past tense, reported dialogue - no quotation marks, every
+    sentence = event/reaction/realization/intention/consequence, zero
+    panel/camera language, controlled inference "enriched" mode); narrate.py
+    prompts only approximate this.
+(c) VERIFY PASS: samples were checked against the panel list before
+    delivery; the system ships its first draft.
+
+#### Change 1 — Style contract in narrate.py (file: manhwa-recap-v1/narrate.py)
+- Put the user-approved contract VERBATIM into both prompts (beatsheet +
+  narrate_scene) as a numbered RULES block; add 2-3 few-shot lines taken
+  from the approved Dungeon Odyssey enriched sample (fixtures below).
+- Add "enrichment policy" paragraph: infer motive/subtext ONLY when the
+  panel text/art implies it; never invent names, numbers, or events.
+- Acceptance: regenerated dungeon ch1 script contains no quotation-mark
+  dialogue, no "the panel shows/camera" phrasing, sentences carry events.
+
+#### Change 2 — Panel importance + skippable filler (files: matcher.py, ingest.py)
+- score_panel(p) = norm(area) + w_ocr*has_real_dialogue + w_desc*(names
+  subject AND scene) (pure local heuristic, zero API calls — same scoring
+  used to pick the 30-panel sample).
+- matcher: allow LOW-importance panels to be skipped (no beat assigned)
+  instead of force-full-coverage; cap single-panel hold at ~12s by letting
+  a long beat span 2+ panels of the same scene when available.
+- Acceptance: re-run on ruler ch1 -> max hold <= ~15s, no beat lands on a
+  text-fragment/SFX panel; junk+low-importance panels absent from timeline.
+
+#### Change 3 — Critique-and-revise pass (file: narrate.py, +1 Gemini call/scene-group)
+- After draft: one reviewer call per chapter (not per scene): input = panel
+  list (id+desc+ocr) + draft script; output = JSON issues list
+  {type: hallucination|misorder|missed_beat|style_violation, where, fix}.
+- If issues: ONE revision call applying fixes. Hard cap: 2 extra calls per
+  chapter (~$0.04). Log issues found into the project dir for review.
+- Acceptance: reviewer finds 0 issues on the golden fixture; injected
+  fake-name test is caught.
+
+#### Change 4 — Golden fixtures + regression harness (new: manhwa-recap-v1/eval/)
+- Store: dungeon ch1 descriptions.json (126 panels), the approved
+  script_a_enriched.txt (30-panel sample), script_full_enriched.txt (full),
+  + a small rubric checklist.
+- eval/run_eval.py: re-runs narrate on the fixture descriptions after any
+  prompt change; diffs structure (beat count, ordering vs panel order,
+  banned-phrase scan, quotation scan); prints PASS/FAIL table. No video.
+- Rule: prompt changes REQUIRE a fixture run logged to memory.md.
+
+#### Storyboard review gate (user's "table" institutionalized)
+- After match/segment (before any render): auto-generate storyboard.html
+  into the project dir — per segment: panel image, beats text, start/end,
+  duration, motion (Ken Burns in/out), transition-in; same layout as the
+  Session-22 review tables. Serve via review UI ("Storyboard" tab/link).
+- Renders become opt-in AFTER storyboard approval (or auto for small jobs).
+
+#### Order & cost
+1) Change 1 (prompt-only, zero new cost) -> fixture run
+2) Change 4 harness (local-only) so 1-3 are measurable
+3) Change 2 (local scoring + matcher constraint)
+4) Change 3 (+<= 2 calls/chapter)
+5) Storyboard gate (server-side HTML gen, zero API cost)
+Est. added cost per chapter: <= $0.05. Est. saved: fewer re-renders + fewer
+wasted describe calls already landed separately.
