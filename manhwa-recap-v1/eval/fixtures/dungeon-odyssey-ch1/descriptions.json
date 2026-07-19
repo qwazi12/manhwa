@@ -1,0 +1,2018 @@
+[
+ {
+  "panel_id": "page001_panel_001",
+  "file": "page001_panel_001.png",
+  "width": 1200,
+  "height": 800,
+  "bbox": [
+   0,
+   0,
+   1200,
+   800
+  ],
+  "ocr_text": "1 / DUNGEON ODYSSEY / AsuraScans / discord.gg/asurascans / AsuraScans.com / TL DOTORI / PR LEAFSKY / CL MADO / RD MADO / TS MADO / QC MADO",
+  "visual_description": "Displaying chapter credits on a futuristic purple-themed interface, this title page features a dark-haired warrior with a sword, a horned demon girl, and a hooded figure with glowing white eyes.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_004",
+  "file": "page002_panel_004.png",
+  "width": 233,
+  "height": 114,
+  "bbox": [
+   0,
+   0,
+   233,
+   114
+  ],
+  "ocr_text": "",
+  "visual_description": "Glowing intensely in the pitch-black darkness, three stylized orange-red blobs resemble the menacing eyes of a creature.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_005_shot_01",
+  "file": "page002_panel_005_shot_01.png",
+  "width": 712,
+  "height": 794,
+  "bbox": [
+   0,
+   0,
+   712,
+   794
+  ],
+  "ocr_text": "THE WAR WITH THE LABYRINTH THAT WENT ON FOR DECADES",
+  "visual_description": "Looking up at a colossal, slit-pupil monster eye, a soldier wearing a futuristic helmet stands in the foreground, while a small silhouette with glowing red eyes floats in the distant, fleshy background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_005_shot_02",
+  "file": "page002_panel_005_shot_02.png",
+  "width": 712,
+  "height": 855,
+  "bbox": [
+   0,
+   0,
+   712,
+   855
+  ],
+  "ocr_text": "",
+  "visual_description": "Aiming a pistol at biomechanical adversaries, a soldier in tactical gear stands defensive as a dark, horned entity with glowing red eyes lunges at him, set against a dusty orange sky with a shark-like creature below.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_005_shot_03",
+  "file": "page002_panel_005_shot_03.png",
+  "width": 712,
+  "height": 855,
+  "bbox": [
+   0,
+   0,
+   712,
+   855
+  ],
+  "ocr_text": "",
+  "visual_description": "Charging forward in a chaotic battle, a horde of fantastical creatures including a roaring grey ape-monster, a small yellow-eyed goblin, a tree-like golem, and a giant land-shark advance aggressively alongside human soldiers in a medium shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_006",
+  "file": "page002_panel_006.png",
+  "width": 126,
+  "height": 49,
+  "bbox": [
+   0,
+   0,
+   126,
+   49
+  ],
+  "ocr_text": "ENDED",
+  "visual_description": "Displaying the stylized word 'ENDED' in bold, italicized white letters with orange-red splatters against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_007",
+  "file": "page002_panel_007.png",
+  "width": 233,
+  "height": 50,
+  "bbox": [
+   0,
+   0,
+   233,
+   50
+  ],
+  "ocr_text": "VICTORY FOR",
+  "visual_description": "Displaying bold, stylized white text with faint reddish blood-splatter textures against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_008",
+  "file": "page002_panel_008.png",
+  "width": 72,
+  "height": 48,
+  "bbox": [
+   0,
+   0,
+   72,
+   48
+  ],
+  "ocr_text": "THE",
+  "visual_description": "Slashing diagonally with reddish claw marks, the bold white italicized word 'THE' stands out against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_009",
+  "file": "page002_panel_009.png",
+  "width": 97,
+  "height": 50,
+  "bbox": [
+   0,
+   0,
+   97,
+   50
+  ],
+  "ocr_text": "ONES",
+  "visual_description": "Displaying the stylized title text 'ONES' in distressed bold white letters with a textured orange diagonal stripe cutting through the letter 'N' against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_010",
+  "file": "page002_panel_010.png",
+  "width": 122,
+  "height": 49,
+  "bbox": [
+   0,
+   0,
+   122,
+   49
+  ],
+  "ocr_text": "ABOVE",
+  "visual_description": "Spelling the word 'ABOVE' in a distressed, blood-splattered bold white font on a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_011",
+  "file": "page002_panel_011.png",
+  "width": 166,
+  "height": 50,
+  "bbox": [
+   0,
+   0,
+   166,
+   50
+  ],
+  "ocr_text": "GROUND.",
+  "visual_description": "Displaying the bold, stylized word 'GROUND.' in a distressed white font with a period against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_012",
+  "file": "page002_panel_012.png",
+  "width": 712,
+  "height": 1034,
+  "bbox": [
+   0,
+   0,
+   712,
+   1034
+  ],
+  "ocr_text": "",
+  "visual_description": "Raising a massive flag while standing victorious atop a dark mound of monster carcasses, four silhouetted soldiers pose against a bright orange sunset gradient, carrying firearms and communication gear.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_013",
+  "file": "page002_panel_013.png",
+  "width": 60,
+  "height": 41,
+  "bbox": [
+   0,
+   0,
+   60,
+   41
+  ],
+  "ocr_text": "THE",
+  "visual_description": "Spelling out the word 'THE' in a bold, italicized white font against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_014",
+  "file": "page002_panel_014.png",
+  "width": 177,
+  "height": 41,
+  "bbox": [
+   0,
+   0,
+   177,
+   41
+  ],
+  "ocr_text": "THOUSANDS",
+  "visual_description": "Displaying the stylized word 'THOUSANDS' in bold, italicized white lettering with subtle gold-colored stains, set against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_015",
+  "file": "page002_panel_015.png",
+  "width": 45,
+  "height": 41,
+  "bbox": [
+   0,
+   0,
+   45,
+   41
+  ],
+  "ocr_text": "OF",
+  "visual_description": "Spelling out the word 'OF' in slanted, bold white lettering, this minimalist panel features text displayed against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_016",
+  "file": "page002_panel_016.png",
+  "width": 166,
+  "height": 41,
+  "bbox": [
+   0,
+   0,
+   166,
+   41
+  ],
+  "ocr_text": "PRISONERS",
+  "visual_description": "Displaying the word 'PRISONERS' in a stylized, metallic white and gold brush font. The bold, italicized lettering is centered against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_017",
+  "file": "page002_panel_017.png",
+  "width": 92,
+  "height": 41,
+  "bbox": [
+   0,
+   0,
+   92,
+   41
+  ],
+  "ocr_text": "AFTER",
+  "visual_description": "Spelling out the word 'AFTER' in a bold, italicized white typeface with subtle gold-textured distressing, set against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_018",
+  "file": "page002_panel_018.png",
+  "width": 83,
+  "height": 41,
+  "bbox": [
+   0,
+   0,
+   83,
+   41
+  ],
+  "ocr_text": "THEIR",
+  "visual_description": "Displaying the word 'THEIR' in bold, distressed white capital letters with gold-textured overlays against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_019",
+  "file": "page002_panel_019.png",
+  "width": 85,
+  "height": 41,
+  "bbox": [
+   0,
+   0,
+   85,
+   41
+  ],
+  "ocr_text": "LOSS.",
+  "visual_description": "Appearing in bold, slanted letters against a stark black background, the word 'LOSS.' features a beige-and-white marbled texture.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_020",
+  "file": "page002_panel_020.png",
+  "width": 712,
+  "height": 1044,
+  "bbox": [
+   0,
+   0,
+   712,
+   1044
+  ],
+  "ocr_text": "",
+  "visual_description": "Walking up a rocky path toward a bright, white light radiating from a large cave opening, a crowd of silhouetted people is seen from behind in a low-angle shot within a dark cavern.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_021",
+  "file": "page002_panel_021.png",
+  "width": 190,
+  "height": 48,
+  "bbox": [
+   0,
+   0,
+   190,
+   48
+  ],
+  "ocr_text": "AMONGST",
+  "visual_description": "Displaying the stylized word 'AMONGST' in a bold, italicized white font with distressed textures, set against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_022",
+  "file": "page002_panel_022.png",
+  "width": 103,
+  "height": 48,
+  "bbox": [
+   0,
+   0,
+   103,
+   48
+  ],
+  "ocr_text": "THEM",
+  "visual_description": "Displaying the word 'THEM' in distressed, white italicized block letters against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_023",
+  "file": "page002_panel_023.png",
+  "width": 105,
+  "height": 49,
+  "bbox": [
+   0,
+   0,
+   105,
+   49
+  ],
+  "ocr_text": "WERE",
+  "visual_description": "Displaying the bold, stylized English word 'WERE' in italicized white font with slightly distressed golden-brown textures on a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_025",
+  "file": "page002_panel_025.png",
+  "width": 49,
+  "height": 49,
+  "bbox": [
+   0,
+   0,
+   49,
+   49
+  ],
+  "ocr_text": "IN",
+  "visual_description": "Glowing with a gold-marbled texture on a solid black background, stylized white italic letters spell out 'IN'.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_026",
+  "file": "page002_panel_026.png",
+  "width": 211,
+  "height": 49,
+  "bbox": [
+   0,
+   0,
+   211,
+   49
+  ],
+  "ocr_text": "LABYRINTH.",
+  "visual_description": "Displaying the title word 'LABYRINTH.' in bold, distressed white italicized capital letters with a weathered texture against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_028",
+  "file": "page002_panel_028.png",
+  "width": 712,
+  "height": 912,
+  "bbox": [
+   0,
+   0,
+   712,
+   912
+  ],
+  "ocr_text": "",
+  "visual_description": "Sleeping peacefully on a plush red tasseled cushion, a dark-haired infant wrapped in a grey hooded robe rests with closed eyes. The baby has distinctive dot-like eyebrows on their forehead, set against a stark black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_029",
+  "file": "page002_panel_029.png",
+  "width": 117,
+  "height": 57,
+  "bbox": [
+   0,
+   0,
+   117,
+   57
+  ],
+  "ocr_text": "WITH",
+  "visual_description": "Spelling out the word 'WITH' in bold, stylized white italicized letters with diagonal red blood-like streaks slashed across them, presented against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_030",
+  "file": "page002_panel_030.png",
+  "width": 130,
+  "height": 58,
+  "bbox": [
+   0,
+   0,
+   130,
+   58
+  ],
+  "ocr_text": "THEIR",
+  "visual_description": "Displaying the word 'THEIR' in bold, italicized white capital letters textured with red bloodstains, set against a plain black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_031",
+  "file": "page002_panel_031.png",
+  "width": 219,
+  "height": 58,
+  "bbox": [
+   0,
+   0,
+   219,
+   58
+  ],
+  "ocr_text": "MOTHERS",
+  "visual_description": "Spelling out the word 'MOTHERS' in a bold, italicized white sans-serif font splattered with red blood streaks against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_033",
+  "file": "page002_panel_033.png",
+  "width": 206,
+  "height": 58,
+  "bbox": [
+   0,
+   0,
+   206,
+   58
+  ],
+  "ocr_text": "ALREADY",
+  "visual_description": "Spelling out the word 'ALREADY' in bold white stylized letters splattered with red bloodstains against a pitch-black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_034",
+  "file": "page002_panel_034.png",
+  "width": 132,
+  "height": 62,
+  "bbox": [
+   0,
+   0,
+   132,
+   62
+  ],
+  "ocr_text": "DEAD,",
+  "visual_description": "Spelling out the word 'DEAD,' in thick, white block letters with red bloodstains, set against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_036",
+  "file": "page002_panel_036.png",
+  "width": 712,
+  "height": 895,
+  "bbox": [
+   0,
+   0,
+   712,
+   895
+  ],
+  "ocr_text": "",
+  "visual_description": "Spreading arms wide in front of a giant red moon, a cloaked, masked entity controls a large skeletal hand cradling a tiny, sleeping figure. The medium shot emphasizes the dark, gothic atmosphere with bold lines and high-contrast red and black colors.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_038",
+  "file": "page002_panel_038.png",
+  "width": 86,
+  "height": 44,
+  "bbox": [
+   0,
+   0,
+   86,
+   44
+  ],
+  "ocr_text": "THEY",
+  "visual_description": "Displaying the bold, italicized white text 'THEY' centered against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_039",
+  "file": "page002_panel_039.png",
+  "width": 86,
+  "height": 44,
+  "bbox": [
+   0,
+   0,
+   86,
+   44
+  ],
+  "ocr_text": "WERE",
+  "visual_description": "Displaying the word 'WERE' in bold, white, italicized capital letters set against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_040",
+  "file": "page002_panel_040.png",
+  "width": 119,
+  "height": 44,
+  "bbox": [
+   0,
+   0,
+   119,
+   44
+  ],
+  "ocr_text": "RAISED",
+  "visual_description": "Standing out against a solid black background, the bold, stylized word 'RAISED' is written in italicized white capital letters.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_043",
+  "file": "page002_panel_043.png",
+  "width": 84,
+  "height": 43,
+  "bbox": [
+   0,
+   0,
+   84,
+   43
+  ],
+  "ocr_text": "WITH",
+  "visual_description": "Presenting the word 'WITH' in stylized white italic capital letters against a pitch-black background, framed in a close-up text panel with no characters present.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_044",
+  "file": "page002_panel_044.png",
+  "width": 284,
+  "height": 44,
+  "bbox": [
+   0,
+   0,
+   284,
+   44
+  ],
+  "ocr_text": "MONSTERS' MILK.",
+  "visual_description": "Displaying bold, white, italicized text on a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page002_panel_045",
+  "file": "page002_panel_045.png",
+  "width": 712,
+  "height": 107,
+  "bbox": [
+   0,
+   0,
+   712,
+   107
+  ],
+  "ocr_text": "",
+  "visual_description": "Spreading across a dark, textured purple background, jagged black roots or cracks stretch horizontally across the frame in a close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page003_panel_001",
+  "file": "page003_panel_001.png",
+  "width": 720,
+  "height": 2807,
+  "bbox": [
+   0,
+   0,
+   720,
+   2807
+  ],
+  "ocr_text": "HE LOOKS LIKE HE WAS BORN IN THERE. / IT TOOK HIM A WHILE. MAYBE HE CAME FROM THE DEEPER LEVELS? / AS HUMANITY CALLED THEM, / IT'S SAFE NOW, CHILD. / BE CAREFUL. IT LOOKS LIKE HE CAN'T CONTROL HIS POWERS YET.",
+  "visual_description": "Discussing a survivor, two uniformed guards express concern, while below, a small dark-haired boy with glowing blue eyes and a blank expression stands wrapped in a blanket, his body crackling with blue energy sparks.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page003_panel_002",
+  "file": "page003_panel_002.png",
+  "width": 714,
+  "height": 4383,
+  "bbox": [
+   0,
+   0,
+   714,
+   4383
+  ],
+  "ocr_text": "DUNGEON BABY. / FOCUS ON HIM. / WHAT? WE'RE HERE TO FILM THE SECOND FLOOR OF THE LABYRINTH. / \uc9c0\uc774\uc789 / LABYRINTH, MY ASS. IT'S BEEN YEARS SINCE IT'S BEEN FOUND. THERE'S NOTHING TO SHOOT ANYMORE. / AREN'T DUNGEON BABIES WELL-KNOWN BECAUSE OF THE MEDIA TOO? / HUHU. NOT REALLY. / IT'S A CHANCE FOR US TO BECOME MILLIONAIRES. WE'RE THE FIRST! / WHAT WOULD WE BE THE FIRST IN?",
+  "visual_description": "Staring forward with a somber, scarred face, a dark-haired young man is filmed through a camera viewfinder inside a dark rocky labyrinth where a film crew is gathered below.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page003_panel_003",
+  "file": "page003_panel_003.png",
+  "width": 696,
+  "height": 2132,
+  "bbox": [
+   0,
+   0,
+   696,
+   2132
+  ],
+  "ocr_text": "I DID A BIT OF INVESTIGATING. / \uc2a4\uc73d / YOU KNOW HOW DUNGEON BABIES ARE OBSESSED WITH DUNGEONS? / UH.. WELL...",
+  "visual_description": "Leaning in close with an eager, wide-eyed expression, a brown-haired girl speaks excitedly to a nervous boy wearing a headlamp inside a dark cave.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page004_panel_001",
+  "file": "page004_panel_001.png",
+  "width": 716,
+  "height": 5890,
+  "bbox": [
+   0,
+   0,
+   716,
+   5890
+  ],
+  "ocr_text": "APPARENTLY THAT PERSON IS THE ONLY DUNGEON BABY WHO REFUSES TO EVEN GO NEAR THE LABYRINTH. / THAT'S ALSO WHY HE'S THE ONLY DUNGEON BABY WHOSE LEVEL HASN'T BEEN REVEALED. / ISN'T IT BECAUSE HE'S JUST REALLY WEAK? / HAA... / I HIRED GUARDS JUST IN CASE, BUT WHO KNOWS? / HE COULD ACTUALLY BE VERY... / LET'S GET GOING. / HUH? / IT HASN'T EVEN BEEN TEN MINUTES... / IT'S DANGEROUS HERE. WE HAVE TO AT LEAST GET TO THE SECOND FLOOR'S ENTRANCE BEFORE TAKING A BREAK. / AND I'M TELLING YOU THIS AGAIN. / PLEASE TELL THE GUARDS TO AVOID USING GUNS EVEN IF WE COME ACROSS BEASTS.",
+  "visual_description": "Guiding a group of explorers through a dark cave, a dark-haired man in a long coat instructs two young adventurers and an armed guard to keep moving and avoid using firearms.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page004_panel_002",
+  "file": "page004_panel_002.png",
+  "width": 717,
+  "height": 4713,
+  "bbox": [
+   0,
+   0,
+   717,
+   4713
+  ],
+  "ocr_text": "WE NEED TO AVOID CONFLICT AS MUCH AS POSSIBLE. / \ud5c8\uc5b5! / YOU SURE WORRY A LOT. / DUNGEON BABY OR BUDDHA BABY WHATEVER. JUST BE SURE TO DO A GOOD JOB GUIDING US. / Ahaha / WE'LL PROTECT ALL BABIES. / THEY'RE NOT UNDERSTANDING AT ALL. / Tsk.. / DURING THIS USELESS SMALL TALK, SOMEONE IN THE LABYRINTH IS BEING RIPPED TO PIECES. / GYSER ISN'T SOME SKETCHY NEIGHBORHOOD. / WOAH! WHAT'S THAT?!",
+  "visual_description": "Guiding a group of dismissive miners through a dark cavern, a black-haired young man reacts grimly to their carefree chatter, while a freckled boy gasps in shock at something ahead.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page005_panel_001",
+  "file": "page005_panel_001.png",
+  "width": 709,
+  "height": 5877,
+  "bbox": [
+   0,
+   0,
+   709,
+   5877
+  ],
+  "ocr_text": "FIRE!! / \ud0c0\ud0d5 / \ud0d5 / \ud0c0\ud0d5 / \ud06c\uc6cc\uc5b4\uc5b4\uc5c9 / \ud06c\uc73d",
+  "visual_description": "Firing rifles frantically in a dark area, uniformed guards shoot at a massive reptilian monster that unleashes a deafening roar, forcing them to clutch their ears in terror.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_003",
+  "file": "page006_panel_003.png",
+  "width": 712,
+  "height": 724,
+  "bbox": [
+   0,
+   0,
+   712,
+   724
+  ],
+  "ocr_text": "HUH...",
+  "visual_description": "Staring in stunned disbelief and fear, two workers wearing blue caps and uniforms recoil with wide, terrified eyes. This medium close-up shot focuses on their shocked expressions against a dim, purplish background as sweat drips down their faces.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_004",
+  "file": "page006_panel_004.png",
+  "width": 712,
+  "height": 1039,
+  "bbox": [
+   0,
+   0,
+   712,
+   1039
+  ],
+  "ocr_text": "HAHA... W-WE... HAHAHA!! / HAH... HAHA / IT'S NOTHING!! UHAHAHA!!",
+  "visual_description": "Laughing nervously with strained and sweat-sheened expressions, three mine workers in blue caps look downward. This low-angle close-up captures their forced smiles, wide, anxious eyes, and uneasy chuckles against a dark, shadowy background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_005",
+  "file": "page006_panel_005.png",
+  "width": 712,
+  "height": 1617,
+  "bbox": [
+   0,
+   0,
+   712,
+   1617
+  ],
+  "ocr_text": "HEY, THAT WAS AWESOME! DID YOU GET IT? / OF COURSE! / SEE! / ALL MOVING THINGS DIE WHEN SHOT! / I WAS NERVOUS BECAUSE I HEARD PEOPLE DIE HERE, BUT THEY'RE JUST LIKE ANY OTHER ANIMAL.",
+  "visual_description": "Gathering inside a dark rocky cavern over the corpse of a monster, a group of armed miners and survivors converse confidently. A dark-haired young man in a long coat stands silently among them as they boast about their easy kill.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_007",
+  "file": "page006_panel_007.png",
+  "width": 347,
+  "height": 147,
+  "bbox": [
+   0,
+   0,
+   347,
+   147
+  ],
+  "ocr_text": "LET'S ALL PACK UP AND...",
+  "visual_description": "Floating on a solid black background, a single white oval speech bubble with a downward-pointing tail displays hand-lettered comic-style text.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_008",
+  "file": "page006_panel_008.png",
+  "width": 712,
+  "height": 1067,
+  "bbox": [
+   0,
+   0,
+   712,
+   1067
+  ],
+  "ocr_text": "NO, LET'S THROW OUT WHAT WE DON'T NEED AND RETURN. / \ube60\ub4dd. / WHAT ARE YOU TALKING ABOUT? THE SITUATION'S TAKEN CARE OF.",
+  "visual_description": "Clenching his fist tightly, a shadowed, imposing figure looms over a surprised man wearing a blue cap and vest in a dark, rocky cave.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_010",
+  "file": "page006_panel_010.png",
+  "width": 367,
+  "height": 171,
+  "bbox": [
+   0,
+   0,
+   367,
+   171
+  ],
+  "ocr_text": "DID YOU PISS YOURSELF OR SOMETHING?",
+  "visual_description": "Displaying a white oval speech bubble containing hand-lettered text against a solid black background, with its tail pointing upwards out of the frame.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_014_shot_01",
+  "file": "page006_panel_014_shot_01.png",
+  "width": 712,
+  "height": 290,
+  "bbox": [
+   0,
+   0,
+   712,
+   290
+  ],
+  "ocr_text": "M",
+  "visual_description": "Drifting through a dark starry sky, a jagged purple cloud formation or energy trail sits adjacent to a giant, stylized red sound effect.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_014_shot_02",
+  "file": "page006_panel_014_shot_02.png",
+  "width": 712,
+  "height": 241,
+  "bbox": [
+   0,
+   0,
+   712,
+   241
+  ],
+  "ocr_text": "\ucfe0\uc6c5",
+  "visual_description": "Crumbling and cracking under a dark purple aura, a rugged rock wall is overlaid with large, stylized red Korean sound effect text in a close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_014_shot_03",
+  "file": "page006_panel_014_shot_03.png",
+  "width": 712,
+  "height": 321,
+  "bbox": [
+   0,
+   0,
+   712,
+   321
+  ],
+  "ocr_text": "\ucfe0\uc6c5",
+  "visual_description": "Walking through a dark, purple-tinted cavern, a group of five explorers and miners in yellow helmets and heavy backpacks move forward. A young woman in a red jacket holds a recording device in the foreground as red sound effects loom on the right.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_014_shot_04",
+  "file": "page006_panel_014_shot_04.png",
+  "width": 712,
+  "height": 304,
+  "bbox": [
+   0,
+   0,
+   712,
+   304
+  ],
+  "ocr_text": "\uc5b4",
+  "visual_description": "Standing surrounded by armed guards in blue uniforms and caps, a tall man in a dark green trench coat confronts them on a purple-hued dirt ground. Medium shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_014_shot_05",
+  "file": "page006_panel_014_shot_05.png",
+  "width": 712,
+  "height": 241,
+  "bbox": [
+   0,
+   0,
+   712,
+   241
+  ],
+  "ocr_text": "\uc5b4",
+  "visual_description": "Standing on cracked, purple-hued ground, several figures' lower legs and shoes are visible from a high angle. A large Korean character is written stylized in the foreground on the right side over the rocky terrain.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_014_shot_06",
+  "file": "page006_panel_014_shot_06.png",
+  "width": 712,
+  "height": 205,
+  "bbox": [
+   0,
+   0,
+   712,
+   205
+  ],
+  "ocr_text": "",
+  "visual_description": "Floating in a dark, star-speckled void, a jagged purple landmass sits beside a glossy, curved metallic loop in a wide shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_015",
+  "file": "page006_panel_015.png",
+  "width": 712,
+  "height": 842,
+  "bbox": [
+   0,
+   0,
+   712,
+   842
+  ],
+  "ocr_text": "WH-WHAT'S THIS SOUND? / A PREDATOR HEARD THE GUNSHOTS.",
+  "visual_description": "Sweating and looking back in concern, a broad-faced man speaks beside a calm, black-haired youth against a purple cavern wall in a close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_016",
+  "file": "page006_panel_016.png",
+  "width": 402,
+  "height": 234,
+  "bbox": [
+   0,
+   0,
+   402,
+   234
+  ],
+  "ocr_text": "IT'S STILL FAR AWAY, SO IF WE RUN FOR THE EXIT RIGHT NOW...",
+  "visual_description": "Floating against a solid black background, a single rounded white speech bubble contains black text in a close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page006_panel_018",
+  "file": "page006_panel_018.png",
+  "width": 696,
+  "height": 696,
+  "bbox": [
+   0,
+   0,
+   696,
+   696
+  ],
+  "ocr_text": "LET'S FIGHT.",
+  "visual_description": "Looking directly forward with a tired, flat expression, a young man with messy black hair and faint facial scars delivers a calm challenge. Medium close-up shot showing him in dark collar-popped attire against a dark gradient background with floating black speckles.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_001",
+  "file": "page007_panel_001.png",
+  "width": 712,
+  "height": 1097,
+  "bbox": [
+   0,
+   0,
+   712,
+   1097
+  ],
+  "ocr_text": "WE'LL PROBABLY BE ABLE TO KILL IT IF WE GET IT ON A TIGHT PATH. / RIGHT, THIS ONE FELL AFTER JUST A FEW SHOTS. / AND THINK ABOUT IT. THE ONE WE JUST KILLED IS WORTH MILLIONS OF WON.",
+  "visual_description": "Huddling inside a dark purple-lit cave, several miners wearing headlamps discuss a plan around a dark, obscured figure in the foreground. Medium close-up focusing on their tense expressions against a jagged rock wall.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_002",
+  "file": "page007_panel_002.png",
+  "width": 707,
+  "height": 666,
+  "bbox": [
+   0,
+   0,
+   707,
+   666
+  ],
+  "ocr_text": "IF WE GET TWO EACH, IT'LL BE MORE THAN TEN MILLION FOR EACH OF US. / THIS WAS THEIR GOAL. / \uaf48\uc545",
+  "visual_description": "Pointing a massive, oversized finger from the foreground, an unseen speaker looms over a distressed black-haired man who clutches his face in anguish against a dark, rocky background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_003",
+  "file": "page007_panel_003.png",
+  "width": 712,
+  "height": 681,
+  "bbox": [
+   0,
+   0,
+   712,
+   681
+  ],
+  "ocr_text": "",
+  "visual_description": "Standing with his back to the viewer and extending his right hand outward, a young man in a blood-splattered blue jacket looks ahead against a stark white background. Medium close-up shot from behind.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_004",
+  "file": "page007_panel_004.png",
+  "width": 712,
+  "height": 440,
+  "bbox": [
+   0,
+   0,
+   712,
+   440
+  ],
+  "ocr_text": "",
+  "visual_description": "Staring downward with a somber, tired expression, a dark-haired young man's face is heavily cast in deep purple shadow against a stark white background in a close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_005",
+  "file": "page007_panel_005.png",
+  "width": 712,
+  "height": 1222,
+  "bbox": [
+   0,
+   0,
+   712,
+   1222
+  ],
+  "ocr_text": "DO AS YOU GUYS WISH. WE'LL STAY AWAY SINCE WE DON'T HAVE WEAPONS. / YOU'RE FINALLY GETTING IT! / WHAT WE KILL IS OUR PAY, SO DON'T TRY TO ASK FOR SOME LATER.",
+  "visual_description": "Standing with his back to the viewer, a dark-haired man confronts three miners wearing blue caps and uniforms in a dark purple-hued cave during an over-the-shoulder medium shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_006",
+  "file": "page007_panel_006.png",
+  "width": 712,
+  "height": 1599,
+  "bbox": [
+   0,
+   0,
+   712,
+   1599
+  ],
+  "ocr_text": "THE REST OF YOU GUYS, FOLLOW ME, AND HURRY. / AH! / I NEED TO FILM... / FOLLOW ME.",
+  "visual_description": "Turning back with an intense, glowing-eyed glare, a dark-haired man commands two young explorers in a dark cave setting. The top frame shows him speaking to a worried girl and a boy holding a camera, while the bottom frame zooms in on his menacing, shadowed face.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_007",
+  "file": "page007_panel_007.png",
+  "width": 712,
+  "height": 1861,
+  "bbox": [
+   0,
+   0,
+   712,
+   1861
+  ],
+  "ocr_text": "SEE YOU LATER! / WHERE SHOULD WE WAIT? / IF WE FEEL LIKE IT, WE CAN GO AROUND LOOKING FOR IT TOO.",
+  "visual_description": "Looking back over his shoulder in a medium close-up, a dark-haired miner wearing a lit headlamp stands in a cavern while other miners walk away into the background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_008",
+  "file": "page007_panel_008.png",
+  "width": 66,
+  "height": 106,
+  "bbox": [
+   0,
+   0,
+   66,
+   106
+  ],
+  "ocr_text": "\ud0c0",
+  "visual_description": "Floating in isolation against a solid black background, a stylized purple Korean sound effect character '\ud0c0' (ta) is outlined in white.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_010",
+  "file": "page007_panel_010.png",
+  "width": 23,
+  "height": 26,
+  "bbox": [
+   0,
+   0,
+   23,
+   26
+  ],
+  "ocr_text": "",
+  "visual_description": "Pointing downward against a solid black background, the chisel-tipped point of a purple sword blade is highlighted by a glowing silver edge in a close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_011",
+  "file": "page007_panel_011.png",
+  "width": 93,
+  "height": 97,
+  "bbox": [
+   0,
+   0,
+   93,
+   97
+  ],
+  "ocr_text": "\ud0c0",
+  "visual_description": "Displaying a stylized purple Korean sound effect '\ud0c0' on a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page007_panel_013",
+  "file": "page007_panel_013.png",
+  "width": 684,
+  "height": 724,
+  "bbox": [
+   0,
+   0,
+   684,
+   724
+  ],
+  "ocr_text": "\ud0c1 / \ud0c1 / HUFF / HUFF / WAIT...! / HUFF / \ud0c1 / \ud0c1 / HUFF / WAIT UP!!",
+  "visual_description": "Running down a cracked rocky slope, a dark-haired man in a long coat leads a group of exhausted hikers wearing headlamps and carrying backpacks. High-angle shot showing the group gasping for breath as they struggle to keep pace in a dark, desolate environment.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page008_panel_001",
+  "file": "page008_panel_001.png",
+  "width": 720,
+  "height": 2233,
+  "bbox": [
+   0,
+   0,
+   720,
+   2233
+  ],
+  "ocr_text": "HUFF / HUFF / WHERE ARE WE GOING? THE FILMING'S SCREWED ALREADY! / \ud558\uc544 / NO MORE FILMING. / WE'RE LEAVING. / WHAT?",
+  "visual_description": "Panting from exhaustion, a brown-haired girl confronts a black-haired boy inside a dark, rocky cavern, looking shocked when he calmly tells her that they are abandoning their filming and leaving.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page008_panel_002",
+  "file": "page008_panel_002.png",
+  "width": 720,
+  "height": 1807,
+  "bbox": [
+   0,
+   0,
+   720,
+   1807
+  ],
+  "ocr_text": "THAT'S NOT WHAT YOU SAID EARLIER! THE GUARDS... / WAIT, DO YOU MEAN... / IS THE REASON HE DOESN'T GO NEAR THE LABYRINTH EVEN THOUGH HE'S A DUNGEON BABY BECAUSE...",
+  "visual_description": "Confronting a group of cave-dwelling explorers in shock, a young brown-haired woman is shown in a wide shot and then a close-up as a grim realization dawns on her.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page008_panel_003",
+  "file": "page008_panel_003.png",
+  "width": 720,
+  "height": 4531,
+  "bbox": [
+   0,
+   0,
+   720,
+   4531
+  ],
+  "ocr_text": "IF WE LEAVE NOW, WE'LL BE BRO\u2013 / \ud0d5 / \ud0d5 / \ud0d5 / \ud22c\ub450\ub450\ub451 / \ud0d5 / \ud37d / \ud0d5 / \ucf70\uc0ad / \uc9dc\uc544\uc545 / \ud0c1",
+  "visual_description": "Looking around in shock and confusion as loud, echoing cracking sounds reverberate through a dark, purple-toned cavern. Four young cave explorers stand frozen inside the rocky cave under a shower of small debris in a series of dramatic vertical panels.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page008_panel_004_shot_01",
+  "file": "page008_panel_004_shot_01.png",
+  "width": 720,
+  "height": 964,
+  "bbox": [
+   0,
+   0,
+   720,
+   964
+  ],
+  "ocr_text": "IF WE LEAVE NOW, WE'LL BE BRO- / \ud0c0",
+  "visual_description": "Gasping in shock with a wide-eyed expression, a brown-haired young man with a sweat drop on his cheek is shown in a close-up profile view against a dark, rocky background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page008_panel_004_shot_02",
+  "file": "page008_panel_004_shot_02.png",
+  "width": 720,
+  "height": 964,
+  "bbox": [
+   0,
+   0,
+   720,
+   964
+  ],
+  "ocr_text": "\ud0d5",
+  "visual_description": "Looking up in shock, a brown-haired young man reacts to a loud noise inside a dark, purple-walled cavern, beside another figure wearing a hard hat. Close-up shot with a giant red sound effect '\ud0d5' dominating the upper frame.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page008_panel_004_shot_03",
+  "file": "page008_panel_004_shot_03.png",
+  "width": 720,
+  "height": 964,
+  "bbox": [
+   0,
+   0,
+   720,
+   964
+  ],
+  "ocr_text": "\ud0c1 / \ud0c1",
+  "visual_description": "Staring back in surprise and alarm, three young cavern explorers stand in a dark, rocky cave with a dark-haired boy looking on calmly from the background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page009_panel_001",
+  "file": "page009_panel_001.png",
+  "width": 719,
+  "height": 5277,
+  "bbox": [
+   0,
+   0,
+   719,
+   5277
+  ],
+  "ocr_text": "THE NEARBY PREDATORS HEARD THE GUNSHOTS. / \uc9c0-\uc789 / THE ONE THEY KILLED FIRST IS A PREY. / REC / THEN YOU LET THEM DIE KNOWING THIS? / IF I TRIED TO CONVINCE THEM, WE'D ALSO BE DEAD RIGHT NOW. / THE BLOOD SCENT WOULD'VE BEEN ON THE GUARDS' CLOTHES, SO WE WOULD'VE GOTTEN CAUGHT WITH THEM IF WE RAN. / !! / \uc6c0\ucc14 / \ud559 / BUT STILL! IF WE CONVINCED THEM... / QUIET DOWN. / \ud559 / \ud5c9 / \ud0a4\uc774\uc789- / REC / IF THOSE PEOPLE COULD BE CONVINCED, THINGS WOULDN'T HAVE GOTTEN- / \ud788\uc775 / \ud5c9.. / \uc2a4\uc73d",
+  "visual_description": "Arguing in a dark rocky cavern, a black-haired young man in a dark coat and a brown-haired girl in a jacket are viewed through a video camera lens as they discuss their survival, eventually silencing themselves in fear.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_001",
+  "file": "page010_panel_001.png",
+  "width": 712,
+  "height": 877,
+  "bbox": [
+   0,
+   0,
+   712,
+   877
+  ],
+  "ocr_text": "REC",
+  "visual_description": "Punching a dark-armored fist forward into the gaping, fanged mouth of a giant beast, captured in an extreme close-up view through a camera's recording interface with a central focus reticle and 'REC' indicator.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_002_shot_01",
+  "file": "page010_panel_002_shot_01.png",
+  "width": 712,
+  "height": 974,
+  "bbox": [
+   0,
+   0,
+   712,
+   974
+  ],
+  "ocr_text": "\ud06c\uc544\uc545",
+  "visual_description": "Staring upwards with wide, alarmed eyes, a brown-haired female warrior and a dark-haired boy react in shock against a dark, blood-red background beneath giant Korean text.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_002_shot_02",
+  "file": "page010_panel_002_shot_02.png",
+  "width": 712,
+  "height": 636,
+  "bbox": [
+   0,
+   0,
+   712,
+   636
+  ],
+  "ocr_text": "\ud0c1\u2014",
+  "visual_description": "Stomping down heavily with a large black mechanical block or boot, a character wearing grey trousers and a backpack lands their foot next to a suited man against a dark red background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_004",
+  "file": "page010_panel_004.png",
+  "width": 25,
+  "height": 14,
+  "bbox": [
+   0,
+   0,
+   25,
+   14
+  ],
+  "ocr_text": "",
+  "visual_description": "Glowing softly against a pitch-black background, a highly blurred, curved white form resembling a bent joint or abstract stroke occupies the upper portion of the frame.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_005",
+  "file": "page010_panel_005.png",
+  "width": 100,
+  "height": 154,
+  "bbox": [
+   0,
+   0,
+   100,
+   154
+  ],
+  "ocr_text": "\ucf70\ub4dc\ub4dd",
+  "visual_description": "Displaying the stylized Korean sound effect '\ucf70\ub4dc\ub4dd' (crunch/crack) rendered in a bone-like, bloody red font with a metallic outline on a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_007",
+  "file": "page010_panel_007.png",
+  "width": 712,
+  "height": 774,
+  "bbox": [
+   0,
+   0,
+   712,
+   774
+  ],
+  "ocr_text": "\ucfe0\ub4dc\ub4dd / \ucfe0\ub4dc\ub4dd / S-",
+  "visual_description": "Chewing on a terrified explorer, a monstrous white-furred gorilla with glowing red eyes clenches its jaws. Medium close-up shot against a dark red background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_008",
+  "file": "page010_panel_008.png",
+  "width": 712,
+  "height": 665,
+  "bbox": [
+   0,
+   0,
+   712,
+   665
+  ],
+  "ocr_text": "\ucd24\uc545",
+  "visual_description": "Spewing black blood from his open mouth with eyes rolled back, a helmeted young man lies defeated. Close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_009_shot_01",
+  "file": "page010_panel_009_shot_01.png",
+  "width": 689,
+  "height": 595,
+  "bbox": [
+   0,
+   0,
+   689,
+   595
+  ],
+  "ocr_text": "KYAA / AAAK",
+  "visual_description": "Screaming in terror, a massive stylized white sound effect reading 'KYAA AAAK' bursts across a jagged grey speech balloon against a solid black background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_009_shot_02",
+  "file": "page010_panel_009_shot_02.png",
+  "width": 712,
+  "height": 510,
+  "bbox": [
+   0,
+   0,
+   712,
+   510
+  ],
+  "ocr_text": "AAAK / WOLF MONKEY?!",
+  "visual_description": "Staring in confusion, a black-haired young man in a dark coat looks at a brown-haired character clutching their head and screaming. Close-up shot with a dark striped background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_009_shot_03",
+  "file": "page010_panel_009_shot_03.png",
+  "width": 712,
+  "height": 497,
+  "bbox": [
+   0,
+   0,
+   712,
+   497
+  ],
+  "ocr_text": "WHY ARE THEY ON THE FIRST FLOOR...?",
+  "visual_description": "Looking up in shock with an open mouth, a young boy in a dark red jacket stands next to a taller figure wearing a dark patterned trench coat, framed in a close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_010_shot_01",
+  "file": "page010_panel_010_shot_01.png",
+  "width": 712,
+  "height": 700,
+  "bbox": [
+   0,
+   0,
+   712,
+   700
+  ],
+  "ocr_text": "\uc73c\uc545",
+  "visual_description": "Staring in wide-eyed alarm with a sweat drop on his cheek, a black-haired young man wearing a high-collared dark coat reacts in shock. Close-up shot against a simple gradient background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_010_shot_02",
+  "file": "page010_panel_010_shot_02.png",
+  "width": 712,
+  "height": 275,
+  "bbox": [
+   0,
+   0,
+   712,
+   275
+  ],
+  "ocr_text": "",
+  "visual_description": "Standing clad in a dark, high-collared trench coat, a character's upper torso and collarbone area are captured in a close-up shot against a pale background with tiny floating black debris.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_011",
+  "file": "page010_panel_011.png",
+  "width": 712,
+  "height": 1632,
+  "bbox": [
+   0,
+   0,
+   712,
+   1632
+  ],
+  "ocr_text": "A WHOLE GROUP OF THEM?! WE'VE ALREADY BEEN CAUGHT UP TO?! / \ud06c\ub974\ub989 / \uc73c\uc73d / \ub044\ub4dd / DID THEY KNOW OUR LOCATION FROM THE START?",
+  "visual_description": "Surrounding and seizing a terrified man wearing a yellow hard hat, three monstrous, red-eyed, white-furred ape beasts loom menacingly within a dark, jagged purple cavern.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_012",
+  "file": "page010_panel_012.png",
+  "width": 712,
+  "height": 1094,
+  "bbox": [
+   0,
+   0,
+   712,
+   1094
+  ],
+  "ocr_text": "KYAAAK",
+  "visual_description": "Looking back nervously, a black-haired boy stands before a giant, roaring yeti-like monster with glowing red eyes and large tusks inside a dark cave, while a smaller character cowers on the ground below.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page010_panel_013",
+  "file": "page010_panel_013.png",
+  "width": 712,
+  "height": 314,
+  "bbox": [
+   0,
+   0,
+   712,
+   314
+  ],
+  "ocr_text": "\ud30c\uc9c1-",
+  "visual_description": "Glaring intensely with glowing blue eyes, a dark-haired man frowns deeply in an extreme close-up. A blue electrical spark crackles from his right eye against a stark, light background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page011_panel_001_shot_01",
+  "file": "page011_panel_001_shot_01.png",
+  "width": 720,
+  "height": 989,
+  "bbox": [
+   0,
+   0,
+   720,
+   989
+  ],
+  "ocr_text": "",
+  "visual_description": "Looming menacingly over a small, dark-haired character, a colossal grey-furred ape monster with glowing red eyes and sharp fangs roars down at them under a dark purple sky. Low-angle medium shot highlighting the vast scale difference.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page011_panel_001_shot_02",
+  "file": "page011_panel_001_shot_02.png",
+  "width": 720,
+  "height": 1100,
+  "bbox": [
+   0,
+   0,
+   720,
+   1100
+  ],
+  "ocr_text": "",
+  "visual_description": "Clinging to the back of a giant, grey-furred werewolf monster, a hooded hunter prepares to plunge a glowing dagger into its neck. Medium low-angle shot emphasizing the monster's massive size and sharp teeth.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page011_panel_001_shot_03",
+  "file": "page011_panel_001_shot_03.png",
+  "width": 720,
+  "height": 1100,
+  "bbox": [
+   0,
+   0,
+   720,
+   1100
+  ],
+  "ocr_text": "\uc2a4\uc73d",
+  "visual_description": "Gripping a glowing dagger in a purple-gloved hand, a masked figure wearing a dark scarf prepares to strike in a dramatic close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page011_panel_001_shot_04",
+  "file": "page011_panel_001_shot_04.png",
+  "width": 720,
+  "height": 1100,
+  "bbox": [
+   0,
+   0,
+   720,
+   1100
+  ],
+  "ocr_text": "Hwoo",
+  "visual_description": "Swinging a glowing blade downward, a dark-haired male character with glowing white eyes and a grim expression faces forward in a close-up shot against a speed-line background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page011_panel_001_shot_05",
+  "file": "page011_panel_001_shot_05.png",
+  "width": 720,
+  "height": 1100,
+  "bbox": [
+   0,
+   0,
+   720,
+   1100
+  ],
+  "ocr_text": "KRRK",
+  "visual_description": "Roaring with its fanged mouth wide open, a massive ape-like beast with white fur and glowing red eyes towers over a dark-haired hunter crouching with a dagger. Low-angle shot focusing on the giant monster's aggression.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page012_panel_001",
+  "file": "page012_panel_001.png",
+  "width": 720,
+  "height": 2228,
+  "bbox": [
+   0,
+   0,
+   720,
+   2228
+  ],
+  "ocr_text": "\ucd24 / \uc545",
+  "visual_description": "Leaping high into the air, a dark-haired hunter in a coat slashes downward with a whip-like weapon at a giant, roaring, ape-like monster.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page012_panel_002",
+  "file": "page012_panel_002.png",
+  "width": 702,
+  "height": 3190,
+  "bbox": [
+   0,
+   0,
+   702,
+   3190
+  ],
+  "ocr_text": "\ud06c\uc544\uc544\uc544",
+  "visual_description": "Leaping down with a curved blade to strike a giant beast from above, while below, another massive muscular yeti-like monster raises its clenched fists to smash a terrified brown-haired girl holding a camera.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page012_panel_003",
+  "file": "page012_panel_003.png",
+  "width": 720,
+  "height": 5171,
+  "bbox": [
+   0,
+   0,
+   720,
+   5171
+  ],
+  "ocr_text": "\ucf70\uc559 / HUH?! / I'M GONNA RUN AT THE PACE YOU EXPECT OF A DUNGEON BABY. / \ud0c1",
+  "visual_description": "Holding a surprised girl under his arm while preparing to run, a dark-haired youth in a green cloak stands before a massive, rocky monster in a dark cavern.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page013_panel_001",
+  "file": "page013_panel_001.png",
+  "width": 703,
+  "height": 4311,
+  "bbox": [
+   0,
+   0,
+   703,
+   4311
+  ],
+  "ocr_text": "\ud06c\uc5b4\uc5b4 / W- / A FEW RIBS MIGHT BREAK, BUT JUST DEAL WITH IT. / \ucf70\ucf85 / \ud54f / \ud06c\ub974\ub974",
+  "visual_description": "Carrying two companions on his back as he leaps to safety, a dark-haired man escapes a giant, white-furred ape monster. The massive beast crashes violently into the rocky ground behind them, roaring in anger inside a dark, debris-filled cavern.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page013_panel_002",
+  "file": "page013_panel_002.png",
+  "width": 693,
+  "height": 1598,
+  "bbox": [
+   0,
+   0,
+   693,
+   1598
+  ],
+  "ocr_text": "WHY DID YOU LET THE OTHERS DIE? / WHAT? / YOU'RE STRONG ENOUGH TO UTILIZE A DULL KNIFE... / SO WHY... / \ud6cc\uca4d",
+  "visual_description": "Staring back in stunned confusion, a dark-haired young man is accused by a brown-haired girl crying hysterically with thick tears streaming down her face. Close-up panels set against a dark, shadowy background.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page014_panel_001",
+  "file": "page014_panel_001.png",
+  "width": 699,
+  "height": 5203,
+  "bbox": [
+   0,
+   0,
+   699,
+   5203
+  ],
+  "ocr_text": "I WAS HIRED AS A GUIDE. / NOT A GUARD. / WAS THERE SOMETHING IN THE CONTRACTS THAT SAID I SHOULD FIGHT? / BUT PEOPLE STILL DIED... / THAT'S GYSER FOR YOU. / YOU'RE THE ONE WHO HIRED A / BUNCH OF ARROGANT IDIOTS WHO HAVE NEVER BEEN DOWN HERE BEFORE. / THEY DID EVERYTHING I SAID NOT TO. / SO WHAT DO YOU MEAN, WHY DIDN'T I SAVE THEM?",
+  "visual_description": "Standing coldly over a crying brown-haired girl kneeling on the cavern ground, a dark-haired man in a long coat looks down with an indifferent expression. Close-ups show the girl crying tears of despair while the man speaks remorselessly.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page014_panel_002",
+  "file": "page014_panel_002.png",
+  "width": 707,
+  "height": 2648,
+  "bbox": [
+   0,
+   0,
+   707,
+   2648
+  ],
+  "ocr_text": "I'M STILL WORKING. / YOU NEED TO PAY. / I'LL KEEP YOU ALIVE,",
+  "visual_description": "Demanding payment, a dark-haired youth in a dark jacket stands in a cave while a worried brown-haired young man reacts to a glowing orange flame effect.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_001",
+  "file": "page015_panel_001.png",
+  "width": 712,
+  "height": 806,
+  "bbox": [
+   0,
+   0,
+   712,
+   806
+  ],
+  "ocr_text": "",
+  "visual_description": "Standing frozen in horror next to a frightened blonde girl sitting on the ground, a dark-haired man in a trench coat stares ahead in shock. Glowing embers drift around them against a dark background in a medium shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_002",
+  "file": "page015_panel_002.png",
+  "width": 17,
+  "height": 71,
+  "bbox": [
+   0,
+   0,
+   17,
+   71
+  ],
+  "ocr_text": "",
+  "visual_description": "Flickering faintly against an almost entirely black vertical space, two blurry spots of light, one pale grey at the top and one warm amber near the bottom, glow softly in an extreme close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_003",
+  "file": "page015_panel_003.png",
+  "width": 36,
+  "height": 24,
+  "bbox": [
+   0,
+   0,
+   36,
+   24
+  ],
+  "ocr_text": "",
+  "visual_description": "Glowing softly against a solid black background, a blurry orange triangle is positioned in the center of the frame in a minimalist, abstract close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_004",
+  "file": "page015_panel_004.png",
+  "width": 103,
+  "height": 83,
+  "bbox": [
+   0,
+   0,
+   103,
+   83
+  ],
+  "ocr_text": "",
+  "visual_description": "Floating against a dark, blurry reddish-brown background, two glowing orange geometric shapes appear as abstract light fragments in a close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_005",
+  "file": "page015_panel_005.png",
+  "width": 13,
+  "height": 16,
+  "bbox": [
+   0,
+   0,
+   13,
+   16
+  ],
+  "ocr_text": "",
+  "visual_description": "Glowing faintly in the pitch-black darkness, a blurry, out-of-focus spot of warm reddish-brown light appears in the center of an otherwise completely dark panel.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_006",
+  "file": "page015_panel_006.png",
+  "width": 17,
+  "height": 19,
+  "bbox": [
+   0,
+   0,
+   17,
+   19
+  ],
+  "ocr_text": "",
+  "visual_description": "Floating in pitch-black darkness, a heavily blurred and out-of-focus reddish-brown shape is centered in the frame, completely obscured by an extreme blur filter with no discernible details.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_007",
+  "file": "page015_panel_007.png",
+  "width": 20,
+  "height": 22,
+  "bbox": [
+   0,
+   0,
+   20,
+   22
+  ],
+  "ocr_text": "",
+  "visual_description": "Glowing softly against a solid black background, a heavily blurred orange diamond-shaped light radiates a warm, dim luminescence.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_008",
+  "file": "page015_panel_008.png",
+  "width": 20,
+  "height": 55,
+  "bbox": [
+   0,
+   0,
+   20,
+   55
+  ],
+  "ocr_text": "",
+  "visual_description": "Shining dimly in pitch-black darkness, a faint circular light glows at the top of a long vertical frame with another small blurry reflection visible at the bottom.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_010",
+  "file": "page015_panel_010.png",
+  "width": 712,
+  "height": 1592,
+  "bbox": [
+   0,
+   0,
+   712,
+   1592
+  ],
+  "ocr_text": "\ud654\ub975 / \ud0c0\ub2e5 / LABYRINTH EMBLEM!!",
+  "visual_description": "Staring at a large stone relief of a glowing-eyed green snake coiled around a sword, a dark-haired warrior stands in a dimly lit, torch-lit dungeon. Medium shot from behind his shoulder.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_011",
+  "file": "page015_panel_011.png",
+  "width": 712,
+  "height": 1001,
+  "bbox": [
+   0,
+   0,
+   712,
+   1001
+  ],
+  "ocr_text": "I JUST RAN IN ANY DIRECTION, / BUT WE ENDED UP IN THE LABYRINTH.",
+  "visual_description": "Looking around with an anxious expression, a brown-haired young man in a green collared jacket speaks nervously. This medium shot features him against a hazy purple background filled with glowing orange sparks.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_012",
+  "file": "page015_panel_012.png",
+  "width": 712,
+  "height": 1043,
+  "bbox": [
+   0,
+   0,
+   712,
+   1043
+  ],
+  "ocr_text": "WE NEED TO GET OUT RIGHT NOW... / \uca4d",
+  "visual_description": "Shattering with jagged white fissures, a dark purple crystalline surface cracks apart under a spiky speech bubble.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_013",
+  "file": "page015_panel_013.png",
+  "width": 712,
+  "height": 1216,
+  "bbox": [
+   0,
+   0,
+   712,
+   1216
+  ],
+  "ocr_text": "",
+  "visual_description": "Standing alert atop a pile of shattered stone debris under a dark purple starry sky, a tall dark-haired man in a long dark coat looks back warily while his companion crouches low beside him. Medium-full shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_014",
+  "file": "page015_panel_014.png",
+  "width": 712,
+  "height": 2190,
+  "bbox": [
+   0,
+   0,
+   712,
+   2190
+  ],
+  "ocr_text": "!!! / KRAKAAKAAKAAK",
+  "visual_description": "Staring down in sheer terror, a black-haired boy and a brown-haired girl witness the stone ground cracking and collapsing into a dark, deep abyss.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_015",
+  "file": "page015_panel_015.png",
+  "width": 188,
+  "height": 42,
+  "bbox": [
+   0,
+   0,
+   188,
+   42
+  ],
+  "ocr_text": "",
+  "visual_description": "Displaying a close-up of a dark purple textured surface with diagonal black scratches and markings stretching across the wide frame.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_017",
+  "file": "page015_panel_017.png",
+  "width": 441,
+  "height": 95,
+  "bbox": [
+   0,
+   0,
+   441,
+   95
+  ],
+  "ocr_text": "",
+  "visual_description": "Slicing diagonally across a cloudy purple background, stylized dark brushstrokes create a textured motion effect in a horizontal abstract panel with no characters.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_019",
+  "file": "page015_panel_019.png",
+  "width": 648,
+  "height": 243,
+  "bbox": [
+   0,
+   0,
+   648,
+   243
+  ],
+  "ocr_text": "",
+  "visual_description": "Lying motionless on the ground, a dark-haired young man stares forward with one visible dark eye in an extreme close-up shot.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_020",
+  "file": "page015_panel_020.png",
+  "width": 712,
+  "height": 549,
+  "bbox": [
+   0,
+   0,
+   712,
+   549
+  ],
+  "ocr_text": "",
+  "visual_description": "Staring upward in stunned shock, a dark-haired young man lies flat on his back in a tight close-up shot, his eyes wide with dilated pupils and a bead of sweat on his chin.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page015_panel_021",
+  "file": "page015_panel_021.png",
+  "width": 644,
+  "height": 497,
+  "bbox": [
+   0,
+   0,
+   644,
+   497
+  ],
+  "ocr_text": "\ubc8c\ub5a1",
+  "visual_description": "Sitting up abruptly against a cracked, purple-hued stone wall, a dark-haired character clad in a dark hooded cloak recovers from a prone position. Medium shot from behind inside a dark rocky cavern.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page016_panel_001",
+  "file": "page016_panel_001.png",
+  "width": 720,
+  "height": 2521,
+  "bbox": [
+   0,
+   0,
+   720,
+   2521
+  ],
+  "ocr_text": "MY LEFT ARM'S... BROKEN. / ...... / I GUESS IT COULD'VE BEEN WORSE.",
+  "visual_description": "Clutching his injured left arm inside a dark, purple-hued rocky cavern, a dark-haired young man in a dark coat looks down in pain before standing with a resigned expression. Medium multi-panel composition.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page017_panel_001_shot_01",
+  "file": "page017_panel_001_shot_01.png",
+  "width": 720,
+  "height": 2001,
+  "bbox": [
+   0,
+   0,
+   720,
+   2001
+  ],
+  "ocr_text": "\ubc88\uca4d / \ube60\ub4dc\ub4dd / \ubfcc\ub4dd / \uca4c\uc801 / !!!!",
+  "visual_description": "Coiled tightly within a giant creature's tail, a dark-haired boy in a black coat looks up in shock while clutching a weapon. A massive insect-like head with glowing blue eyes looms threateningly over him in a dramatic high-angle close-up panel.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page017_panel_001_shot_02",
+  "file": "page017_panel_001_shot_02.png",
+  "width": 720,
+  "height": 1251,
+  "bbox": [
+   0,
+   0,
+   720,
+   1251
+  ],
+  "ocr_text": "I-IT'S FAS- / \ucf70\ub4dc\ub4dd / \ube60\ub4dd / \ube60\ub4dd",
+  "visual_description": "Lunging with gaping, fanged jaws, a massive purple-eyed serpent attacks a shocked dark-haired boy in a dramatic close-up.",
+  "source": "gemini",
+  "ok": true
+ },
+ {
+  "panel_id": "page018_panel_001",
+  "file": "page018_panel_001.png",
+  "width": 712,
+  "height": 376,
+  "bbox": [
+   0,
+   0,
+   712,
+   376
+  ],
+  "ocr_text": "We're now recruiting Korean Translators! / Join our Discord to apply - / Asura.gg/discord",
+  "visual_description": "Displaying recruitment text for Korean translators against a dark purple background, this digital graphic includes a small circular logo of a hooded figure with glowing white eyes.",
+  "source": "gemini",
+  "ok": true
+ }
+]
