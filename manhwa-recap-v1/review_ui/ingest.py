@@ -167,7 +167,12 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
     else:
         progress("narrate", "Writing narration from panels…", 60)
         panels = narrate.load_panels(desc_path)
-        script, results = narrate.generate_narration(panels, verbose=False)
+        # D2: per-unit progress so a long narrate is visible, not a silent 60%
+        script, results = narrate.generate_narration(
+            panels, verbose=False,
+            progress_cb=lambda i, n, phase: progress(
+                "narrate", f"narration {phase} — unit {i}/{n}…",
+                60 + int(8 * i / max(n, 1))))
         open(script_path, "w").write(script)
         scenes = narrate.provenance(results)
         json.dump(scenes, open(prov_path, "w"), indent=1)

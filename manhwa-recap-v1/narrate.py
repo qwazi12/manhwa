@@ -240,7 +240,35 @@ def call_gemini_rest(model, prompt, api_key):
             raise e
 
 
-def build_prompt(scene_panels, global_beatsheet=None):
+def merge_into_units(scenes, max_panels=10):
+    """Merge small scene groups into NARRATION UNITS (A1 density fix).
+
+    The style contract alone cannot produce story density when each Gemini
+    call sees a 1-4 panel scene: every call still writes a paragraph, and 60
+    calls write an hour of narration (live-eval finding: 19k words). Larger
+    units give the model room to compress runs of panels into single
+    sentences, and the per-unit word budget makes the target explicit."""
+    units, cur = [], []
+    for sc in scenes:
+        if cur and len(cur) + len(sc) > max_panels:
+            units.append(cur)
+            cur = list(sc)
+        else:
+            cur.extend(sc)
+    if cur:
+        units.append(cur)
+    return units
+
+
+def word_budget(n_panels):
+    """Hard per-unit narration budget: ~12 words/panel, floor 40, cap 150.
+    A full ~90-panel chapter lands near 1000-1200 words ≈ 7-8 spoken minutes
+    (calibrated on the dungeon-odyssey fixture: 9 w/panel gave 618 words vs
+    the 1283-word approved script)."""
+    return max(40, min(150, 12 * n_panels))
+
+
+def build_prompt(scene_panels, global_beatsheet=None, budget=None):
     lines = []
     for i, p in enumerate(scene_panels, 1):
         desc = p.get("visual_description", "").strip()
@@ -283,7 +311,9 @@ OUTPUT: only the raw storytelling text — no preamble, labels, or panel referen
 PANELS (in order):
 {panel_block}
 
-Write the narration for this scene now, at story density (often far fewer sentences than panels):"""
+STRICT LENGTH BUDGET: write AT MOST {budget or word_budget(len(scene_panels))} words for this ENTIRE scene — count them. Compress ruthlessly: pick only the events that move the story, fold the rest into them or skip them outright.
+
+Write the narration for this scene now, at story density (far fewer sentences than panels):"""
 
 
 def generate_global_beatsheet(panels, model="gemini-3.5-flash"):
@@ -345,7 +375,64 @@ def narrate_scene(scene_panels, model="gemini-3.5-flash", global_beatsheet=None)
         return _call()
 
 
-def generate_narration(panels, model="gemini-3.5-flash", verbose=True):
+MAX_REVISED_UNITS = 3   # A3: cap revision calls per chapter
+
+
+def critique_units(results, model, api_key):
+    """A3 pass 1: ONE reviewer call over the whole draft. Returns issue list
+    [{"unit": int, "type": ..., "problem": ..., "fix": ...}]. Types:
+    hallucination | misorder | missed_beat | style_violation."""
+    lines = []
+    for i, (scene_panels, text) in enumerate(results):
+        pids = ", ".join(p["panel_id"] for p in scene_panels)
+        facts = " | ".join(
+            f"{p.get('visual_description','')[:110]}"
+            + (f" [text: {p.get('ocr_text','')[:60]}]" if p.get("ocr_text") else "")
+            for p in scene_panels)
+        lines.append(f"UNIT {i} (panels: {pids})\nPANEL FACTS: {facts}\nDRAFT: {text}")
+    prompt = f"""You are a fact-checking script editor for a comic-recap narration. For each UNIT below, compare the DRAFT narration against the PANEL FACTS it was written from.
+
+Report ONLY real problems, as a JSON array (empty array if none):
+[{{"unit": <int>, "type": "hallucination|misorder|missed_beat|style_violation", "problem": "<what is wrong>", "fix": "<how to fix in one sentence>"}}]
+
+- hallucination: names, numbers, events, or motives with NO support in the panel facts
+- misorder: events narrated in a different order than the panels
+- missed_beat: a clearly major story event in the facts that the draft skips entirely
+- style_violation: quoted dialogue, panel/camera language, present tense
+
+Output the JSON array only.
+
+{chr(10).join(lines)}"""
+    if usage:
+        with usage.gate("gemini", 1, model=model):
+            raw = call_gemini_rest(model, prompt, api_key)
+    else:
+        raw = call_gemini_rest(model, prompt, api_key)
+    m = re.search(r"\[.*\]", raw or "", re.S)
+    try:
+        issues = json.loads(m.group(0)) if m else []
+        return [i for i in issues if isinstance(i, dict) and isinstance(i.get("unit"), int)]
+    except json.JSONDecodeError:
+        print(f"critique: unparseable reviewer output, skipping revision", file=sys.stderr)
+        return []
+
+
+def revise_unit(scene_panels, draft, unit_issues, model, global_beatsheet, api_key):
+    """A3 pass 2: regenerate ONE flagged unit with the reviewer's notes
+    appended — provenance (unit -> panels) is preserved by construction."""
+    notes = "\n".join(f"- {i['type']}: {i['problem']} FIX: {i['fix']}"
+                      for i in unit_issues)
+    prompt = (build_prompt(scene_panels, global_beatsheet)
+              + f"\n\nEDITOR NOTES on the previous draft (you MUST fix these):\n{notes}"
+              + f"\n\nPREVIOUS DRAFT:\n{draft}\n\nRewrite the narration for this scene now:")
+    if usage:
+        with usage.gate("gemini", 1, model=model):
+            return call_gemini_rest(model, prompt, api_key)
+    return call_gemini_rest(model, prompt, api_key)
+
+
+def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
+                       progress_cb=None):
     """Run the full pipeline over `panels` (already filtered/ordered) and
     return (full_script_text, [(scene_panels, scene_text), ...])."""
     # Pass 1: Generate global pacing beatsheet for the entire chapter
@@ -353,16 +440,47 @@ def generate_narration(panels, model="gemini-3.5-flash", verbose=True):
         print(f"Generating global pacing beatsheet using {model}...", file=sys.stderr)
     global_beatsheet = generate_global_beatsheet(panels, model)
     
-    # Pass 2: Scene grouping and panel-level generation with global context
-    scenes = group_into_scenes(panels)
+    # Pass 2: scene grouping -> NARRATION UNITS (merged scenes, <=10 panels)
+    # with a hard per-unit word budget — the structural density control.
+    scenes = merge_into_units(group_into_scenes(panels))
     results = []
     for i, scene in enumerate(scenes, 1):
         ids = [p["panel_id"] for p in scene]
         if verbose:
-            print(f"[scene {i}/{len(scenes)}] {len(scene)} panel(s): {ids}",
+            print(f"[unit {i}/{len(scenes)}] {len(scene)} panel(s): {ids}",
                   file=sys.stderr)
+        if progress_cb:
+            progress_cb(i, len(scenes), "draft")
         text = narrate_scene(scene, model, global_beatsheet)
         results.append((scene, text))
+
+    # A3: critique-and-revise — one reviewer call over the whole draft, then
+    # regenerate at most MAX_REVISED_UNITS flagged units with editor notes.
+    api_key = os.environ.get("GEMINI_API_KEY")
+    try:
+        if progress_cb:
+            progress_cb(len(scenes), len(scenes), "review")
+        issues = critique_units(results, model, api_key)
+        if issues:
+            by_unit = {}
+            for it in issues:
+                by_unit.setdefault(it["unit"], []).append(it)
+            worst = sorted(by_unit, key=lambda u: -len(by_unit[u]))[:MAX_REVISED_UNITS]
+            for u in worst:
+                if 0 <= u < len(results):
+                    scene, draft = results[u]
+                    fixed = revise_unit(scene, draft, by_unit[u], model,
+                                        global_beatsheet, api_key)
+                    if fixed and fixed.strip():
+                        results[u] = (scene, fixed.strip())
+            print(f"critique: {len(issues)} issue(s), revised "
+                  f"{min(len(by_unit), MAX_REVISED_UNITS)} unit(s)", file=sys.stderr)
+    except (usage.UsageCapExceeded if usage else ()) :
+        raise
+    except Exception as e:
+        # The review pass is a quality net, never a job-killer.
+        print(f"critique pass skipped: {e}", file=sys.stderr)
+
     full_script = "\n\n".join(text for _, text in results)
     return full_script, results
 
