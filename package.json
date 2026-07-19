@@ -1,0 +1,8 @@
+{
+  "name": "recap-studio-frontend",
+  "private": true,
+  "description": "Vercel proxy/frontend for Recap Studio — middleware.js needs @vercel/edge (newer Vercel CLIs no longer bundle it implicitly).",
+  "dependencies": {
+    "@vercel/edge": "^1.2.2"
+  }
+}
