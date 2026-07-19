@@ -1479,3 +1479,80 @@ review gate; catches misassignment/dead holds/junk before render spend.
      unpushed volume data = same risk class as unpushed code)
   E8 SECURITY (user-side, still open): rotate creds pasted into chat
      transcripts (incl. the AQ. Gemini key) + the 4 previously-leaked ones.
+
+---
+
+### Session 22 (cont.) — IMPLEMENTATION: full improvement program (all tracks + E1-E7, user-approved "do it all except E8")
+Every change committed+pushed individually; per-change verification evidence below.
+
+#### Track A — narration quality
+- A1 style contract (narrate.py prompts): approved contract verbatim + voice
+  anchors from the approved sample + enrichment policy. FINDING: contract
+  alone did NOT fix density (fixture: 19,054 words / 753 sentences — worse
+  than prod). STRUCTURAL fix: merge_into_units() (scenes -> <=10-panel
+  narration units) + word_budget() (12 w/panel, floor 40, cap 150) with a
+  STRICT LENGTH BUDGET line. Fixture: 19,054 -> 618 (9w) -> 789 words @39
+  sentences (12w) ≈ 5-6 min narration vs approved 1,283 words. PASS.
+- A3 critique-and-revise: one reviewer call (JSON issues: hallucination /
+  misorder / missed_beat / style_violation / redundancy) + <=3 per-unit
+  revision calls with editor notes (provenance preserved by re-generating
+  only flagged units). Live fixture: found 3 issues, revised 3 units.
+- A4 eval harness: eval/fixtures/dungeon-odyssey-ch1/ (descriptions + both
+  approved scripts) + eval/run_eval.py (structural checks zero-cost;
+  --live re-narrates fixture ~$0.05). RULE: any narrate prompt change
+  requires a logged fixture run.
+- D2: generate_narration(progress_cb=) -> ingest reports "unit i/n" (no more
+  opaque 60% stalls).
+
+#### Track B — correct binding
+- B2 promo blocklist (_PROMO_BLOCK, all regimes incl. vision beats):
+  verified blocks recruitment banner + TL-credits card on dungeon ch1,
+  0 false positives on the other 124 panels.
+- B1 provenance-first matching: narrate.provenance() -> script.json;
+  beat_segmenter.segment_beats_scenes() tags beats with scene panel_ids;
+  matcher constrains cost() (CONSTRAINT_COST=-1e6) when >=80% of beats carry
+  provenance; method string gains "+provenance". Unit test: 0 violations.
+- A2: panel_importance() (area+dialogue+subject/scene) as score bonus
+  (IMPORTANCE_W=0.15) + enforce_hold_cap() post-pass spreads >12s holds
+  across unused non-junk in-between panels. Unit-tested.
+- E3: scene-aware pauses in ingest voice loop (0.6s scene boundary / 0.25s
+  within / 0.35s no-provenance fallback).
+
+#### Track C — presentation
+- C2 scroll-pan: render_segments.seg_html third regime — no planned crop AND
+  h/w>=3 -> 40%-width viewport, image pans top->bottom over the hold.
+  VERIFIED visually on seg_004 (720x2807): 3s frame shows strip top, 29s
+  frame the bottom moment, both readable. Regressions fixed in passing:
+  render_segment lost panel_file preference (broke project-scoped crops) and
+  npx lost --yes + error capture (both restored).
+- C1: shot_planner.plan_shots wired into render_sample.py local path too.
+
+#### Track D — review workflow
+- D1 storyboard: review_ui/storyboard.py (self-contained page) + routes
+  GET /storyboard, GET/POST /api/storyboard/approval|approve; controls wired
+  to EXISTING endpoints (candidates/panel/narration/status). Full-render
+  gate: /api/render-missing 409s until approved (?force=true override).
+  TestClient-verified (200 page, 409 gate, approve persists).
+- D3: usage summary (day calls/chars/est $) in storyboard header.
+
+#### E-track
+- E1: _sweep_orphaned_ingest_jobs() at boot marks persisted running/queued
+  jobs "aborted by server restart" with resume hint (da7cfaaddceb case).
+  Tested via module reload with planted running-file.
+- E2: _synth_rest content-hash TTS cache (sha1(voice|text) ->
+  projects/_ttscache) — script edits re-synth only changed sentences;
+  cache-hit path tested.
+- E4: optional BGM bed (workspace/project bgm.mp3 or HF_BGM) mixed at 0.12
+  under narration; NO track bundled (rights) — mechanism only.
+- E5: intro/outro title cards rendered THROUGH HYPERFRAMES (local ffmpeg has
+  no drawtext — discovered and avoided), then stream-matched to segment
+  clips (h264 High yuv420p 30fps timescale 15360 + AAC 48k). PITFALL
+  MEASURED: re-encoding the concat pads every clip's video to its audio
+  tail (+37s frozen frames over 50 clips); stream-copy concat is mandatory.
+  Verified: 52-clip concat = 453.38s = 447.36 + 2x3s cards exactly.
+- E6: incremental renders (skip existing clips; --force to redo) + --workers
+  N parallel in isolated per-segment workdirs after serial asset staging.
+  Verified: 4 segs @3 workers completed out-of-order, all clips valid.
+- E7: GET /api/backup/{project} (tar.gz of paid artifacts, excludes
+  clips/crops) + deploy/backup_projects.sh (railway-secret auth, per-project
+  pulls, skips pseudo-ids).
