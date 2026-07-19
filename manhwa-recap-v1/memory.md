@@ -1556,3 +1556,19 @@ Every change committed+pushed individually; per-change verification evidence bel
 - E7: GET /api/backup/{project} (tar.gz of paid artifacts, excludes
   clips/crops) + deploy/backup_projects.sh (railway-secret auth, per-project
   pulls, skips pseudo-ids).
+
+#### Session 22 (cont.) — pre-deploy eval PASS; deploy blocked from agent shell
+- FINAL FIXTURE EVAL (all changes active): PASS — 738 words / ~38 sentences,
+  ZERO style violations (camera leak fixed by reviewer prompt), provenance
+  9 units / 83 panels / ordering ok, critique found 1 issue and revised 1
+  unit. Prompt-change rule satisfied.
+- Deploy attempt: `railway up --detach` failed 3x from the agent shell with
+  TLS "BadRecordMac" on the upload leg (API reachable, auth OK — local
+  network/MTU issue). User's own terminal deployed fine earlier today; the
+  deploy is HANDED TO USER: `cd ~/dev/manhwa && railway up --detach`.
+- Everything is committed and pushed through this point — GitHub is ahead of
+  deployed Railway until that command runs (known, logged, intentional).
+- After deploy, remaining live verification: /storyboard 200 via proxy, boot
+  log shows orphan sweep, re-ingest dungeon ch1 (~$0.15: narrate ~15 flash
+  calls + ~5k TTS chars; describe fully cached) to produce the first
+  provenance-matched production project, then storyboard review.
