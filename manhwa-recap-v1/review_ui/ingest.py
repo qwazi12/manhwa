@@ -104,6 +104,14 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
 
     # 2. split (with vision segmentation of tall panels) ------------------
     progress("split", "Splitting pages into panels…", 18)
+    # Wipe stale crops first: split_panels writes into the dir WITHOUT
+    # cleaning it, so a splitter change (e.g. YOLO weights appearing) leaves
+    # old crops mixed with new ones and describe/match then run on a corrupt
+    # union. Descriptions are safe to keep — describe runs in --merge mode
+    # and re-describes any panel whose dimensions no longer match.
+    import shutil
+    shutil.rmtree(crops, ignore_errors=True)
+    os.makedirs(crops, exist_ok=True)
     subp_env = {**os.environ, "RECAP_JOB_ID": job_id}
     split_log = os.path.join(proj, "split.log")
     with open(split_log, "w", encoding="utf-8") as f_log:
@@ -127,7 +135,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
     with open(desc_log, "w", encoding="utf-8") as f_log:
         desc_p = subprocess.run(
             [PY, os.path.join(ROOT, "panel-describe", "run.py"),
-             "--input", crops, "--out", desc_path, "--model", "gemini-3.5-flash"],
+             "--input", crops, "--out", desc_path, "--model", "gemini-3.5-flash",
+             "--merge"],
             cwd=os.path.join(ROOT, "panel-describe"),
             env=subp_env, stdout=f_log, stderr=f_log)
     if desc_p.returncode != 0:

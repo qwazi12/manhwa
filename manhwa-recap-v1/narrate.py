@@ -174,28 +174,51 @@ def call_gemini_rest(model, prompt, api_key):
         context = ssl._create_unverified_context()
 
     if api_key.startswith("AQ."):
-        # New Interactions API path (required for gemini-3.5-flash + auth keys)
+        # New Interactions API path (required for gemini-3.5-flash + auth
+        # keys). Plain-string `input` is the docs-canonical text-only form.
+        import time as _time
+        import urllib.error
         url = "https://generativelanguage.googleapis.com/v1beta/interactions"
-        payload = {
-            "model": model,
-            "input": [{
-                "type": "user_input",
-                "content": [{"type": "text", "text": prompt}]
-            }]
-        }
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json", "X-goog-api-key": api_key}
-        )
-        with urllib.request.urlopen(req, timeout=120, context=context) as response:
-            res = json.loads(response.read().decode("utf-8"))
-        for step in res.get("steps", []):
-            if step.get("type") == "model_output":
-                for part in step.get("content", []):
-                    if part.get("type") == "text" and part.get("text"):
-                        return part["text"].strip()
-        raise ValueError(f"No model_output text in interactions response. Keys: {list(res.keys())}")
+        payload = {"model": model, "input": prompt}
+        data = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json", "X-goog-api-key": api_key}
+        last_err = None
+        for attempt in range(3):
+            req = urllib.request.Request(url, data=data, headers=headers)
+            try:
+                with urllib.request.urlopen(req, timeout=300, context=context) as response:
+                    res = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as e:
+                body = ""
+                try:
+                    body = e.read().decode("utf-8", "replace")[:400]
+                except Exception:
+                    pass
+                # Retry transient failures; surface everything else WITH the
+                # API's own explanation (job db7216d976ce died as an opaque
+                # bare "HTTP Error 400" because this body was discarded).
+                if e.code in (429, 500, 502, 503) and attempt < 2:
+                    last_err = f"{e.code}: {body}"
+                    _time.sleep(8 * (attempt + 1))
+                    continue
+                raise RuntimeError(
+                    f"Gemini Interactions API {e.code} (model={model}, "
+                    f"prompt={len(prompt)} chars, attempt {attempt+1}): {body}") from e
+        else:
+            raise RuntimeError(
+                f"Gemini Interactions API kept failing after retries: {last_err}")
+        # Concatenate ALL model_output text parts — returning only the first
+        # part silently truncates long narrations.
+        parts = [part["text"]
+                 for step in res.get("steps", [])
+                 if step.get("type") == "model_output"
+                 for part in step.get("content", [])
+                 if part.get("type") == "text" and part.get("text")]
+        if not parts:
+            raise ValueError(
+                f"No model_output text in interactions response. Keys: {list(res.keys())}")
+        return "".join(parts).strip()
     else:
         # Legacy generateContent path (AIzaSy standard keys)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"

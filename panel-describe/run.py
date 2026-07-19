@@ -149,6 +149,13 @@ def main():
                 # New and old both failed (or no existing) — store failure for visibility
                 merged[pid] = rec
             # else: new failed but old was good — keep the old one (no-op)
+        # Drop GHOST records: descriptions of crops that no longer exist on
+        # disk (a splitter change removed/renamed them). Keeping them feeds
+        # phantom panels into narrate/match downstream.
+        on_disk = {os.path.splitext(f)[0]
+                   for f in os.listdir(args.input)
+                   if os.path.splitext(f)[1].lower() in IMAGE_EXTS}
+        merged = {pid: rec for pid, rec in merged.items() if pid in on_disk}
         # Re-sort by panel_id (natural order)
         final = sorted(merged.values(), key=lambda r: natural_key(r["panel_id"]))
     else:
