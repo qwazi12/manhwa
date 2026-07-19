@@ -480,10 +480,25 @@ def _tts_key():
     return None
 
 
+_TTS_VOICE = "en-US-Chirp3-HD-Charon"
+_TTS_CACHE_DIR = os.path.join(HERE, "projects", "_ttscache")
+
+
 def _synth_rest(text, out_path):
     """Synthesize one beat to MP3 via the Chirp REST endpoint + API key,
-    using certifi's CA bundle (avoids the hanging google-cloud SDK import)."""
-    import base64, ssl, urllib.request
+    using certifi's CA bundle (avoids the hanging google-cloud SDK import).
+
+    E2: results are cached by hash(voice+text) in projects/_ttscache — a
+    script edit re-synthesizes ONLY the sentences that actually changed
+    (beat-index filenames shift on any insertion; the content hash doesn't),
+    and identical text across re-ingests costs zero TTS chars."""
+    import base64, hashlib, shutil, ssl, urllib.request
+    os.makedirs(_TTS_CACHE_DIR, exist_ok=True)
+    ck = hashlib.sha1(f"{_TTS_VOICE}|{text}".encode()).hexdigest()
+    cached = os.path.join(_TTS_CACHE_DIR, f"{ck}.mp3")
+    if os.path.exists(cached) and os.path.getsize(cached) > 0:
+        shutil.copyfile(cached, out_path)
+        return
     key = _tts_key()
     if not key:
         raise RuntimeError("TTS_API_KEY not set (checked env var and local .env)")
@@ -507,6 +522,11 @@ def _synth_rest(text, out_path):
         audio = _call()
     with open(out_path, "wb") as f:
         f.write(audio)
+    try:  # populate the content-hash cache (best effort)
+        with open(cached, "wb") as f:
+            f.write(audio)
+    except OSError:
+        pass
 
 
 def _recompute_timeline(segs):
@@ -881,6 +901,38 @@ def _all_ingest_jobs():
     out = [{"job": k, **v} for k, v in jobs.items()]
     out.sort(key=lambda j: j.get("ts", 0), reverse=True)
     return out
+
+
+def _sweep_orphaned_ingest_jobs():
+    """E1: a server restart (deploy, env-var change, crash) kills the ingest
+    thread but leaves its persisted status 'running' forever — a mystery-dead
+    job (observed: da7cfaaddceb, killed mid-narrate by a redeploy, polled as
+    'running' for 40+ minutes). On boot, mark every persisted running/queued
+    job as aborted with an explicit reason. Cached stage artifacts survive in
+    the project dir, so re-submitting the same URL resumes cheaply."""
+    n = 0
+    try:
+        for fn in os.listdir(_JOBS_DIR):
+            if not fn.endswith(".json"):
+                continue
+            p = os.path.join(_JOBS_DIR, fn)
+            try:
+                j = json.load(open(p))
+            except Exception:
+                continue
+            if j.get("status") in ("queued", "running"):
+                j["status"] = "error"
+                j["error"] = ("aborted by server restart (deploy/env change) — "
+                              "re-submit the chapter URL to resume from cached stages")
+                json.dump(j, open(p, "w"))
+                n += 1
+    except FileNotFoundError:
+        pass
+    if n:
+        print(f"[boot] marked {n} orphaned ingest job(s) as aborted", flush=True)
+
+
+_sweep_orphaned_ingest_jobs()
 
 
 def _active_ingest_for_url(url):
