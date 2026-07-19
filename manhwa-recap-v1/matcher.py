@@ -150,6 +150,21 @@ _ABSTRACT_OVERRIDE = re.compile(
     r"a thick black arc|stark white background)", re.I)
 
 
+# Promo / scanlation-credits hard block (B2). Unlike the positive-keep rule
+# this applies to EVERY regime, including model-curated vision beats: the
+# Dungeon Odyssey ch.1 recruitment banner passed the keep-rule because it
+# depicts characters, yet it is an aggregator ad, not story. Strong promo
+# tokens only — a bare watermarked domain on an otherwise-real cover panel
+# must NOT block, so the domain alone is not in this list.
+_PROMO_BLOCK = re.compile(
+    r"(recruit(ment|ing)?|we('re| are) (hiring|recruiting)|"
+    r"join (our|us|the) (discord|team|server)|discord\.gg|"
+    r"patreon|ko-?fi\b|paypal|donat(e|ion)|"
+    r"(translator|proofreader|typesetter|cleaner|redrawer)s?\s*[:\-]|"
+    r"scan(lation)? (group|team)|asura ?scans? (is|team|recruit)|"
+    r"read (more |our )?(at|on) |official (site|website|discord))", re.I)
+
+
 # Minimum crop dimensions for a vision beat to count as real content.
 _MIN_BEAT_PX = 40
 
@@ -173,6 +188,9 @@ def is_junk_panel(panel):
       an explicit pattern for each junk variety.
     """
     desc = panel.get("visual_description", "") or ""
+    # Promo/credits block outranks every keep-rule in every regime (B2).
+    if _PROMO_BLOCK.search(f"{panel.get('ocr_text','') or ''} {desc}"):
+        return True
     if panel.get("source") == "vision-segment":
         ocr = panel.get("ocr_text", "") or ""
         w, h = panel.get("width") or 0, panel.get("height") or 0
