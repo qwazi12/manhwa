@@ -1946,3 +1946,25 @@ single moment => no slice) + redundancy metric in stats/tests; T3 checkbox
 default-unchecked + render-only-checked; T4 dialogue-fidelity budget in
 narrate contract. Then: tests (incl. overlap-redundancy), deploy, FRESH
 re-ingest ch3, live verify + independent parallel audit incl. redundancy.
+
+#### Session 23 (cont.) — T1-T4 implemented, tested, committed (each pushed separately)
+- T1+T2 (splitter): internal gutters now recursed into; moment slicing
+  (bubble clusters, cuts at lowest-ink rows between clusters) replaces
+  overlapping sliding windows; bubble-less extreme talls get valley cuts.
+  Local proof on the exact failing pages: ch2 p002 (was ONE 7.6:1 strip)
+  -> 10 disjoint shots; ch3 p003 (was 5 near-dupes) -> 10 shots 0% overlap;
+  ch3 p004 -> 16 shots; ch3 p005 -> 11 shots. Coverage 98-100% everywhere;
+  new stats field shot_overlap_max (0.0 = disjoint by construction).
+- T3 (board): checkbox = USER's final-video decision, default UNCHECKED;
+  folded/left-out rows get a ➕ promote button; header shows included-count
+  + ☑all/☐none; /api/storyboard/set_included endpoint; export AND
+  render-missing now 400 unless >=1 ticked and render only ticked segs
+  (TestClient-verified on a synthetic fixture: gates fire, flags persist).
+  Per-seg ✅/🗑 stays as annotation, no longer the export gate.
+- T4 (narrate): word budget now 12w/panel + 7w/dialogue-utterance (cap 220;
+  fallback path inside build_prompt fixed — callers never passed budget);
+  new contract rule 2b DIALOGUE FIDELITY (each meaningful exchange gets its
+  own reported-speech sentence). Verified: 4-panel/16-utterance unit budget
+  48 -> 160 words.
+- NEXT: deploy Railway, FRESH re-ingest ch3 live, parallel audit (slice
+  disjointness + coverage + script richness), board re-check.
