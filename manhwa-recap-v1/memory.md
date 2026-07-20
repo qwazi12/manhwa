@@ -1709,3 +1709,25 @@ project; (7) narration edit -> re-TTS -> automatic downstream timeline
 ripple. Main-page swap + legacy archive still in. Plan items P1-P13
 presented to user as What/How/Why/Benefit table; implementation starts
 only on approval.
+
+#### Session 22 (cont.) — STORYBOARD EDITOR v2: APPROVED (all P1-P13) + amendments — implementation begins
+- User approved the full P1-P13 table. Amendments folded in:
+  (a) TIMEZONE: all usage day-keying + display switches from UTC to
+      America/New_York (ET). Note: the ET switch re-keys the current day;
+      daily counters restart at next read (harmless — raw call log keeps
+      absolute timestamps; lifetime counters added in same change).
+  (b) NAVIGATION: not drawers — a real SIDEBAR ported from the legacy UI
+      (Ingest button/page, Logs button/page, PROJECTS list grouped by
+      series with Open + active marker), improved but at minimum feature-
+      equivalent to https://manhwa.nodepilot.dev/ current sidebar.
+- Timing model note (engineering commitment): arbitrary per-segment image
+  timing INDEPENDENT of narration. Where a new image boundary falls inside
+  a narration beat, the beat's mp3 is SLICED (ffmpeg) into per-segment
+  parts so clips still embed their own audio — no snap-to-sentence
+  limitation, no audio desync. Silent holds insert real timeline silence.
+- Implementation order: usage ET+lifetime -> storyboard_edit.py op engine
+  (include/exclude/retime/reorder/add-line/edit-line + stale-clip marking,
+  audio slicing) -> endpoints -> UI (checkbox col, per-segment time
+  controls, dnd, sidebar+ingest+logs+projects) -> legacy swap (static/
+  legacy/) -> TestClient suite -> deploys (railway + vercel) -> live
+  verification on dungeon-odyssey_2 -> evidence log here.
