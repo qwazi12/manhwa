@@ -2007,3 +2007,6 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 
 #### Session 23 (cont.) — R-plan Step A landed (server core)
 - APPROVE endpoint now starts the finalize chain: render every ticked-but-missing clip -> _do_export() final narrated MP4; job persisted to projects/_jobs/render_<id>.json at every increment (restart-proof), pollable via /api/jobs/{id}; /api/jobs lists recent; /api/exports lists MP4s (name/size/duration/created ET); /api/project projection now includes user_included + clip_exists (R0 truth fix).
+
+#### Session 23 (cont.) — R-plan Step B landed (storyboard UI)
+- Header pipebar (ticked/approved/clips/export states), APPROVE now confirms + starts chain + live progress strip (clip n/m, seg id, export stage, download link on done; resumes after refresh via localStorage); new Exports sidebar drawer (/api/exports); Logs drawer shows persisted render/export jobs first.
