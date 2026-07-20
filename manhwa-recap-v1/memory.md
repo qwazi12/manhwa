@@ -1826,3 +1826,14 @@ only on approval.
 - Proposed fixes S1-S5 presented to user (coverage-gated hybrid detection,
   per-page coverage surfaced in UI, splitter regression fixtures, fresh=1
   ingest flag + ch2 re-run, optional ch3 validation) — WAITING APPROVAL.
+
+#### Session 22 (cont.) — S1-S5 + S1b APPROVED; implementation starting
+- User approved the splitter overhaul with conditions: (1) log+commit
+  incrementally per landed step, (2) all testing LIVE against the deployed
+  system, (3) parallel verification — system results cross-checked against
+  an independent agent-side audit each time (same method that exposed the
+  bug: scraper refetch + per-page coverage vs descriptions.json).
+- Order: S1 coverage-gated hybrid -> S1b anchor sweep (bubbles geometric,
+  figures via local ultralytics person model, ink-density fail-open) ->
+  S2 coverage stats on storyboard/ingest -> S3 fixtures -> S4 fresh=1 +
+  ch2 re-run -> S5 ch3 live validation + audit.
