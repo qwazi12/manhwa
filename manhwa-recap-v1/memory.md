@@ -1788,3 +1788,19 @@ only on approval.
   Vercel:  `cd ~/dev/manhwa/manhwa-recap-v1/review_ui/static && npx vercel@latest --prod --yes`
   (the domain lives on manhwa-studio; the repo-root "manhwa" Vercel project
   is redundant — candidate for deletion to avoid this split-brain again).
+
+#### Session 22 (cont.) — STANDING DIRECTIVE REINFORCED + coverage audit STARTED
+- USER DIRECTIVE (persistent, all agents/IDEs): after EVERY update/fix,
+  append to memory.md AND push to GitHub immediately — never batch at
+  session end; any timeout must leave a findable trail of what was done and
+  where to pick up. (Basic-auth password for the site was shared in-chat
+  for testing and is to be treated as BURNED — user will rotate.)
+- NEW ISSUE (user, with visual evidence): board for dungeon-odyssey_2 shows
+  panel #2 = page002_panel_001 (705x1973 tall strip), but the actual
+  chapter page 2 contains distinct panels (boy-face close-up with black
+  bars; boy sitting under cavern) that are NOT on the board as their own
+  rows. Suspect: split stage merging/dropping panels (or scraper missing
+  images). AUDIT NOW RUNNING (live, against the real chapter URL):
+  per-page original dimensions vs sum of crop coverage from the server's
+  descriptions.json; visual spot-check of page 2. Findings + improvement
+  plan to be presented for APPROVAL before any fix (user directive).
