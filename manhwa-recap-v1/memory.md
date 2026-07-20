@@ -2028,3 +2028,8 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 - The user contract is now literal: tick -> APPROVE -> watch progress bar
   -> download from 📤 Exports. Job record persisted (restart-proof), shown
   in Logs drawer. Volume backup refreshed post-render.
+
+#### Session 23 (cont.) — export review findings + 3 fixes
+- User export review (downloaded MP4, 323s): two long DEAD-AIR stretches (96-107s: 10.4s; 288-297s: 9.2s) = ticked script-less silent holds; frames show real story panels, layout correct; small 1.5-1.8s gaps are scene pauses (by design). Video also predates current ticks (49/55) — second finalize job re-rendered 5 clips and OVERWROTE review_export.mp4, proving the naming flaw.
+- FIXES (tested via storyboard smoke render): (1) drawers offset below pipebar + z-index above (overlap bug from screenshots); (2) exports named final_<MonDD_HH.MMam>.mp4 — history accumulates in drawer; (3) pipebar 🔇 dead-air chip (amber) totals ticked silent holds BEFORE approval.
+- Remedy for dead air (existing features): edit narration / add line on those segs (TTS ~$0.01) or shorten holds.
