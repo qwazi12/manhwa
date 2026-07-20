@@ -301,7 +301,12 @@ def _do_export(speed=1.0):
             f.write(f"file '{os.path.join(active_project_dir(), s['clip'])}'\n")
         if cards and cards[1]:
             f.write(f"file '{cards[1]}'\n")
-    out = os.path.join(active_exports_dir(), "review_export.mp4")
+    # timestamped name (ET): exports accumulate as history instead of
+    # silently overwriting — the drawer shows every version.
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    _stamp = datetime.now(ZoneInfo("America/New_York")).strftime("%b%d_%I.%M%p")
+    out = os.path.join(active_exports_dir(), f"final_{_stamp}.mp4")
     # cards are stream-matched by _title_card, so always stream-copy (a
     # re-encode pads each clip's video to its audio tail — accumulating
     # frozen frames across the whole export)
@@ -321,7 +326,7 @@ def _do_export(speed=1.0):
             os.replace(tmp, out)
     final = out
     if abs(speed - 1.0) > 1e-3:
-        sped = os.path.join(active_exports_dir(), f"review_export_{speed}x.mp4")
+        sped = out.replace(".mp4", f"_{speed}x.mp4")
         subprocess.run(
             [sys.executable, os.path.join(RECAP, "speed_up.py"),
              out, sped, str(speed)], check=True, capture_output=True)

@@ -72,6 +72,10 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     holds = sum(1 for s in segs if s["dur"] > 12)
     n_included = sum(1 for s in segs if s.get("user_included"))
     n_segs = len(segs)
+    _sil = [s for s in segs if s.get("user_included")
+            and (s.get("silent_hold") or not s.get("beats"))]
+    sil_str = (f"{len(_sil)} holds · {sum(s.get('dur', 0) for s in _sil):.0f}s"
+               if _sil else "none")
     n_approved = sum(1 for s in segs
                      if review.get(str(s["seg_index"]), {}).get("status") == "approved")
 
@@ -217,7 +221,7 @@ header .stat b {{ display:block; font-size:15px; color:#fff; }} header .stat {{ 
 .navbtn .ic {{ font-size:19px; line-height:1; }}
 .navbtn:hover, .navbtn.active {{ background:#1b1e27; color:#5b8cff; }}
 /* ---- drawers ---- */
-.drawer {{ position:fixed; left:64px; top:0; bottom:0; width:360px; background:#15171e; color:#e6e8ef; border-right:1px solid #282c38; z-index:19; padding:16px; overflow-y:auto; display:none; font-size:13px; }}
+.drawer {{ position:fixed; left:64px; top:86px; bottom:0; width:360px; background:#15171e; color:#e6e8ef; border-right:1px solid #282c38; z-index:70; padding:16px; overflow-y:auto; display:none; font-size:13px; box-shadow:4px 0 18px rgba(0,0,0,.5); }}
 .drawer h3 {{ font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:#8b90a0; margin:0 0 10px; }}
 .drawer .hint {{ color:#8b90a0; font-size:11px; }}
 .drawer input.field {{ width:100%; background:#1b1e27; border:1px solid #282c38; border-radius:7px; color:#e6e8ef; padding:8px; font:inherit; margin:10px 0; }}
@@ -329,6 +333,7 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <span id="st_appr">② approved <b>{'✓' if approved else '—'}</b></span>
   <span id="st_clips">③ clips <b id="clipcount">?</b></span>
   <span id="st_exp">④ export <b id="expstate">—</b></span>
+  <span id="st_sil" style="{'color:#e8a13c' if _sil else ''}">🔇 dead air <b>{sil_str}</b></span>
   <div id="renderprog" style="display:none"><div id="renderbar"></div><span id="rendertxt"></span></div>
 </div>
 <div class="wrap">
