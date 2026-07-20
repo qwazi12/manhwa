@@ -1837,3 +1837,23 @@ only on approval.
   figures via local ultralytics person model, ink-density fail-open) ->
   S2 coverage stats on storyboard/ingest -> S3 fixtures -> S4 fresh=1 +
   ch2 re-run -> S5 ch3 live validation + audit.
+
+#### Session 22 (cont.) — S1+S1b LANDED: coverage-gated hybrid split + anchor sweep
+- split_panels.py rearchitected: detect_panels now runs YOLO -> per-page
+  CONTENT-COVERAGE check -> geometric gutter split on uncovered bands ->
+  speech-bubble (scipy blob, no ML) + figure (local yolov8n person model,
+  best-effort) anchor sweep -> fail-open density bands. Every panel records
+  its "detector"; per-page stats {coverage_yolo, coverage_final, n_yolo,
+  n_gap, n_anchor, n_bubbles, n_figures} go into panels.json meta. Tall-
+  panel Layer-2 logic deduplicated into _layer2_shots().
+- PARALLEL VERIFICATION (user condition 3): splitter's self-reported
+  coverage vs an independently-computed audit on the same output —
+  page 2: 34% -> 100% (2 -> 8 crops; independent audit 100%);
+  page 7: 23% -> 99% (1 -> 12 crops; independent 99%);
+  page 9: 42% -> 100% (1 -> 7 crops; independent 100%).
+- VISUAL PROOF: new page002_panel_001.png IS the user's attached missing
+  face close-up; panel_004 is the "MY BROKEN ARM'S FINE TOO." fist panel
+  from the previously dropped 66%.
+- Note: figure-model download hit local macOS SSL cert issue -> degraded
+  gracefully to 0 figure anchors as designed (gap recovery had already
+  reached ~100%); Dockerfile to bake yolov8n.pt for prod (next commit).

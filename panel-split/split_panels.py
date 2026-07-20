@@ -323,161 +323,295 @@ def _apply_bleed_guard(bbox, gray_full, bg_color, max_expand=30):
     return [x0, y0, x1, y1]
 
 
+# -------------------------------------------- S1/S1b: coverage + anchors
+
+# Coverage-gated hybrid split (S1): YOLO's boxes are only trusted as far as
+# they COVER the page's actual content. Content rows not covered by any box
+# are re-attacked with the geometric gutter splitter, and whatever still
+# remains uncovered ships as a density-band crop (fail-open: an imperfect
+# crop on the review board beats silently lost story — the 2026-07-19 audit
+# found YOLO alone kept only 23-76% of dungeon-odyssey ch2's art).
+COVERAGE_TARGET = 0.85         # below this, gap recovery kicks in
+GAP_MIN_DENSITY = 0.04         # a gap band needs >= this ink fraction to matter
+GAP_MIN_H = 120                # ignore uncovered slivers shorter than this (px)
+
+# Anchor sweep (S1b): regions with STORY SIGNAL must never be dropped,
+# whatever the panel detectors think. Signals: speech bubbles (geometric,
+# any art style) and figures (local pretrained person model, best-effort).
+ANCHOR_COVERED_FRAC = 0.6      # anchor is safe if >=60% of it lies in a kept box
+BUBBLE_MIN_AREA = 4000         # px^2 — smaller light blobs are noise/SFX
+BUBBLE_MAX_AREA_FRAC = 0.25    # a "bubble" bigger than 25% of the page isn't one
+FIGURE_CONF = 0.30
+FIGURE_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "yolov8n.pt")   # generic COCO model, person class
+
+
+def _row_coverage(page_h, boxes):
+    cov = np.zeros(page_h, dtype=bool)
+    for x0, y0, x1, y1 in boxes:
+        cov[max(0, y0):min(page_h, y1)] = True
+    return cov
+
+
+def _content_rows(gray, bg):
+    not_bg = np.abs(gray.astype(np.int16) - bg) > BG_COLOR_TOLERANCE
+    return not_bg.mean(axis=1) >= GAP_MIN_DENSITY
+
+
+def _uncovered_bands(gray, bg, boxes):
+    """(y0, y1) bands of real content not covered by any detected box."""
+    content = _content_rows(gray, bg)
+    cov = _row_coverage(gray.shape[0], boxes)
+    miss = content & ~cov
+    bands, start = [], None
+    for i, v in enumerate(miss):
+        if v and start is None:
+            start = i
+        elif not v and start is not None:
+            if i - start >= GAP_MIN_H:
+                bands.append((start, i))
+            start = None
+    if start is not None and len(miss) - start >= GAP_MIN_H:
+        bands.append((start, len(miss)))
+    # merge bands separated by thin covered/blank strips (< GAP_MIN_H)
+    merged = []
+    for b in bands:
+        if merged and b[0] - merged[-1][1] < GAP_MIN_H:
+            merged[-1] = (merged[-1][0], b[1])
+        else:
+            merged.append(list(b))
+    return [tuple(b) for b in merged]
+
+
+def _detect_bubbles(gray, bg):
+    """Speech-bubble anchors, no ML: large light connected blobs containing
+    dark marks (text). Works on dark pages where gutter logic fails."""
+    try:
+        from scipy import ndimage
+    except ImportError:
+        return []
+    h, w = gray.shape
+    light = gray >= 225
+    lbl, n = ndimage.label(light)
+    if not n:
+        return []
+    out = []
+    for sl in ndimage.find_objects(lbl):
+        y0, y1 = sl[0].start, sl[0].stop
+        x0, x1 = sl[1].start, sl[1].stop
+        area = (y1 - y0) * (x1 - x0)
+        if area < BUBBLE_MIN_AREA or area > BUBBLE_MAX_AREA_FRAC * h * w:
+            continue
+        if (y1 - y0) < 40 or (x1 - x0) < 60:
+            continue
+        region = gray[y0:y1, x0:x1]
+        dark_frac = float((region <= 80).mean())
+        if 0.01 <= dark_frac <= 0.5:      # has text but isn't mostly art
+            out.append([x0, y0, x1, y1])
+    return out
+
+
+def _detect_figures(image_path):
+    """Figure/person anchors via the generic pretrained model (best-effort:
+    missing weights or import failure just returns [] — the density net
+    below still guarantees coverage)."""
+    try:
+        from ultralytics import YOLO
+        # local baked weights preferred; else ultralytics resolves the name
+        # (auto-download on first use — deploy/Dockerfile bakes it for prod)
+        model = FIGURE_MODEL if os.path.exists(FIGURE_MODEL) else "yolov8n.pt"
+        res = YOLO(model).predict(source=image_path, conf=FIGURE_CONF,
+                                  classes=[0], verbose=False)
+        out = []
+        for r in res:
+            for b in r.boxes:
+                x0, y0, x1, y1 = [int(round(c)) for c in b.xyxy[0].tolist()]
+                out.append([x0, y0, x1, y1])
+        return out
+    except Exception as e:
+        print(f"figure-anchor detection skipped: {e}", file=sys.stderr)
+        return []
+
+
+def _anchor_uncovered(anchors, boxes):
+    """Anchors whose area is not ANCHOR_COVERED_FRAC-covered by kept boxes."""
+    out = []
+    for a in anchors:
+        ax0, ay0, ax1, ay1 = a
+        area = max(1, (ax1 - ax0) * (ay1 - ay0))
+        covered = 0
+        for x0, y0, x1, y1 in boxes:
+            iw = max(0, min(ax1, x1) - max(ax0, x0))
+            ih = max(0, min(ay1, y1) - max(ay0, y0))
+            covered = max(covered, iw * ih)
+        if covered / area < ANCHOR_COVERED_FRAC:
+            out.append(a)
+    return out
+
+
+def _grow_to_quiet_rows(gray, bg, y0, y1, max_grow=400):
+    """Expand a band to the nearest low-ink rows so cuts land in visual
+    pauses instead of through art."""
+    h = gray.shape[0]
+    density = ( np.abs(gray.astype(np.int16) - bg) > BG_COLOR_TOLERANCE ).mean(axis=1)
+    g = 0
+    while y0 > 0 and density[y0 - 1] > 0.02 and g < max_grow:
+        y0 -= 1; g += 1
+    g = 0
+    while y1 < h and density[y1] > 0.02 and g < max_grow:
+        y1 += 1; g += 1
+    return y0, y1
+
+
+def _merge_boxes(boxes, gap=40):
+    """Merge vertically-overlapping/near-touching full-width bands."""
+    if not boxes:
+        return []
+    boxes = sorted(boxes, key=lambda b: b[1])
+    out = [list(boxes[0])]
+    for b in boxes[1:]:
+        if b[1] <= out[-1][3] + gap:
+            out[-1][2] = max(out[-1][2], b[2])
+            out[-1][3] = max(out[-1][3], b[3])
+            out[-1][0] = min(out[-1][0], b[0])
+        else:
+            out.append(list(b))
+    return [tuple(b) for b in out]
+
+
 # ----------------------------------------------------------- main detect
 
+def _layer2_shots(img, gray, bg, bbox):
+    """Shared Layer-2 logic: decide whether bbox is one shot or a tall
+    continuous panel that needs sub-shots (vision, else density windows)."""
+    x0, y0, x1, y1 = bbox
+    pw, ph = x1 - x0, y1 - y0
+    panel_gray = gray[y0:y1, x0:x1]
+    if pw <= 0 or ph / max(pw, 1) < TALL_RATIO:
+        return "single", None, [{"shot_id": 1, "bbox": [x0, y0, x1, y1]}]
+    internal = _split_axis(panel_gray, axis=0, bg_color=bg)
+    if len(internal) > 1:
+        return "single", None, [{"shot_id": 1, "bbox": [x0, y0, x1, y1]}]
+    if USE_VISION_TALL:
+        vbeats = vision_segment.segment_tall_panel_image(img.crop((x0, y0, x1, y1)))
+        if vbeats:
+            boxes = vision_segment.beats_to_pixel_bboxes(vbeats, pw, ph)
+            shots = [{
+                "shot_id": i + 1,
+                "bbox": [x0, y0 + bx["bbox"][1], x1, y0 + bx["bbox"][3]],
+                "ocr_text": bx["ocr_text"],
+                "visual_description": bx["visual_description"],
+            } for i, bx in enumerate(boxes)]
+            if len(shots) > 1:
+                return "continuous_vertical_action", "vision", shots
+    windows = _sliding_shot_windows(panel_gray, bg)
+    if len(windows) > 1:
+        shots = [{"shot_id": i + 1, "bbox": [x0, y0 + wy0, x1, y0 + wy1]}
+                 for i, (wy0, wy1) in enumerate(windows)]
+        return "continuous_vertical_action", "density-window", shots
+    return "single", None, [{"shot_id": 1, "bbox": [x0, y0, x1, y1]}]
+
+
 def detect_panels(image_path: str):
-    """Return (PIL image, list of panel dicts). Each panel dict:
-        {
-          "panel_id": int,
-          "bbox": [x0, y0, x1, y1],       # in page coordinates
-          "type": "single" | "continuous_vertical_action",
-          "shots": [ {"shot_id": int, "bbox": [x0,y0,x1,y1]}, ... ]
-        }
+    """Return (PIL image, list of panel dicts, stats dict).
+
+    Detection is COVERAGE-GATED (S1) with ANCHOR back-stops (S1b):
+      1. YOLO panel boxes (bleed-guarded)
+      2. geometric gutter split on any content bands YOLO left uncovered
+      3. speech-bubble + figure anchors force-include what both missed
+      4. remaining content bands ship as density crops (fail-open)
+    Every panel records its "detector"; stats record per-stage coverage so
+    the pipeline/UI can surface split quality (S2).
     """
     img = Image.open(image_path).convert("RGB")
     gray = np.array(img.convert("L"))
     bg = _estimate_background_color(gray)
+    W, H = img.size
 
+    boxes = []          # [x0,y0,x1,y1] accepted panel boxes, any detector
+    origins = []        # parallel list: which stage produced each box
+
+    def content_coverage():
+        content = _content_rows(gray, bg)
+        n = int(content.sum())
+        if not n:
+            return 1.0
+        cov = _row_coverage(H, boxes)
+        return float((content & cov).sum() / n)
+
+    # -- 1. YOLO ---------------------------------------------------------
+    for bbox in detect_panels_yolo(image_path):
+        bbox = _apply_bleed_guard(bbox, gray, bg)
+        x0, y0, x1, y1 = bbox
+        if x1 - x0 >= MIN_PANEL_SIZE and y1 - y0 >= MIN_PANEL_SIZE:
+            boxes.append([x0, y0, x1, y1])
+            origins.append("yolo")
+    cov_yolo = content_coverage()
+
+    # -- 2. geometric on uncovered bands ---------------------------------
+    if cov_yolo < COVERAGE_TARGET:
+        for (by0, by1) in _uncovered_bands(gray, bg, boxes):
+            band = gray[by0:by1, :]
+            cuts = _split_axis(band, axis=0, bg_color=bg)
+            band_boxes = []
+            for (r0, r1) in cuts:
+                if r1 - r0 >= MIN_PANEL_SIZE:
+                    band_boxes.append([0, by0 + r0, W, by0 + r1])
+            if not band_boxes:
+                gy0, gy1 = _grow_to_quiet_rows(gray, bg, by0, by1)
+                band_boxes = [[0, gy0, W, gy1]]
+            for b in _merge_boxes(band_boxes):
+                boxes.append(list(b))
+                origins.append("gap-geometric" if len(cuts) > 1 else "gap-density")
+    cov_gaps = content_coverage()
+
+    # -- 3. anchors: bubbles + figures ------------------------------------
+    anchors = ([("bubble", a) for a in _detect_bubbles(gray, bg)]
+               + [("figure", a) for a in _detect_figures(image_path)])
+    n_anchor_rescued = 0
+    for kind, a in anchors:
+        if _anchor_uncovered([a], boxes):
+            ay0, ay1 = _grow_to_quiet_rows(gray, bg, a[1], a[3])
+            boxes.append([0, ay0, W, ay1])
+            origins.append(f"anchor-{kind}")
+            n_anchor_rescued += 1
+    cov_final = content_coverage()
+
+    # -- assemble in reading order ----------------------------------------
+    order = sorted(range(len(boxes)), key=lambda i: (boxes[i][1], boxes[i][0]))
     panels = []
-    panel_id = 0
-
-    # Try YOLO-based panel detection first
-    yolo_boxes = detect_panels_yolo(image_path)
-    if yolo_boxes:
-        print(f"YOLO detected {len(yolo_boxes)} panels.", file=sys.stderr)
-        for bbox in yolo_boxes:
-            # Apply Bleed Guard to prevent cutting off overflow content
-            bbox = _apply_bleed_guard(bbox, gray, bg)
-            x0, y0, x1, y1 = bbox
-            pw = x1 - x0
-            ph = y1 - y0
-            if pw < MIN_PANEL_SIZE or ph < MIN_PANEL_SIZE:
-                continue
-
-            panel_id += 1
-            panel_gray = gray[y0:y1, x0:x1]
-
-            # Layer 2: is this a tall continuous panel needing sub-shots?
-            if ph / pw >= TALL_RATIO:
-                internal = _split_axis(panel_gray, axis=0, bg_color=bg)
-                if len(internal) <= 1:
-                    vbeats = None
-                    if USE_VISION_TALL:
-                        vbeats = vision_segment.segment_tall_panel_image(
-                            img.crop((x0, y0, x1, y1)))
-                    if vbeats:
-                        boxes = vision_segment.beats_to_pixel_bboxes(
-                            vbeats, pw, ph)
-                        shots = [{
-                            "shot_id": i + 1,
-                            "bbox": [x0, y0 + bx["bbox"][1], x1, y0 + bx["bbox"][3]],
-                            "ocr_text": bx["ocr_text"],
-                            "visual_description": bx["visual_description"],
-                        } for i, bx in enumerate(boxes)]
-                        if len(shots) > 1:
-                            panels.append({
-                                "panel_id": panel_id,
-                                "bbox": [x0, y0, x1, y1],
-                                "type": "continuous_vertical_action",
-                                "segmented_by": "vision",
-                                "shots": shots,
-                            })
-                            continue
-                    windows = _sliding_shot_windows(panel_gray, bg)
-                    if len(windows) > 1:
-                        shots = [{
-                            "shot_id": i + 1,
-                            "bbox": [x0, y0 + wy0, x1, y0 + wy1],
-                        } for i, (wy0, wy1) in enumerate(windows)]
-                        panels.append({
-                            "panel_id": panel_id,
-                            "bbox": [x0, y0, x1, y1],
-                            "type": "continuous_vertical_action",
-                            "segmented_by": "density-window",
-                            "shots": shots,
-                        })
-                        continue
-
-            panels.append({
-                "panel_id": panel_id,
-                "bbox": [x0, y0, x1, y1],
-                "type": "single",
-                "shots": [{"shot_id": 1, "bbox": [x0, y0, x1, y1]}],
-            })
-    else:
-        # Fall back to original axis-based gutter split logic
-        for (r0, r1) in _split_axis(gray, axis=0, bg_color=bg):
-            strip = gray[r0:r1, :]
-            for (c0, c1) in _split_axis(strip, axis=1, bg_color=bg):
-                top = min(r0 + EDGE_MARGIN, r1)
-                bottom = max(r1 - EDGE_MARGIN, top + 1)
-                left = min(c0 + EDGE_MARGIN, c1)
-                right = max(c1 - EDGE_MARGIN, left + 1)
-                pw, ph = right - left, bottom - top
-                if pw < MIN_PANEL_SIZE or ph < MIN_PANEL_SIZE:
-                    continue
-
-                panel_id += 1
-                panel_gray = gray[top:bottom, left:right]
-
-                # Layer 2: is this a tall continuous panel needing sub-shots?
-                if ph / pw >= TALL_RATIO:
-                    internal = _split_axis(panel_gray, axis=0, bg_color=bg)
-                    if len(internal) <= 1:
-                        vbeats = None
-                        if USE_VISION_TALL:
-                            vbeats = vision_segment.segment_tall_panel_image(
-                                img.crop((left, top, right, bottom)))
-                        if vbeats:
-                            boxes = vision_segment.beats_to_pixel_bboxes(
-                                vbeats, right - left, bottom - top)
-                            shots = [{
-                                "shot_id": i + 1,
-                                "bbox": [left, top + bx["bbox"][1], right, top + bx["bbox"][3]],
-                                "ocr_text": bx["ocr_text"],
-                                "visual_description": bx["visual_description"],
-                            } for i, bx in enumerate(boxes)]
-                            if len(shots) > 1:
-                                panels.append({
-                                    "panel_id": panel_id,
-                                    "bbox": [left, top, right, bottom],
-                                    "type": "continuous_vertical_action",
-                                    "segmented_by": "vision",
-                                    "shots": shots,
-                                })
-                                continue
-                        windows = _sliding_shot_windows(panel_gray, bg)
-                        if len(windows) > 1:
-                            shots = [{
-                                "shot_id": i + 1,
-                                "bbox": [left, top + wy0, right, top + wy1],
-                            } for i, (wy0, wy1) in enumerate(windows)]
-                            panels.append({
-                                "panel_id": panel_id,
-                                "bbox": [left, top, right, bottom],
-                                "type": "continuous_vertical_action",
-                                "segmented_by": "density-window",
-                                "shots": shots,
-                            })
-                            continue
-
-                panels.append({
-                    "panel_id": panel_id,
-                    "bbox": [left, top, right, bottom],
-                    "type": "single",
-                    "shots": [{"shot_id": 1, "bbox": [left, top, right, bottom]}],
-                })
+    for rank, i in enumerate(order, 1):
+        x0, y0, x1, y1 = boxes[i]
+        ptype, seg_by, shots = _layer2_shots(img, gray, bg, (x0, y0, x1, y1))
+        p = {"panel_id": rank, "bbox": [x0, y0, x1, y1], "type": ptype,
+             "detector": origins[i], "shots": shots}
+        if seg_by:
+            p["segmented_by"] = seg_by
+        panels.append(p)
 
     if not panels:
-        w, h = img.size
-        panels = [{
-            "panel_id": 1,
-            "bbox": [0, 0, w, h],
-            "type": "single",
-            "shots": [{"shot_id": 1, "bbox": [0, 0, w, h]}],
-        }]
+        panels = [{"panel_id": 1, "bbox": [0, 0, W, H], "type": "single",
+                   "detector": "whole-page", "shots": [{"shot_id": 1, "bbox": [0, 0, W, H]}]}]
 
-    return img, panels
+    stats = {
+        "coverage_yolo": round(cov_yolo, 3),
+        "coverage_after_gaps": round(cov_gaps, 3),
+        "coverage_final": round(cov_final, 3),
+        "n_yolo": origins.count("yolo"),
+        "n_gap": sum(1 for o in origins if o.startswith("gap-")),
+        "n_anchor": n_anchor_rescued,
+        "n_bubbles": sum(1 for k, _ in anchors if k == "bubble"),
+        "n_figures": sum(1 for k, _ in anchors if k == "figure"),
+    }
+    print(f"{os.path.basename(image_path)}: yolo {stats['n_yolo']} boxes "
+          f"({cov_yolo:.0%} of content) + gaps {stats['n_gap']} "
+          f"+ anchors {stats['n_anchor']} -> coverage {cov_final:.0%}",
+          file=sys.stderr)
+    if cov_final < COVERAGE_TARGET:
+        print(f"WARNING: SPLIT COVERAGE {cov_final:.0%} < {COVERAGE_TARGET:.0%} "
+              f"on {os.path.basename(image_path)} — review this page's crops.",
+              file=sys.stderr)
+    return img, panels, stats
 
 
 def _is_blank_crop(crop_gray: np.ndarray, bg_color: int) -> bool:
@@ -492,7 +626,7 @@ def _is_blank_crop(crop_gray: np.ndarray, bg_color: int) -> bool:
 
 def process_file(input_path: str, out_dir: str, prefix: str, all_meta: list,
                   archive_blanks: bool = ARCHIVE_BLANKS):
-    img, panels = detect_panels(input_path)
+    img, panels, stats = detect_panels(input_path)
     gray_full = np.array(img.convert("L"))
     bg = _estimate_background_color(gray_full)
     os.makedirs(out_dir, exist_ok=True)
@@ -541,6 +675,7 @@ def process_file(input_path: str, out_dir: str, prefix: str, all_meta: list,
     all_meta.append({
         "source": os.path.basename(input_path),
         "prefix": prefix,
+        "coverage": stats,          # S2: per-page split quality, surfaced in UI
         "panels": panels,
     })
     return n_crops
