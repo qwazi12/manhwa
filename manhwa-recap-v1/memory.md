@@ -2010,3 +2010,6 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 
 #### Session 23 (cont.) — R-plan Step B landed (storyboard UI)
 - Header pipebar (ticked/approved/clips/export states), APPROVE now confirms + starts chain + live progress strip (clip n/m, seg id, export stage, download link on done; resumes after refresh via localStorage); new Exports sidebar drawer (/api/exports); Logs drawer shows persisted render/export jobs first.
+
+#### Session 23 (cont.) — R-plan Step C: orchestration test 8/8 PASS
+- Stub-project TestClient run: R0 live tick state ✓; approve->job ✓; chain rendered exactly the 2 ticked clips then exported (video+audio streams verified by ffprobe) ✓; /api/exports lists it ✓; unticked seg untouched ✓; job persisted ✓; restart simulation (JOBS.clear) still serves status from disk ✓.
