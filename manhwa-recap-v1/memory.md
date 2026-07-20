@@ -1968,3 +1968,25 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
   48 -> 160 words.
 - NEXT: deploy Railway, FRESH re-ingest ch3 live, parallel audit (slice
   disjointness + coverage + script richness), board re-check.
+
+#### Session 23 (cont.) — T1-T4 LIVE VALIDATION on fresh ch3 + audit-found dupe fixed
+- Fresh re-ingest of ch3 through the deployed T1-T4 build (job via fresh=1):
+  project dungeon-odyssey_3 regenerated — 46 segments / 358.0s (5:58) vs the
+  old cut's 24 / 3:42. Coverage self-report unchanged (min .911 mean .985).
+- AUDIT RESULTS (independent, vs live server artifacts):
+  * slicing: 115 shots (was 60); worst aspect ratio 2.6 (was 7.6 whole
+    strips); the #20/#21-class tall panels are now properly cut.
+  * script: 1,003 words (~2x the old ~530), ZERO quotation marks — dialogue
+    fidelity + budget scaling working in prod.
+  * board: "0/46 in final video" counter live, 0 auto-checked boxes, 59
+    promote buttons on folded rows — T3 user-owned inclusion verified live.
+- PARALLEL CHECK CAUGHT A REAL BUG: page007 emitted one region twice
+  (whole-page YOLO box + anchor band inside it) — no cross-detector dedupe
+  existed; also my in-splitter shot_overlap_max metric was Y-only (blind to
+  side-by-side layouts). FIXED: containment NMS (>=90% area containment in
+  a larger kept box -> dropped, stats.panel_dupes_dropped) + true 2D
+  overlap metric. Local re-split of all 12 ch3 pages: 0 remaining dupe
+  pairs, 2 dropped, coverage unchanged 91-100%.
+- Current live ch3 board contains ONE known dupe row pair (page007) from
+  the pre-NMS build — harmless under T3 (leave it unticked); next fresh
+  ingest of any chapter ships dupe-free. NMS deploy going out now.
