@@ -1902,3 +1902,15 @@ only on approval.
 - Board verified live: coverage chip renders; header now "all 102 panels ·
   45 segments · 5:48". (102 desc entries vs 120 before: cleaner crops
   produce fewer sliver shots.)
+
+#### Session 22 (cont.) — S5 COMPLETE: ch3 live validation PASSES — splitter program done
+- Ingested https://asurascans.com/comics/dungeon-odyssey-f886a8af/chapter/3
+  live on prod: project dungeon-odyssey_3, 24 segments / 222.0s (3:42),
+  match gemini-embeddings+provenance+dp, self-reported split_coverage
+  {min .911, mean .985, 0 pages below 85%}.
+- INDEPENDENT parallel audit (fresh scrape, 12 pages, page-coordinate boxes
+  from the server's own panels.json): min 91% / mean 99% — EXACT agreement
+  with the system's self-report. VERDICT: AGREE.
+- Program S1,S1b,S2,S3,S4,S5 ALL COMPLETE and verified live. The board now
+  carries every panel of every page (>=91% art coverage enforced +
+  self-measured + independently spot-checked), with the editor on top.
