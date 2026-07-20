@@ -1914,3 +1914,35 @@ only on approval.
 - Program S1,S1b,S2,S3,S4,S5 ALL COMPLETE and verified live. The board now
   carries every panel of every page (>=91% art coverage enforced +
   self-measured + independently spot-checked), with the editor on top.
+
+#### Session 23 — 2026-07-20 — User board review: slicing + script quality findings (evidence from code)
+1) TALL STRIPS LEFT WHOLE (#2,7,20,21,39,42,71,72; AR up to 7.6): ROOT CAUSE
+   split_panels._layer2_shots: if _split_axis finds INTERNAL gutters inside a
+   tall panel it returns "single" — assuming layer 1 already used those
+   gutters. False for YOLO boxes / density crops: layer 1 never splits
+   INSIDE them. So panels WITH visible gutters are exactly the ones that
+   skip slicing. Vision fallback (USE_VISION_TALL) requires GEMINI key and
+   its failures are silent; density windows unreachable behind the bail-out.
+2) OVER-SLICING (#13-15,26-29,30-32,34-35,48-50,54-56,58-59): ROOT CAUSE
+   _sliding_shot_windows: fixed 700-1100px windows, 30% overlap, keep >=55%
+   of best score, suppress only >60% overlap -> adjacent windows overlapping
+   30-59% ALL survive => near-duplicate slices of one visual moment.
+3) SCRIPT = SUMMARY: consequence of (1): a whole 8-bubble page arrives as
+   ONE panel -> one narration unit -> 1-2 sentences for a page of dialogue.
+   Plus contract lacks a dialogue-fidelity rule (budget not scaled to
+   bubble count).
+4) User directive: checkboxes must NOT be auto-checked — system proposes,
+   USER includes. Render/approve = only user-checked segments (+ select-all
+   convenience; approve requires >=1 checked).
+5) Browser login: agent CANNOT enter passwords (hard policy) — verification
+   stays via x-shared-secret service access (full authenticated HTML/API
+   reads). User's in-app preview browser shows bare "Authentication
+   Required" because it suppresses the native basic-auth dialog; normal
+   Chrome pops the dialog. Creds pasted in chat -> user will rotate.
+FIX PLAN T1-T4 (starting now): T1 recurse into internal gutters instead of
+bail; T2 replace sliding windows with MOMENT slicing (bubble clusters ->
+cut at low-ink valleys BETWEEN clusters; non-overlapping by construction;
+single moment => no slice) + redundancy metric in stats/tests; T3 checkbox
+default-unchecked + render-only-checked; T4 dialogue-fidelity budget in
+narrate contract. Then: tests (incl. overlap-redundancy), deploy, FRESH
+re-ingest ch3, live verify + independent parallel audit incl. redundancy.
