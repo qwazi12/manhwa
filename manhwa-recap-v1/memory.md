@@ -1753,3 +1753,21 @@ only on approval.
 - Next session if interrupted: run tests in review_ui/, fix fails, then
   railway up (retry loop for TLS flakes), npx vercel@latest --prod, verify
   live per plan P13, log evidence.
+
+#### Session 22 (cont.) — EDITOR v2 DEPLOYED + VERIFIED LIVE (P1-P13 complete)
+- Deploys: Vercel prod live (root 401 basic-auth -> storyboard rewrite);
+  Railway build 6200dfe4 live (upload took 5 attempts through Railway-side
+  TLS BadRecordMac flakes — recurring infra issue, not our code).
+- Live page anatomy on dungeon-odyssey_2: 120 rows / 120 include-checkboxes
+  / 32 segblocks with duration+cut controls / 3 sidebar drawers (Ingest,
+  Projects, Logs) / ET + all-time cost header. Legacy UI archived and
+  reachable at /legacy/.
+- Live editor round-trip proof (authenticated API, real project):
+  before 32 segs @ 248.76s -> include folded page002_panel_001 = 33 segs @
+  248.76s (runtime CONSERVED, carve worked) -> boundary nudge -0.25/+0.25 on
+  seg 0 = 248.76s (conserved) -> exclude = back to 32 segs @ 248.76s
+  (EXACT restore). Editor ops are live, reversible, and audio-safe.
+- Local test suite: test_storyboard_edit.py 20/20 (includes real ffmpeg
+  mid-beat slice test); TestClient smoke: / -> 307 /storyboard, page
+  renders all controls.
+- User-facing: https://manhwa.nodepilot.dev/ IS now the storyboard editor.
