@@ -174,6 +174,8 @@ def project():
         out.append({
             "seg_index": s["seg_index"],
             "panel_id": s["panel_id"],
+            "user_included": bool(s.get("user_included")),
+            "clip_exists": clip_ok,
             "start": s["start"], "end": s["end"], "dur": s.get("dur"),
             "text": " ".join(b["text"] for b in s.get("beats", [])),
             "n_beats": len(s.get("beats", [])),
@@ -250,6 +252,10 @@ class ExportIn(BaseModel):
 
 @app.post("/api/export")
 def export(body: ExportIn):
+    return _do_export(speed=body.speed)
+
+
+def _do_export(speed=1.0):
     """Concat ONLY user-included (checkbox, T3) clips, in timeline order."""
     segs = load_segments()
     approved = [s for s in segs if s.get("user_included")]
@@ -314,11 +320,11 @@ def export(body: ExportIn):
         if r.returncode == 0:
             os.replace(tmp, out)
     final = out
-    if abs(body.speed - 1.0) > 1e-3:
-        sped = os.path.join(active_exports_dir(), f"review_export_{body.speed}x.mp4")
+    if abs(speed - 1.0) > 1e-3:
+        sped = os.path.join(active_exports_dir(), f"review_export_{speed}x.mp4")
         subprocess.run(
             [sys.executable, os.path.join(RECAP, "speed_up.py"),
-             out, sped, str(body.speed)], check=True, capture_output=True)
+             out, sped, str(speed)], check=True, capture_output=True)
         final = sped
     return {"ok": True, "clips": len(approved), "output": os.path.basename(final),
             "url": f"/export/{os.path.basename(final)}"}
@@ -894,6 +900,69 @@ import uuid
 JOBS = {}   # job_id -> {status: queued|running|done|error, done, total, error}
 
 
+def _jobs_dir():
+    import ingest as _ing
+    d = os.path.join(_ing.PROJECTS, "_jobs")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _persist_job(job_id):
+    """Mirror a render/export job record to disk so the Logs drawer and
+    status polling survive container restarts (same guarantee ingest has)."""
+    try:
+        rec = dict(JOBS.get(job_id) or {})
+        rec["job"] = job_id
+        tmp = os.path.join(_jobs_dir(), f"render_{job_id}.json.tmp")
+        with open(tmp, "w") as f:
+            json.dump(rec, f)
+        os.replace(tmp, os.path.join(_jobs_dir(), f"render_{job_id}.json"))
+    except Exception:
+        pass
+
+
+def _run_finalize_job(job_id):
+    """The APPROVE chain (user contract): render every ticked-but-missing
+    clip, then export the final narrated MP4 — one job, visible progress."""
+    import time
+    j = JOBS[job_id]
+    j["status"] = "running"
+    j["stage"] = "render"
+    _persist_job(job_id)
+    try:
+        pdir = active_project_dir()
+        segs = load_segments()
+        ticked = [s for s in segs if s.get("user_included")]
+        missing = [s["seg_index"] for s in ticked
+                   if not os.path.exists(os.path.join(pdir, s.get("clip", "")))]
+        j["total"] = len(missing)
+        for n, si in enumerate(missing, 1):
+            segs = load_segments()
+            seg = next((s for s in segs if s["seg_index"] == si), None)
+            if seg:
+                j["current_seg"] = si
+                _persist_job(job_id)
+                _rerender(seg)
+                _write_segments(segs)
+            j["done"] = n
+            _persist_job(job_id)
+        j["stage"] = "export"
+        j["current_seg"] = None
+        _persist_job(job_id)
+        res = _do_export()
+        j["export"] = res.get("output")
+        j["url"] = res.get("url")
+        j["status"] = "done"
+        j["ended"] = time.time()
+    except HTTPException as e:
+        j["status"] = "error"
+        j["error"] = str(e.detail)
+    except Exception as e:  # noqa
+        j["status"] = "error"
+        j["error"] = str(e)
+    _persist_job(job_id)
+
+
 def _run_render_job(job_id, seg_indices):
     JOBS[job_id]["status"] = "running"
     try:
@@ -922,9 +991,70 @@ def _start_render(seg_indices):
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str):
     j = JOBS.get(job_id)
-    if not j:
+    if not j:  # restart-proof: fall back to the persisted record
+        p = os.path.join(_jobs_dir(), f"render_{job_id}.json")
+        if os.path.exists(p):
+            return json.load(open(p))
         raise HTTPException(404, "job not found")
     return j
+
+
+@app.get("/api/jobs")
+def jobs_recent(limit: int = 20):
+    """Recent render/export job records (persisted; restart-proof) for the
+    Logs drawer — newest first."""
+    recs = []
+    d = _jobs_dir()
+    for f in os.listdir(d):
+        if f.startswith("render_") and f.endswith(".json"):
+            try:
+                recs.append(json.load(open(os.path.join(d, f))))
+            except Exception:
+                continue
+    recs.sort(key=lambda r: r.get("ts", 0), reverse=True)
+    return {"jobs": recs[:limit]}
+
+
+@app.get("/api/exports")
+def list_exports():
+    """Every exported MP4 for the ACTIVE project: name, size, created (ET),
+    duration — the Exports drawer's data source."""
+    import subprocess as sp
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    d = active_exports_dir()
+    cache_p = os.path.join(d, ".durations.json")
+    try:
+        cache = json.load(open(cache_p))
+    except Exception:
+        cache = {}
+    out = []
+    for f in sorted(os.listdir(d)):
+        if not f.endswith(".mp4"):
+            continue
+        p = os.path.join(d, f)
+        st = os.stat(p)
+        key = f + str(int(st.st_mtime))
+        if key not in cache:
+            try:
+                cache[key] = round(float(sp.check_output(
+                    ["ffprobe", "-v", "error", "-show_entries",
+                     "format=duration", "-of", "csv=p=0", p],
+                    text=True).strip()), 1)
+            except Exception:
+                cache[key] = None
+        out.append({
+            "name": f, "size_mb": round(st.st_size / 1e6, 1),
+            "duration": cache[key],
+            "created": datetime.fromtimestamp(
+                st.st_mtime, ZoneInfo("America/New_York")
+            ).strftime("%b %d %I:%M %p ET"),
+            "url": f"/export/{f}"})
+    try:
+        json.dump(cache, open(cache_p, "w"))
+    except Exception:
+        pass
+    return {"exports": list(reversed(out))}
 
 
 # ======================================================================
@@ -1361,7 +1491,27 @@ def storyboard_approve(body: ApproveIn):
     import time
     json.dump({"approved": body.approved, "ts": time.time()},
               open(_approval_path(), "w"))
-    return {"ok": True, "approved": body.approved}
+    if not body.approved:
+        return {"ok": True, "approved": False}
+    # USER CONTRACT: approving RENDERS the ticked segments and EXPORTS the
+    # final narrated video, as one visible background job.
+    segs = load_segments()
+    ticked = [s for s in segs if s.get("user_included")]
+    if not ticked:
+        return {"ok": True, "approved": True, "job": None,
+                "note": "nothing ticked — tick segments, then approve again"}
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {"type": "finalize", "status": "queued", "stage": "queued",
+                    "done": 0, "total": 0, "current_seg": None, "error": None,
+                    "export": None, "url": None, "ts": time.time(),
+                    "project": get_active_project_id()}
+    _persist_job(job_id)
+    threading.Thread(target=_run_finalize_job, args=(job_id,),
+                     daemon=True).start()
+    return {"ok": True, "approved": True, "job": job_id,
+            "n_render": len([s for s in ticked if not os.path.exists(
+                os.path.join(active_project_dir(), s.get("clip", "")))]),
+            "n_ticked": len(ticked)}
 
 
 # ---- E7: project backup (volume data is as precious as unpushed code) ---
