@@ -1695,3 +1695,17 @@ Every change committed+pushed individually; per-change verification evidence bel
 - Remaining watch-item: user to judge extraction depth (ch2: 120 crops vs
   ch1: 126) now that ALL crops are visible on the board; splitter tuning
   only if the board shows real misses.
+
+#### Session 22 (cont.) — REDRAWN STORYBOARD-EDITOR PLAN v2 (user additions; AWAITING APPROVAL)
+User clarifications integrated: (1) image timing DECOUPLED from narration —
+narration is one continuous audio timeline, panels are a visual track with
+per-panel [start,dur]; (2) time control on EVERY segment; (3) add
+drag-reorder across units AND promote-with-new-narration; (4) usage header
+"$0.00" investigated: NOT a bug — UTC day rollover at 2026-07-20T00:00Z
+(EDT evening); fix is display (UTC date label + all-time totals via
+lifetime counters in usage.py); (5) port Ingest box + Logs view onto
+storyboard; (6) project switcher; header already auto-adjusts per active
+project; (7) narration edit -> re-TTS -> automatic downstream timeline
+ripple. Main-page swap + legacy archive still in. Plan items P1-P13
+presented to user as What/How/Why/Benefit table; implementation starts
+only on approval.
