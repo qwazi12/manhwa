@@ -240,7 +240,12 @@ def include_panel(pdir, panel_id, scenes, descs, hold=DEFAULT_HOLD):
             mid = host["start"] + host["dur"] / 2
             cutb = min(range(1, len(host["beats"])),
                        key=lambda i: abs(host["beats"][i]["start"] - mid))
-            cut = round(host["beats"][cutb]["start"] - min(GAP / 2, 0.15), 3)
+            # cut in the silence between sentences: halfway between the
+            # previous beat's end and the next beat's start (clamped so no
+            # audio ever falls outside its segment's window)
+            prev_end = host["beats"][cutb - 1]["end"]
+            nxt_start = host["beats"][cutb]["start"]
+            cut = round(max(prev_end, (prev_end + nxt_start) / 2), 3)
             tail = [b for b in host["beats"] if b["start"] >= cut]
             host["beats"] = [b for b in host["beats"] if b["start"] < cut]
         else:
