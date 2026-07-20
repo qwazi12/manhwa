@@ -70,6 +70,8 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
 
     total = (segs[-1]["start"] + segs[-1]["dur"]) if segs else 0
     holds = sum(1 for s in segs if s["dur"] > 12)
+    n_included = sum(1 for s in segs if s.get("user_included"))
+    n_segs = len(segs)
     n_approved = sum(1 for s in segs
                      if review.get(str(s["seg_index"]), {}).get("status") == "approved")
 
@@ -165,12 +167,19 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
 </div></div>""")
         timing_cell = "".join(tcells) or '<i class="off">— not on video timeline —</i>'
 
-        include_ctl = (
-            f'<label class="inc" title="on the final video — uncheck to fold back">'
-            f'<input type="checkbox" checked onchange="toggleInclude(\'{pid_js}\',this,{1 if cls=="omit" else 0})"></label>'
-            if on_screen else
-            f'<label class="inc" title="check to put this panel on the final video">'
-            f'<input type="checkbox" onchange="toggleInclude(\'{pid_js}\',this,{1 if cls=="omit" else 0})"></label>')
+        # T3 (Session 23): the checkbox is the USER's inclusion decision for
+        # the final video — never auto-checked. The system's proposal is the
+        # timing column; the user ticks what actually renders/concats.
+        if on_screen:
+            row_segs = seg_by_panel.get(pid, [])
+            _inc = " checked" if row_segs and all(s.get("user_included") for s in row_segs) else ""
+            include_ctl = (
+                f'<label class="inc" title="tick = include in the FINAL video">'
+                f'<input type="checkbox"{_inc} onchange="setIncluded(\'{pid_js}\',this.checked)"></label>')
+        else:
+            include_ctl = (
+                f'<button class="promote" title="give this panel its own slot on the timeline" '
+                f'onclick="toggleInclude(\'{pid_js}\',null,{1 if cls=="omit" else 0})">➕</button>')
 
         rows.append(f"""<tr class="{cls}" id="row_{pid}">
 <td class="n">{include_ctl}{i}<br><span class="pid">{pid}</span><br><span class="dim">{w}&times;{h} (AR {ar:.1f})</span></td>
@@ -290,6 +299,9 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <div class="stat"><b>{_mmss(total)}</b>runtime</div>
   <div class="stat"><b>{holds}</b>holds &gt;12s</div>
   <div class="stat"><b>{n_approved}</b>approved</div>
+  <div class="stat"><b>{n_included}/{n_segs}</b>in final video</div>
+  <button onclick="setIncludedAll(true)" class="mini">☑ all</button>
+  <button onclick="setIncludedAll(false)" class="mini">☐ none</button>
   <div class="stat"><b>{html.escape(mm) or "?"}</b>match method</div>
   {_coverage_stat(meta.get("split_coverage"))}
   <div class="usage">{_et_label()} — today: {u.get("gemini_calls", 0)} gemini · {u.get("tts_chars", 0)} tts · ~${u.get("est_cost_usd", 0):.2f}<br>
@@ -326,17 +338,22 @@ async function post(u, body, msg) {{
 }}
 /* ---- editor ops ---- */
 function toggleInclude(pid, cb, isJunk) {{
-  if (cb.checked) {{
-    let hold = 2.5;
-    if (isJunk) {{
-      const v = prompt('This panel has no narration — it gets a SILENT hold (extends runtime). Seconds on screen:', '2.5');
-      if (v === null) {{ cb.checked = false; return; }}
-      hold = parseFloat(v) || 2.5;
-    }}
-    post('/api/storyboard/include', {{panel_id: pid, hold}}, 'placing panel on the timeline…');
-  }} else {{
-    post('/api/storyboard/exclude', {{panel_id: pid}}, 'folding panel off the timeline…');
+  /* promote a folded/left-out panel onto the timeline (its checkbox starts
+     UNTICKED — the user still decides final-video inclusion, T3) */
+  let hold = 2.5;
+  if (isJunk) {{
+    const v = prompt('This panel has no narration — it gets a SILENT hold (extends runtime). Seconds on screen:', '2.5');
+    if (v === null) return;
+    hold = parseFloat(v) || 2.5;
   }}
+  post('/api/storyboard/include', {{panel_id: pid, hold}}, 'placing panel on the timeline…');
+}}
+function setIncluded(pid, on) {{
+  post('/api/storyboard/set_included', {{panel_id: pid, included: on}},
+       on ? 'adding to final video…' : 'removing from final video…');
+}}
+function setIncludedAll(on) {{
+  post('/api/storyboard/set_included', {{all: true, included: on}}, 'updating all…');
 }}
 function setDur(si) {{
   const v = parseFloat(document.getElementById('dur' + si).value);

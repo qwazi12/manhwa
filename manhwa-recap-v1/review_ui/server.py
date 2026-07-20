@@ -250,15 +250,17 @@ class ExportIn(BaseModel):
 
 @app.post("/api/export")
 def export(body: ExportIn):
-    """Concat ONLY approved clips (in order), optionally through speed_up."""
+    """Concat ONLY user-included (checkbox, T3) clips, in timeline order."""
     segs = load_segments()
-    review = load_review()
-    approved = [s for s in segs
-                if review.get(str(s["seg_index"]), {}).get("status") == "approved"]
-    approved = [s for s in approved
-                if os.path.exists(os.path.join(active_project_dir(), s.get("clip", "")))]
+    approved = [s for s in segs if s.get("user_included")]
     if not approved:
-        raise HTTPException(400, "no approved clips with rendered video")
+        raise HTTPException(400, "nothing is ticked for the final video — "
+                                 "tick segments on /storyboard first")
+    missing = [s["seg_index"] for s in approved
+               if not os.path.exists(os.path.join(active_project_dir(), s.get("clip", "")))]
+    if missing:
+        raise HTTPException(400, f"ticked segments not rendered yet: {missing} "
+                                 "— run render-missing first")
     # E5: intro/outro title cards from project metadata (best-effort — the
     # export must never fail because a card couldn't render).
     pdir = active_project_dir()
@@ -342,7 +344,11 @@ def render_missing(force: bool = False):
     segs = load_segments()
     pdir = active_project_dir()
     missing = [s["seg_index"] for s in segs
-               if not os.path.exists(os.path.join(pdir, s.get("clip", "")))]
+               if s.get("user_included")
+               and not os.path.exists(os.path.join(pdir, s.get("clip", "")))]
+    if not any(s.get("user_included") for s in segs):
+        raise HTTPException(400, "nothing is ticked for the final video — "
+                                 "tick segments on /storyboard first")
     done = []
     for i in missing:
         env = os.environ.copy()
@@ -1266,6 +1272,29 @@ def sb_include(body: IncludeIn):
     descs = json.load(open(os.path.join(pdir, "descriptions.json")))
     return _sb_op(storyboard_edit.include_panel, body.panel_id,
                   scenes, descs, hold=body.hold)
+
+
+class SetIncludedIn(BaseModel):
+    panel_id: str | None = None
+    all: bool = False
+    included: bool
+
+
+@app.post("/api/storyboard/set_included")
+def sb_set_included(body: SetIncludedIn):
+    """T3: the user's final-video inclusion flag. Never set by the system —
+    segments are born unchecked; only checked ones export/concat/render."""
+    segs = load_segments()
+    hit = 0
+    for s in segs:
+        if body.all or s.get("panel_id") == body.panel_id:
+            s["user_included"] = body.included
+            hit += 1
+    if not hit:
+        raise HTTPException(404, "no segment for that panel")
+    _write_segments(segs)
+    return {"ok": True, "updated": hit,
+            "included": sum(1 for s in segs if s.get("user_included"))}
 
 
 class ExcludeIn(BaseModel):
