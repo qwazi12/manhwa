@@ -2,12 +2,45 @@
   "name": "manhwa-studio",
   "version": 2,
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://recap-studio-production.up.railway.app/api/:path*" },
-    { "source": "/clip/:path*", "destination": "https://recap-studio-production.up.railway.app/clip/:path*" },
-    { "source": "/thumb/:path*", "destination": "https://recap-studio-production.up.railway.app/thumb/:path*" },
-    { "source": "/audio/:path*", "destination": "https://recap-studio-production.up.railway.app/audio/:path*" },
-    { "source": "/panelimg/:path*", "destination": "https://recap-studio-production.up.railway.app/panelimg/:path*" },
-    { "source": "/export/:path*", "destination": "https://recap-studio-production.up.railway.app/export/:path*" },
-    { "source": "/storyboard", "destination": "https://recap-studio-production.up.railway.app/storyboard" }
+    {
+      "source": "/",
+      "destination": "https://recap-studio-production.up.railway.app/storyboard"
+    },
+    {
+      "source": "/storyboard",
+      "destination": "https://recap-studio-production.up.railway.app/storyboard"
+    },
+    {
+      "source": "/legacy",
+      "destination": "/legacy/index.html"
+    },
+    {
+      "source": "/legacy/",
+      "destination": "/legacy/index.html"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://recap-studio-production.up.railway.app/api/:path*"
+    },
+    {
+      "source": "/clip/:path*",
+      "destination": "https://recap-studio-production.up.railway.app/clip/:path*"
+    },
+    {
+      "source": "/thumb/:path*",
+      "destination": "https://recap-studio-production.up.railway.app/thumb/:path*"
+    },
+    {
+      "source": "/audio/:path*",
+      "destination": "https://recap-studio-production.up.railway.app/audio/:path*"
+    },
+    {
+      "source": "/panelimg/:path*",
+      "destination": "https://recap-studio-production.up.railway.app/panelimg/:path*"
+    },
+    {
+      "source": "/export/:path*",
+      "destination": "https://recap-studio-production.up.railway.app/export/:path*"
+    }
   ]
 }

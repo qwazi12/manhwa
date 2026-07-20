@@ -1771,3 +1771,20 @@ only on approval.
   mid-beat slice test); TestClient smoke: / -> 307 /storyboard, page
   renders all controls.
 - User-facing: https://manhwa.nodepilot.dev/ IS now the storyboard editor.
+
+#### Session 22 (cont.) — main-page swap FIXED on the RIGHT Vercel project
+- User still saw the legacy UI at manhwa.nodepilot.dev: the domain is
+  aliased to Vercel project "manhwa-studio" (deployed FROM review_ui/static/
+  — the original setup), NOT the repo-root "manhwa" project my first deploy
+  updated. `vercel inspect` confirmed the alias.
+- Fix: static/vercel.json got the same rewrites ("/" and "/storyboard" ->
+  Railway /storyboard; "/legacy(/)" -> /legacy/index.html; api/media proxies
+  kept), static dir linked to manhwa-studio and deployed --prod. Verified:
+  domain now aliases NEW deployment dpl_B8gryHJD9Uxp53NqLVVkbVtrTuMc
+  (was dpl_AFszsZgGgCk7RcW9vduvYwLYvmZW), root answers 401 basic-auth as
+  designed. After login the storyboard IS the main page.
+- DEPLOY RULE going forward (both must be deployed together):
+  Railway: `cd ~/dev/manhwa && railway up --detach` (retry on TLS flakes)
+  Vercel:  `cd ~/dev/manhwa/manhwa-recap-v1/review_ui/static && npx vercel@latest --prod --yes`
+  (the domain lives on manhwa-studio; the repo-root "manhwa" Vercel project
+  is redundant — candidate for deletion to avoid this split-brain again).
