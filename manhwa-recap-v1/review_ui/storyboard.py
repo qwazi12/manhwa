@@ -204,6 +204,13 @@ header .stat b {{ display:block; font-size:15px; color:#fff; }} header .stat {{ 
 .usage {{ font-size:11px; color:#9ad27d; line-height:1.5; }}
 #approveBtn {{ margin-left:auto; background:#8d6e63; border:0; color:#fff; padding:10px 16px; border-radius:6px; font-weight:700; cursor:pointer; }}
 #approveBtn.on {{ background:#2e7d32; }}
+#pipebar {{ position:sticky; top:52px; z-index:49; background:#12141b; color:#c6cbd8; font-size:12px;
+  display:flex; gap:18px; align-items:center; padding:7px 18px; border-bottom:1px solid #23262f; }}
+#pipebar b {{ color:#fff; }}
+#renderprog {{ flex:1; display:flex; align-items:center; gap:10px; }}
+#renderbar {{ height:8px; background:#39c07f; border-radius:4px; width:0%; min-width:2px; transition:width .5s;
+  box-shadow:0 0 8px rgba(57,192,127,.6); }}
+#rendertxt {{ color:#9be8c3; white-space:nowrap; }}
 /* ---- left rail (ported from legacy UI) ---- */
 #rail {{ position:fixed; left:0; top:0; bottom:0; width:64px; background:#15171e; border-right:1px solid #282c38; display:flex; flex-direction:column; align-items:center; gap:6px; padding-top:12px; z-index:20; }}
 .navbtn {{ width:52px; height:56px; border:0; background:transparent; border-radius:9px; display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center; color:#8b90a0; font-size:10px; cursor:pointer; }}
@@ -267,6 +274,7 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <button class="navbtn" data-d="ingest" onclick="toggleDrawer('ingest')"><span class="ic">🔗</span>Ingest</button>
   <button class="navbtn" data-d="projects" onclick="toggleDrawer('projects')"><span class="ic">📚</span>Projects</button>
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
+  <button class="navbtn" data-d="exports" onclick="toggleDrawer('exports')"><span class="ic">📤</span>Exports</button>
   <a class="navbtn" href="/legacy/" title="legacy player UI"><span class="ic">🕰️</span>Legacy</a>
 </div>
 <div class="drawer" id="d_ingest">
@@ -285,7 +293,14 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <h3>Projects</h3>
   <div id="projlist" class="hint">loading…</div>
 </div>
+<div class="drawer" id="d_exports">
+  <h3>EXPORTS — final videos</h3>
+  <div class="hint" style="margin-bottom:8px">Every exported MP4 for the active project. Click to watch / download.</div>
+  <div id="exportlist">loading…</div>
+</div>
 <div class="drawer" id="d_logs">
+  <h3 style="margin-bottom:4px">RENDER / EXPORT JOBS</h3>
+  <div id="logrender" style="margin-bottom:12px">loading…</div>
   <h3>Logs</h3>
   <div class="hint">Live job history + every external API call (cost-tracked, Eastern Time). Survives restarts.</div>
   <button style="width:100%;margin:8px 0" onclick="loadLogs()">↻ Refresh</button>
@@ -307,8 +322,15 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <div class="usage">{_et_label()} — today: {u.get("gemini_calls", 0)} gemini · {u.get("tts_chars", 0)} tts · ~${u.get("est_cost_usd", 0):.2f}<br>
   all-time: {all_g} gemini · {all_t} tts · ~${all_c:.2f}</div>
   <button id="approveBtn" class="{'on' if approved else ''}" onclick="toggleApproval()">
-    {'✔ PROJECT APPROVED — renders unlocked' if approved else 'APPROVE PROJECT FOR RENDER'}</button>
+    {'✔ APPROVED — click to re-render &amp; re-export' if approved else 'APPROVE PROJECT FOR RENDER'}</button>
 </header>
+<div id="pipebar">
+  <span id="st_tick">① ticked <b>{n_included}/{n_segs}</b></span>
+  <span id="st_appr">② approved <b>{'✓' if approved else '—'}</b></span>
+  <span id="st_clips">③ clips <b id="clipcount">?</b></span>
+  <span id="st_exp">④ export <b id="expstate">—</b></span>
+  <div id="renderprog" style="display:none"><div id="renderbar"></div><span id="rendertxt"></span></div>
+</div>
 <div class="wrap">
 <h1>{html.escape(title)} — combined: all {len(descs)} panels · story placement · render timing ({len(segs)} segments, {_mmss(total)})</h1>
 <p class="meta">Left half: system OCR/description and where each extracted panel lands in the script
@@ -405,11 +427,80 @@ async function setStatus(i, st) {{
   await post(`/api/segments/${{i}}/status`, {{status: st, note: ''}});
 }}
 async function toggleApproval() {{
-  await post('/api/storyboard/approve', {{approved: !APPROVED}});
+  if (APPROVED && !confirm('Project is already approved. Approve again to re-render ticked clips and re-export the final video?')) return;
+  const r = await fetch('/api/storyboard/approve', {{method:'POST',
+    headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{approved: true}})}});
+  const jr = await r.json();
+  if (jr.note) {{ alert(jr.note); return; }}
+  if (jr.job) {{
+    localStorage.setItem('finalizeJob', jr.job);
+    document.getElementById('approveBtn').textContent = '✔ APPROVED — rendering…';
+    document.getElementById('approveBtn').classList.add('on');
+    pollFinalize(jr.job);
+  }}
 }}
+/* ---- R1/R5/R6: live finalize progress (render -> export -> link) ---- */
+let finalizeTimer = null;
+async function pollFinalize(id) {{
+  clearInterval(finalizeTimer);
+  const strip = document.getElementById('renderprog');
+  strip.style.display = 'flex';
+  finalizeTimer = setInterval(async () => {{
+    let s;
+    try {{ s = await j('/api/jobs/' + id); }} catch (e) {{ return; }}
+    const bar = document.getElementById('renderbar'), txt = document.getElementById('rendertxt');
+    if (s.stage === 'render') {{
+      const pct = s.total ? Math.round(100 * s.done / s.total) : 0;
+      bar.style.width = pct + '%';
+      txt.textContent = `rendering clip ${{s.done}}/${{s.total}}` + (s.current_seg != null ? ` (seg #${{s.current_seg}})` : '') + '…';
+      document.getElementById('clipcount').textContent = `${{s.done}}/${{s.total}}`;
+    }} else if (s.stage === 'export') {{
+      bar.style.width = '100%';
+      txt.textContent = 'stitching final video (export)…';
+      document.getElementById('expstate').textContent = '⏳';
+    }}
+    if (s.status === 'done') {{
+      clearInterval(finalizeTimer);
+      localStorage.removeItem('finalizeJob');
+      txt.innerHTML = `✅ done — <a href="${{s.url}}" style="color:#9be8c3" target="_blank">download ${{s.export}}</a>`;
+      document.getElementById('expstate').textContent = '✅';
+      document.getElementById('approveBtn').textContent = '✔ APPROVED — export ready';
+      loadExports();
+      toggleDrawer('exports');
+    }} else if (s.status === 'error') {{
+      clearInterval(finalizeTimer);
+      localStorage.removeItem('finalizeJob');
+      txt.textContent = '❌ ' + (s.error || 'render failed');
+      txt.style.color = '#ef5f6b';
+    }}
+  }}, 3000);
+}}
+async function loadExports() {{
+  try {{
+    const ex = await j('/api/exports');
+    document.getElementById('exportlist').innerHTML = (ex.exports || []).map(e =>
+      `<div style="border-bottom:1px solid #282c38;padding:6px 0;font-size:12px">
+        <a href="${{e.url}}" target="_blank" style="color:#5b8cff;font-weight:700">${{e.name}}</a><br>
+        <span class="hint">${{e.duration ? (Math.floor(e.duration/60)+':'+String(Math.round(e.duration%60)).padStart(2,'0')) : '?'}} · ${{e.size_mb}} MB · ${{e.created}}</span>
+      </div>`).join('') || 'No exports yet — tick segments and APPROVE.';
+  }} catch (e) {{ document.getElementById('exportlist').textContent = 'failed to load'; }}
+}}
+/* resume progress strip after refresh */
+(function () {{
+  const id = localStorage.getItem('finalizeJob');
+  if (id) pollFinalize(id);
+  fetch('/api/project').then(r => r.json()).then(p => {{
+    const done = (p.segments || []).filter(s => s.user_included && s.clip_exists).length;
+    const tot = (p.segments || []).filter(s => s.user_included).length;
+    document.getElementById('clipcount').textContent = done + '/' + tot;
+    fetch('/api/exports').then(r => r.json()).then(ex => {{
+      if ((ex.exports || []).length) document.getElementById('expstate').textContent = '✅';
+    }});
+  }}).catch(() => {{}});
+}})();
 /* ---- drawers: ingest / projects / logs (ported from legacy UI) ---- */
 function toggleDrawer(name) {{
-  for (const d of ['ingest','projects','logs']) {{
+  for (const d of ['ingest','projects','logs','exports']) {{
     const el = document.getElementById('d_' + d);
     const btn = document.querySelector(`.navbtn[data-d="${{d}}"]`);
     const show = d === name && el.style.display !== 'block';
@@ -418,6 +509,7 @@ function toggleDrawer(name) {{
   }}
   if (name === 'projects') loadProjects();
   if (name === 'logs') loadLogs();
+  if (name === 'exports') loadExports();
   if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
 }}
 const ING_STAGES = ['scrape','split','describe','narrate','voice','match','segment'];
@@ -500,6 +592,17 @@ async function activateProj(id) {{
 }}
 async function loadLogs() {{
   try {{
+    try {{
+      const rj = await j('/api/jobs');
+      const rjHtml = (rj.jobs || []).slice(0, 10).map(x => {{
+        const col = x.status === 'done' ? '#39c07f' : x.status === 'error' ? '#ef5f6b' : '#5b8cff';
+        return `<div style="border-bottom:1px solid #282c38;padding:4px 0;font-size:12px">
+          <div style="color:${{col}}">${{x.status}} · ${{x.type || 'render'}} · ${{x.stage || ''}} ${{x.total ? ('· clip ' + x.done + '/' + x.total) : ''}}</div>
+          <div class="hint">${{x.project || ''}} ${{x.export ? ('→ ' + x.export) : ''}}</div>
+          ${{x.error ? `<div style="color:#ef5f6b">⚠ ${{x.error}}</div>` : ''}}</div>`;
+      }}).join('');
+      document.getElementById('logrender').innerHTML = rjHtml || 'No render/export jobs yet.';
+    }} catch (e) {{}}
     const ij = await j('/api/logs/ingest');
     document.getElementById('logjobs').innerHTML = (ij.jobs || []).slice(0, 20).map(x => {{
       const col = x.status === 'done' ? '#39c07f' : x.status === 'error' ? '#ef5f6b' : '#5b8cff';
