@@ -1867,3 +1867,10 @@ only on approval.
 - deploy/Dockerfile: bakes yolov8n.pt (6MB figure-anchor model) at build.
 - Full-chapter local batch verification (all 13 live-fetched ch2 pages):
   min 97% / mean 100% / 0 pages below 85% — vs 10 pages at 23-76% before.
+
+#### Session 22 (cont.) — S3 LANDED: splitter coverage regression suite
+- panel-split/test_split_coverage.py + test_fixtures/ (the 3 worst ch2
+  pages, 1.8MB checked in). Each case asserts: min panel count, reported
+  coverage >= 90%, INDEPENDENT recomputed coverage >= 90%, and self-report
+  honesty (|Δ| <= 3%) — the parallel-verification condition, permanent.
+- 12/12 passing.
