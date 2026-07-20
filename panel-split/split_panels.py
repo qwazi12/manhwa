@@ -9,12 +9,12 @@ Two layers:
     and side-by-side panels (vertical gutters), including a mix.
 
   LAYER 2 — Sub-shots inside a panel.
-    A tall, continuous action panel (no internal gutter to cut on) is
-    not one visual beat — it's several. For any panel whose height/width
-    ratio exceeds TALL_RATIO and which has no clean internal gutter, fall
-    back to a sliding-window pass: generate overlapping vertical windows,
-    score each by content density (edge/ink coverage), and keep the best
-    ones in top-to-bottom order as sub-shots.
+    A tall panel with INTERNAL gutters is split on them (recursively).
+    A gutterless tall panel is cut into MOMENTS: clusters of speech
+    bubbles separated by real vertical gaps, with each cut placed at the
+    lowest-ink row between clusters — non-overlapping by construction.
+    Bubble-less extreme-tall art (AR >= NO_DIALOGUE_AR) gets ink-valley
+    cuts to readable ~VALLEY_TARGET_AR pieces.
 
   A short or gutter-cuttable panel stays a single shot.
 
@@ -71,10 +71,15 @@ CONTENT_LINE_FRAC = 0.01       # a row/col needs >= this frac non-bg to be conte
 BLANK_DENSITY_THRESHOLD = 0.015   # crops with less than this fraction non-bg content are "blank"
 ARCHIVE_BLANKS = True             # move (not delete) blank crops to an archive/ subfolder
 TALL_RATIO = 1.8               # panel h/w above this is a candidate for sub-shots
-SHOT_WINDOW_MIN = 700          # min sub-shot window height (px)
-SHOT_WINDOW_MAX = 1100         # max sub-shot window height (px)
-SHOT_OVERLAP = 0.30            # fraction of overlap between candidate windows
-SHOT_SCORE_KEEP = 0.55         # keep windows scoring >= this fraction of the best window
+# Moment slicing (T2, Session 23): a tall panel is cut into MOMENTS — groups
+# of speech bubbles separated by a real vertical gap — with each cut placed
+# at the lowest-ink row BETWEEN moments. Slices never overlap by
+# construction (the old sliding windows produced 30-59%-overlapping
+# near-duplicates of a single visual moment; removed).
+MOMENT_GAP = 300               # px vertical gap between bubble clusters => new moment
+SLICE_MIN_H = 320              # no slice shorter than this (px, also >= 0.45*width)
+NO_DIALOGUE_AR = 3.0           # bubble-less panels taller than this get valley cuts
+VALLEY_TARGET_AR = 2.2         # ...into pieces of roughly this aspect ratio
 
 
 # ----------------------------------------------------------- background
@@ -163,47 +168,71 @@ def _content_bounds(region_gray: np.ndarray, bg_color: int, pad: int = CONTENT_P
 
 # ----------------------------------------------------------- sub-shots
 
-def _sliding_shot_windows(panel_gray: np.ndarray, bg_color: int):
-    """Return a list of (y0, y1) sub-shot windows for a tall continuous
-    panel, chosen by content-density scoring over overlapping windows."""
-    h = panel_gray.shape[0]
-    win = int(np.clip(h / 3, SHOT_WINDOW_MIN, SHOT_WINDOW_MAX))
-    if win >= h:
-        return [(0, h)]
+def _ink_profile(panel_gray, bg_color):
+    not_bg = np.abs(panel_gray.astype(np.int16) - bg_color) > BG_COLOR_TOLERANCE
+    return not_bg.mean(axis=1)
 
-    step = max(int(win * (1 - SHOT_OVERLAP)), 1)
-    candidates = []
-    y = 0
-    while y < h:
-        y1 = min(y + win, h)
-        score = _content_density(panel_gray[y:y1, :], bg_color)
-        candidates.append({"y0": y, "y1": y1, "score": score})
-        if y1 >= h:
-            break
-        y += step
 
-    if not candidates:
-        return [(0, h)]
+def _moment_slices(panel_gray, bg_color):
+    """T2: cut a tall panel into non-overlapping MOMENT slices.
 
-    best = max(c["score"] for c in candidates) or 1.0
-    kept = [c for c in candidates if c["score"] >= SHOT_SCORE_KEEP * best]
+    A moment = a cluster of speech bubbles whose vertical gaps are under
+    MOMENT_GAP. Cuts land on the lowest-ink row BETWEEN clusters, so no cut
+    ever crosses a bubble and slices are disjoint by construction. A panel
+    with zero or one cluster is one moment — unless it is extremely tall
+    with no dialogue at all (pure vertical art), which gets valley cuts to
+    roughly VALLEY_TARGET_AR pieces so the renderer never scroll-pans an
+    unreadable 7:1 strip.
+    """
+    h, w = panel_gray.shape
+    min_h = max(SLICE_MIN_H, int(0.45 * w))
+    ink = _ink_profile(panel_gray, bg_color)
+    bubbles = sorted(_detect_bubbles(panel_gray, bg_color), key=lambda b: b[1])
 
-    # suppress heavily-overlapping kept windows: greedily keep top-scored,
-    # drop any candidate overlapping an already-kept one by >60%
-    kept.sort(key=lambda c: c["score"], reverse=True)
-    chosen = []
-    for c in kept:
-        overlap = False
-        for k in chosen:
-            inter = max(0, min(c["y1"], k["y1"]) - max(c["y0"], k["y0"]))
-            if inter > 0.6 * (c["y1"] - c["y0"]):
-                overlap = True
-                break
-        if not overlap:
-            chosen.append(c)
+    # cluster bubbles into moments by vertical gap
+    clusters = []
+    for b in bubbles:
+        if clusters and b[1] - clusters[-1][1] <= MOMENT_GAP:
+            clusters[-1][1] = max(clusters[-1][1], b[3])
+        else:
+            clusters.append([b[1], b[3]])   # [top, bottom] of the cluster
 
-    chosen.sort(key=lambda c: c["y0"])
-    return [(c["y0"], c["y1"]) for c in chosen] or [(0, h)]
+    if len(clusters) >= 2:
+        cuts = []
+        for (a_top, a_bot), (b_top, b_bot) in zip(clusters, clusters[1:]):
+            lo, hi = a_bot, b_top
+            if hi - lo < 20:
+                continue
+            cuts.append(lo + int(np.argmin(ink[lo:hi])))
+        bounds = [0] + cuts + [h]
+        slices = [(a, b) for a, b in zip(bounds, bounds[1:]) if b > a]
+        # merge slices shorter than min_h into their shorter neighbour
+        merged = []
+        for s in slices:
+            if merged and (s[1] - s[0] < min_h or merged[-1][1] - merged[-1][0] < min_h):
+                merged[-1] = (merged[-1][0], s[1])
+            else:
+                merged.append(s)
+        if len(merged) > 1:
+            return merged
+
+    # no dialogue moments: only slice EXTREME tall art, at ink valleys
+    if h / max(w, 1) >= NO_DIALOGUE_AR and not clusters:
+        target = int(VALLEY_TARGET_AR * w)
+        n = max(2, round(h / target))
+        bounds = [0]
+        for i in range(1, n):
+            c = int(h * i / n)
+            lo, hi = max(bounds[-1] + min_h, c - 200), min(h - min_h, c + 200)
+            if lo >= hi:
+                continue
+            bounds.append(lo + int(np.argmin(ink[lo:hi])))
+        bounds.append(h)
+        slices = [(a, b) for a, b in zip(bounds, bounds[1:]) if b - a >= min_h]
+        if len(slices) > 1:
+            return slices
+
+    return [(0, h)]
 
 
 # ----------------------------------------------------------- main detect
@@ -482,33 +511,36 @@ def _merge_boxes(boxes, gap=40):
 # ----------------------------------------------------------- main detect
 
 def _layer2_shots(img, gray, bg, bbox):
-    """Shared Layer-2 logic: decide whether bbox is one shot or a tall
-    continuous panel that needs sub-shots (vision, else density windows)."""
+    """Layer 2: decide whether bbox is one shot or several.
+
+    T1 (Session 23): if the tall panel has INTERNAL gutters, those are real
+    sub-panel boundaries — split on them and recurse (the old code returned
+    the whole strip untouched here, which is how 7:1 pages reached the
+    board as single crops). Only gutterless talls go to moment slicing.
+    """
     x0, y0, x1, y1 = bbox
     pw, ph = x1 - x0, y1 - y0
     panel_gray = gray[y0:y1, x0:x1]
     if pw <= 0 or ph / max(pw, 1) < TALL_RATIO:
         return "single", None, [{"shot_id": 1, "bbox": [x0, y0, x1, y1]}]
+
     internal = _split_axis(panel_gray, axis=0, bg_color=bg)
     if len(internal) > 1:
-        return "single", None, [{"shot_id": 1, "bbox": [x0, y0, x1, y1]}]
-    if USE_VISION_TALL:
-        vbeats = vision_segment.segment_tall_panel_image(img.crop((x0, y0, x1, y1)))
-        if vbeats:
-            boxes = vision_segment.beats_to_pixel_bboxes(vbeats, pw, ph)
-            shots = [{
-                "shot_id": i + 1,
-                "bbox": [x0, y0 + bx["bbox"][1], x1, y0 + bx["bbox"][3]],
-                "ocr_text": bx["ocr_text"],
-                "visual_description": bx["visual_description"],
-            } for i, bx in enumerate(boxes)]
-            if len(shots) > 1:
-                return "continuous_vertical_action", "vision", shots
-    windows = _sliding_shot_windows(panel_gray, bg)
-    if len(windows) > 1:
-        shots = [{"shot_id": i + 1, "bbox": [x0, y0 + wy0, x1, y0 + wy1]}
-                 for i, (wy0, wy1) in enumerate(windows)]
-        return "continuous_vertical_action", "density-window", shots
+        shots = []
+        for sy0, sy1 in internal:
+            if sy1 - sy0 < MIN_PANEL_SIZE:
+                continue
+            _, _, sub = _layer2_shots(img, gray, bg, [x0, y0 + sy0, x1, y0 + sy1])
+            shots.extend(s["bbox"] for s in sub)
+        if len(shots) > 1:
+            return "internal_gutters", "gutter", [
+                {"shot_id": i + 1, "bbox": b} for i, b in enumerate(shots)]
+
+    slices = _moment_slices(panel_gray, bg)
+    if len(slices) > 1:
+        return "continuous_vertical_action", "moment", [
+            {"shot_id": i + 1, "bbox": [x0, y0 + a, x1, y0 + b]}
+            for i, (a, b) in enumerate(slices)]
     return "single", None, [{"shot_id": 1, "bbox": [x0, y0, x1, y1]}]
 
 
@@ -611,6 +643,14 @@ def detect_panels(image_path: str):
         print(f"WARNING: SPLIT COVERAGE {cov_final:.0%} < {COVERAGE_TARGET:.0%} "
               f"on {os.path.basename(image_path)} — review this page's crops.",
               file=sys.stderr)
+    shots_flat = [s["bbox"] for pn in panels for s in pn["shots"]]
+
+    def _ov(a, b):
+        inter = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+        return inter / max(1, min(a[3] - a[1], b[3] - b[1]))
+    stats["shot_overlap_max"] = round(max(
+        (_ov(a, b) for i, a in enumerate(shots_flat) for b in shots_flat[i + 1:]),
+        default=0.0), 3)
     return img, panels, stats
 
 
