@@ -266,6 +266,9 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
     (scrape → split → describe → narrate → voice → match → segment) and this
     board reloads on it when done. Clips render on demand after approval.</div>
   <input class="field" id="ingurl" placeholder="https://…/chapter/…"/>
+  <label class="hint" style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+    <input type="checkbox" id="ingfresh"> Fresh re-ingest (regenerate script,
+    audio &amp; timeline — for re-running a chapter after a pipeline fix)</label>
   <button class="primary" onclick="runIngest()">▶ Run ingest</button>
   <div id="ingprog" style="margin-top:12px"></div>
 </div>
@@ -407,8 +410,10 @@ function setActiveJob(id) {{ if (id) localStorage.setItem('activeIngestJob', id)
 async function runIngest() {{
   const url = document.getElementById('ingurl').value.trim();
   if (!/^https?:\\/\\//.test(url)) {{ alert('Paste a full http(s) chapter URL'); return; }}
+  const fresh = document.getElementById('ingfresh').checked;
+  if (fresh && !confirm('Fresh re-ingest regenerates narration, TTS audio and the timeline for this chapter (cached descriptions and unchanged TTS lines are still reused). Continue?')) return;
   try {{
-    const r = await j('/api/ingest', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{url}})}});
+    const r = await j('/api/ingest', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{url, fresh}})}});
     setActiveJob(r.job); startIngestPoller();
   }} catch (e) {{ alert(e.message); }}
 }}

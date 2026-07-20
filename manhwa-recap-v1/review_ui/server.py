@@ -1017,7 +1017,7 @@ def _active_ingest_for_url(url):
     return None
 
 
-def _run_ingest_job(job_id, url):
+def _run_ingest_job(job_id, url, fresh=False):
     import ingest
     INGEST[job_id]["status"] = "running"
     _persist_ingest(job_id)
@@ -1027,7 +1027,7 @@ def _run_ingest_job(job_id, url):
         _persist_ingest(job_id)
 
     try:
-        meta = ingest.run_ingest(url, progress, job_id=job_id)
+        meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh)
         INGEST[job_id].update(status="done", project=meta, pct=100)
     except subprocess.CalledProcessError as e:
         INGEST[job_id].update(status="error",
@@ -1042,6 +1042,7 @@ def _run_ingest_job(job_id, url):
 
 class IngestIn(BaseModel):
     url: str
+    fresh: bool = False    # S4: clear derived artifacts, regenerate all stages
 
 
 @app.post("/api/ingest")
@@ -1059,9 +1060,10 @@ def start_ingest(body: IngestIn):
                       "status": "queued", "error": None, "project": None,
                       "url": url, "ts": time.time()}
     _persist_ingest(job_id)
-    threading.Thread(target=_run_ingest_job, args=(job_id, url),
+    threading.Thread(target=_run_ingest_job, args=(job_id, url, body.fresh),
                      daemon=True).start()
-    return {"job": job_id, "stages": ingest_stages(), "existing": False}
+    return {"job": job_id, "stages": ingest_stages(), "existing": False,
+            "fresh": body.fresh}
 
 
 def ingest_stages():

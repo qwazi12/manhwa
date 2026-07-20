@@ -70,14 +70,21 @@ def _slug(url):
     return f"{series_slug}_{chapter_slug}"
 
 
-def run_ingest(url, progress, tts_key=None, job_id=None):
+def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False):
     """Run the pipeline for one chapter URL. `progress(stage, msg, pct)` is
     called as it advances. Returns the finished project dict.
 
     `job_id` scopes the cost/abuse guardrails (usage.py): it's set for this
     thread (in-process narrate/matcher/TTS calls) and passed via RECAP_JOB_ID
     env var to the describe subprocess, so every external API call this
-    ingestion makes is attributed to the same job for the per-job cap."""
+    ingestion makes is attributed to the same job for the per-job cap.
+
+    `fresh=True` (S4) clears the project's DERIVED artifacts so every stage
+    regenerates: cached script/provenance, segments, review state, per-beat
+    audio files and clips. Kept: descriptions.json (describe --merge re-does
+    only changed panels) and the hash-keyed TTS cache (unchanged sentences
+    re-synth for free). Needed to re-run a chapter after a pipeline fix —
+    without it the script cache happily replays the old cut."""
     sys.path.insert(0, RECAP)
     sys.path.insert(0, os.path.join(RECAP, "hyperframes"))
     import scraper, narrate, beat_segmenter, matcher
@@ -93,6 +100,21 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
     audio = os.path.join(proj, "audio")
     for d in (pages, crops, audio):
         os.makedirs(d, exist_ok=True)
+
+    if fresh:
+        import glob as _glob
+        import shutil as _shutil
+        progress("scrape", "fresh=1 — clearing derived artifacts…", 2)
+        for f in ("script.txt", "script.json", "segments.json", "review.json",
+                  "storyboard.json", "edits.log.jsonl", "beatsheet.json"):
+            try:
+                os.remove(os.path.join(proj, f))
+            except FileNotFoundError:
+                pass
+        for f in _glob.glob(os.path.join(audio, "beat_*.mp3")) + \
+                 _glob.glob(os.path.join(audio, "slices", "*.mp3")):
+            os.remove(f)
+        _shutil.rmtree(os.path.join(proj, "clips"), ignore_errors=True)
     desc_path = os.path.join(proj, "descriptions.json")
 
     # 1. scrape -----------------------------------------------------------

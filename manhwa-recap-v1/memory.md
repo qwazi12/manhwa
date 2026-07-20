@@ -1874,3 +1874,14 @@ only on approval.
   coverage >= 90%, INDEPENDENT recomputed coverage >= 90%, and self-report
   honesty (|Δ| <= 3%) — the parallel-verification condition, permanent.
 - 12/12 passing.
+
+#### Session 22 (cont.) — S4 (part 1) LANDED: fresh=1 re-ingest
+- ingest.run_ingest(fresh=True): clears derived artifacts (script.txt/.json,
+  segments/review/storyboard state, edits log, beat mp3s + slices, clips);
+  KEEPS descriptions.json (merge re-describes only changed panels) and the
+  hash-keyed TTS cache (unchanged sentences cost $0 to re-voice).
+- /api/ingest accepts {"fresh": true}; storyboard Ingest drawer gains a
+  "Fresh re-ingest" checkbox with a confirm — usable without the agent.
+- Next: deploy (railway + both builds include splitter overhaul), then S4
+  part 2 = LIVE fresh re-ingest of dungeon-odyssey ch2 + parallel audit,
+  then S5 ch3 validation.
