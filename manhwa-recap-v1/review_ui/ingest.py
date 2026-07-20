@@ -127,7 +127,31 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
         raise subprocess.CalledProcessError(split_p.returncode, split_p.args,
                                             "", err_text)
     n_crops = len([f for f in os.listdir(crops) if f.lower().endswith(".png")])
-    progress("split", f"{n_crops} panel crops.", 30)
+    # S2: read the splitter's per-page coverage stats and surface them —
+    # a page whose art wasn't fully cropped must be VISIBLE, not a log line.
+    split_coverage = None
+    try:
+        pj = json.load(open(os.path.join(crops, "panels.json")))
+        covs = [(pg["prefix"], pg.get("coverage", {}).get("coverage_final"))
+                for pg in pj.get("pages", []) if pg.get("coverage")]
+        vals = [c for _, c in covs if c is not None]
+        if vals:
+            worst_page, worst = min(covs, key=lambda t: t[1] if t[1] is not None else 1)
+            split_coverage = {
+                "min": round(min(vals), 3), "mean": round(sum(vals) / len(vals), 3),
+                "worst_page": worst_page,
+                "pages_below_85": sum(1 for v in vals if v < 0.85),
+            }
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        pass
+    if split_coverage:
+        warn = (f" ⚠ {split_coverage['pages_below_85']} page(s) under 85%"
+                if split_coverage["pages_below_85"] else "")
+        progress("split", f"{n_crops} panel crops · art coverage "
+                          f"min {split_coverage['min']:.0%} / "
+                          f"mean {split_coverage['mean']:.0%}{warn}", 30)
+    else:
+        progress("split", f"{n_crops} panel crops.", 30)
 
     # 3. describe ---------------------------------------------------------
     progress("describe", "Describing panels (Gemini vision)…", 35)
@@ -244,7 +268,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None):
             "descriptions": desc_path, "n_segments": len(segs),
             "duration": round(shots[-1]["end"], 1) if shots else 0,
             "series": series_title, "chapter": chapter_title,
-            "match_method": match_method}
+            "match_method": match_method,
+            "split_coverage": split_coverage}
     json.dump(meta, open(os.path.join(proj, "project.json"), "w"), indent=2)
     progress("segment", f"Done — {len(segs)} segments, {meta['duration']}s.", 100)
     return meta

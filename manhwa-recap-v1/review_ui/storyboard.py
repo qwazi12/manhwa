@@ -31,6 +31,19 @@ def _load(path, default):
         return default
 
 
+def _coverage_stat(sc):
+    """Header chip for split art-coverage (S2). Amber warning when any page
+    lost >15% of its art; green when the whole chapter is fully cropped."""
+    if not sc:
+        return '<div class="stat"><b>?</b>split coverage</div>'
+    bad = sc.get("pages_below_85", 0)
+    color = "#e5a13a" if bad else "#9ad27d"
+    warn = f' ⚠ {bad} page(s) &lt;85% (worst: {html.escape(str(sc.get("worst_page","")))})' if bad else ""
+    return (f'<div class="stat"><b style="color:{color}">'
+            f'{sc.get("min", 0):.0%} min / {sc.get("mean", 0):.0%} mean</b>'
+            f'split coverage{warn}</div>')
+
+
 def _et_label():
     try:
         from zoneinfo import ZoneInfo
@@ -275,6 +288,7 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <div class="stat"><b>{holds}</b>holds &gt;12s</div>
   <div class="stat"><b>{n_approved}</b>approved</div>
   <div class="stat"><b>{html.escape(mm) or "?"}</b>match method</div>
+  {_coverage_stat(meta.get("split_coverage"))}
   <div class="usage">{_et_label()} — today: {u.get("gemini_calls", 0)} gemini · {u.get("tts_chars", 0)} tts · ~${u.get("est_cost_usd", 0):.2f}<br>
   all-time: {all_g} gemini · {all_t} tts · ~${all_c:.2f}</div>
   <button id="approveBtn" class="{'on' if approved else ''}" onclick="toggleApproval()">

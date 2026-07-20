@@ -42,6 +42,11 @@ COPY . /app
 # assert makes a corrupt/partial join fail the BUILD, not the ingest.
 RUN cat panel-split/weights/yolo_panel_detector.pt.part-* > panel-split/yolo_panel_detector.pt \
     && python3 -c "import hashlib;h=hashlib.sha256(open('panel-split/yolo_panel_detector.pt','rb').read()).hexdigest();assert h=='566e9ff59ec146afb695eb48a8aaae983b43bb72c3a57f63afafe12f3b349af4', h"
+# S1b figure-anchor model (generic COCO person detector, ~6MB): baked at
+# build time so the splitter never downloads weights at runtime.
+RUN curl -fsSL -o panel-split/yolov8n.pt \
+      https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n.pt \
+    && python3 -c "import os;assert os.path.getsize('panel-split/yolov8n.pt') > 5_000_000"
 # hyperframes CLI (pinned via npx at runtime; warm the cache), then bake its
 # Chrome-for-testing into the image so renders never download at runtime
 # (the runtime download inside the container ended in "Browser not available").

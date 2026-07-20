@@ -1857,3 +1857,13 @@ only on approval.
 - Note: figure-model download hit local macOS SSL cert issue -> degraded
   gracefully to 0 figure anchors as designed (gap recovery had already
   reached ~100%); Dockerfile to bake yolov8n.pt for prod (next commit).
+
+#### Session 22 (cont.) — S2 LANDED: split coverage surfaced end-to-end
+- ingest.py: reads crops/panels.json coverage after split; progress line now
+  reports "N crops · art coverage min X% / mean Y% (⚠ pages under 85%)";
+  project.json gains "split_coverage" {min, mean, worst_page, pages_below_85}.
+- storyboard.py: new header chip "split coverage min/mean" — green when
+  clean, amber ⚠ naming the worst page when any page lost >15% art.
+- deploy/Dockerfile: bakes yolov8n.pt (6MB figure-anchor model) at build.
+- Full-chapter local batch verification (all 13 live-fetched ch2 pages):
+  min 97% / mean 100% / 0 pages below 85% — vs 10 pages at 23-76% before.
