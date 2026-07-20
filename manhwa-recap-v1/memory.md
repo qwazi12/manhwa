@@ -1885,3 +1885,20 @@ only on approval.
 - Next: deploy (railway + both builds include splitter overhaul), then S4
   part 2 = LIVE fresh re-ingest of dungeon-odyssey ch2 + parallel audit,
   then S5 ch3 validation.
+
+#### Session 22 (cont.) — S4 part 2 COMPLETE: ch2 fresh re-ingest LIVE, parallel audit CONFIRMS
+- Fresh re-ingest of dungeon-odyssey ch2 through the DEPLOYED system:
+  done in ~14 min; 45 segments / 348.4s (5:48); match_method
+  gemini-embeddings+provenance+dp; project.json split_coverage
+  {min .908, mean .972, pages_below_85: 0} — the system now measures and
+  reports its own split quality (S2 live).
+- PARALLEL AUDIT (user condition 3): first pass MISMATCHED (my script read
+  descriptions.json bboxes, which are crop-relative, as page coordinates —
+  audit bug, not system bug). Corrected audit using the splitter's real
+  page-coordinate boxes from crops/panels.json: min 91% / mean 97%,
+  page-by-page agreement with the system self-report (e.g. p2 100%/0.999,
+  p5 91%/0.908). DISCREPANCY -> INVESTIGATED -> MEASUREMENT ERROR FOUND is
+  the parallel-verification loop working as designed; recorded honestly.
+- Board verified live: coverage chip renders; header now "all 102 panels ·
+  45 segments · 5:48". (102 desc entries vs 120 before: cleaner crops
+  produce fewer sliver shots.)
