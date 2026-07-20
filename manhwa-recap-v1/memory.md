@@ -1804,3 +1804,25 @@ only on approval.
   per-page original dimensions vs sum of crop coverage from the server's
   descriptions.json; visual spot-check of page 2. Findings + improvement
   plan to be presented for APPROVAL before any fix (user directive).
+
+#### Session 22 (cont.) — COVERAGE AUDIT COMPLETE: split stage drops ~half the chapter (ROOT CAUSE FOUND, fix awaiting approval)
+- LIVE audit method: system scraper re-fetched the real chapter (13 page
+  images) -> compared against the server project's descriptions.json crops.
+- FINDINGS (dungeon-odyssey_2): per-page crop coverage of original art:
+  p2 34% (2 crops / 11,620px page!), p3 42%, p4 46%, p5 75%, p6 61%,
+  p7 23% (ONE crop / 11,550px), p8 47%, p9 42% (one 5049px crop), p10 76%,
+  p11 34%. Only p1/12/13 near-full. Roughly HALF the chapter's artwork
+  never became crops -> never described, never narrated, never on the board.
+  User's attached "missing" panels confirmed present in page 2's dropped
+  66% (fist close-up "MY BROKEN ARM'S FINE TOO.", sitting shot "MY ENTIRE
+  BODY'S BEEN HEALED.", "BUT THIS PLACE...") — story-critical content.
+- ROOT CAUSE (reproduced locally with the exact system code): split_panels
+  detect_panels() tries YOLO FIRST and if it returns ANY boxes, uses them
+  as-is — geometric gutter detection never complements it and NOTHING
+  checks that the boxes actually cover the page. On dark purple gutterless
+  webtoon pages, YOLO (trained on clean-gutter layouts) returns 1-2 boxes
+  per ~11k-px page; everything else is silently discarded. Local rerun of
+  page 2: "YOLO detected 2 panels." — identical to prod.
+- Proposed fixes S1-S5 presented to user (coverage-gated hybrid detection,
+  per-page coverage surfaced in UI, splitter regression fixtures, fresh=1
+  ingest flag + ch2 re-run, optional ch3 validation) — WAITING APPROVAL.
