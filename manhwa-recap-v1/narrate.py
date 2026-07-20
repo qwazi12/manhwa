@@ -260,12 +260,21 @@ def merge_into_units(scenes, max_panels=10):
     return units
 
 
-def word_budget(n_panels):
-    """Hard per-unit narration budget: ~12 words/panel, floor 40, cap 150.
-    A full ~90-panel chapter lands near 1000-1200 words ≈ 7-8 spoken minutes
-    (calibrated on the dungeon-odyssey fixture: 9 w/panel gave 618 words vs
-    the 1283-word approved script)."""
-    return max(40, min(150, 12 * n_panels))
+def dialogue_lines(panels):
+    """Count distinct dialogue utterances across panels (describe.py joins
+    bubbles with ' / ')."""
+    n = 0
+    for p in panels:
+        n += sum(1 for part in p.get("ocr_text", "").split("/") if part.strip())
+    return n
+
+
+def word_budget(n_panels, n_dialogue=0):
+    """Per-unit narration budget: ~12 words/panel PLUS ~7 words per dialogue
+    utterance, floor 40, cap 220. T4 (Session 23): dialogue-heavy pages EARN
+    proportionally more narration — the flat panel-only budget compressed an
+    8-bubble page into one sentence, which read as a summary, not a story."""
+    return max(40, min(220, 12 * n_panels + 7 * n_dialogue))
 
 
 def build_prompt(scene_panels, global_beatsheet=None, budget=None):
@@ -295,6 +304,7 @@ Here is the overall storyline outline and emotional pacing flow for the entire c
 STYLE CONTRACT (every rule mandatory):
 1. Third-person, past tense, story-first: retell events as one flowing narrative.
 2. Every sentence must carry an EVENT, REACTION, REALIZATION, INTENTION, or CONSEQUENCE. A sentence that only describes how something looks gets cut, or its detail folded into an action.
+2b. DIALOGUE FIDELITY: every meaningful exchange in the panels gets its own reported-speech sentence — collapsing a whole conversation into one summary line is a contract violation. Only trivial fillers (grunts, one-word reactions, repeated shouts) may fold into a neighbouring sentence.
 3. Convert all visible dialogue/text into reported narration — never quotation marks (panel text "Who are you?" becomes: he demanded to know who the stranger was).
 4. No panel/framing/camera/art language, ever: never "the panel/image/frame shows", "close-up", "speed lines", "we see" — and NEVER the word "camera" in any form.
 4b. Each scene continues where the previous narration left off — never re-introduce or re-tell events already covered (the chapter summary shows you where you are in the story).
@@ -312,7 +322,7 @@ OUTPUT: only the raw storytelling text — no preamble, labels, or panel referen
 PANELS (in order):
 {panel_block}
 
-STRICT LENGTH BUDGET: write AT MOST {budget or word_budget(len(scene_panels))} words for this ENTIRE scene — count them. Compress ruthlessly: pick only the events that move the story, fold the rest into them or skip them outright.
+STRICT LENGTH BUDGET: write AT MOST {budget or word_budget(len(scene_panels), dialogue_lines(scene_panels))} words for this ENTIRE scene — count them. Compress ruthlessly: pick only the events that move the story, fold the rest into them or skip them outright.
 
 Write the narration for this scene now, at story density (far fewer sentences than panels):"""
 
