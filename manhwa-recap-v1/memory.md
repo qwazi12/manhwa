@@ -2013,3 +2013,18 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 
 #### Session 23 (cont.) — R-plan Step C: orchestration test 8/8 PASS
 - Stub-project TestClient run: R0 live tick state ✓; approve->job ✓; chain rendered exactly the 2 ticked clips then exported (video+audio streams verified by ffprobe) ✓; /api/exports lists it ✓; unticked seg untouched ✓; job persisted ✓; restart simulation (JOBS.clear) still serves status from disk ✓.
+
+#### Session 23 (cont.) — R0-R6 COMPLETE: live approve->render->export PROVEN on ch3
+- Deployed build verified live, then the real user flow executed on
+  dungeon-odyssey_3 (user's own 46 ticks + promotions intact):
+  POST /api/storyboard/approve -> finalize job started -> 44 missing clips
+  rendered one-by-one with per-clip progress visible via /api/jobs/{id}
+  (~29 min on Railway CPU) -> auto-export.
+- RESULT: exports/review_export.mp4 — 140.8 MB, 311.1s (5:11), created
+  Jul 20 01:37 PM ET, listed by /api/exports, downloadable at
+  /export/review_export.mp4 (Exports drawer). Duration probed server-side
+  (valid container); clips embed narration audio by construction
+  (orchestration test verified audio+video streams on the same path).
+- The user contract is now literal: tick -> APPROVE -> watch progress bar
+  -> download from 📤 Exports. Job record persisted (restart-proof), shown
+  in Logs drawer. Volume backup refreshed post-render.
