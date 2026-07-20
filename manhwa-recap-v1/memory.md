@@ -1990,3 +1990,17 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 - Current live ch3 board contains ONE known dupe row pair (page007) from
   the pre-NMS build — harmless under T3 (leave it unticked); next fresh
   ingest of any chapter ships dupe-free. NMS deploy going out now.
+
+#### Session 23 (cont.) — user approved ch3 board; render/export UX gap exposed — PLAN R0-R6 (AWAITING APPROVAL)
+- User ticked 46/53 segments (7 promotions included) + clicked APPROVE.
+  Live findings: approve only writes the gate flag — /api/render-missing
+  and /api/export exist but have NO UI buttons; render jobs invisible in
+  Logs drawer; /api/project serves stale user_included (showed 0 while
+  segments.json on volume shows 46 — reporting inconsistency, ticks ARE
+  saved). Nothing rendered yet for ch3 — by design but invisible.
+- PLAN (table sent to user): R0 truth-source fix (/api/project reads live
+  segments.json), R1 RENDER TICKED button + live clip progress, R2 EXPORT
+  FINAL MP4 button + download link, R3 Exports sidebar drawer (GET
+  /api/exports), R4 render/export jobs persisted + shown in Logs, R5
+  always-visible pipeline step indicator (ticked -> approved -> clips ->
+  export), R6 self-advancing flow. $0 API cost. Awaiting user approval.
