@@ -136,16 +136,19 @@ def seg_html(seg, audio_dir):
               f'{{ scale: 1.22, duration: {dur}, ease: "none" }}, 0);')
     tl.append('  tl.from("#card", { opacity: 0, scale: 0.94, duration: 0.4, '
               'ease: "power2.out" }, 0);')
-    for b in seg["beats"]:
-        a = os.path.join(audio_dir, f"beat_{b['index']:03d}.mp3")
+    for n, b in enumerate(seg["beats"]):
+        # A beat may carry an explicit "file" (storyboard edits slice a beat's
+        # mp3 when an image cut lands mid-sentence); default is index naming.
+        fname = b.get("file") or f"beat_{b['index']:03d}.mp3"
+        a = os.path.join(audio_dir, fname)
         if not os.path.exists(a):
             continue
         off = round(b["start"] - seg["start"], 3)
         adur = ffprobe_dur(a)
         audio_layers.append(
-            f'    <audio class="clip" id="a{b["index"]}" data-start="{off}" '
+            f'    <audio class="clip" id="a{b["index"]}_{n}" data-start="{off}" '
             f'data-duration="{adur}" data-track-index="9" data-volume="1" '
-            f'src="assets/beat_{b["index"]:03d}.mp3"></audio>')
+            f'src="assets/{fname}"></audio>')
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" />
 <meta name="viewport" content="width={W}, height={H}" />
@@ -202,9 +205,12 @@ def stage_assets(seg, audio_dir):
         src_png = os.path.join(PANEL_DIR, f"{pid}.png")
     copy(src_png, os.path.join(ASSETS, f"{pid}.png"))
     for b in seg["beats"]:
-        a = os.path.join(audio_dir, f"beat_{b['index']:03d}.mp3")
+        fname = b.get("file") or f"beat_{b['index']:03d}.mp3"
+        a = os.path.join(audio_dir, fname)
         if os.path.exists(a):
-            copy(a, os.path.join(ASSETS, f"beat_{b['index']:03d}.mp3"))
+            dst = os.path.join(ASSETS, fname)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            copy(a, dst)
 
 
 def render_segment(seg, audio_dir, workdir=None):

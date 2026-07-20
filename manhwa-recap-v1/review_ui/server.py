@@ -574,23 +574,33 @@ def _synth_rest(text, out_path):
 
 
 def _recompute_timeline(segs):
-    """Rebuild every beat/segment start-end from the CURRENT beat-audio
-    durations (sequential with GAP_SEC between beats), so timing stays exact
-    after a re-TTS changes a clip's length. Only the edited clip re-renders;
-    downstream clips are untouched (concat is sequential), but their manifest
-    times are kept accurate for display."""
+    """Editor-aware timeline rebuild (storyboard v2). The VISUAL track is
+    authoritative: each segment keeps its (possibly user-set) duration —
+    including silent holds with no beats at all — and only grows when its
+    narration audio genuinely overflows it. Per-beat durations are re-read
+    from the actual audio files (which may be slice parts carrying an
+    explicit "file"), so a re-TTS resizes exactly the segment it lives in,
+    and everything downstream shifts by the difference."""
     import render_segments as rs
     t = 0.0
     for seg in segs:
+        delta = round(t - seg.get("start", 0), 3)
+        seg["start"] = round(t, 3)
+        prev_end = None
         for b in seg["beats"]:
-            a = os.path.join(AUDIO_DIR, f"beat_{b['index']:03d}.mp3")
-            dur = rs.ffprobe_dur(a) if os.path.exists(a) else (b["end"] - b["start"])
-            b["start"] = round(t, 3)
-            b["end"] = round(t + dur, 3)
-            t += dur + GAP_SEC
-        seg["start"] = seg["beats"][0]["start"]
-        seg["end"] = seg["beats"][-1]["end"]
-        seg["dur"] = round(seg["end"] - seg["start"], 3)
+            gap = GAP_SEC if prev_end is None else max(0.0, round(b["start"] + delta, 3) - prev_end)
+            # keep each beat's offset inside the segment, shifted with it;
+            # first-beat lead-in is preserved via its original offset
+            b["start"] = round(b["start"] + delta, 3) if prev_end is None else round(prev_end + gap, 3)
+            a = os.path.join(AUDIO_DIR, b.get("file") or f"beat_{b['index']:03d}.mp3")
+            dur = rs.ffprobe_dur(a) if os.path.exists(a) else round(b["end"] + delta - b["start"], 3)
+            b["end"] = round(b["start"] + dur, 3)
+            prev_end = b["end"]
+        occupied = round((prev_end - seg["start"]), 3) if prev_end is not None else 0.0
+        if not seg.get("dur") or seg["dur"] < occupied:
+            seg["dur"] = round(occupied + (GAP_SEC if occupied else 2.5), 3)
+        seg["end"] = round(seg["start"] + seg["dur"], 3)
+        t = seg["end"]
 
 
 class NarrationIn(BaseModel):
@@ -599,24 +609,40 @@ class NarrationIn(BaseModel):
 
 @app.post("/api/segments/{seg_index}/narration")
 def edit_narration(seg_index: int, body: NarrationIn):
+    import storyboard_edit
     segs = load_segments()
     seg = next((s for s in segs if s["seg_index"] == seg_index), None)
     if not seg:
         raise HTTPException(404, "segment not found")
     _snapshot()
     edited = {e["index"]: e["text"].strip() for e in body.beats}
-    for b in seg["beats"]:
+    # If any edited beat was SLICED across segments by a storyboard boundary
+    # move, merge it back into one whole beat first — an edit always re-TTSes
+    # the full sentence, and the re-slice (if wanted) is a new boundary move.
+    for bi in list(edited):
+        parts = [b for s in segs for b in s["beats"]
+                 if b["index"] == bi and b.get("file")]
+        if parts:
+            storyboard_edit.coalesce_beat(active_project_dir(), bi)
+    segs = load_segments()
+    seg = next((s for s in segs if s["seg_index"] == seg_index), None)
+    owner = seg if seg and any(b["index"] in edited for b in seg["beats"]) else \
+        next((s for s in segs if any(b["index"] in edited for b in s["beats"])), None)
+    if owner is None:
+        raise HTTPException(404, "edited beat not found")
+    for b in owner["beats"]:
         if b["index"] in edited and edited[b["index"]] and edited[b["index"]] != b["text"]:
             b["text"] = edited[b["index"]]
+            b.pop("file", None)
             try:
                 _synth_rest(b["text"],
                             os.path.join(AUDIO_DIR, f"beat_{b['index']:03d}.mp3"))
             except Exception as e:
                 raise HTTPException(500, f"TTS failed: {e}")
-    _recompute_timeline(segs)          # new audio length shifts timing
+    _recompute_timeline(segs)          # new audio length ripples downstream
     _write_segments(segs)
-    job = _start_render([seg_index])   # clip re-renders in background; preview is instant
-    return {"ok": True, "seg_index": seg_index, "dur": seg["dur"], "job": job}
+    job = _start_render([owner["seg_index"]])
+    return {"ok": True, "seg_index": owner["seg_index"], "dur": owner["dur"], "job": job}
 
 
 # --- structural edits: reorder / split / merge --------------------------
@@ -1187,9 +1213,112 @@ def storyboard_page():
         usage.daily_summary(), storyboard_approved()))
 
 
+@app.get("/")
+def root_redirect():
+    """Storyboard is the main page (v2); the legacy UI lives at /legacy/."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/storyboard")
+
+
+@app.get("/legacy/")
+def legacy_ui():
+    """Archived original review UI (cold storage, still functional)."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "static", "legacy", "index.html")
+    if not os.path.exists(p):
+        raise HTTPException(404, "legacy UI not present in this build")
+    return HTMLResponse(open(p, encoding="utf-8").read())
+
+
 @app.get("/api/storyboard/approval")
 def storyboard_approval():
     return {"approved": storyboard_approved()}
+
+
+# ---- storyboard editor v2 ops (P2-P6): every op rewrites segments.json ----
+def _sb_op(fn, *a, **kw):
+    import storyboard_edit
+    _snapshot()                       # undo covers editor ops too
+    try:
+        segs = fn(active_project_dir(), *a, **kw)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    total = round(segs[-1]["start"] + segs[-1]["dur"], 3) if segs else 0
+    return {"ok": True, "n_segments": len(segs), "total": total}
+
+
+class IncludeIn(BaseModel):
+    panel_id: str
+    hold: float = 2.5     # silent-hold seconds for script-less panels
+
+
+@app.post("/api/storyboard/include")
+def sb_include(body: IncludeIn):
+    import storyboard_edit
+    pdir = active_project_dir()
+    scenes = []
+    try:
+        scenes = json.load(open(os.path.join(pdir, "script.json")))
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    descs = json.load(open(os.path.join(pdir, "descriptions.json")))
+    return _sb_op(storyboard_edit.include_panel, body.panel_id,
+                  scenes, descs, hold=body.hold)
+
+
+class ExcludeIn(BaseModel):
+    panel_id: str
+
+
+@app.post("/api/storyboard/exclude")
+def sb_exclude(body: ExcludeIn):
+    import storyboard_edit
+    return _sb_op(storyboard_edit.exclude_panel, body.panel_id)
+
+
+class DurationIn(BaseModel):
+    seg_index: int
+    dur: float
+
+
+@app.post("/api/storyboard/duration")
+def sb_duration(body: DurationIn):
+    import storyboard_edit
+    return _sb_op(storyboard_edit.set_duration, body.seg_index, body.dur)
+
+
+class BoundaryIn(BaseModel):
+    seg_index: int
+    delta: float          # + grows this segment into the next; - shrinks
+
+
+@app.post("/api/storyboard/boundary")
+def sb_boundary(body: BoundaryIn):
+    import storyboard_edit
+    return _sb_op(storyboard_edit.move_boundary, body.seg_index, body.delta)
+
+
+class MoveIn(BaseModel):
+    seg_index: int
+    to: int               # target playback position (0-based)
+
+
+@app.post("/api/storyboard/move")
+def sb_move(body: MoveIn):
+    import storyboard_edit
+    return _sb_op(storyboard_edit.reorder, body.seg_index, body.to)
+
+
+class AddLineIn(BaseModel):
+    seg_index: int
+    text: str
+
+
+@app.post("/api/storyboard/addline")
+def sb_addline(body: AddLineIn):
+    import storyboard_edit
+    return _sb_op(storyboard_edit.add_line, body.seg_index, body.text,
+                  _synth_rest)      # usage-gated TTS, hash cache applies
 
 
 class ApproveIn(BaseModel):

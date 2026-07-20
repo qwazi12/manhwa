@@ -1,24 +1,18 @@
-"""D1 (rebuilt to the APPROVED combined-table template, 2026-07-19): the
-storyboard shows EVERY extracted panel — not just timeline segments.
+"""Storyboard v2 — THE main review surface (approved combined-table template
++ editor controls + legacy sidebar, per the P1-P13 plan, 2026-07-19).
 
-Template of record: ~/dev/dungeon-odyssey-review/full/review_table_combined.html
-(user: "i want the system to give work like this ... even the template").
-
-Columns: # (id+dims) | Panel image | System OCR (full) | System description
-(full) | Script placement (blue = carries narration unit ¶N / yellow =
-folded into ¶N, story told while another panel holds the screen / red =
-LEFT OUT with the junk filter's reason) | On-screen timing & motion (every
-segment that shows this panel: window, hold, motion, beats, badges, and the
-interactive controls). Header: full stats + usage + project approve gate.
-
-Server-side rendered from the active project's own artifacts:
-descriptions.json (all panels), script.json (provenance units),
-segments.json (timeline), review.json (statuses), project.json (meta).
+Every extracted panel in reading order with: OCR, description, script
+placement (blue on-screen / yellow folded / red left-out+reason), the real
+render timeline, and DIRECT editing: include/exclude checkboxes, per-segment
+duration + boundary control, drag-reorder, add narration line, edit + re-TTS,
+swap panel, approve/reject. Sidebar ports the legacy UI's Ingest / Logs /
+Projects (grouped by series) pages. Cost header is Eastern Time + all-time.
 """
 import html
 import json
 import os
 import re
+from datetime import datetime
 
 
 def _natural(pid):
@@ -37,6 +31,14 @@ def _load(path, default):
         return default
 
 
+def _et_label():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/New_York")).strftime("%a %b %d, %-I:%M %p ET")
+    except Exception:
+        return "ET n/a"
+
+
 def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     descs = _load(os.path.join(pdir, "descriptions.json"), [])
     descs.sort(key=lambda r: _natural(r["panel_id"]))
@@ -44,9 +46,10 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     scenes = _load(os.path.join(pdir, "script.json"), [])
     meta = _load(os.path.join(pdir, "project.json"), {})
 
-    seg_by_panel = {}
-    for s in segs:
+    seg_by_panel, pos_of = {}, {}
+    for pos, s in enumerate(segs):
         seg_by_panel.setdefault(s["panel_id"], []).append(s)
+        pos_of[s["seg_index"]] = pos
     unit_of = {}
     for sc in scenes:
         for pid in sc.get("panel_ids", []):
@@ -66,14 +69,16 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
         vis = html.escape((d.get("visual_description") or "").strip())
         on_screen = pid in seg_by_panel
         reason = matcher.junk_reason(d)
+        pid_js = pid.replace("'", "\\'")
 
-        # ---- script placement cell (blue / yellow / red / grey) ----------
+        # ---- script placement cell ----------------------------------------
         if on_screen:
             uid = unit_of.get(pid, (None, None))[0]
             label = f'<b class="ln">¶{uid}</b> ' if uid is not None else ""
             first = seg_by_panel[pid][0]
             btxt = " ".join(b["text"] for b in first["beats"])[:300]
-            script_cell = label + html.escape(btxt) + ("…" if len(btxt) == 300 else "")
+            script_cell = (label + html.escape(btxt) + ("…" if len(btxt) == 300 else "")) \
+                if btxt else "<i>on screen as a silent hold (no narration)</i>"
             cls = "sa"
         elif reason:
             script_cell = f"<i>LEFT OUT — {html.escape(reason)}</i>"
@@ -88,11 +93,15 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
             script_cell = "<i>unplaced (no provenance, no segment)</i>"
             cls = "gray"
 
-        # ---- timing cell: every segment showing this panel + controls ----
+        # ---- timing cell ---------------------------------------------------
         tcells = []
         for s in seg_by_panel.get(pid, []):
             si = s["seg_index"]
-            if s.get("crop_bbox_norm"):
+            pos = pos_of[si]
+            silent = s.get("silent_hold") or not s["beats"]
+            if silent:
+                motion = "silent hold (no narration)"
+            elif s.get("crop_bbox_norm"):
                 motion = "planned sub-crop + Ken Burns"
             elif ar >= 3:
                 motion = "tall strip → scroll-pan top→bottom"
@@ -103,6 +112,8 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
                 badges.append('<span class="b warn">⚠ long hold</span>')
             if ar >= 3 and not s.get("crop_bbox_norm"):
                 badges.append('<span class="b tall">📜 tall strip</span>')
+            if silent:
+                badges.append('<span class="b sil">🔇 silent</span>')
             st = review.get(str(si), {}).get("status", "pending")
             if st == "approved":
                 badges.append('<span class="b ok">✅ approved</span>')
@@ -110,23 +121,46 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
                 badges.append('<span class="b user">🗑 rejected</span>')
             beats = "".join(
                 f'<div class="beat"><span class="bt">[{b["start"]-s["start"]:.1f}s]</span> '
-                f'{html.escape(b["text"][:160])}{"…" if len(b["text"]) > 160 else ""}</div>'
+                f'{html.escape(b["text"][:160])}{"…" if len(b["text"]) > 160 else ""}'
+                f'{"<span class=slice title=\'audio sliced at an image cut\'>✂</span>" if b.get("file") else ""}</div>'
                 for b in s["beats"])
-            tcells.append(
-                f'<div class="segblock"><b>seg #{si}</b> · {_mmss(s["start"])}→'
-                f'{_mmss(s["start"]+s["dur"])} ({s["dur"]:.1f}s) {" ".join(badges)}<br>'
-                f'<span class="mo">cut + 0.4s fade-in · {motion} · hard cut out</span>'
-                f'{beats}'
-                f'<div class="acts">'
-                f'<button onclick="swapPanel({si})">🔄 swap panel</button>'
-                f'<button onclick="editNarr({si})">✏️ edit narration</button>'
-                f'<button onclick="setStatus({si},\'approved\')">✅</button>'
-                f'<button onclick="setStatus({si},\'rejected\')">🗑</button>'
-                f'</div></div>')
+            not_last = pos + 1 < len(segs)
+            tcells.append(f"""<div class="segblock" draggable="true" data-si="{si}" data-pos="{pos}"
+  ondragstart="dragSeg(event)" ondragover="event.preventDefault();this.classList.add('over')"
+  ondragleave="this.classList.remove('over')" ondrop="dropSeg(event,this)">
+<span class="draghandle" title="drag to reorder">⠿</span>
+<b>seg #{si}</b> · {_mmss(s["start"])}→{_mmss(s["start"]+s["dur"])} {' '.join(badges)}
+<div class="timectl">
+  ⏱ <input type="number" step="0.1" min="0.8" value="{s['dur']:.1f}" id="dur{si}"
+     onkeydown="if(event.key==='Enter')setDur({si})"> s
+  <button onclick="setDur({si})" title="set on-screen duration">set</button>
+  <span class="bctl" title="move the cut between this segment and the next (audio slices if mid-sentence)">
+    cut: <button onclick="nudge({si},-1)" {'disabled' if not not_last else ''}>−1s</button>
+    <button onclick="nudge({si},-0.25)" {'disabled' if not not_last else ''}>−¼</button>
+    <button onclick="nudge({si},0.25)" {'disabled' if not not_last else ''}>+¼</button>
+    <button onclick="nudge({si},1)" {'disabled' if not not_last else ''}>+1s</button>
+  </span>
+</div>
+<span class="mo">cut + 0.4s fade-in · {motion} · hard cut out</span>
+{beats}
+<div class="acts">
+  <button onclick="swapPanel({si})">🔄 swap</button>
+  <button onclick="editNarr({si})">✏️ edit narration</button>
+  <button onclick="addLine({si})">✚ add line</button>
+  <button onclick="setStatus({si},'approved')">✅</button>
+  <button onclick="setStatus({si},'rejected')">🗑</button>
+</div></div>""")
         timing_cell = "".join(tcells) or '<i class="off">— not on video timeline —</i>'
 
-        rows.append(f"""<tr class="{cls}">
-<td class="n">{i}<br><span class="pid">{pid}</span><br><span class="dim">{w}&times;{h} (AR {ar:.1f})</span></td>
+        include_ctl = (
+            f'<label class="inc" title="on the final video — uncheck to fold back">'
+            f'<input type="checkbox" checked onchange="toggleInclude(\'{pid_js}\',this,{1 if cls=="omit" else 0})"></label>'
+            if on_screen else
+            f'<label class="inc" title="check to put this panel on the final video">'
+            f'<input type="checkbox" onchange="toggleInclude(\'{pid_js}\',this,{1 if cls=="omit" else 0})"></label>')
+
+        rows.append(f"""<tr class="{cls}" id="row_{pid}">
+<td class="n">{include_ctl}{i}<br><span class="pid">{pid}</span><br><span class="dim">{w}&times;{h} (AR {ar:.1f})</span></td>
 <td class="img"><a href="/panelimg/{pid}" target="_blank"><img src="/panelimg/{pid}" loading="lazy"></a></td>
 <td class="ocr">{ocr}</td><td class="vis">{vis}</td>
 <td class="script">{script_cell}</td>
@@ -134,48 +168,105 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
 
     title = f"{meta.get('series','?')} Ch.{meta.get('chapter','?')}"
     u = usage_summary or {}
+    life = u.get("lifetime", {})
+    all_g = life.get("gemini_calls", 0) + u.get("gemini_calls", 0)
+    all_t = life.get("tts_chars", 0) + u.get("tts_chars", 0)
+    all_c = life.get("est_cost_usd", 0) + u.get("est_cost_usd", 0)
     mm = meta.get("match_method", "")
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>{html.escape(title)} — storyboard: story + render plan</title>
 <style>
-body {{ font-family: -apple-system, Helvetica, sans-serif; margin: 0; background:#fafafa; color:#1a1a1a; }}
+body {{ font-family: -apple-system, Helvetica, sans-serif; margin: 0 0 0 64px; background:#fafafa; color:#1a1a1a; }}
 header {{ position: sticky; top:0; z-index:5; background:#161616; color:#fff; padding:10px 18px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }}
 header .stat b {{ display:block; font-size:15px; color:#fff; }} header .stat {{ font-size:11px; color:#bbb; }}
-.usage {{ font-size:11px; color:#9ad27d; }}
+.usage {{ font-size:11px; color:#9ad27d; line-height:1.5; }}
 #approveBtn {{ margin-left:auto; background:#8d6e63; border:0; color:#fff; padding:10px 16px; border-radius:6px; font-weight:700; cursor:pointer; }}
 #approveBtn.on {{ background:#2e7d32; }}
+/* ---- left rail (ported from legacy UI) ---- */
+#rail {{ position:fixed; left:0; top:0; bottom:0; width:64px; background:#15171e; border-right:1px solid #282c38; display:flex; flex-direction:column; align-items:center; gap:6px; padding-top:12px; z-index:20; }}
+.navbtn {{ width:52px; height:56px; border:0; background:transparent; border-radius:9px; display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center; color:#8b90a0; font-size:10px; cursor:pointer; }}
+.navbtn .ic {{ font-size:19px; line-height:1; }}
+.navbtn:hover, .navbtn.active {{ background:#1b1e27; color:#5b8cff; }}
+/* ---- drawers ---- */
+.drawer {{ position:fixed; left:64px; top:0; bottom:0; width:360px; background:#15171e; color:#e6e8ef; border-right:1px solid #282c38; z-index:19; padding:16px; overflow-y:auto; display:none; font-size:13px; }}
+.drawer h3 {{ font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:#8b90a0; margin:0 0 10px; }}
+.drawer .hint {{ color:#8b90a0; font-size:11px; }}
+.drawer input.field {{ width:100%; background:#1b1e27; border:1px solid #282c38; border-radius:7px; color:#e6e8ef; padding:8px; font:inherit; margin:10px 0; }}
+.drawer button {{ font:inherit; cursor:pointer; color:#e6e8ef; background:#1b1e27; border:1px solid #282c38; border-radius:7px; padding:6px 10px; }}
+.drawer button.primary {{ background:#5b8cff; border-color:#5b8cff; color:#fff; width:100%; }}
+.drawer .section {{ border-top:1px solid #282c38; margin-top:12px; padding-top:12px; }}
+.projcard {{ margin-top:8px; background:#1b1e27; border:1px solid #282c38; border-radius:8px; overflow:hidden; }}
+.projcard .ph {{ font-weight:600; font-size:12px; padding:8px 12px; background:#15171e; border-bottom:1px solid #282c38; }}
+.projrow {{ display:flex; justify-content:space-between; align-items:center; padding:6px 10px; font-size:12px; }}
 .wrap {{ padding: 14px 18px; }}
 h1 {{ font-size: 19px; margin: 8px 0; }} p.meta {{ color:#555; max-width: 1200px; font-size: 13px; }}
 table {{ border-collapse: collapse; width: 100%; }}
 th, td {{ border: 1px solid #ddd; padding: 8px; vertical-align: top; text-align: left; }}
 th {{ background: #222; color: #fff; position: sticky; top: 58px; z-index: 2; }}
-td.n {{ width: 44px; font-weight: 700; }} .pid {{ font-weight:400; font-size:10px; color:#666; word-break:break-all; }}
+td.n {{ width: 54px; font-weight: 700; }} .pid {{ font-weight:400; font-size:10px; color:#666; word-break:break-all; }}
 .dim {{ font-size:10px; color:#999; }}
-td.img {{ width: 190px; }} td.img img {{ max-width: 180px; max-height: 320px; object-fit: contain; border-radius:4px; box-shadow:0 1px 4px rgba(0,0,0,.25); }}
-td.ocr {{ width: 12%; font-size: 11px; color:#444; }}
-td.vis {{ width: 17%; font-size: 12px; }}
-td.script {{ width: 22%; font-size: 12px; }}
-td.timing {{ width: 24%; font-size: 12px; }}
+.inc {{ display:block; margin-bottom:4px; }} .inc input {{ width:16px; height:16px; cursor:pointer; }}
+td.img {{ width: 185px; }} td.img img {{ max-width: 175px; max-height: 320px; object-fit: contain; border-radius:4px; box-shadow:0 1px 4px rgba(0,0,0,.25); }}
+td.ocr {{ width: 11%; font-size: 11px; color:#444; }}
+td.vis {{ width: 16%; font-size: 12px; }}
+td.script {{ width: 21%; font-size: 12px; }}
+td.timing {{ width: 26%; font-size: 12px; }}
 tr.sa td.script {{ background:#f2f7ff; }} .ln {{ color:#1552b8; }}
 tr.fold td.script {{ background:#fffbe8; color:#7a6200; }} .unittxt {{ color:#7a6200; font-size:11px; margin-top:4px; }}
 tr.omit td.script {{ background:#fbeeee; color:#8a2f2f; }}
 tr.gray td.script {{ background:#f0f0f0; color:#777; }}
-.segblock {{ background:#f4f9f4; border:1px solid #dbe8db; border-radius:6px; padding:6px; margin-bottom:6px; }}
+.segblock {{ background:#f4f9f4; border:1px solid #dbe8db; border-radius:6px; padding:6px; margin-bottom:6px; position:relative; }}
+.segblock.over {{ outline:2px dashed #5b8cff; }}
+.draghandle {{ position:absolute; right:6px; top:6px; cursor:grab; color:#9ab; }}
+.timectl {{ margin:5px 0; font-size:11px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }}
+.timectl input {{ width:52px; font:inherit; padding:2px 4px; }}
+.timectl button {{ font-size:10px; padding:2px 6px; border:1px solid #bbb; background:#fff; border-radius:4px; cursor:pointer; }}
+.bctl {{ white-space:nowrap; }}
 .mo {{ color:#557; font-size:11px; }} .beat {{ margin-top:4px; }} .bt {{ color:#1552b8; font-size:10px; font-weight:600; }}
+.slice {{ color:#a05a00; margin-left:4px; }}
 .b {{ font-size:10px; padding:1px 6px; border-radius:8px; }}
 .b.warn {{ background:#ffe6cc; color:#8a4b00; }} .b.tall {{ background:#e8e0ff; color:#4b2fa0; }}
 .b.user {{ background:#ffd9d9; color:#a01f1f; font-weight:700; }} .b.ok {{ background:#dcf0dc; color:#1d5e1d; }}
+.b.sil {{ background:#e8e8e8; color:#555; }}
 .off {{ color:#999; }}
 .acts {{ margin-top:6px; display:flex; gap:5px; flex-wrap:wrap; }}
 .acts button {{ font-size:11px; padding:4px 7px; border:1px solid #bbb; background:#fff; border-radius:5px; cursor:pointer; }}
 .acts button:hover {{ background:#eee; }}
-#cands {{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; overflow:auto; padding:30px; z-index:10; }}
+#cands {{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; overflow:auto; padding:30px; z-index:30; }}
 #cands .inner {{ background:#fff; border-radius:10px; padding:16px; max-width:1100px; margin:0 auto; }}
 #cands img {{ max-width:150px; max-height:240px; margin:6px; cursor:pointer; border:3px solid transparent; border-radius:4px; }}
 #cands img:hover {{ border-color:#1552b8; }}
 dialog {{ border:0; border-radius:10px; padding:18px; width:640px; box-shadow:0 20px 60px rgba(0,0,0,.4); }}
 textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
+#busy {{ position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#161616; color:#fff; padding:8px 16px; border-radius:8px; display:none; z-index:40; font-size:12px; }}
 </style></head><body>
+<div id="rail">
+  <button class="navbtn active" title="Storyboard" onclick="location.reload()"><span class="ic">🎬</span>Board</button>
+  <button class="navbtn" data-d="ingest" onclick="toggleDrawer('ingest')"><span class="ic">🔗</span>Ingest</button>
+  <button class="navbtn" data-d="projects" onclick="toggleDrawer('projects')"><span class="ic">📚</span>Projects</button>
+  <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
+  <a class="navbtn" href="/legacy/" title="legacy player UI"><span class="ic">🕰️</span>Legacy</a>
+</div>
+<div class="drawer" id="d_ingest">
+  <h3>Ingest a chapter</h3>
+  <div class="hint">Paste a chapter URL — it runs the whole pipeline
+    (scrape → split → describe → narrate → voice → match → segment) and this
+    board reloads on it when done. Clips render on demand after approval.</div>
+  <input class="field" id="ingurl" placeholder="https://…/chapter/…"/>
+  <button class="primary" onclick="runIngest()">▶ Run ingest</button>
+  <div id="ingprog" style="margin-top:12px"></div>
+</div>
+<div class="drawer" id="d_projects">
+  <h3>Projects</h3>
+  <div id="projlist" class="hint">loading…</div>
+</div>
+<div class="drawer" id="d_logs">
+  <h3>Logs</h3>
+  <div class="hint">Live job history + every external API call (cost-tracked, Eastern Time). Survives restarts.</div>
+  <button style="width:100%;margin:8px 0" onclick="loadLogs()">↻ Refresh</button>
+  <div class="section"><h3>Ingest jobs</h3><div id="logjobs" class="hint">loading…</div></div>
+  <div class="section"><h3>API usage</h3><div id="logusage" class="hint">loading…</div></div>
+</div>
 <header>
   <div class="stat"><b>{html.escape(title)}</b>storyboard</div>
   <div class="stat"><b>{len(descs)}</b>panels extracted</div>
@@ -184,7 +275,8 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <div class="stat"><b>{holds}</b>holds &gt;12s</div>
   <div class="stat"><b>{n_approved}</b>approved</div>
   <div class="stat"><b>{html.escape(mm) or "?"}</b>match method</div>
-  <div class="usage">today: {u.get("gemini_calls", 0)} gemini · {u.get("tts_chars", 0)} tts chars · ~${u.get("est_cost_usd", 0):.2f}</div>
+  <div class="usage">{_et_label()} — today: {u.get("gemini_calls", 0)} gemini · {u.get("tts_chars", 0)} tts · ~${u.get("est_cost_usd", 0):.2f}<br>
+  all-time: {all_g} gemini · {all_t} tts · ~${all_c:.2f}</div>
   <button id="approveBtn" class="{'on' if approved else ''}" onclick="toggleApproval()">
     {'✔ PROJECT APPROVED — renders unlocked' if approved else 'APPROVE PROJECT FOR RENDER'}</button>
 </header>
@@ -193,19 +285,60 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
 <p class="meta">Left half: system OCR/description and where each extracted panel lands in the script
 (<b style="color:#1552b8">blue</b> carries narration unit ¶N on screen · <b style="color:#7a6200">yellow</b> folded — its
 story is told in ¶N while another panel holds the screen · <b style="color:#8a2f2f">red</b> LEFT OUT, with the junk
-filter's reason). Right column: the renderer's real timeline — segment #, on-screen window, hold length, motion, the
-narration beats heard over it, and live controls. Badges: ⚠ hold &gt;12s · 📜 tall strip (aspect ≥3 → scroll-pan) ·
-✅/🗑 review status. Approving the project unlocks bulk rendering.</p>
+filter's reason). Right column: the renderer's real timeline with LIVE EDITING — ✔ checkbox puts a panel on/off the
+final video (folded panels get a slice of their unit's window; script-less panels get a silent hold), ⏱ sets a
+segment's on-screen duration, "cut" buttons move the boundary between neighbours (narration audio slices seamlessly
+if a cut lands mid-sentence ✂), ⠿ drag reorders, ✚ adds a new narrated line (TTS). Badges: ⚠ hold &gt;12s ·
+📜 tall strip (scroll-pan) · 🔇 silent hold · ✅/🗑 review status. Approving the project unlocks bulk rendering.</p>
 <table>
 <tr><th>#</th><th>Panel</th><th>System OCR</th><th>System description</th><th>Script placement</th><th>On-screen timing &amp; motion</th></tr>
 {''.join(rows)}
 </table></div>
 <div id="cands" onclick="this.style.display='none'"><div class="inner" onclick="event.stopPropagation()"><h3>Pick replacement panel</h3><div id="candList"></div></div></div>
 <dialog id="editDlg"><h3>Edit narration (re-TTS on save)</h3><textarea id="editTxt"></textarea><p><button onclick="saveEdit()">Save</button> <button onclick="editDlg.close()">Cancel</button></p></dialog>
+<div id="busy">working…</div>
 <script>
-let editing = null;
+let editing = null, dragFrom = null;
 const APPROVED = {str(bool(approved)).lower()};
-async function j(u, opt) {{ const r = await fetch(u, opt); if (!r.ok) throw new Error(await r.text()); return r.json(); }}
+function busy(on, msg) {{ const b = document.getElementById('busy'); b.textContent = msg || 'working…'; b.style.display = on ? 'block' : 'none'; }}
+async function j(u, opt) {{ const r = await fetch(u, opt); if (!r.ok) {{ let m = await r.text(); try {{ m = JSON.parse(m).detail || m; }} catch(e) {{}} throw new Error(m); }} return r.json(); }}
+async function post(u, body, msg) {{
+  busy(true, msg);
+  try {{ const r = await j(u, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(body)}}); location.reload(); return r; }}
+  catch (e) {{ busy(false); alert(e.message); }}
+}}
+/* ---- editor ops ---- */
+function toggleInclude(pid, cb, isJunk) {{
+  if (cb.checked) {{
+    let hold = 2.5;
+    if (isJunk) {{
+      const v = prompt('This panel has no narration — it gets a SILENT hold (extends runtime). Seconds on screen:', '2.5');
+      if (v === null) {{ cb.checked = false; return; }}
+      hold = parseFloat(v) || 2.5;
+    }}
+    post('/api/storyboard/include', {{panel_id: pid, hold}}, 'placing panel on the timeline…');
+  }} else {{
+    post('/api/storyboard/exclude', {{panel_id: pid}}, 'folding panel off the timeline…');
+  }}
+}}
+function setDur(si) {{
+  const v = parseFloat(document.getElementById('dur' + si).value);
+  if (!v || v <= 0) return alert('enter seconds');
+  post('/api/storyboard/duration', {{seg_index: si, dur: v}}, 'retiming…');
+}}
+function nudge(si, delta) {{ post('/api/storyboard/boundary', {{seg_index: si, delta}}, 'moving cut…'); }}
+function addLine(si) {{
+  const t = prompt('New narration sentence (costs its TTS characters):');
+  if (t && t.trim()) post('/api/storyboard/addline', {{seg_index: si, text: t.trim()}}, 'synthesizing…');
+}}
+function dragSeg(ev) {{ dragFrom = parseInt(ev.target.closest('.segblock').dataset.si); }}
+function dropSeg(ev, el) {{
+  el.classList.remove('over');
+  const to = parseInt(el.dataset.pos);
+  if (dragFrom === null || isNaN(to)) return;
+  post('/api/storyboard/move', {{seg_index: dragFrom, to}}, 'reordering…');
+}}
+/* ---- existing controls ---- */
 async function swapPanel(i) {{
   const c = await j(`/api/segments/${{i}}/candidates`);
   const list = document.getElementById('candList');
@@ -213,10 +346,7 @@ async function swapPanel(i) {{
   for (const p of (c.candidates || [])) {{
     const im = document.createElement('img');
     im.src = `/panelimg/${{encodeURIComponent(p.panel_id)}}`; im.title = p.panel_id;
-    im.onclick = async () => {{
-      await j(`/api/segments/${{i}}/panel`, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{panel_id: p.panel_id}})}});
-      location.reload();
-    }};
+    im.onclick = () => post(`/api/segments/${{i}}/panel`, {{panel_id: p.panel_id}}, 'swapping…');
     list.appendChild(im);
   }}
   document.getElementById('cands').style.display = 'block';
@@ -231,15 +361,128 @@ async function editNarr(i) {{
 async function saveEdit() {{
   const txt = document.getElementById('editTxt').value.trim();
   document.getElementById('editDlg').close();
-  await j(`/api/segments/${{editing}}/narration`, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{text: txt}})}});
-  location.reload();
+  const d = await j('/api/project');
+  const s = (d.segments || []).find(x => x.seg_index === editing);
+  const beats = (s.beats && s.beats.length) ? [{{index: s.beats[0].index, text: txt}}] : [];
+  if (!beats.length) return alert('this segment has no narration line — use ✚ add line');
+  await post(`/api/segments/${{editing}}/narration`, {{beats}}, 're-synthesizing…');
 }}
 async function setStatus(i, st) {{
-  await j(`/api/segments/${{i}}/status`, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{status: st, note: ''}})}});
-  location.reload();
+  await post(`/api/segments/${{i}}/status`, {{status: st, note: ''}});
 }}
 async function toggleApproval() {{
-  await j('/api/storyboard/approve', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{approved: !APPROVED}})}});
+  await post('/api/storyboard/approve', {{approved: !APPROVED}});
+}}
+/* ---- drawers: ingest / projects / logs (ported from legacy UI) ---- */
+function toggleDrawer(name) {{
+  for (const d of ['ingest','projects','logs']) {{
+    const el = document.getElementById('d_' + d);
+    const btn = document.querySelector(`.navbtn[data-d="${{d}}"]`);
+    const show = d === name && el.style.display !== 'block';
+    el.style.display = show ? 'block' : 'none';
+    if (btn) btn.classList.toggle('active', show);
+  }}
+  if (name === 'projects') loadProjects();
+  if (name === 'logs') loadLogs();
+  if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
+}}
+const ING_STAGES = ['scrape','split','describe','narrate','voice','match','segment'];
+let ingestState = null, ingestPolling = false;
+function activeJob() {{ return localStorage.getItem('activeIngestJob'); }}
+function setActiveJob(id) {{ if (id) localStorage.setItem('activeIngestJob', id); else localStorage.removeItem('activeIngestJob'); }}
+async function runIngest() {{
+  const url = document.getElementById('ingurl').value.trim();
+  if (!/^https?:\\/\\//.test(url)) {{ alert('Paste a full http(s) chapter URL'); return; }}
+  try {{
+    const r = await j('/api/ingest', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{url}})}});
+    setActiveJob(r.job); startIngestPoller();
+  }} catch (e) {{ alert(e.message); }}
+}}
+function stageBar(cur, pct, msg, err) {{
+  return `<div style="font-size:12px">${{ING_STAGES.map(s => {{
+    const done = ING_STAGES.indexOf(s) < ING_STAGES.indexOf(cur), on = s === cur;
+    return `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;color:${{done ? '#39c07f' : on ? '#5b8cff' : '#8b90a0'}}">
+      <span>${{done ? '✓' : on ? '●' : '○'}}</span>${{s}}</div>`; }}).join('')}}</div>
+    <div style="height:6px;background:#282c38;border-radius:3px;margin:8px 0;overflow:hidden">
+      <div style="height:100%;width:${{pct}}%;background:${{err ? '#ef5f6b' : '#5b8cff'}}"></div></div>
+    <div class="hint">${{err ? ('⚠ ' + err) : (msg || '')}}</div>`;
+}}
+function paintIngest() {{
+  const box = document.getElementById('ingprog'); if (!box || !ingestState) return;
+  const s = ingestState;
+  box.innerHTML = stageBar(s.stage, s.pct, s.msg, s.status === 'error' ? s.error : null);
+  if (s.status === 'done' && s.project) {{
+    box.innerHTML += `<button class="primary" style="margin-top:8px" onclick="activateProj('${{s.project.id}}')">Open “${{s.project.id}}” (${{s.project.n_segments}} segs)</button>`;
+  }}
+}}
+async function startIngestPoller() {{
+  if (ingestPolling) return; ingestPolling = true;
+  try {{
+    while (activeJob()) {{
+      let s;
+      try {{ s = await j('/api/ingest/status/' + activeJob()); }}
+      catch (e) {{ await new Promise(r => setTimeout(r, 2500)); continue; }}
+      ingestState = s; paintIngest();
+      if (s.status === 'done' || s.status === 'error') {{
+        setActiveJob(null);
+        if (s.status === 'done' && s.project) await activateProj(s.project.id);
+        break;
+      }}
+      await new Promise(r => setTimeout(r, 1500));
+    }}
+  }} finally {{ ingestPolling = false; }}
+}}
+if (activeJob()) startIngestPoller();   // survive reloads mid-ingest
+async function loadProjects() {{
+  const box = document.getElementById('projlist');
+  const d = await j('/api/projects');
+  let htmlOut = '';
+  if ((d.in_progress || []).length) {{
+    htmlOut += '<div class="hint" style="text-transform:uppercase;font-weight:600;margin:4px 0">In progress</div>' +
+      d.in_progress.map(p => `<div class="projrow">⏳ ${{p.slug}} <span class="hint">${{p.stage}} · ${{p.pct}}%</span>
+        <button onclick="setActiveJob('${{p.job}}');toggleDrawer('ingest');startIngestPoller()">Watch</button></div>`).join('');
+  }}
+  const grouped = {{}};
+  (d.projects || []).forEach(p => {{
+    const s = p.series || 'Other';
+    (grouped[s] = grouped[s] || []).push(p);
+  }});
+  for (const series in grouped) {{
+    htmlOut += `<div class="projcard"><div class="ph">📚 ${{series}}</div>`;
+    grouped[series].forEach(p => {{
+      const label = p.chapter ? ('Chapter ' + p.chapter) : p.id;
+      htmlOut += `<div class="projrow"><span>${{p.active ? '▶ ' : ''}}${{label}} <span class="hint">(${{p.n_segments}} segs${{p.duration ? ' · ' + p.duration + 's' : ''}})</span></span>
+        ${{p.active ? '<span class="hint">active</span>' : `<button onclick="activateProj('${{p.id}}')">Open</button>`}}</div>`;
+    }});
+    htmlOut += '</div>';
+  }}
+  box.innerHTML = htmlOut || 'No projects yet.';
+}}
+async function activateProj(id) {{
+  await j('/api/activate', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{id}})}});
   location.reload();
+}}
+async function loadLogs() {{
+  try {{
+    const ij = await j('/api/logs/ingest');
+    document.getElementById('logjobs').innerHTML = (ij.jobs || []).slice(0, 20).map(x => {{
+      const col = x.status === 'done' ? '#39c07f' : x.status === 'error' ? '#ef5f6b' : '#5b8cff';
+      return `<div style="border-bottom:1px solid #282c38;padding:4px 0;font-size:12px">
+        <div style="color:${{col}}">${{x.status}} · ${{x.stage || ''}} ${{x.pct ? ('· ' + x.pct + '%') : ''}}</div>
+        <div class="hint" style="word-break:break-all">${{(x.url || '').replace('https://','')}}</div>
+        ${{x.error ? `<div style="color:#ef5f6b">⚠ ${{x.error}}</div>` : ''}}</div>`;
+    }}).join('') || 'No jobs yet.';
+    const uj = await j('/api/logs/usage?limit=60');
+    const s = uj.summary || {{}}, life = s.lifetime || {{}};
+    document.getElementById('logusage').innerHTML =
+      `<div style="font-size:12px;margin-bottom:6px"><b>${{s.gemini_calls || 0}}</b> Gemini · <b>${{(s.tts_chars || 0).toLocaleString()}}</b> TTS chars ·
+       est <b>$${{(s.est_cost_usd || 0).toFixed(3)}}</b> on ${{s.date || ''}} (ET)<br>
+       all-time: <b>${{(life.gemini_calls || 0) + (s.gemini_calls || 0)}}</b> Gemini ·
+       <b>$${{((life.est_cost_usd || 0) + (s.est_cost_usd || 0)).toFixed(2)}}</b></div>` +
+      (uj.calls || []).slice(-40).reverse().map(c =>
+        `<div class="hint" style="border-bottom:1px solid #282c38;padding:2px 0">
+         ${{c.kind}} · ${{c.model || ''}} · ${{c.units}} ${{c.unit || ''}} · $${{(c.est_cost_usd || 0).toFixed(4)}}
+         <span style="opacity:.6">${{(c.job_id || '').slice(0, 8)}}</span></div>`).join('');
+  }} catch (e) {{ document.getElementById('logjobs').innerHTML = 'Failed to load logs.'; }}
 }}
 </script></body></html>"""

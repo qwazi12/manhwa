@@ -1731,3 +1731,25 @@ only on approval.
   controls, dnd, sidebar+ingest+logs+projects) -> legacy swap (static/
   legacy/) -> TestClient suite -> deploys (railway + vercel) -> live
   verification on dungeon-odyssey_2 -> evidence log here.
+
+#### Session 22 (cont.) — Editor v2 build CHECKPOINT (mid-implementation save)
+- LANDED so far (uncommitted until this push):
+  usage.py ET day-keying + lifetime totals (log-reconstructed on first run);
+  render_segments.py per-beat "file" support (sliced audio) in seg_html +
+  stage_assets; storyboard_edit.py op engine (set_duration, move_boundary
+  w/ ffmpeg mid-beat slicing, include carve/silent-hold, exclude fold-back,
+  reorder, add_line, coalesce_beat, resize_after_tts; edits.log.jsonl +
+  stale-clip deletion); server.py editor-aware _recompute_timeline (silent
+  holds + custom durs + slices safe), coalesce-aware edit_narration, new
+  endpoints /api/storyboard/{include,exclude,duration,boundary,move,addline},
+  GET / -> /storyboard redirect, GET /legacy/; storyboard.py full v2 UI
+  (sidebar rail: Board/Ingest/Projects/Logs/Legacy, drawers ported from
+  legacy index.html incl. localStorage ingest poller + series-grouped
+  projects + ET usage logs, include checkboxes, per-seg duration input,
+  boundary nudge buttons, drag-reorder, add-line, busy toasts); legacy UI
+  git-mv'd to static/legacy/; vercel.json root -> Railway /storyboard.
+- NOT yet done: run test_storyboard_edit.py (written, unrun), server import
+  smoke test, deploys (railway + vercel), live verification, final log.
+- Next session if interrupted: run tests in review_ui/, fix fails, then
+  railway up (retry loop for TLS flakes), npx vercel@latest --prod, verify
+  live per plan P13, log evidence.

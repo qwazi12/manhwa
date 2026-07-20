@@ -111,7 +111,14 @@ def get_job_id():
 
 
 def _today():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Eastern Time (user directive 2026-07-19): daily caps reset at midnight
+    # America/New_York, and the storyboard shows the ET date so a UTC
+    # rollover can never look like lost spend again.
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    except Exception:                       # zoneinfo/tzdata missing: fall back
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def _load_counts():
@@ -121,9 +128,39 @@ def _load_counts():
     except (FileNotFoundError, json.JSONDecodeError):
         d = {}
     if d.get("date") != _today():
+        # Day rollover: fold the finished day into the lifetime totals so
+        # all-time spend survives every reset (and restarts — it's on disk).
+        life = d.get("lifetime", {"gemini_calls": 0, "tts_chars": 0,
+                                  "est_cost_usd": 0.0})
+        life["gemini_calls"] += d.get("gemini_calls", 0)
+        life["tts_chars"] += d.get("tts_chars", 0)
+        life["est_cost_usd"] = round(life["est_cost_usd"] + d.get("est_cost_usd", 0.0), 6)
         d = {"date": _today(), "gemini_calls": 0, "tts_chars": 0,
-             "est_cost_usd": 0.0, "jobs": {}}
+             "est_cost_usd": 0.0, "jobs": {}, "lifetime": life}
     d.setdefault("jobs", {})
+    if "lifetime" not in d:
+        # First run after the lifetime feature landed: reconstruct history
+        # from the append-only call log so no past spend is dropped, then
+        # subtract today's (still-active) counters which are tracked live.
+        life = {"gemini_calls": 0, "tts_chars": 0, "est_cost_usd": 0.0}
+        try:
+            with open(LOG_PATH, encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        e = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if e.get("kind") == "gemini":
+                        life["gemini_calls"] += e.get("units", 0)
+                    else:
+                        life["tts_chars"] += e.get("units", 0)
+                    life["est_cost_usd"] += e.get("est_cost_usd", 0.0)
+        except FileNotFoundError:
+            pass
+        life["gemini_calls"] -= d.get("gemini_calls", 0)
+        life["tts_chars"] -= d.get("tts_chars", 0)
+        life["est_cost_usd"] = round(max(0.0, life["est_cost_usd"] - d.get("est_cost_usd", 0.0)), 6)
+        d["lifetime"] = life
     return d
 
 
