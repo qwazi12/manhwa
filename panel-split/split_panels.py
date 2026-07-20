@@ -609,6 +609,28 @@ def detect_panels(image_path: str):
             n_anchor_rescued += 1
     cov_final = content_coverage()
 
+    # -- cross-detector dedupe (Session 23 audit finding): different
+    # detectors can emit the same region twice (a whole-page YOLO box AND an
+    # anchor band inside it). Drop any box >=90% area-contained in a LARGER
+    # kept box — containment means true duplication, since gap/anchor
+    # recovery only fires on rows the earlier detectors left uncovered.
+    def _contain(a, b):
+        ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+        iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+        mn = min((a[2]-a[0]) * (a[3]-a[1]), (b[2]-b[0]) * (b[3]-b[1]))
+        return ix * iy / max(1, mn)
+    by_area = sorted(range(len(boxes)),
+                     key=lambda i: (boxes[i][2]-boxes[i][0]) * (boxes[i][3]-boxes[i][1]),
+                     reverse=True)
+    keep_idx, dropped_dupes = [], 0
+    for i in by_area:
+        if any(_contain(boxes[i], boxes[k]) >= 0.9 for k in keep_idx):
+            dropped_dupes += 1
+            continue
+        keep_idx.append(i)
+    keep_order = sorted(keep_idx, key=lambda i: (boxes[i][1], boxes[i][0]))
+    boxes, origins = [boxes[i] for i in keep_order], [origins[i] for i in keep_order]
+
     # -- assemble in reading order ----------------------------------------
     order = sorted(range(len(boxes)), key=lambda i: (boxes[i][1], boxes[i][0]))
     panels = []
@@ -646,8 +668,11 @@ def detect_panels(image_path: str):
     shots_flat = [s["bbox"] for pn in panels for s in pn["shots"]]
 
     def _ov(a, b):
-        inter = max(0, min(a[3], b[3]) - max(a[1], b[1]))
-        return inter / max(1, min(a[3] - a[1], b[3] - b[1]))
+        ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+        iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+        mn = min((a[2]-a[0]) * (a[3]-a[1]), (b[2]-b[0]) * (b[3]-b[1]))
+        return ix * iy / max(1, mn)
+    stats["panel_dupes_dropped"] = dropped_dupes
     stats["shot_overlap_max"] = round(max(
         (_ov(a, b) for i, a in enumerate(shots_flat) for b in shots_flat[i + 1:]),
         default=0.0), 3)
