@@ -2098,3 +2098,24 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 - Fix proposed to user (awaiting choice): make 🗑 authoritative — rejecting
   unticks the segment (and ✅ re-ticks), so one visible state governs the
   video; alternative is removing reject entirely in favour of the checkbox.
+
+#### Session 23 (cont.) — M8/M9 SHIPPED: reject gates the video + per-line narration editing
+- M9 reject/approve now authoritative: /api/segments/{i}/status sets
+  user_included (rejected=False, approved=True). Rejected segments leave the
+  render+export set; the row, panel, narration text and mp3 all stay, so ✅
+  restores in one click. Legend updated to say so.
+- M8 delete_line: new engine op + /api/storyboard/delline. Removes one beat,
+  shortens the segment by that beat's length, pulls later beats back, ripples
+  the timeline, stales the clip. Beat mp3 retained (hash cache => re-adding
+  the same sentence is free). Empty segment survives as a silent hold.
+- ROOT CAUSE of "editing narration does nothing" (user-reported): saveEdit()
+  joined ALL beats into one textarea and posted the result under
+  beats[0].index, so 2nd/3rd line edits/deletions were discarded and their
+  original audio kept playing — this is why seg #85 spoke the same sentence
+  at 0.0s/8.6s/17.1s. Dialog rewritten to one textarea per beat + 🗑 per line.
+- SECOND BUG fixed alongside: edit_narration re-synthesized audio but never
+  staled the clip; finalize only renders MISSING clips, so edits never
+  reached the exported video. Now staled on every edit.
+- Tests: 3 unit (delete middle line/timing/ripple/stale, strip-to-silent-hold,
+  unknown-beat error) + 4 API (reject excludes, nothing deleted, approve
+  restores, ticked-set correctness) — all pass. Deploy next.
