@@ -2140,3 +2140,4 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 - Tests (4, all pass): row keeps tick while rejected segs leave the video;
   pre-fix rejections honoured; approve restores; re-tick cannot resurrect.
 - M10 VERIFIED LIVE: partial-row badges serving — page006_panel_004 reads 2/5 (three rejected narrations excluded, row still ticked for the other two), 3 partial rows total. Rejection scope + row-tick truth confirmed in production.
+- RENDER+EXPORT COMPLETE (job 4cbc05ea4974, project swordmasters-youngest-son_1): 59 clips rendered, exported final_Jul25_07.12PM.mp4 — 284.2 MB, 9:25, Jul 25 07:12 PM ET. Video set was 82 of 86 ticked segments (4 excluded by honoured rejections). Timestamped naming confirmed working; export listed by /api/exports.
