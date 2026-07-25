@@ -2059,3 +2059,28 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 - Cost: $0 (structural only). Deploy going out; live verification next.
 
 - M1-M3 VERIFIED LIVE: /storyboard serves the new build — dropRow handler present, 138 row drop targets rendered (one per panel row of the active project). Free seg placement is usable in production.
+
+#### Session 23 (cont.) — YOUTUBE CONNECTOR PLAN Y1-Y8 (awaiting user approval)
+- User request: publish exported MP4s to YouTube from the site.
+- RIGHTS POSTURE (unchanged, per CLAUDE.md Stage 7): source is unlicensed
+  aggregator content. Connector ships with (a) a rights gate that blocks
+  upload unless the project is explicitly marked rights-cleared by the user,
+  (b) privacy DEFAULT=private on every upload, (c) no auto-post — upload is
+  always an explicit user click, never triggered by export completion.
+- Y1 OAuth2 connect (client id/secret as Railway env; one-time consent;
+  refresh token on the volume; Reconnect button). NOTE: Google OAuth apps in
+  "Testing" status expire refresh tokens every 7 days — app must be set to
+  "In production" (unverified is fine for single-user; shows a warning
+  screen) to avoid weekly re-auth. youtube.upload is a sensitive scope.
+- Y2 resumable chunked upload w/ progress through the existing JOBS system.
+- Y3 metadata composer (title/description/tags drafted from project series +
+  chapter + script summary; fully editable before send).
+- Y4 Publish UI in the Exports drawer (form + privacy selector + progress +
+  resulting video link saved to the project).
+- Y5 rights gate + visible banner.
+- Y6 quota handling (upload ~1600 units of the default 10,000/day => ~6
+  uploads/day; surface quota errors precisely; resumable continuation).
+- Y7 upload history + Logs drawer integration (persisted, restart-proof).
+- Y8 live verification with a PRIVATE test upload, then log evidence.
+- API cost $0 (YouTube Data API free within quota). User prerequisites:
+  Google Cloud project + OAuth client credentials + the target channel.
