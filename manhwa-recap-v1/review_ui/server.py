@@ -249,16 +249,36 @@ def set_status(seg_index: int, body: StatusIn):
     # looked like decisions, one of which did nothing. Reject now unticks
     # (out of the video); approve ticks. Nothing is deleted: the row, its
     # panel, its narration and its audio all stay, so it is one click back.
+    # A row can hold SEVERAL narrations (one panel, many beats). Rejecting one
+    # segment must not disturb its neighbours, so the tick is left alone and
+    # video_segments() enforces the exclusion instead. Approving clears the
+    # rejection; ticking the row again cannot resurrect a rejected segment.
     included = None
-    if body.status in ("approved", "rejected"):
-        included = (body.status == "approved")
+    if body.status == "approved":
+        included = True
         segs = load_segments()
         for s in segs:
-            if s["seg_index"] == seg_index:
-                s["user_included"] = included
+            if s["seg_index"] == seg_index and not s.get("user_included"):
+                s["user_included"] = True
         _write_segments(segs)
     return {"ok": True, "seg_index": seg_index, "status": body.status,
             "user_included": included}
+
+
+def video_segments(segs=None):
+    """The single answer to "what is in the final video": ticked AND not
+    rejected, in timeline order.
+
+    Inclusion used to be the checkbox alone, so a 🗑 rejection clicked before
+    the M9 fix (when reject was annotation-only) still shipped in the export.
+    Reading review.json here makes the rejection authoritative whenever it was
+    made, and keeps one rule for render, export and the counters.
+    """
+    segs = load_segments() if segs is None else segs
+    review = load_review()
+    return [s for s in segs
+            if s.get("user_included")
+            and (review.get(str(s["seg_index"])) or {}).get("status") != "rejected"]
 
 
 class ExportIn(BaseModel):
@@ -273,7 +293,7 @@ def export(body: ExportIn):
 def _do_export(speed=1.0):
     """Concat ONLY user-included (checkbox, T3) clips, in timeline order."""
     segs = load_segments()
-    approved = [s for s in segs if s.get("user_included")]
+    approved = video_segments(segs)
     if not approved:
         raise HTTPException(400, "nothing is ticked for the final video — "
                                  "tick segments on /storyboard first")
@@ -956,7 +976,7 @@ def _run_finalize_job(job_id):
     try:
         pdir = active_project_dir()
         segs = load_segments()
-        ticked = [s for s in segs if s.get("user_included")]
+        ticked = video_segments(segs)
         missing = [s["seg_index"] for s in ticked
                    if not os.path.exists(os.path.join(pdir, s.get("clip", "")))]
         j["total"] = len(missing)
@@ -1553,7 +1573,7 @@ def storyboard_approve(body: ApproveIn):
     # USER CONTRACT: approving RENDERS the ticked segments and EXPORTS the
     # final narrated video, as one visible background job.
     segs = load_segments()
-    ticked = [s for s in segs if s.get("user_included")]
+    ticked = video_segments(segs)
     if not ticked:
         return {"ok": True, "approved": True, "job": None,
                 "note": "nothing ticked — tick segments, then approve again"}

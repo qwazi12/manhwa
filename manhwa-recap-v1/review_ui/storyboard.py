@@ -68,11 +68,18 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
         for pid in sc.get("panel_ids", []):
             unit_of[pid] = (sc["scene_id"], sc.get("text", ""))
 
+    # One rule for "is this in the video", shared with the renderer/exporter:
+    # ticked AND not rejected. Stamped per segment so the row controls, the
+    # counters and the dead-air chip can never disagree with the export.
+    for s in segs:
+        s["in_video"] = bool(s.get("user_included")) and \
+            review.get(str(s["seg_index"]), {}).get("status") != "rejected"
+
     total = (segs[-1]["start"] + segs[-1]["dur"]) if segs else 0
     holds = sum(1 for s in segs if s["dur"] > 12)
-    n_included = sum(1 for s in segs if s.get("user_included"))
+    n_included = sum(1 for s in segs if s.get("in_video"))
     n_segs = len(segs)
-    _sil = [s for s in segs if s.get("user_included")
+    _sil = [s for s in segs if s.get("in_video")
             and (s.get("silent_hold") or not s.get("beats"))]
     sil_str = (f"{len(_sil)} holds · {sum(s.get('dur', 0) for s in _sil):.0f}s"
                if _sil else "none")
@@ -176,10 +183,21 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
         # timing column; the user ticks what actually renders/concats.
         if on_screen:
             row_segs = seg_by_panel.get(pid, [])
-            _inc = " checked" if row_segs and all(s.get("user_included") for s in row_segs) else ""
+            # A row can hold several narrations. "all included" as the tick
+            # test made a 5-segment row look EXCLUDED when one of its
+            # segments was dropped — and re-ticking it would resurrect that
+            # segment. Tick = ANY segment in the video; a partial row is
+            # shown indeterminate with an n/m badge so it never misleads.
+            _in_video = [s for s in row_segs if s.get("in_video")]
+            _inc = " checked" if _in_video else ""
+            _partial = 0 < len(_in_video) < len(row_segs)
+            _badge = (f'<span class="part" title="narrations from this panel that '
+                      f'are in the final video">{len(_in_video)}/{len(row_segs)}</span>'
+                      if _partial else "")
             include_ctl = (
-                f'<label class="inc" title="tick = include in the FINAL video">'
-                f'<input type="checkbox"{_inc} onchange="setIncluded(\'{pid_js}\',this.checked)"></label>')
+                f'<label class="inc" title="tick = include this panel\'s narrations in the FINAL video">'
+                f'<input type="checkbox"{_inc}{" data-partial=1" if _partial else ""} '
+                f'onchange="setIncluded(\'{pid_js}\',this.checked)"></label>{_badge}')
         else:
             include_ctl = (
                 f'<button class="promote" title="give this panel its own slot on the timeline" '
@@ -253,6 +271,7 @@ tr.gray td.script {{ background:#f0f0f0; color:#777; }}
 .segblock.over {{ outline:2px dashed #5b8cff; }}
 td.timing.dropok {{ outline:3px dashed #22a06b; outline-offset:-3px; background:#eefaf3; }}
 .segblock[draggable] {{ cursor:grab; }}
+.part {{ display:block; font-size:10px; color:#8a6d00; font-weight:700; }}
 .editrow {{ display:flex; gap:6px; margin-bottom:8px; }}
 .editrow textarea {{ flex:1; min-height:60px; }}
 .delline {{ align-self:flex-start; }}
@@ -365,6 +384,7 @@ entirely — its audio file is kept, so re-adding the same sentence is free.</p>
 <div id="editRows"></div>
 <p><button onclick="saveEdit()">Save changes</button>
 <button onclick="editDlg.close()">Cancel</button></p></dialog>
+<script>document.querySelectorAll('input[data-partial]').forEach(function(c){{c.indeterminate=true;}});</script>
 <div id="busy">working…</div>
 <script>
 let editing = null, dragFrom = null;
