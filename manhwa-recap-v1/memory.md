@@ -2036,3 +2036,24 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 
 #### Session 23 (cont.) — overlap/naming/dead-air fix build VERIFIED LIVE
 - /storyboard now serves the fixed build: drawers offset+stacked above content, timestamped export naming active, pipebar 🔇 chip live — currently reads "2 holds · 2s" for the ticked set (the long 10s silent holds from the reviewed export are no longer in the ticked state; remaining dead air is 2s total).
+
+#### Session 23 (cont.) — M1-M3 SHIPPED: free seg placement (drag audio to any row)
+- User question: "why limit the segs to only the direct page#_panel#_shot#…
+  if i want that audio somewhere else i can just drag and drop it there".
+  Root cause: a seg card's row IS seg.panel_id, set once by the matcher and
+  only mutable via the top-8 candidates popup; the drag handler only
+  reordered timeline position, so cards could never leave their row.
+- Shipped: storyboard_edit.assign_panel + POST /api/storyboard/assign +
+  every row's timing cell as a drop target.
+  * plain drop  = that narration now plays over THAT panel; beats, duration
+    and story order all untouched (safe default).
+  * shift-drop  = also re-sequence to that panel's reading-order position,
+    landing at the end of that row's group (test-driven: first insert rule
+    put it before the group, corrected).
+  * card-on-card drop still reorders playback position (unchanged).
+  * manual placements set user_assigned (re-matching can never overwrite),
+    drop the old panel's planned sub-crop, and stale the clip so APPROVE
+    re-renders it.
+- test_assign.py: 16 checks green (narration/runtime conservation, occupied
+  rows accept multiple segs, contiguity after re-sequencing, guardrails).
+- Cost: $0 (structural only). Deploy going out; live verification next.
