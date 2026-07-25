@@ -2120,3 +2120,22 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
   unknown-beat error) + 4 API (reject excludes, nothing deleted, approve
   restores, ticked-set correctness) — all pass. Deploy next.
 - M8/M9 VERIFIED LIVE: /storyboard serves the new build — per-beat editrow boxes + delLine() handlers present, legend reads "takes it OUT of the final video". Reject-gates-video and per-line delete are usable in production.
+
+#### Session 23 (cont.) — M10: rejection scope + row-tick truth (user-reported)
+- User observed a row (page006_panel_004) carrying FIVE segments (#18-#22)
+  with three marked rejected; asked that reject exclude only the rejected
+  narration, never the whole row.
+- Live data check: those three were still user_included=True — they were
+  rejected BEFORE M9 made reject authoritative, so a render at that moment
+  would have shipped them. Fixed systemically instead of patching data:
+  * server.video_segments() = ticked AND review.status != "rejected" is now
+    the ONE gate, used by finalize, export and the approve check. Old
+    annotation-era rejections are therefore honoured retroactively.
+  * set_status no longer unticks on reject (segment-scoped, row untouched);
+    approve still ticks.
+  * storyboard stamps s["in_video"] with the same rule; row checkbox went
+    from all-included to ANY-included + indeterminate + n/m badge, so a
+    partial row reads honestly and re-ticking cannot resurrect a rejected
+    segment.
+- Tests (4, all pass): row keeps tick while rejected segs leave the video;
+  pre-fix rejections honoured; approve restores; re-tick cannot resurrect.
