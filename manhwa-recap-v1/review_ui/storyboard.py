@@ -190,7 +190,8 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
 <td class="img"><a href="/panelimg/{pid}" target="_blank"><img src="/panelimg/{pid}" loading="lazy"></a></td>
 <td class="ocr">{ocr}</td><td class="vis">{vis}</td>
 <td class="script">{script_cell}</td>
-<td class="timing">{timing_cell}</td></tr>""")
+<td class="timing" data-pid="{pid}" ondragover="rowOver(event,this)"
+  ondragleave="this.classList.remove('dropok')" ondrop="dropRow(event,this)">{timing_cell}</td></tr>""")
 
     title = f"{meta.get('series','?')} Ch.{meta.get('chapter','?')}"
     u = usage_summary or {}
@@ -250,6 +251,8 @@ tr.omit td.script {{ background:#fbeeee; color:#8a2f2f; }}
 tr.gray td.script {{ background:#f0f0f0; color:#777; }}
 .segblock {{ background:#f4f9f4; border:1px solid #dbe8db; border-radius:6px; padding:6px; margin-bottom:6px; position:relative; }}
 .segblock.over {{ outline:2px dashed #5b8cff; }}
+td.timing.dropok {{ outline:3px dashed #22a06b; outline-offset:-3px; background:#eefaf3; }}
+.segblock[draggable] {{ cursor:grab; }}
 .draghandle {{ position:absolute; right:6px; top:6px; cursor:grab; color:#9ab; }}
 .timectl {{ margin:5px 0; font-size:11px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }}
 .timectl input {{ width:52px; font:inherit; padding:2px 4px; }}
@@ -344,7 +347,7 @@ story is told in ¶N while another panel holds the screen · <b style="color:#8a
 filter's reason). Right column: the renderer's real timeline with LIVE EDITING — ✔ checkbox puts a panel on/off the
 final video (folded panels get a slice of their unit's window; script-less panels get a silent hold), ⏱ sets a
 segment's on-screen duration, "cut" buttons move the boundary between neighbours (narration audio slices seamlessly
-if a cut lands mid-sentence ✂), ⠿ drag reorders, ✚ adds a new narrated line (TTS). Badges: ⚠ hold &gt;12s ·
+if a cut lands mid-sentence ✂), ⠿ drag a seg card onto ANOTHER ROW to play that narration over that panel (shift-drop also moves it there in the story; card-on-card still reorders), ✚ adds a new narrated line (TTS). Badges: ⚠ hold &gt;12s ·
 📜 tall strip (scroll-pan) · 🔇 silent hold · ✅/🗑 review status. Approving the project unlocks bulk rendering.</p>
 <table>
 <tr><th>#</th><th>Panel</th><th>System OCR</th><th>System description</th><th>Script placement</th><th>On-screen timing &amp; motion</th></tr>
@@ -394,10 +397,29 @@ function addLine(si) {{
 }}
 function dragSeg(ev) {{ dragFrom = parseInt(ev.target.closest('.segblock').dataset.si); }}
 function dropSeg(ev, el) {{
+  ev.stopPropagation();               // a card-on-card drop REORDERS...
   el.classList.remove('over');
   const to = parseInt(el.dataset.pos);
   if (dragFrom === null || isNaN(to)) return;
   post('/api/storyboard/move', {{seg_index: dragFrom, to}}, 'reordering…');
+}}
+/* ...while a drop anywhere else in a row REASSIGNS the segment to that row's
+   panel: the narration and its timing stay put, only the artwork changes.
+   Shift-drop ALSO moves it to that panel's place in the story. */
+function rowOver(ev, el) {{
+  if (dragFrom === null) return;
+  ev.preventDefault();
+  el.classList.add('dropok');
+}}
+function dropRow(ev, el) {{
+  ev.preventDefault();
+  el.classList.remove('dropok');
+  const pid = el.dataset.pid;
+  if (dragFrom === null || !pid) return;
+  const also = ev.shiftKey;
+  post('/api/storyboard/assign',
+       {{seg_index: dragFrom, panel_id: pid, move_here: also}},
+       also ? 'moving here + re-sequencing…' : 'placing on this panel…');
 }}
 /* ---- existing controls ---- */
 async function swapPanel(i) {{

@@ -345,6 +345,68 @@ def reorder(pdir, si, to_position):
     return segs
 
 
+# ------------------------------------------------- M1/M2: assign to any row
+def assign_panel(pdir, si, panel_id, descs, move_here=False):
+    """Attach segment `si` to ANY panel (row) — free manual placement.
+
+    The matcher picks a panel per segment; that pairing is a guess. This op
+    lets the user drop a seg card onto whatever row they're looking at:
+    the narration, its beats and the segment's duration are untouched, only
+    the image changes. Playback ORDER is preserved by default (fixing which
+    picture shows must not silently re-sequence the story); pass
+    move_here=True to also move the segment to that panel's reading-order
+    position. Manual placements set user_assigned so later re-matching /
+    provenance passes never overwrite the user's judgment.
+
+    A row may legitimately hold several segments (a panel that carries two
+    narration beats already does), so dropping onto an occupied row is
+    allowed — no exchange, no displacement.
+    """
+    segs = load(pdir)
+    seg = next((s for s in segs if s["seg_index"] == si), None)
+    if seg is None:
+        raise ValueError(f"unknown segment {si}")
+    d = next((x for x in descs if x["panel_id"] == panel_id), None)
+    if d is None:
+        raise ValueError(f"unknown panel {panel_id}")
+    old = seg["panel_id"]
+    if old == panel_id and not move_here:
+        return segs
+    seg["panel_id"] = panel_id
+    seg["panel_file"] = os.path.join(pdir, "crops", f"{panel_id}.png")
+    seg["user_assigned"] = True
+    # the planned sub-crop belonged to the OLD panel — it cannot survive a
+    # move to different artwork; drop it so the renderer frames the new panel.
+    seg.pop("crop", None)
+    seg.pop("crop_box", None)
+
+    if move_here:
+        # reading order = the order panels appear in descriptions.json
+        order = [x["panel_id"] for x in descs]
+        try:
+            target_rank = order.index(panel_id)
+        except ValueError:
+            target_rank = None
+        if target_rank is not None:
+            here = _pos(segs, si)
+            moved = segs.pop(here)
+            # land AFTER the last segment at or before the target's reading
+            # position — dropping "into" a row joins that row's group at its
+            # end, which is what the gesture looks like on screen.
+            dest = 0
+            for i, s in enumerate(segs):
+                r = order.index(s["panel_id"]) if s["panel_id"] in order else -1
+                if r <= target_rank:
+                    dest = i + 1
+            segs.insert(dest, moved)
+            _ripple(segs)
+
+    save(pdir, segs)
+    _stale(pdir, [si])        # new artwork -> the clip must re-render
+    _log(pdir, "assign", seg=si, frm=old, to=panel_id, moved=bool(move_here))
+    return segs
+
+
 # -------------------------------------------------------------- P6: add line
 def add_line(pdir, si, text, synth):
     """Append a NEW narration sentence to segment si (synth = callable

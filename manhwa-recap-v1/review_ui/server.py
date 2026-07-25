@@ -1475,6 +1475,21 @@ def sb_move(body: MoveIn):
     return _sb_op(storyboard_edit.reorder, body.seg_index, body.to)
 
 
+class AssignIn(BaseModel):
+    seg_index: int
+    panel_id: str
+    move_here: bool = False   # also move to that panel's reading-order spot
+
+
+@app.post("/api/storyboard/assign")
+def sb_assign(body: AssignIn):
+    """Free placement: drop a seg card onto ANY row. The narration/timing
+    stay put; only the artwork changes (move_here also re-sequences)."""
+    import storyboard_edit
+    return _sb_op(storyboard_edit.assign_panel, body.seg_index, body.panel_id,
+                  _load_descriptions(), body.move_here)
+
+
 class AddLineIn(BaseModel):
     seg_index: int
     text: str
