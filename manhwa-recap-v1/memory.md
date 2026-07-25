@@ -2057,3 +2057,5 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 - test_assign.py: 16 checks green (narration/runtime conservation, occupied
   rows accept multiple segs, contiguity after re-sequencing, guardrails).
 - Cost: $0 (structural only). Deploy going out; live verification next.
+
+- M1-M3 VERIFIED LIVE: /storyboard serves the new build — dropRow handler present, 138 row drop targets rendered (one per panel row of the active project). Free seg placement is usable in production.
