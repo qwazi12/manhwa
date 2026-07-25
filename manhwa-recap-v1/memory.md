@@ -2119,3 +2119,4 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 - Tests: 3 unit (delete middle line/timing/ripple/stale, strip-to-silent-hold,
   unknown-beat error) + 4 API (reject excludes, nothing deleted, approve
   restores, ticked-set correctness) — all pass. Deploy next.
+- M8/M9 VERIFIED LIVE: /storyboard serves the new build — per-beat editrow boxes + delLine() handlers present, legend reads "takes it OUT of the final video". Reject-gates-video and per-line delete are usable in production.
