@@ -243,7 +243,22 @@ def set_status(seg_index: int, body: StatusIn):
     review = load_review()
     review[str(seg_index)] = {"status": body.status, "note": body.note}
     save_review(review)
-    return {"ok": True, "seg_index": seg_index, "status": body.status}
+    # M9: 🗑/✅ are DECISIONS about the video, not annotations. Before this,
+    # both render and export gated purely on user_included, so a segment
+    # marked "rejected" still played in the final MP4 — two controls that
+    # looked like decisions, one of which did nothing. Reject now unticks
+    # (out of the video); approve ticks. Nothing is deleted: the row, its
+    # panel, its narration and its audio all stay, so it is one click back.
+    included = None
+    if body.status in ("approved", "rejected"):
+        included = (body.status == "approved")
+        segs = load_segments()
+        for s in segs:
+            if s["seg_index"] == seg_index:
+                s["user_included"] = included
+        _write_segments(segs)
+    return {"ok": True, "seg_index": seg_index, "status": body.status,
+            "user_included": included}
 
 
 class ExportIn(BaseModel):
@@ -648,7 +663,7 @@ def edit_narration(seg_index: int, body: NarrationIn):
     if owner is None:
         raise HTTPException(404, "edited beat not found")
     for b in owner["beats"]:
-        if b["index"] in edited and edited[b["index"]] and edited[b["index"]] != b["text"]:
+        if b["index"] in edited and edited[b["index"]] and edited[b["index"]] != b["text"]:  # noqa: E501
             b["text"] = edited[b["index"]]
             b.pop("file", None)
             try:
@@ -658,6 +673,10 @@ def edit_narration(seg_index: int, body: NarrationIn):
                 raise HTTPException(500, f"TTS failed: {e}")
     _recompute_timeline(segs)          # new audio length ripples downstream
     _write_segments(segs)
+    # the clip on disk still carries the OLD narration; finalize only renders
+    # clips that are MISSING, so an edited-but-existing clip would ship stale.
+    import storyboard_edit
+    storyboard_edit._stale(active_project_dir(), [owner["seg_index"]])
     job = _start_render([owner["seg_index"]])
     return {"ok": True, "seg_index": owner["seg_index"], "dur": owner["dur"], "job": job}
 
@@ -1504,6 +1523,24 @@ def sb_addline(body: AddLineIn):
 
 class ApproveIn(BaseModel):
     approved: bool
+
+
+class DelLineIn(BaseModel):
+    seg_index: int
+    beat_index: int
+
+
+@app.post("/api/storyboard/delline")
+def sb_delline(body: DelLineIn):
+    """M8: drop one narration line from the video (text + audio)."""
+    import storyboard_edit
+    _snapshot()
+    try:
+        storyboard_edit.delete_line(active_project_dir(), body.seg_index,
+                                    body.beat_index)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
 
 
 @app.post("/api/storyboard/approve")

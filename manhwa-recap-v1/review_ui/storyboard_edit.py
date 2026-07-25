@@ -407,6 +407,39 @@ def assign_panel(pdir, si, panel_id, descs, move_here=False):
     return segs
 
 
+# ------------------------------------------------ M8: delete a narration line
+def delete_line(pdir, si, beat_index):
+    """Remove ONE narration beat from a segment (audio + text out of the video).
+
+    The beat's mp3 stays on disk (hash-keyed cache; re-adding the same
+    sentence costs no TTS) — only the timeline entry goes. The segment
+    shrinks by the beat's own length so nothing after it drifts; a segment
+    that loses its last beat survives as a silent hold, which is a state the
+    renderer already supports. The clip is staled so the edit reaches the
+    video instead of a cached mp4.
+    """
+    segs = load(pdir)
+    seg = next((s for s in segs if s["seg_index"] == si), None)
+    if seg is None:
+        raise ValueError(f"unknown segment {si}")
+    b = next((x for x in seg["beats"] if x["index"] == beat_index), None)
+    if b is None:
+        raise ValueError(f"segment {si} has no beat {beat_index}")
+    blen = round(b["end"] - b["start"], 3)
+    seg["beats"] = [x for x in seg["beats"] if x["index"] != beat_index]
+    # pull any later beat in this segment back over the gap the removal left
+    for x in seg["beats"]:
+        if x["start"] > b["start"]:
+            x["start"] = round(x["start"] - blen, 3)
+            x["end"] = round(x["end"] - blen, 3)
+    seg["dur"] = max(MIN_SEG, round(seg["dur"] - blen, 3))
+    _ripple(segs)
+    save(pdir, segs)
+    _stale(pdir, [si])
+    _log(pdir, "delline", seg=si, beat=beat_index, freed=blen)
+    return segs
+
+
 # -------------------------------------------------------------- P6: add line
 def add_line(pdir, si, text, synth):
     """Append a NEW narration sentence to segment si (synth = callable

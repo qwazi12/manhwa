@@ -253,6 +253,10 @@ tr.gray td.script {{ background:#f0f0f0; color:#777; }}
 .segblock.over {{ outline:2px dashed #5b8cff; }}
 td.timing.dropok {{ outline:3px dashed #22a06b; outline-offset:-3px; background:#eefaf3; }}
 .segblock[draggable] {{ cursor:grab; }}
+.editrow {{ display:flex; gap:6px; margin-bottom:8px; }}
+.editrow textarea {{ flex:1; min-height:60px; }}
+.delline {{ align-self:flex-start; }}
+.hint {{ color:#555; font-size:12px; max-width:640px; }}
 .draghandle {{ position:absolute; right:6px; top:6px; cursor:grab; color:#9ab; }}
 .timectl {{ margin:5px 0; font-size:11px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }}
 .timectl input {{ width:52px; font:inherit; padding:2px 4px; }}
@@ -347,14 +351,20 @@ story is told in ¶N while another panel holds the screen · <b style="color:#8a
 filter's reason). Right column: the renderer's real timeline with LIVE EDITING — ✔ checkbox puts a panel on/off the
 final video (folded panels get a slice of their unit's window; script-less panels get a silent hold), ⏱ sets a
 segment's on-screen duration, "cut" buttons move the boundary between neighbours (narration audio slices seamlessly
-if a cut lands mid-sentence ✂), ⠿ drag a seg card onto ANOTHER ROW to play that narration over that panel (shift-drop also moves it there in the story; card-on-card still reorders), ✚ adds a new narrated line (TTS). Badges: ⚠ hold &gt;12s ·
+if a cut lands mid-sentence ✂), ⠿ drag a seg card onto ANOTHER ROW to play that narration over that panel (shift-drop also moves it there in the story; card-on-card still reorders), ✚ adds a new narrated line (TTS). 🗑 rejects a segment (takes it OUT of the final video; ✅ puts it back — nothing is deleted). Badges: ⚠ hold &gt;12s ·
 📜 tall strip (scroll-pan) · 🔇 silent hold · ✅/🗑 review status. Approving the project unlocks bulk rendering.</p>
 <table>
 <tr><th>#</th><th>Panel</th><th>System OCR</th><th>System description</th><th>Script placement</th><th>On-screen timing &amp; motion</th></tr>
 {''.join(rows)}
 </table></div>
 <div id="cands" onclick="this.style.display='none'"><div class="inner" onclick="event.stopPropagation()"><h3>Pick replacement panel</h3><div id="candList"></div></div></div>
-<dialog id="editDlg"><h3>Edit narration (re-TTS on save)</h3><textarea id="editTxt"></textarea><p><button onclick="saveEdit()">Save</button> <button onclick="editDlg.close()">Cancel</button></p></dialog>
+<dialog id="editDlg"><h3>Edit narration</h3>
+<p class="hint">One box per spoken line. Edit the text and Save to re-voice just
+that line (costs its TTS characters). 🗑 removes the line from the video
+entirely — its audio file is kept, so re-adding the same sentence is free.</p>
+<div id="editRows"></div>
+<p><button onclick="saveEdit()">Save changes</button>
+<button onclick="editDlg.close()">Cancel</button></p></dialog>
 <div id="busy">working…</div>
 <script>
 let editing = null, dragFrom = null;
@@ -438,16 +448,35 @@ async function editNarr(i) {{
   editing = i;
   const d = await j('/api/project');
   const s = (d.segments || []).find(x => x.seg_index === i);
-  document.getElementById('editTxt').value = (s.beats || []).map(b => b.text).join(' ');
+  const rows = document.getElementById('editRows');
+  rows.innerHTML = '';
+  // One row per beat. The old dialog joined every beat into a single box and
+  // saved the result back into beat[0], so edits to (or deletions of) the
+  // 2nd/3rd line silently did nothing and their original audio kept playing.
+  for (const b of (s.beats || [])) {{
+    const row = document.createElement('div');
+    row.className = 'editrow';
+    row.innerHTML = `<textarea data-bi="${{b.index}}"></textarea>
+      <button class="delline" title="remove this line from the video"
+              onclick="delLine(${{b.index}})">🗑</button>`;
+    row.querySelector('textarea').value = b.text || '';
+    rows.appendChild(row);
+  }}
+  if (!(s.beats || []).length)
+    rows.innerHTML = '<i>silent hold — no narration on this segment. Use ✚ add line.</i>';
   document.getElementById('editDlg').showModal();
 }}
-async function saveEdit() {{
-  const txt = document.getElementById('editTxt').value.trim();
+async function delLine(bi) {{
+  if (!confirm('Remove this line from the video? The segment shortens by its length.')) return;
   document.getElementById('editDlg').close();
-  const d = await j('/api/project');
-  const s = (d.segments || []).find(x => x.seg_index === editing);
-  const beats = (s.beats && s.beats.length) ? [{{index: s.beats[0].index, text: txt}}] : [];
-  if (!beats.length) return alert('this segment has no narration line — use ✚ add line');
+  await post('/api/storyboard/delline', {{seg_index: editing, beat_index: bi}}, 'removing line…');
+}}
+async function saveEdit() {{
+  const boxes = [...document.querySelectorAll('#editRows textarea')];
+  const beats = boxes.map(t => ({{index: parseInt(t.dataset.bi), text: t.value.trim()}}))
+                     .filter(b => b.text);
+  document.getElementById('editDlg').close();
+  if (!beats.length) return alert('no lines to save — use 🗑 to remove a line, or ✚ add line');
   await post(`/api/segments/${{editing}}/narration`, {{beats}}, 're-synthesizing…');
 }}
 async function setStatus(i, st) {{
