@@ -2084,3 +2084,17 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
 - Y8 live verification with a PRIVATE test upload, then log evidence.
 - API cost $0 (YouTube Data API free within quota). User prerequisites:
   Google Cloud project + OAuth client credentials + the target channel.
+
+#### Session 23 (cont.) — FINDING: 🗑 reject has NO effect on render/export (user-reported trap)
+- Verified in code: _run_finalize_job renders `[s for s in segs if
+  s.get("user_included")]` and _export_video concats "ONLY user-included
+  (checkbox, T3)" — BOTH gate on the ☑ checkbox alone.
+- The ✅/🗑 review status (review.json, header counts) is a leftover from the
+  pre-T3 review UI and is now PURELY an annotation: a segment marked
+  "rejected" still renders and still lands in the final MP4 if its checkbox
+  is ticked. Nothing is deleted by reject.
+- RISK: two controls that both look like decisions, only one has effect —
+  user had segs #18/#20/#21 marked rejected and (likely) still ticked.
+- Fix proposed to user (awaiting choice): make 🗑 authoritative — rejecting
+  unticks the segment (and ✅ re-ticks), so one visible state governs the
+  video; alternative is removing reject entirely in favour of the checkbox.
