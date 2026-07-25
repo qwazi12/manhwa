@@ -2139,3 +2139,4 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
     segment.
 - Tests (4, all pass): row keeps tick while rejected segs leave the video;
   pre-fix rejections honoured; approve restores; re-tick cannot resurrect.
+- M10 VERIFIED LIVE: partial-row badges serving — page006_panel_004 reads 2/5 (three rejected narrations excluded, row still ticked for the other two), 3 partial rows total. Rejection scope + row-tick truth confirmed in production.
