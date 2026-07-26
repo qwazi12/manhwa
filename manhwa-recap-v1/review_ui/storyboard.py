@@ -19,6 +19,15 @@ def _natural(pid):
     return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", pid)]
 
 
+def _part_tag(b):
+    """V2: when a carve slices one sentence across two segments, both cards
+    carry the same text. Label the halves so the board reads as one sentence
+    continuing, not the line playing twice (it does not — the audio is split)."""
+    p, of = b.get("part"), b.get("part_of")
+    return f'<span class="bpart" title="this sentence is split across segments; ' \
+           f'only this portion plays here">part {p}/{of}</span> ' if p and of else ""
+
+
 def _mmss(t):
     return f"{int(t)//60}:{int(t)%60:02d}"
 
@@ -74,6 +83,39 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     for s in segs:
         s["in_video"] = bool(s.get("user_included")) and \
             review.get(str(s["seg_index"]), {}).get("status") != "rejected"
+
+    # V1/V5 (Session 23 video review): every card used to show its slot on the
+    # MASTER timeline (all segments, included or not). The export contains only
+    # in_video segments, so a card's master time drifts from where you actually
+    # hear it by the total duration of everything excluded before it. Stamp the
+    # real video position here — that is the number a reviewer needs.
+    _vt = 0.0
+    for s in segs:
+        if s.get("in_video"):
+            s["video_start"] = round(_vt, 3)
+            _vt = round(_vt + s["dur"], 3)
+        else:
+            s["video_start"] = None
+    video_total = _vt
+
+    # V6: a hold cap that only sees one segment cannot catch four consecutive
+    # segments sharing one image (31.6s on a single panel in the reviewed cut).
+    # Walk the video order and stamp each run's length on its first segment.
+    _run = []
+    def _flush(run):
+        if len(run) > 1:
+            span = round(sum(x["dur"] for x in run), 1)
+            if span >= 15:
+                run[0]["same_panel_run"] = (len(run), span)
+    for s in segs:
+        if not s.get("in_video"):
+            continue
+        if _run and _run[-1]["panel_id"] == s["panel_id"]:
+            _run.append(s)
+        else:
+            _flush(_run)
+            _run = [s]
+    _flush(_run)
 
     total = (segs[-1]["start"] + segs[-1]["dur"]) if segs else 0
     holds = sum(1 for s in segs if s["dur"] > 12)
@@ -145,8 +187,16 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
                 badges.append('<span class="b ok">✅ approved</span>')
             elif st == "rejected":
                 badges.append('<span class="b user">🗑 rejected</span>')
+            run = s.get("same_panel_run")
+            if run:
+                badges.append(
+                    f'<span class="b warn" title="this image stays on screen '
+                    f'across {run[0]} consecutive segments — vary the crop, '
+                    f'swap a panel in, or shorten it">🖼 same image '
+                    f'{run[1]:.0f}s / {run[0]} segs</span>')
             beats = "".join(
                 f'<div class="beat"><span class="bt">[{b["start"]-s["start"]:.1f}s]</span> '
+                f'{_part_tag(b)}'
                 f'{html.escape(b["text"][:160])}{"…" if len(b["text"]) > 160 else ""}'
                 f'{"<span class=slice title=\'audio sliced at an image cut\'>✂</span>" if b.get("file") else ""}</div>'
                 for b in s["beats"])
@@ -155,7 +205,7 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
   ondragstart="dragSeg(event)" ondragover="event.preventDefault();this.classList.add('over')"
   ondragleave="this.classList.remove('over')" ondrop="dropSeg(event,this)">
 <span class="draghandle" title="drag to reorder">⠿</span>
-<b>seg #{si}</b> · {_mmss(s["start"])}→{_mmss(s["start"]+s["dur"])} {' '.join(badges)}
+<b>seg #{si}</b> · {(f'{_mmss(s["video_start"])}→{_mmss(s["video_start"]+s["dur"])}' if s.get("video_start") is not None else '<span class="off">not in video</span>')} <span class="mt" title="position on the master timeline (includes segments left out of the video)">[{_mmss(s["start"])}]</span> {' '.join(badges)}
 <div class="timectl">
   ⏱ <input type="number" step="0.1" min="0.8" value="{s['dur']:.1f}" id="dur{si}"
      onkeydown="if(event.key==='Enter')setDur({si})"> s
@@ -286,6 +336,9 @@ td.timing.dropok {{ outline:3px dashed #22a06b; outline-offset:-3px; background:
 .b {{ font-size:10px; padding:1px 6px; border-radius:8px; }}
 .b.warn {{ background:#ffe6cc; color:#8a4b00; }} .b.tall {{ background:#e8e0ff; color:#4b2fa0; }}
 .b.user {{ background:#ffd9d9; color:#a01f1f; font-weight:700; }} .b.ok {{ background:#dcf0dc; color:#1d5e1d; }}
+.bpart {{ background:#eef1f6; color:#44506b; border-radius:3px; padding:0 4px;
+  font-size:9px; font-weight:700; letter-spacing:.3px; }}
+.mt {{ color:#98a0b0; font-size:10px; }}
 .b.sil {{ background:#e8e8e8; color:#555; }}
 .off {{ color:#999; }}
 .acts {{ margin-top:6px; display:flex; gap:5px; flex-wrap:wrap; }}
@@ -341,7 +394,7 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <div class="stat"><b>{html.escape(title)}</b>storyboard</div>
   <div class="stat"><b>{len(descs)}</b>panels extracted</div>
   <div class="stat"><b>{len(segs)}</b>segments</div>
-  <div class="stat"><b>{_mmss(total)}</b>runtime</div>
+  <div class="stat"><b>{_mmss(video_total)}</b>video runtime</div>
   <div class="stat"><b>{holds}</b>holds &gt;12s</div>
   <div class="stat"><b>{n_approved}</b>approved</div>
   <div class="stat"><b>{n_included}/{n_segs}</b>in final video</div>
@@ -363,7 +416,7 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <div id="renderprog" style="display:none"><div id="renderbar"></div><span id="rendertxt"></span></div>
 </div>
 <div class="wrap">
-<h1>{html.escape(title)} — combined: all {len(descs)} panels · story placement · render timing ({len(segs)} segments, {_mmss(total)})</h1>
+<h1>{html.escape(title)} — combined: all {len(descs)} panels · story placement · render timing ({n_included} of {len(segs)} segments in the video, {_mmss(video_total)})</h1>
 <p class="meta">Left half: system OCR/description and where each extracted panel lands in the script
 (<b style="color:#1552b8">blue</b> carries narration unit ¶N on screen · <b style="color:#7a6200">yellow</b> folded — its
 story is told in ¶N while another panel holds the screen · <b style="color:#8a2f2f">red</b> LEFT OUT, with the junk

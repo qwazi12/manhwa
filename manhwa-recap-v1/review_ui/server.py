@@ -311,7 +311,11 @@ def _do_export(speed=1.0):
         series, chapter = _ing.parse_series_chapter(
             json.load(open(os.path.join(pdir, "project.json"))).get("url", "")) \
             if os.path.exists(os.path.join(pdir, "project.json")) else ("", "")
-        title = (series or "").replace("-", " ").title()
+        # V4 (Session 23 review): title cards showed the aggregator's hash
+        # suffix ("Swordmasters Youngest Son F886A8Af") because this path
+        # title-cased the raw slug. Reuse ingest's cleaner — the same one the
+        # project id already uses — so the card shows just the series name.
+        title = _ing.to_title_case(_ing.clean_series_slug(series or ""))
         if title:
             env = os.environ.copy()
             env.update({"HF_WORKSPACE": pdir,

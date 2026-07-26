@@ -25,6 +25,10 @@ import time
 MIN_SEG = 0.8          # smallest allowed hold, seconds
 GAP = 0.35             # narration gap used when appending new lines
 DEFAULT_HOLD = 2.5     # silent hold for script-less panels
+# V3 (Session 23 video review): repeated carving of the same host produced
+# 0.7-0.8s slivers — images that flash past before they register. No carve
+# may leave either side shorter than this.
+MIN_SEG_DUR = 2.0
 
 
 # ---------------------------------------------------------------- io helpers
@@ -235,20 +239,34 @@ def include_panel(pdir, panel_id, scenes, descs, hold=DEFAULT_HOLD):
         if not host:
             raise ValueError(f"unit ¶{unit['scene_id']} has no on-screen host to carve")
         hp = _pos(segs, host["seg_index"])
+        h0 = host["start"]
+        h1 = round(host["start"] + host["dur"], 3)
         if len(host["beats"]) >= 2:
-            # split at the beat boundary nearest the midpoint
+            # split at a beat boundary near the midpoint — but only one that
+            # leaves BOTH sides >= MIN_SEG_DUR (V3). Cutting in the silence
+            # between sentences keeps every beat's audio inside its window.
             mid = host["start"] + host["dur"] / 2
-            cutb = min(range(1, len(host["beats"])),
-                       key=lambda i: abs(host["beats"][i]["start"] - mid))
-            # cut in the silence between sentences: halfway between the
-            # previous beat's end and the next beat's start (clamped so no
-            # audio ever falls outside its segment's window)
-            prev_end = host["beats"][cutb - 1]["end"]
-            nxt_start = host["beats"][cutb]["start"]
-            cut = round(max(prev_end, (prev_end + nxt_start) / 2), 3)
+            cands = []
+            for i in range(1, len(host["beats"])):
+                prev_end = host["beats"][i - 1]["end"]
+                nxt_start = host["beats"][i]["start"]
+                c = round(max(prev_end, (prev_end + nxt_start) / 2), 3)
+                if c - h0 >= MIN_SEG_DUR and h1 - c >= MIN_SEG_DUR:
+                    cands.append(c)
+            if not cands:
+                raise ValueError(
+                    f"seg {host['seg_index']} ({host['dur']:.1f}s) has no split "
+                    f"point leaving {MIN_SEG_DUR:.0f}s on both sides — lengthen "
+                    f"it first, or promote a different panel")
+            cut = min(cands, key=lambda c: abs(c - mid))
             tail = [b for b in host["beats"] if b["start"] >= cut]
             host["beats"] = [b for b in host["beats"] if b["start"] < cut]
         else:
+            if host["dur"] < 2 * MIN_SEG_DUR:
+                raise ValueError(
+                    f"seg {host['seg_index']} is only {host['dur']:.1f}s — too "
+                    f"short to split without leaving a sub-{MIN_SEG_DUR:.0f}s "
+                    f"flash; lengthen it first")
             cut = round(host["start"] + host["dur"] / 2, 3)
             tail = []
             if host["beats"]:
@@ -261,8 +279,10 @@ def include_panel(pdir, panel_id, scenes, descs, hold=DEFAULT_HOLD):
                     fb = os.path.join("slices", f"{tag}_b.mp3")
                     _slice_mp3(src, round(cut - bt["start"], 3),
                                os.path.join(adir, fa), os.path.join(adir, fb))
-                    host["beats"] = [dict(bt, end=cut, file=fa)]
-                    tail = [dict(bt, start=cut, file=fb)]
+                    host["beats"] = [dict(bt, end=cut, file=fa,
+                                          part=1, part_of=2)]
+                    tail = [dict(bt, start=cut, file=fb,
+                                 part=2, part_of=2)]
                 elif bt["start"] >= cut:
                     tail = [bt]; host["beats"] = []
         end = round(host["start"] + host["dur"], 3)

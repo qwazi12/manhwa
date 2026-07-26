@@ -71,9 +71,11 @@ def _png_size(path):
     return None, None
 
 
-# C2: a panel at least this tall-for-its-width, with no planned sub-crop,
+# C2/V7: a panel at least this tall-for-its-width, with no planned sub-crop,
 # scroll-pans top->bottom instead of sitting as one unreadably small card.
-TALL_AR = 3.0
+# Lowered 3.0 -> 2.2 (Session 23 video review): panels between 2.2 and 3.0
+# were rendering as ~1/3-width cards with unreadable dialogue.
+TALL_AR = 2.2
 
 
 def seg_html(seg, audio_dir):
@@ -90,7 +92,14 @@ def seg_html(seg, audio_dir):
     pid = seg["panel_id"]
     src = f"assets/{pid}.png"
     dur = seg["dur"]
-    z0, z1 = (1.0, 1.035) if seg["seg_index"] % 2 == 0 else (1.035, 1.0)
+    # V8 (Session 23 review): a single fixed 3.5% Ken Burns for every segment
+    # read as monotonous over 9 minutes. Amplitude now scales INVERSELY with
+    # hold length — a short beat gets a noticeable push, a long hold drifts
+    # slowly (same total travel feels right at both ends) — and direction
+    # still alternates so consecutive cards never move identically.
+    amp = 0.075 if dur < 4 else (0.05 if dur < 8 else 0.03)
+    z0, z1 = ((1.0, 1.0 + amp) if seg["seg_index"] % 2 == 0
+              else (1.0 + amp, 1.0))
     audio_layers, tl = [], []
 
     has_crop = seg.get("crop_bbox_norm") is not None
@@ -126,8 +135,19 @@ def seg_html(seg, audio_dir):
         tl.append(f'  tl.fromTo("#panimg", {{ y: 0 }}, '
                   f'{{ y: {-pan}, duration: {dur}, ease: "none" }}, 0);')
     else:
+        # V7: size the card to the artwork's shape instead of one 46% cap.
+        # A portrait panel is height-limited, so give it nearly the full frame
+        # height; a landscape/square panel is width-limited, so let it run
+        # much wider. The old flat cap wasted ~2/3 of the frame on tall art.
+        _ar = (ph / pw) if (pw and ph) else 1.0
+        if _ar >= 1.25:            # portrait (below the scroll-pan threshold)
+            _mw, _mh = 46, 97
+        elif _ar >= 0.85:          # square-ish
+            _mw, _mh = 56, 93
+        else:                      # landscape / wide
+            _mw, _mh = 68, 93
         card_html = f"""  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
-    <img class="cardimg" src="{src}" alt="" />
+    <img class="cardimg" src="{src}" style="max-width:{_mw}%; max-height:{_mh}%;" alt="" />
   </div>"""
         tl.append(f'  tl.fromTo("#card .cardimg", {{ scale: {z0} }}, '
                   f'{{ scale: {z1}, duration: {dur}, ease: "none" }}, 0);')
