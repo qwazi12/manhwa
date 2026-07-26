@@ -2180,3 +2180,36 @@ PROS: clean 1920x1080/30fps h264+aac; ZERO silences >=1.2s in 9:25 (~24s of
 non-speech is natural 0.3s inter-sentence breaths); narration reads as story
 not captions; arc coherent; rejections honored exactly; intro/outro clean;
 sampled panels match their narration.
+
+#### Session 23 (cont.) — V1-V8 IMPLEMENTED (all approved fixes from the video review)
+- CORRECTION to the review's bug #1: re-checked contiguity in LIST order over
+  ALL 103 segments — ZERO gaps. The "11 non-contiguous segments" was an
+  artifact of measuring only the included subset (excluded segments legitimately
+  occupy those windows). No ripple bug exists; timeline data is sound.
+  The REAL defect was narrower: the board displayed MASTER-timeline times while
+  the export contains only in_video segments, so displayed time drifted from
+  heard time by the total excluded duration before that point. Fixed as V1/V5.
+- V1/V5 storyboard.py: segments stamped with video_start (cumulative over
+  in_video segs); cards show video position with master time in brackets;
+  header shows "video runtime"; excluded cards read "not in video".
+- V2 storyboard_edit.py + storyboard.py: sliced beats tagged part/part_of and
+  rendered as "part 1/2" chips. NOTE (verified by waveform cross-correlation
+  on the export): the audio never repeated — self-match 1.000, next best
+  0.178 — so this was always a display defect, not an audio one.
+- V3 storyboard_edit.py: MIN_SEG_DUR=2.0; multi-beat carve picks a boundary
+  honouring the floor on both sides, single-beat carve refuses below 2x floor
+  with an actionable message. Tested: refusal fires, valid split yields
+  [5.8, 6.2] with contiguity preserved.
+- V4 server.py: title now via ingest.to_title_case(clean_series_slug(...)) —
+  the render path had bypassed the cleaner the project-id path already used.
+- V6 storyboard.py: consecutive same-panel runs >=15s badged on the run's
+  first card ("same image 20s / 2 segs" in fixture).
+- V7 render_segments.py: TALL_AR 3.0->2.2; inline card sizing by aspect
+  (landscape 68%/93%, square 56%/93%, portrait 46%/97%) replacing the flat 46%.
+- V8 render_segments.py: Ken Burns amplitude by hold length (<4s 7.5%,
+  <8s 5%, else 3%), direction still alternating.
+- Local verification: board fixture shows seg2 at video 0:10 (master 0:20),
+  header 0:30 not 0:40, 2 part chips, run badge present, no hash in title;
+  renderer emits the expected per-aspect widths and per-duration amplitudes.
+- NOTE for next render: V7/V8 change every clip's appearance, so existing
+  clips are stale by design — the next APPROVE re-renders the full set.
