@@ -2213,3 +2213,4 @@ sampled panels match their narration.
   renderer emits the expected per-aspect widths and per-duration amplitudes.
 - NOTE for next render: V7/V8 change every clip's appearance, so existing
   clips are stale by design — the next APPROVE re-renders the full set.
+- V1-V8 VERIFIED LIVE on /storyboard: header reads "9:17 video runtime" (was 9:44 master), 21 cards marked "not in video", 1 same-image run badge, title carries no hash suffix. Part chips 0 on this project (no sliced carves exist here — fixture-tested instead). Live board now matches the export.
