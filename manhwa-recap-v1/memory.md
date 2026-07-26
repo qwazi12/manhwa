@@ -2141,3 +2141,42 @@ re-ingest ch3, live verify + independent parallel audit incl. redundancy.
   pre-fix rejections honoured; approve restores; re-tick cannot resurrect.
 - M10 VERIFIED LIVE: partial-row badges serving — page006_panel_004 reads 2/5 (three rejected narrations excluded, row still ticked for the other two), 3 partial rows total. Rejection scope + row-tick truth confirmed in production.
 - RENDER+EXPORT COMPLETE (job 4cbc05ea4974, project swordmasters-youngest-son_1): 59 clips rendered, exported final_Jul25_07.12PM.mp4 — 284.2 MB, 9:25, Jul 25 07:12 PM ET. Video set was 82 of 86 ticked segments (4 excluded by honoured rejections). Timestamped naming confirmed working; export listed by /api/exports.
+
+#### Session 23 (cont.) — VIDEO REVIEW: final_Jul25_07.12PM.mp4 (swordmasters ch1, 9:25)
+Evidence-based review (8 sampled frames, full-file silence scan, waveform
+cross-correlation on the opening, timeline data from /api/project):
+BUGS FOUND
+1. TIMELINE DRIFT: 11 of 86 included segments have non-contiguous start
+   times; board says last segment ends 677.9s, sum of durations is 584.4s,
+   actual video 565.5s. CAUSE: include_panel/promote inserts segments and
+   sets local starts WITHOUT a full _ripple(); renderer concatenates in list
+   order (ignores absolute starts) so video is structurally fine but every
+   timecode shown on the board can be off by up to ~110s. HIGH priority —
+   the board's core promise (what you see = what renders) is broken for time.
+2. DUPLICATE BEAT RECORDS: 11 sentences attached to 2-4 segments sharing the
+   SAME beat index (e.g. beat 0 in segs 0,77,78,79). CAUSE: include_panel
+   copies the host's beat record instead of slicing audio into new files.
+   VERIFIED CONSEQUENCE: audio does NOT audibly repeat (waveform search:
+   self=1.000, next best 0.178) — but the board shows the same line on
+   several rows (the confusion the user reported).
+3. MICRO-SEGMENTS: promoted panels received 0.7-0.8s windows (3 in the first
+   8s) — images flash by. CAUSE: carve gives the new segment the leftover
+   sliver with no minimum-duration floor.
+4. TITLE CARD shows URL hash: "Swordmasters Youngest Son F886A8Af" — series
+   name derived from aggregator slug incl. hash suffix.
+5. Board runtime overstates the video: rejected segments (review.json: 5 —
+   20, 85, 21, 18, 97) are correctly excluded at render (~19-25s), but the
+   header total doesn't subtract them.
+QUALITY CONS
+6. Long single-image stretches: page006_panel_004 31.6s over 4 consecutive
+   segments; page007_panel_001_shot_01 24.8s over 4. The 12s hold cap is
+   per-segment and blind to consecutive same-panel runs. Biggest
+   watchability issue.
+7. Portrait panels occupy ~1/3 of frame width (card max-width 46% regardless
+   of aspect) — small picture, hard-to-read dialogue, large blurred margins.
+8. Uniform motion grammar (0.4s fade + alternating Ken Burns + hard cut) for
+   9:25 — monotonous, no emphasis variation.
+PROS: clean 1920x1080/30fps h264+aac; ZERO silences >=1.2s in 9:25 (~24s of
+non-speech is natural 0.3s inter-sentence breaths); narration reads as story
+not captions; arc coherent; rejections honored exactly; intro/outro clean;
+sampled panels match their narration.
