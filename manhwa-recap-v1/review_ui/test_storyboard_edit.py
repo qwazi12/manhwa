@@ -97,11 +97,25 @@ def main():
               f"{d0}+{d1}")
     s = se.move_boundary(pdir, 1, 1.0)    # move back
 
-    # P3: include folded panel carves its unit host, conserves total
+    # V3: a host too short to leave MIN_SEG_DUR on both sides must REFUSE
+    # with a clear message rather than mint a sub-second flicker segment.
+    try:
+        se.include_panel(pdir, "p4", scenes, descs)
+        check("short host refused (V3 floor)", False, "no error raised")
+    except ValueError as e:
+        check("short host refused (V3 floor)", "no split point" in str(e), str(e)[:60])
+
+    # P3: include folded panel carves its unit host, conserves total. Give the
+    # host room to satisfy the floor first (2s each side + the carve).
+    segs_now = se.load(pdir)
+    se.set_duration(pdir, segs_now[1]["seg_index"], 8.0)
     before = total(se.load(pdir))
     s = se.include_panel(pdir, "p4", scenes, descs)
     check("include carve conserves total", abs(total(s) - before) < 0.01 and contiguous(s))
     check("include panel on timeline", any(x["panel_id"] == "p4" for x in s))
+    check("carve respects min duration",
+          all(x["dur"] >= se.MIN_SEG_DUR - 0.01 for x in s if not x.get("silent_hold")),
+          f"min={min(x['dur'] for x in s):.2f}")
 
     # P3 reverse: exclude folds back
     s = se.exclude_panel(pdir, "p4")

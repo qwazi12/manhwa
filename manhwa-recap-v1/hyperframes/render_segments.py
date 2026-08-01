@@ -39,6 +39,13 @@ CLIPS = os.path.join(WORK, "clips")
 ASSETS = os.path.join(WORK, "assets")
 W, H = 1920, 1080
 
+# Bump when the VISUAL output of a clip changes (framing, motion, layout).
+# server.py stamps each rendered clip with this number and treats any clip
+# stamped with an older epoch as needing a re-render — otherwise a renderer
+# upgrade silently ships old-looking clips, because the render step only
+# ever rebuilt clips whose FILE was missing (Session 23 finding).
+RENDER_EPOCH = 2
+
 BEATSHEET = os.environ.get("HF_BEATSHEET", "build_test/beatsheet_full.json")
 BEATS = os.environ.get("HF_BEATS", "build_test/beats_full.json")
 AUDIO_SUBDIR = os.environ.get("HF_AUDIO_DIR", "build_test/tts_full")

@@ -40,6 +40,16 @@ def _load(path, default):
         return default
 
 
+def _outdated_stat(n):
+    """Header chip: clips built by an older renderer. Non-zero means the
+    next APPROVE rebuilds them (visual fixes only reach the video that way)."""
+    if not n:
+        return '<div class="stat"><b style="color:#9ad27d">0</b>clips outdated</div>'
+    return (f'<div class="stat"><b style="color:#e5a13a">{n}</b>'
+            f'clips outdated<br><span style="font-size:9px;opacity:.75">'
+            f'renderer updated — APPROVE rebuilds them</span></div>')
+
+
 def _coverage_stat(sc):
     """Header chip for split art-coverage (S2). Amber warning when any page
     lost >15% of its art; green when the whole chapter is fully cropped."""
@@ -121,6 +131,11 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     holds = sum(1 for s in segs if s["dur"] > 12)
     n_included = sum(1 for s in segs if s.get("in_video"))
     n_segs = len(segs)
+    try:
+        import server as _srv
+        n_outdated = len(_srv.needs_render([s for s in segs if s.get("in_video")]))
+    except Exception:
+        n_outdated = 0
     _sil = [s for s in segs if s.get("in_video")
             and (s.get("silent_hold") or not s.get("beats"))]
     sil_str = (f"{len(_sil)} holds · {sum(s.get('dur', 0) for s in _sil):.0f}s"
@@ -404,6 +419,10 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   {_coverage_stat(meta.get("split_coverage"))}
   <div class="usage">{_et_label()} — today: {u.get("gemini_calls", 0)} gemini · {u.get("tts_chars", 0)} tts · ~${u.get("est_cost_usd", 0):.2f}<br>
   all-time: {all_g} gemini · {all_t} tts · ~${all_c:.2f}</div>
+  {_outdated_stat(n_outdated)}
+  <label class="mini" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"
+         title="rebuild EVERY ticked clip, even ones that already exist">
+    <input type="checkbox" id="forceAll"> re-render all</label>
   <button id="approveBtn" class="{'on' if approved else ''}" onclick="toggleApproval()">
     {'✔ APPROVED — click to re-render &amp; re-export' if approved else 'APPROVE PROJECT FOR RENDER'}</button>
 </header>
@@ -558,7 +577,8 @@ async function setStatus(i, st) {{
 async function toggleApproval() {{
   if (APPROVED && !confirm('Project is already approved. Approve again to re-render ticked clips and re-export the final video?')) return;
   const r = await fetch('/api/storyboard/approve', {{method:'POST',
-    headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{approved: true}})}});
+    headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{approved: true,
+      rerender_all: !!(document.getElementById('forceAll') || {{}}).checked}})}});
   const jr = await r.json();
   if (jr.note) {{ alert(jr.note); return; }}
   if (jr.job) {{

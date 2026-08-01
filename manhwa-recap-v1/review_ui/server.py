@@ -475,6 +475,44 @@ def _snapshot():
         json.dump(segs, f)
 
 
+def _epochs_path():
+    return os.path.join(active_project_dir(), "clips", ".render_epochs.json")
+
+
+def _load_epochs():
+    try:
+        with open(_epochs_path(), encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _stamp_epoch(si):
+    """Record which renderer version produced this clip."""
+    import render_segments as rs
+    d = _load_epochs()
+    d[str(si)] = getattr(rs, "RENDER_EPOCH", 1)
+    os.makedirs(os.path.dirname(_epochs_path()), exist_ok=True)
+    tmp = _epochs_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f)
+    os.replace(tmp, _epochs_path())
+
+
+def needs_render(segs, pdir=None):
+    """Segments whose clip is missing OR was made by an older renderer."""
+    import render_segments as rs
+    cur = getattr(rs, "RENDER_EPOCH", 1)
+    pdir = pdir or active_project_dir()
+    ep = _load_epochs()
+    out = []
+    for s in segs:
+        clip = os.path.join(pdir, s.get("clip", ""))
+        if not os.path.exists(clip) or ep.get(str(s["seg_index"]), 1) != cur:
+            out.append(s["seg_index"])
+    return out
+
+
 def _rerender(seg):
     """Re-render one segment's clip from the (edited) seg dict."""
     import render_segments as rs
@@ -484,6 +522,7 @@ def _rerender(seg):
     rs.ASSETS = os.path.join(rs.WORK, "assets")
     rs.ensure_project()
     rs.render_segment(seg, AUDIO_DIR)
+    _stamp_epoch(seg["seg_index"])
     # thumbnail may be stale after a panel swap
     tp = thumb_path(seg["seg_index"])
     if os.path.exists(tp):
@@ -981,8 +1020,7 @@ def _run_finalize_job(job_id):
         pdir = active_project_dir()
         segs = load_segments()
         ticked = video_segments(segs)
-        missing = [s["seg_index"] for s in ticked
-                   if not os.path.exists(os.path.join(pdir, s.get("clip", "")))]
+        missing = needs_render(ticked, pdir)
         j["total"] = len(missing)
         for n, si in enumerate(missing, 1):
             segs = load_segments()
@@ -1547,6 +1585,7 @@ def sb_addline(body: AddLineIn):
 
 class ApproveIn(BaseModel):
     approved: bool
+    rerender_all: bool = False   # force: rebuild every ticked clip
 
 
 class DelLineIn(BaseModel):
@@ -1578,6 +1617,16 @@ def storyboard_approve(body: ApproveIn):
     # final narrated video, as one visible background job.
     segs = load_segments()
     ticked = video_segments(segs)
+    if getattr(body, "rerender_all", False):
+        pdir = active_project_dir()
+        for s_ in ticked:                      # drop clips so all rebuild
+            cp = os.path.join(pdir, s_.get("clip", ""))
+            if s_.get("clip") and os.path.exists(cp):
+                os.remove(cp)
+        try:
+            os.remove(_epochs_path())
+        except OSError:
+            pass
     if not ticked:
         return {"ok": True, "approved": True, "job": None,
                 "note": "nothing ticked — tick segments, then approve again"}
