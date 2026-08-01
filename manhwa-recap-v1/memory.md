@@ -2322,3 +2322,35 @@ extra_hold, (3) wire include_panel/exclude_panel through rebalance,
 (4) unlock/"distribute evenly" + auto-clear manual when infeasible,
 (5) unify minimum to one constant, (6) validate_timeline G1-G6 gating
 APPROVE, then deploy + live verify.
+
+#### Session 24 (cont.) — defects A+B FIXED, floors split, LOCAL test instance running
+- Fixes committed (suite 29/29, probe green):
+  * _member_floor(): shared beat (same index, overlapping range across group
+    members) => covered by the group, floor = MIN_SEG_DUR; exclusive beat
+    (slice or own sentence) => that member must be >= its own audio. This is
+    what makes both legitimate shapes work: "one sentence spanning N images"
+    (test fixture) and "each image carries its own slice" (probe/real data).
+  * all-manual groups can no longer lock: untouched members are freed and
+    rebalanced; only a 1-image group is genuinely fixed.
+  * MIN_SEG_DUR (edit floor) = MIN_SEG = 0.8; new CARVE_MIN = 2.0 keeps V3's
+    anti-sliver rule at CREATION only. A single 2.0 floor for both made
+    ordinary edits impossible on real chapters.
+  * TRIED AND REVERTED: auto-growing a group with silence when an edit could
+    not be funded — it broke total conservation and the rule-6 error branch
+    (3 tests). Growth must be an EXPLICIT user action, not a silent fallback.
+- LOCAL INSTANCE for user testing (no Railway, no cost):
+  * project restored from backup 2026-07-25 to review_ui/projects/
+    swordmasters-youngest-son_1; 138 crops re-downloaded from prod.
+  * PORTABILITY BUG FOUND: segments.json stores ABSOLUTE container paths
+    (/app/...) in panel_file, so a project is not portable between machines
+    — /panelimg 404s everywhere off Railway. Rewrote 103 paths locally.
+    PROPER FIX (backlog): store crop paths relative to the project dir and
+    resolve at load.
+  * launch config "recap-studio-local" added (runs the DEV CLONE, not the
+    Desktop copy, which the preview tool defaults to); board verified with
+    images at http://localhost:8123/storyboard.
+- PRODUCT FINDING: real chapters are narration-saturated (audio ~fills the
+  timeline), so in-group rebalancing has almost no slack — lengthening an
+  image usually returns the rule-6 shortfall error. Remaining ways to fund
+  it: shorten narration, hand audio to a neighbour (cut buttons), or an
+  EXPLICIT "extend with silence" control (NOT yet built — next item).
