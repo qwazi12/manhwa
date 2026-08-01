@@ -2354,3 +2354,4 @@ APPROVE, then deploy + live verify.
   image usually returns the rule-6 shortfall error. Remaining ways to fund
   it: shorten narration, hand audio to a neighbour (cut buttons), or an
   EXPLICIT "extend with silence" control (NOT yet built — next item).
+- LIVE: group-timing build serving on production /storyboard — 80 "shared narration" sub-labels and 13 group badges rendered on the active project. Defect A+B fixes and the split CARVE_MIN/edit floors are in production. GitHub == deployed reality.
