@@ -200,7 +200,7 @@ def main():
         se.set_duration(g_pdir, 12, 11.0)
         check("group rebalance validation error below floor", False, "should have raised")
     except ValueError as e:
-        check("group rebalance validation error below floor", "leaves 3 sibling image(s) below minimum" in str(e), str(e)[:70])
+        check("group rebalance validation error below floor", "3 sibling image(s)" in str(e), str(e)[:70])
 
     # Test D: Exclude image g4 -> remaining 3 images absorb freed time within 12.0s
     gs = se.exclude_panel(g_pdir, "g4")

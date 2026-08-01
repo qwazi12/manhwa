@@ -28,7 +28,15 @@ DEFAULT_HOLD = 2.5     # silent hold for script-less panels
 # V3 (Session 23 video review): repeated carving of the same host produced
 # 0.7-0.8s slivers — images that flash past before they register. No carve
 # may leave either side shorter than this.
-MIN_SEG_DUR = 2.0
+# TWO different floors, deliberately separate (Session 24):
+#   MIN_SEG_DUR — the smallest a segment may be EDITED to. Equals MIN_SEG.
+#     A single 2.0s value here made ordinary edits impossible on real
+#     chapters, where promoted slivers carry ~0.4s of audio each.
+#   CARVE_MIN  — the smallest a NEWLY CARVED segment may be created at (V3's
+#     anti-sliver rule). Creation is where sub-second flickers are born, so
+#     it stays strict; editing an existing segment is the user's call.
+MIN_SEG_DUR = MIN_SEG
+CARVE_MIN = 2.0
 
 
 # ---------------------------------------------------------------- io helpers
@@ -190,6 +198,37 @@ def _get_narration_group(pdir, segs, pos):
     return group_segs, group_dur, indices
 
 
+def _member_floor(seg, group_segs):
+    """Smallest duration this image may take without cutting narration.
+
+    Two shapes are legitimate inside a narration group:
+      * SPANNING — one sentence covers the whole group; every member carries
+        the same beat with the same range. Coverage is then a GROUP property
+        (sum of member durations >= the beat's span), so an individual image
+        may be as short as MIN_SEG_DUR.
+      * EXCLUSIVE — the sentence was sliced (or each image carries its own
+        sentence); the beat's range lives in this member alone, so this
+        member must be long enough to play it or the audio is cut off.
+    A beat counts as shared when another member holds the same index over an
+    OVERLAPPING range; disjoint same-index parts are slices, not sharing.
+    """
+    own = 0.0
+    for b in seg.get("beats", []):
+        shared = False
+        for other in group_segs:
+            if other is seg:
+                continue
+            for ob in other.get("beats", []):
+                if ob.get("index") == b.get("index") and                    min(b["end"], ob["end"]) - max(b["start"], ob["start"]) > 0.005:
+                    shared = True
+                    break
+            if shared:
+                break
+        if not shared:
+            own += b["end"] - b["start"]
+    return round(max(MIN_SEG_DUR, own), 3)
+
+
 def rebalance_group(pdir, segs, group_indices, group_dur, target_si=None, req_dur=None):
     """Rebalance durations of images in a narration group so sum(durations) == group_dur.
     
@@ -218,8 +257,19 @@ def rebalance_group(pdir, segs, group_indices, group_dur, target_si=None, req_du
         target_s = next((s for s in group_segs if s["seg_index"] == target_si), None)
         if target_s:
             req_dur = round(float(req_dur), 3)
-            if req_dur < MIN_SEG_DUR:
-                raise ValueError(f"duration {req_dur}s is below minimum allowed ({MIN_SEG_DUR}s)")
+            # An image may never be shorter than the narration IT carries —
+            # the clip is only `dur` long, so a shorter window silently cuts
+            # the sentence off at render (Session 24 probe: 2.0s window over
+            # 3.0s of audio lost 1.0s of narration). MIN_SEG_DUR alone is not
+            # enough; occupancy is the real floor.
+            floor = _member_floor(target_s, group_segs)
+            occ = round(floor - MIN_SEG_DUR, 3)
+            if req_dur < floor:
+                raise ValueError(
+                    f"duration {req_dur}s is below this image's floor ({floor}s"
+                    + (f" — its narration occupies {occ}s" if occ > MIN_SEG_DUR else "")
+                    + "); shorten the narration or hand audio to a neighbour "
+                      "with the cut buttons instead")
             target_s["duration_mode"] = "manual"
             target_s["dur"] = req_dur
 
@@ -231,27 +281,45 @@ def rebalance_group(pdir, segs, group_indices, group_dur, target_si=None, req_du
 
     if auto_segs:
         n_auto = len(auto_segs)
-        min_needed = round(n_auto * MIN_SEG_DUR, 3)
+        # each auto sibling needs at least its OWN audio (or the floor)
+        floors = [_member_floor(s, group_segs) for s in auto_segs]
+        min_needed = round(sum(floors), 3)
         if rem_pool < min_needed:
             raise ValueError(
                 f"duration edit ({req_dur}s) is invalid: remaining time pool ({rem_pool:.2f}s) "
-                f"leaves {n_auto} sibling image(s) below minimum duration ({MIN_SEG_DUR}s each)."
+                f"cannot cover the {n_auto} sibling image(s), which need "
+                f"{min_needed:.2f}s in total to keep their narration intact "
+                f"(shortfall {min_needed - rem_pool:.2f}s)."
             )
         each = round(rem_pool / n_auto, 3)
+        # water-filling: every sibling gets at least its floor, the surplus
+        # is shared equally among those that can absorb it.
+        surplus = round(rem_pool - min_needed, 3)
+        share = round(surplus / n_auto, 3) if n_auto else 0.0
         assigned_sum = 0.0
         for idx, s in enumerate(auto_segs):
             if idx == n_auto - 1:
                 s["dur"] = round(rem_pool - assigned_sum, 3)
             else:
-                s["dur"] = each
-                assigned_sum = round(assigned_sum + each, 3)
+                s["dur"] = round(floors[idx] + share, 3)
+                assigned_sum = round(assigned_sum + s["dur"], 3)
             s["duration_mode"] = "auto"
     else:
+        # Every member is manual and the totals disagree. Locking the group
+        # into an un-editable state is never acceptable (Session 24 probe:
+        # setting all four members by hand made the group permanently
+        # un-editable). Free the members the user did NOT just touch and
+        # rebalance them; only a single-member group can truly be stuck.
         if abs(sum_manual - group_dur) > 0.01:
-            raise ValueError(
-                f"all images in this group are set manually ({sum_manual:.2f}s) and "
-                f"do not match group duration ({group_dur:.2f}s)."
-            )
+            freeable = [s for s in group_segs if s["seg_index"] != target_si]
+            if not freeable:
+                raise ValueError(
+                    f"this group holds one image; its duration is fixed by the "
+                    f"narration ({group_dur:.2f}s)")
+            for s in freeable:
+                s["duration_mode"] = "auto"
+            return rebalance_group(pdir, segs, group_indices, group_dur,
+                                   target_si=target_si, req_dur=req_dur)
 
     return segs
 
@@ -403,7 +471,7 @@ def include_panel(pdir, panel_id, scenes, descs, hold=DEFAULT_HOLD):
         h1 = round(host["start"] + host["dur"], 3)
         if len(host["beats"]) >= 2:
             # split at a beat boundary near the midpoint — but only one that
-            # leaves BOTH sides >= MIN_SEG_DUR (V3). Cutting in the silence
+            # leaves BOTH sides >= CARVE_MIN (V3). Cutting in the silence
             # between sentences keeps every beat's audio inside its window.
             mid = host["start"] + host["dur"] / 2
             cands = []
@@ -411,21 +479,21 @@ def include_panel(pdir, panel_id, scenes, descs, hold=DEFAULT_HOLD):
                 prev_end = host["beats"][i - 1]["end"]
                 nxt_start = host["beats"][i]["start"]
                 c = round(max(prev_end, (prev_end + nxt_start) / 2), 3)
-                if c - h0 >= MIN_SEG_DUR and h1 - c >= MIN_SEG_DUR:
+                if c - h0 >= CARVE_MIN and h1 - c >= CARVE_MIN:
                     cands.append(c)
             if not cands:
                 raise ValueError(
                     f"seg {host['seg_index']} ({host['dur']:.1f}s) has no split "
-                    f"point leaving {MIN_SEG_DUR:.0f}s on both sides — lengthen "
+                    f"point leaving {CARVE_MIN:.0f}s on both sides — lengthen "
                     f"it first, or promote a different panel")
             cut = min(cands, key=lambda c: abs(c - mid))
             tail = [b for b in host["beats"] if b["start"] >= cut]
             host["beats"] = [b for b in host["beats"] if b["start"] < cut]
         else:
-            if host["dur"] < 2 * MIN_SEG_DUR:
+            if host["dur"] < 2 * CARVE_MIN:
                 raise ValueError(
                     f"seg {host['seg_index']} is only {host['dur']:.1f}s — too "
-                    f"short to split without leaving a sub-{MIN_SEG_DUR:.0f}s "
+                    f"short to split without leaving a sub-{CARVE_MIN:.0f}s "
                     f"flash; lengthen it first")
             cut = round(host["start"] + host["dur"] / 2, 3)
             tail = []
