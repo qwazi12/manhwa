@@ -2230,3 +2230,35 @@ sampled panels match their narration.
 - TESTS: new test_render_epoch.py 4/4; test_storyboard_edit.py updated (old fixture
   carved a 3.4s host, which the V3 min-duration floor now correctly refuses) 22/22.
 - EPOCH FIX VERIFIED LIVE: /storyboard header shows "85 clips outdated" (amber) and the re-render-all control is present. APPROVE will now genuinely rebuild V7/V8 visuals; system is ready for the user render test.
+
+#### Session 23 (cont.) — TIMING-MODEL AUDIT + GROUP-TIMING DESIGN (user question; awaiting approval)
+VERIFIED PRESENT in storyboard_edit.py today:
+ - contiguity: _ripple() lays segments end-to-end after every op — no gaps
+   BETWEEN segments by construction.
+ - no truncated narration via set_duration: computes _occupied(s) and REFUSES
+   dur < max(MIN_SEG, occupied), telling the user to move_boundary instead.
+ - move_boundary CONSERVES total runtime between two adjacent segments and
+   slices straddling beats into distinct _a/_b files (audio continues across
+   the image change).
+ - no audio duplication from slicing: slices get distinct files + disjoint
+   [start,end); empirically confirmed by waveform correlation on the export.
+VERIFIED ABSENT (the user's requirements NOT met):
+ 1. No first-class narration GROUP object — segment = one image + overlapping
+    beats; grouping exists only implicitly via script.json units and slice
+    lineage, so "sum(image durs) == narration dur" cannot be enforced.
+ 2. No equal-division default — include_panel carves at midpoint/beat
+    boundary; repeated carves produce slivers (0.7-0.8s observed).
+ 3. No sibling rebalancing — set_duration changes TOTAL runtime and leaves
+    siblings alone; only move_boundary conserves, and only pairwise.
+ 4. Silence allowed and unmanaged (dur > occupied ⇒ dead air; 24.5s measured
+    in the last export, mostly natural breaths but not modeled).
+DESIGN TO IMPLEMENT (G-series): groups.json first-class narration groups
+ {group_id, unit_id, beat_indexes, audio_dur, extra_hold, members[]};
+ segment gains group_id + dur_mode(auto|locked); central invariant
+ sum(member durs) == audio_dur + extra_hold; rebalance(group) distributes
+ free time equally among unlocked members, errors with the exact deficit when
+ impossible; N-cut audio partition generalizing the existing slice logic;
+ validate_timeline() with G1-G6 error codes gating APPROVE; UI group header
+ with live "12.0/12.0s ✓" chip, per-image share + lock, distribute-evenly,
+ explicit grey blocks for intentional silence. Migration derives groups from
+ script.json provenance with a report-only first pass.
