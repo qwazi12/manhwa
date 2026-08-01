@@ -2214,3 +2214,18 @@ sampled panels match their narration.
 - NOTE for next render: V7/V8 change every clip's appearance, so existing
   clips are stale by design — the next APPROVE re-renders the full set.
 - V1-V8 VERIFIED LIVE on /storyboard: header reads "9:17 video runtime" (was 9:44 master), 21 cards marked "not in video", 1 same-image run badge, title carries no hash suffix. Part chips 0 on this project (no sliced carves exist here — fixture-tested instead). Live board now matches the export.
+
+#### Session 23 (cont.) — RENDERER-EPOCH FIX (caught while answering "is it ready to test?")
+- SELF-CORRECTION: I told the user V7/V8 left all clips "correctly stale". FALSE.
+  _stale() DELETES a clip file; deploying a renderer change touches no files, and
+  finalize renders only ticked-but-MISSING clips — so an APPROVE would have reused
+  every old clip and the visual fixes would never appear in the export. Verified
+  live before answering: 86 ticked, 0 missing, all clip_exists=true.
+- FIX: render_segments.RENDER_EPOCH (=2) stamped per clip into
+  clips/.render_epochs.json at render time; server.needs_render() = clip missing OR
+  epoch mismatch; finalize uses it. Header chip "N clips outdated" + a "re-render
+  all" checkbox beside APPROVE as manual override (POST body rerender_all).
+- Bump RENDER_EPOCH whenever clip VISUALS change — that is now the mechanism that
+  makes renderer upgrades reach existing projects.
+- TESTS: new test_render_epoch.py 4/4; test_storyboard_edit.py updated (old fixture
+  carved a 3.4s host, which the V3 min-duration floor now correctly refuses) 22/22.
