@@ -2294,3 +2294,93 @@ User requested a narration-group timing model where **narration duration is the 
 - `manhwa-recap-v1/review_ui/test_storyboard_edit.py`:
   - Added test suite for equal division (4 images / 12s -> 3.0s each), manual override (img 3 -> 6.0s -> 2.0s/2.0s/6.0s/2.0s), global timeline conservation, validation errors, and fold/exclude rebalancing. All 29/29 tests pass.
 
+
+#### Session 25 — 2026-08-01 — INDEPENDENT AUDIT of the S24 group-timing model (67cb4c2)
+User asked to reconcile two prior write-ups (the G-series design/audit, and a
+review of what actually landed). Verified against code + reproduced with an
+adversarial fixture (scratchpad/audit_group.py, 13 assertions) rather than
+re-reading either summary. NOTE: this container has no ffmpeg, so the repo
+suite could not be re-run here; the group path needs no ffmpeg, so the
+findings below were reproduced directly.
+
+DESIGN DOC: all 8 claims (4 "guaranteed today", 4 "absent") re-verified TRUE.
+REVIEW DOC: all 6 defects re-verified TRUE. Detail added below.
+
+P0 — REGRESSION, reaches the exported MP4:
+- rebalance_group checks MIN_SEG_DUR only; it never consults _occupied().
+  Repro: 2 images share ¶1, each holding 5.5s of speech; set_duration(img2,
+  9.0) drops img1 to 3.0s => 2.5s of narration is cut, and img2 gains 3.5s of
+  dead air. The pre-existing single-segment guard (max(MIN_SEG, _occupied))
+  would have refused this exact edit.
+- Confirmed it is NOT caught downstream: _run_finalize_job renders via
+  _rerender -> render_segment, whose composition root is data-duration={dur}
+  with audio layers at data-start=beat.start-seg.start. The overflow guard in
+  _recompute_timeline (dur < occupied => grow) is only wired to the narration-
+  edit / reorder / merge endpoints, NOT to the APPROVE/finalize chain.
+
+P0 — group_dur is derived AND cached, so it goes stale:
+- _get_narration_group: group_dur = target["group_dur"] or sum(member durs).
+  Source of truth is the current visual total, so existing dead air /
+  truncation is frozen into the invariant (design specified narration audio
+  as the parent constraint).
+- Worse: no other op maintains the stamp. delete_line / add_line /
+  move_boundary / resize_after_tts all change member durs and leave group_dur
+  untouched. Repro: 3-image group stamped 18.0s, delete_line removes a 2.0s
+  sentence (project 23.0->21.0s), next set_duration in that group trusts the
+  stale 18.0 and silently re-inflates the project to 23.0s.
+
+P1 — manual lock is one-way; groups deadlock:
+- Each edit converts one more member to "manual"; nothing ever clears it. On a
+  3-image group the third edit raises "all images in this group are set
+  manually (9.00s) and do not match group duration (12.00s)" and the group is
+  permanently un-editable. No unlock/distribute-evenly endpoint in server.py,
+  no control in storyboard.py.
+
+P1 — two minimums coexist: MIN_SEG=0.8 (move_boundary, delete_line,
+  resize_after_tts) vs MIN_SEG_DUR=2.0 (group rebalance). A 0.8s segment is
+  reachable via boundary nudges and then rejected by the duration control.
+
+P1 — rebalance_group has exactly ONE production caller (set_duration).
+  include_panel still carves at midpoint/beat boundary (no equal division;
+  the sliver problem V3 only floored, never solved); exclude_panel conserves
+  via its own older fold logic — which is why the S24 exclude test passes
+  despite the wiring being absent.
+
+P2 — no validate_timeline() / G1-G6 gate anywhere (storyboard_edit.py, server.py).
+
+NOT CAUGHT BY EITHER WRITE-UP (new here):
+1. A member that loses its last beat silently drops OUT of the group — the
+   walk skips segments with no beats — so its time stops being governed by
+   the invariant and the group total quietly stops including it.
+2. Grouping is by the PANEL's scene and depends entirely on script.json
+   provenance: hyperframes/segments.py build_segments emits no scene_id on
+   segments, and beats carry none either, so target.get("scene_id") and
+   beats[0].get("scene_id") are always None in real project data. A panel with
+   no provenance (promoted junk panel, or one moved by assign_panel) breaks the
+   contiguity walk mid-unit => partial group, invariant applied to a fragment.
+3. Conservation is on the MASTER timeline, but the export contains only
+   in_video segments. If a group holds a rejected/unticked sibling, rebalancing
+   hands time to a segment that never renders — so "group total conserved"
+   still changes the exported video's length. Directly at odds with V1/V5.
+4. UI: the group header prints first_segment["beats"] (btxt), not the unit's
+   full narration — unit_of[pid][1] is already available and used by the fold
+   branch. A row labelled "shared narration ¶N" therefore shows only part of ¶N.
+5. UI: "image X of Y" counts on-screen PANELS in the scene; the backend group
+   counts SEGMENTS. A panel carrying two segments makes the two disagree.
+6. memory.md's "Zero Global Ripple" is imprecise: _ripple() does run in the
+   group path; downstream is unmoved only while the group total is exactly
+   conserved — i.e. never in the P0 cases above.
+
+CONFIRMED NOT A PROBLEM (checked because it was a plausible worry): the S24 UI
+change does not hide narration. The script column dedupes to one header per
+unit, but the timing column still renders every segment's own beats with text
+and offsets (storyboard.py:233-238).
+
+STATUS: still not deployed — no deploy entry after 67cb4c2, so the model has
+never executed against real project data. Fix order proposed to user:
+(a) per-member audio floor + N-cut re-partition, (b) group_dur derived from
+narration audio and recomputed rather than trusted, (c) unlock control,
+(d) unify the minimum, (e) wire include/exclude through the rebalancer,
+(f) validate_timeline gate, (g) UI group chip + full unit text, then deploy
+and verify live on the Swordmaster chapter.
+Cost: $0 (read-only audit, no Gemini/TTS calls).
