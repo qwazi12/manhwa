@@ -2229,3 +2229,4 @@ sampled panels match their narration.
   makes renderer upgrades reach existing projects.
 - TESTS: new test_render_epoch.py 4/4; test_storyboard_edit.py updated (old fixture
   carved a 3.4s host, which the V3 min-duration floor now correctly refuses) 22/22.
+- EPOCH FIX VERIFIED LIVE: /storyboard header shows "85 clips outdated" (amber) and the re-render-all control is present. APPROVE will now genuinely rebuild V7/V8 visuals; system is ready for the user render test.
