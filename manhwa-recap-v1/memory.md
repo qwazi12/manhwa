@@ -2294,3 +2294,31 @@ User requested a narration-group timing model where **narration duration is the 
 - `manhwa-recap-v1/review_ui/test_storyboard_edit.py`:
   - Added test suite for equal division (4 images / 12s -> 3.0s each), manual override (img 3 -> 6.0s -> 2.0s/2.0s/6.0s/2.0s), global timeline conservation, validation errors, and fold/exclude rebalancing. All 29/29 tests pass.
 
+
+#### Session 24 (cont.) — REVIEW of commit 67cb4c2 (group timing) — 2 defects PROVEN by adversarial probe
+Ran the shipped suite: 29/29 pass (verified, not taken on faith). Then ran an
+adversarial probe the suite does not cover (4 images x 3s audio each in one
+¶1 group, /tmp/probe_group.py):
+ - DEFECT A (PROVEN, regression): set_duration(seg0, 2.0) was ACCEPTED even
+   though seg0 holds 3.0s of audio -> durs [2.0, 3.333, 3.333, 3.334] and
+   1.0s of that sentence is cut off at render. Cause: the group branch checks
+   only MIN_SEG_DUR and never consults _occupied(); rebalance_group mutates
+   "dur" only and never re-partitions/re-slices audio. The OLD single-segment
+   path did enforce max(MIN_SEG, _occupied) — so this is newly possible.
+   Violates the user's rule "no uncovered narration".
+ - DEFECT B (PROVEN): duration_mode is never cleared. Setting all four
+   members manually (3.0s each) then editing one raises "all images in this
+   group are set manually (13.00s) and do not match group duration (12.00s)"
+   — the group becomes UNEDITABLE with no unlock/redistribute path.
+ - Also confirmed by code read: group_dur derives from sum of current image
+   durs (not narration audio) and is persisted; rebalance_group has ONE
+   production caller (set_duration) so promote/exclude never equal-divide;
+   MIN_SEG (0.8) vs MIN_SEG_DUR (2.0) disagree; no validate_timeline gate.
+ - NOT DEPLOYED: production /storyboard returns 0 group markers; Railway
+   still serves the pre-group build. GitHub is ahead of deployed reality.
+FIX ORDER AGREED FOR NEXT SESSION: (1) audio-coverage floor + N-cut
+re-slicing in rebalance_group, (2) group_dur from narration audio +
+extra_hold, (3) wire include_panel/exclude_panel through rebalance,
+(4) unlock/"distribute evenly" + auto-clear manual when infeasible,
+(5) unify minimum to one constant, (6) validate_timeline G1-G6 gating
+APPROVE, then deploy + live verify.
