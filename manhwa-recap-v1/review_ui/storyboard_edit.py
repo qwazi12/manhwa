@@ -114,29 +114,189 @@ def _next_seg_index(segs):
 
 
 def _audio_dir(pdir):
-    return os.path.join(pdir, "audio")
+    return os.path.join(pdir, "audio") if pdir else "audio"
+
+
+def _get_narration_group(pdir, segs, pos):
+    """Identify contiguous segments in `segs` belonging to the same narration group.
+    Returns (group_segs, group_dur, group_indices)."""
+    target = segs[pos]
+    if target.get("silent_hold") or not target.get("beats"):
+        return [target], target["dur"], [pos]
+
+    # Load script.json to find scene_id mapping for panels if available
+    panel_scene_map = {}
+    if pdir:
+        script_path = os.path.join(pdir, "script.json")
+        if os.path.exists(script_path):
+            try:
+                with open(script_path, encoding="utf-8") as f:
+                    scenes = json.load(f)
+                for sc in scenes:
+                    for pid in sc.get("panel_ids", []):
+                        panel_scene_map[pid] = sc.get("scene_id")
+            except Exception:
+                pass
+
+    scene_id = target.get("scene_id") or panel_scene_map.get(target.get("panel_id"))
+    if scene_id is None and target.get("beats"):
+        scene_id = target["beats"][0].get("scene_id")
+
+    if scene_id is not None:
+        left = pos
+        while left > 0:
+            prev_s = segs[left - 1]
+            prev_sc = prev_s.get("scene_id") or panel_scene_map.get(prev_s.get("panel_id"))
+            if prev_sc == scene_id and not prev_s.get("silent_hold") and prev_s.get("beats"):
+                left -= 1
+            else:
+                break
+        right = pos
+        while right + 1 < len(segs):
+            next_s = segs[right + 1]
+            next_sc = next_s.get("scene_id") or panel_scene_map.get(next_s.get("panel_id"))
+            if next_sc == scene_id and not next_s.get("silent_hold") and next_s.get("beats"):
+                right += 1
+            else:
+                break
+        indices = list(range(left, right + 1))
+        group_segs = segs[left:right + 1]
+    else:
+        # Fallback: contiguous segments sharing overlapping beat indices or part_of tags
+        b_indices = {b["index"] for b in target["beats"]}
+        left = pos
+        while left > 0 and not segs[left - 1].get("silent_hold") and segs[left - 1].get("beats"):
+            pb = {b["index"] for b in segs[left - 1]["beats"]}
+            if pb & b_indices:
+                left -= 1
+                b_indices.update(pb)
+            else:
+                break
+        right = pos
+        while right + 1 < len(segs) and not segs[right + 1].get("silent_hold") and segs[right + 1].get("beats"):
+            nb = {b["index"] for b in segs[right + 1]["beats"]}
+            if nb & b_indices:
+                right += 1
+                b_indices.update(nb)
+            else:
+                break
+        indices = list(range(left, right + 1))
+        group_segs = segs[left:right + 1]
+
+    group_dur = target.get("group_dur")
+    if not group_dur:
+        group_dur = round(sum(s["dur"] for s in group_segs), 3)
+
+    return group_segs, group_dur, indices
+
+
+def rebalance_group(pdir, segs, group_indices, group_dur, target_si=None, req_dur=None):
+    """Rebalance durations of images in a narration group so sum(durations) == group_dur.
+    
+    If target_si and req_dur are provided, target_si is set to req_dur (manual mode),
+    and remaining time pool (group_dur - sum(manual_durs)) is redistributed equally
+    among non-manual (auto) sibling images.
+    """
+    group_segs = [segs[i] for i in group_indices]
+    N = len(group_segs)
+    if N == 0:
+        return segs
+
+    for s in group_segs:
+        s["group_dur"] = group_dur
+
+    if N == 1:
+        if target_si is not None and req_dur is not None:
+            group_segs[0]["dur"] = round(float(req_dur), 3)
+            group_segs[0]["group_dur"] = group_segs[0]["dur"]
+            group_segs[0]["duration_mode"] = "manual"
+        else:
+            group_segs[0]["dur"] = group_dur
+        return segs
+
+    if target_si is not None and req_dur is not None:
+        target_s = next((s for s in group_segs if s["seg_index"] == target_si), None)
+        if target_s:
+            req_dur = round(float(req_dur), 3)
+            if req_dur < MIN_SEG_DUR:
+                raise ValueError(f"duration {req_dur}s is below minimum allowed ({MIN_SEG_DUR}s)")
+            target_s["duration_mode"] = "manual"
+            target_s["dur"] = req_dur
+
+    manual_segs = [s for s in group_segs if s.get("duration_mode") == "manual"]
+    auto_segs = [s for s in group_segs if s.get("duration_mode") != "manual"]
+
+    sum_manual = round(sum(s["dur"] for s in manual_segs), 3)
+    rem_pool = round(group_dur - sum_manual, 3)
+
+    if auto_segs:
+        n_auto = len(auto_segs)
+        min_needed = round(n_auto * MIN_SEG_DUR, 3)
+        if rem_pool < min_needed:
+            raise ValueError(
+                f"duration edit ({req_dur}s) is invalid: remaining time pool ({rem_pool:.2f}s) "
+                f"leaves {n_auto} sibling image(s) below minimum duration ({MIN_SEG_DUR}s each)."
+            )
+        each = round(rem_pool / n_auto, 3)
+        assigned_sum = 0.0
+        for idx, s in enumerate(auto_segs):
+            if idx == n_auto - 1:
+                s["dur"] = round(rem_pool - assigned_sum, 3)
+            else:
+                s["dur"] = each
+                assigned_sum = round(assigned_sum + each, 3)
+            s["duration_mode"] = "auto"
+    else:
+        if abs(sum_manual - group_dur) > 0.01:
+            raise ValueError(
+                f"all images in this group are set manually ({sum_manual:.2f}s) and "
+                f"do not match group duration ({group_dur:.2f}s)."
+            )
+
+    return segs
 
 
 # ------------------------------------------------------------------ P2: time
 def set_duration(pdir, si, dur):
-    """Set a segment's on-screen duration. Extends/trims the silence after
-    its narration; cannot cut into audio (use move_boundary for that)."""
+    """Set an image segment's duration inside its narration group.
+    
+    For a multi-image narration group, sibling 'auto' images rebalance within the
+    fixed group duration (no global timeline ripple).
+    For a single-image segment / silent hold, setting duration adjusts the segment
+    length and ripples the global timeline.
+    """
     segs = load(pdir)
-    s = segs[_pos(segs, si)]
-    occ = _occupied(s)
+    p = _pos(segs, si)
+    s = segs[p]
     dur = round(float(dur), 3)
-    if dur < max(MIN_SEG, occ):
-        raise ValueError(
-            f"duration {dur}s is below the minimum for this segment "
-            f"({max(MIN_SEG, occ):.1f}s — its narration occupies {occ:.1f}s; "
-            f"move the boundary instead to hand audio to a neighbour)")
-    old = s["dur"]
-    s["dur"] = dur
-    _ripple(segs)
-    save(pdir, segs)
-    _stale(pdir, [si])
-    _log(pdir, "set_duration", seg=si, frm=old, to=dur)
+    if dur < MIN_SEG_DUR:
+        raise ValueError(f"duration {dur}s is below minimum ({MIN_SEG_DUR}s)")
+
+    group_segs, group_dur, group_indices = _get_narration_group(pdir, segs, p)
+
+    if len(group_segs) > 1:
+        old_dur = s["dur"]
+        rebalance_group(pdir, segs, group_indices, group_dur, target_si=si, req_dur=dur)
+        _ripple(segs)
+        save(pdir, segs)
+        _stale(pdir, [segs[i]["seg_index"] for i in group_indices])
+        _log(pdir, "set_duration", seg=si, frm=old_dur, to=dur, mode="group_rebalance")
+    else:
+        occ = _occupied(s)
+        if dur < max(MIN_SEG, occ):
+            raise ValueError(
+                f"duration {dur}s is below the minimum for this segment "
+                f"({max(MIN_SEG, occ):.1f}s — its narration occupies {occ:.1f}s; "
+                f"move the boundary instead to hand audio to a neighbour)")
+        old = s["dur"]
+        s["dur"] = dur
+        s["group_dur"] = dur
+        _ripple(segs)
+        save(pdir, segs)
+        _stale(pdir, [si])
+        _log(pdir, "set_duration", seg=si, frm=old, to=dur, mode="ripple")
     return segs
+
 
 
 def move_boundary(pdir, si, delta):

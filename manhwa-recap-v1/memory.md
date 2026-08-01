@@ -2262,3 +2262,35 @@ DESIGN TO IMPLEMENT (G-series): groups.json first-class narration groups
  with live "12.0/12.0s ✓" chip, per-image share + lock, distribute-evenly,
  explicit grey blocks for intentional silence. Migration derives groups from
  script.json provenance with a report-only first pass.
+
+---
+
+### Session 24 — 2026-08-01 — Narration-Group Timing Model Implementation
+
+#### Context
+User requested a narration-group timing model where **narration duration is the immutable parent constraint** and attached images are allocated within that fixed narration duration.
+
+#### 1. Old Timing Behavior (Root Causes)
+- Flat segment model: Every image row was treated as an independent top-level segment with its own `dur`.
+- Global timeline ripple: Editing any duration (`set_duration`) called `_ripple()`, shifting the entire global project timeline instead of rebalancing sibling images within the narration group.
+- UI text repetition: Multiple image rows sharing a narration paragraph (`¶N`) each rendered the full narration text block, cluttering the UI and making timing relationships ambiguous.
+
+#### 2. New Timing Model
+- Narration Group Invariant: $\sum \text{image\_durations} = \text{narration\_duration}$ for every multi-image narration unit.
+- Default Equal Division: $N$ images sharing duration $D$ get $D / N$ each.
+- Sibling Rebalancing: Editing Image $k$'s duration to $d_k$ sets $d_k$ as `manual` and redistributes the remaining time pool ($D - \sum \text{manual}$) equally across remaining `auto` sibling images.
+- Zero Global Ripple: Because group duration remains constant ($D$), editing an image's duration inside a group never shifts start/end times of segments outside the group.
+- Validation Floor: Duration edits that leave remaining `auto` siblings below `MIN_SEG_DUR` (0.8s) raise a descriptive `ValueError`.
+- Fold / Exclude: Excluding an image from a group rebalances remaining images to absorb the freed time within $D$.
+- UI Grouping: Narration text rendered once per group header (`¶N`); sibling child rows display a clean sub-label (`↳ shared narration ¶N (image X of Y)`).
+
+#### 3. Code Changes Committed (`main`)
+- `manhwa-recap-v1/review_ui/storyboard_edit.py`:
+  - Added `_get_narration_group(pdir, segs, pos)` to identify contiguous segments belonging to the same narration group.
+  - Added `rebalance_group(pdir, segs, group_indices, group_dur, target_si, req_dur)` to handle auto/manual duration allocation and validation.
+  - Updated `set_duration(pdir, si, dur)` to rebalance multi-image groups without global timeline ripple.
+- `manhwa-recap-v1/review_ui/storyboard.py`:
+  - Updated `build_storyboard_html` to render narration unit headers once per group with a group badge (`N images in group`) and sub-labels on sibling rows.
+- `manhwa-recap-v1/review_ui/test_storyboard_edit.py`:
+  - Added test suite for equal division (4 images / 12s -> 3.0s each), manual override (img 3 -> 6.0s -> 2.0s/2.0s/6.0s/2.0s), global timeline conservation, validation errors, and fold/exclude rebalancing. All 29/29 tests pass.
+

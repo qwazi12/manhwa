@@ -143,6 +143,14 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     n_approved = sum(1 for s in segs
                      if review.get(str(s["seg_index"]), {}).get("status") == "approved")
 
+    rendered_scenes = set()
+    scene_panels_count = {}
+    scene_panel_index = {}
+    for sc in scenes:
+        sc_id = sc.get("scene_id")
+        pids = [p for p in sc.get("panel_ids", []) if p in seg_by_panel]
+        scene_panels_count[sc_id] = len(pids)
+
     rows = []
     for i, d in enumerate(descs, 1):
         pid = d["panel_id"]
@@ -157,11 +165,23 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
         # ---- script placement cell ----------------------------------------
         if on_screen:
             uid = unit_of.get(pid, (None, None))[0]
-            label = f'<b class="ln">¶{uid}</b> ' if uid is not None else ""
             first = seg_by_panel[pid][0]
             btxt = " ".join(b["text"] for b in first["beats"])[:300]
-            script_cell = (label + html.escape(btxt) + ("…" if len(btxt) == 300 else "")) \
-                if btxt else "<i>on screen as a silent hold (no narration)</i>"
+            if not btxt:
+                script_cell = "<i>on screen as a silent hold (no narration)</i>"
+            elif uid is not None and uid in rendered_scenes:
+                idx = scene_panel_index.get(uid, 1) + 1
+                scene_panel_index[uid] = idx
+                tot = scene_panels_count.get(uid, 1)
+                script_cell = f'<i>↳ shared narration <b class="ln">¶{uid}</b> (image {idx} of {tot})</i>'
+            else:
+                if uid is not None:
+                    rendered_scenes.add(uid)
+                    scene_panel_index[uid] = 1
+                label = f'<b class="ln">¶{uid}</b> ' if uid is not None else ""
+                tot = scene_panels_count.get(uid, 1)
+                group_badge = f' <span class="b group" style="background:#2b3a4a;color:#a5c4e8;padding:1px 5px;border-radius:3px;font-size:10px;">{tot} images in group</span>' if (uid is not None and tot > 1) else ""
+                script_cell = (label + html.escape(btxt) + ("…" if len(btxt) == 300 else "") + group_badge)
             cls = "sa"
         elif reason:
             script_cell = f"<i>LEFT OUT — {html.escape(reason)}</i>"
@@ -175,6 +195,7 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
         else:
             script_cell = "<i>unplaced (no provenance, no segment)</i>"
             cls = "gray"
+
 
         # ---- timing cell ---------------------------------------------------
         tcells = []

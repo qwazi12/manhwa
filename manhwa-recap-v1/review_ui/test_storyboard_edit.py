@@ -159,6 +159,57 @@ def main():
     se.set_duration(pdir, 0, 9.0)
     check("stale clip deleted", not os.path.exists(os.path.join(pdir, "clips", "seg_000.mp4")))
 
+    # Narration Group Timing Model Tests (Scenario: 4 images / 12.0s narration)
+    g_pdir = tempfile.mkdtemp(prefix="sbgtest_")
+    os.makedirs(os.path.join(g_pdir, "crops"))
+    os.makedirs(os.path.join(g_pdir, "clips"))
+    g_adir = os.path.join(g_pdir, "audio")
+    tone(os.path.join(g_adir, "beat_000.mp3"), 12.0)
+    for pid in ["g1", "g2", "g3", "g4", "g5"]:
+        open(os.path.join(g_pdir, "crops", f"{pid}.png"), "wb").write(b"png")
+    # Group 1: 4 images sharing 12.0s narration (scene_id: 1)
+    # Group 2: 1 image of 5.0s narration (scene_id: 2)
+    g_segs = [
+        {"seg_index": 10, "panel_id": "g1", "scene_id": 1, "start": 0.0, "dur": 3.0, "end": 3.0, "group_dur": 12.0, "clip": "clips/seg_010.mp4", "beats": [{"index": 0, "text": "group1", "start": 0.0, "end": 12.0}]},
+        {"seg_index": 11, "panel_id": "g2", "scene_id": 1, "start": 3.0, "dur": 3.0, "end": 6.0, "group_dur": 12.0, "clip": "clips/seg_011.mp4", "beats": [{"index": 0, "text": "group1", "start": 0.0, "end": 12.0}]},
+        {"seg_index": 12, "panel_id": "g3", "scene_id": 1, "start": 6.0, "dur": 3.0, "end": 9.0, "group_dur": 12.0, "clip": "clips/seg_012.mp4", "beats": [{"index": 0, "text": "group1", "start": 0.0, "end": 12.0}]},
+        {"seg_index": 13, "panel_id": "g4", "scene_id": 1, "start": 9.0, "dur": 3.0, "end": 12.0, "group_dur": 12.0, "clip": "clips/seg_013.mp4", "beats": [{"index": 0, "text": "group1", "start": 0.0, "end": 12.0}]},
+        {"seg_index": 14, "panel_id": "g5", "scene_id": 2, "start": 12.0, "dur": 5.0, "end": 17.0, "group_dur": 5.0, "clip": "clips/seg_014.mp4", "beats": [{"index": 1, "text": "group2", "start": 12.0, "end": 17.0}]},
+    ]
+    json.dump(g_segs, open(os.path.join(g_pdir, "segments.json"), "w"))
+    g_descs = [{"panel_id": p} for p in ["g1", "g2", "g3", "g4", "g5"]]
+    g_scenes = [
+        {"scene_id": 1, "panel_ids": ["g1", "g2", "g3", "g4"], "text": "narration group 1"},
+        {"scene_id": 2, "panel_ids": ["g5"], "text": "narration group 2"}
+    ]
+
+    # Test A: 4 images default equal allocation = 3.0s each, sum = 12.0s
+    gs = se.load(g_pdir)
+    g1_durs = [s["dur"] for s in gs[:4]]
+    check("narration group default 4 images equal division", g1_durs == [3.0, 3.0, 3.0, 3.0] and total(gs[:4]) == 12.0)
+
+    # Test B: Manual override of image 3 to 6.0s -> auto siblings rebalance to 2.0s / 2.0s / 6.0s / 2.0s, total = 12.0s
+    gs = se.set_duration(g_pdir, 12, 6.0)
+    g1_durs_after = [s["dur"] for s in gs[:4]]
+    check("manual duration edit rebalances siblings inside group", g1_durs_after == [2.0, 2.0, 6.0, 2.0], f"durs={g1_durs_after}")
+    check("narration group total conserved", total(gs[:4]) == 12.0)
+    check("no global ripple to subsequent groups", gs[4]["start"] == 12.0 and total(gs) == 17.0)
+
+    # Test C: Validation error when manual edit leaves siblings below MIN_SEG_DUR
+    try:
+        se.set_duration(g_pdir, 12, 11.0)
+        check("group rebalance validation error below floor", False, "should have raised")
+    except ValueError as e:
+        check("group rebalance validation error below floor", "leaves 3 sibling image(s) below minimum" in str(e), str(e)[:70])
+
+    # Test D: Exclude image g4 -> remaining 3 images absorb freed time within 12.0s
+    gs = se.exclude_panel(g_pdir, "g4")
+    g1_rem_durs = [s["dur"] for s in gs if s.get("scene_id") == 1]
+    check("exclude image rebalances remaining group siblings", total(gs[:3]) == 12.0 and len(g1_rem_durs) == 3, f"durs={g1_rem_durs}")
+    check("global timeline after exclude conserved", gs[-1]["start"] == 12.0 and total(gs) == 17.0)
+
+    shutil.rmtree(g_pdir)
+
     shutil.rmtree(pdir)
     fails = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(fails)}/{len(RESULTS)} passed")
@@ -167,3 +218,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
