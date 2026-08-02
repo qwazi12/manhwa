@@ -1523,6 +1523,38 @@ def sb_exclude(body: ExcludeIn):
     return _sb_op(storyboard_edit.exclude_panel, body.panel_id)
 
 
+class SegIn(BaseModel):
+    seg_index: int
+
+
+@app.post("/api/storyboard/delete")
+def sb_delete(body: SegIn):
+    """Hard-delete one image slot. Undo covers it (snapshot first)."""
+    import storyboard_edit
+    _snapshot()
+    try:
+        segs, info = storyboard_edit.delete_segment(active_project_dir(),
+                                                    body.seg_index)
+    except (ValueError, IndexError, StopIteration) as e:
+        raise HTTPException(400, str(e) or "segment not found")
+    total = round(segs[-1]["start"] + segs[-1]["dur"], 3) if segs else 0
+    return {"ok": True, "n_segments": len(segs), "total": total, **info}
+
+
+@app.post("/api/storyboard/duplicate")
+def sb_duplicate(body: SegIn):
+    """Copy an image into a new silent slot right after it."""
+    import storyboard_edit
+    _snapshot()
+    try:
+        segs, info = storyboard_edit.duplicate_segment(active_project_dir(),
+                                                       body.seg_index)
+    except (ValueError, IndexError, StopIteration) as e:
+        raise HTTPException(400, str(e) or "segment not found")
+    total = round(segs[-1]["start"] + segs[-1]["dur"], 3) if segs else 0
+    return {"ok": True, "n_segments": len(segs), "total": total, **info}
+
+
 class DurationIn(BaseModel):
     seg_index: int
     dur: float

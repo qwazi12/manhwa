@@ -580,6 +580,120 @@ def exclude_panel(pdir, panel_id):
 
 
 # --------------------------------------------------------------- P5: reorder
+def _merge_beats(beats):
+    """Join adjacent records of the SAME sentence back into one.
+
+    When a segment absorbs a neighbour's audio, the host can end up holding
+    two records of one beat (0-4s and 4-8s of the same mp3). The renderer
+    emits ONE audio layer per record, so leaving them split would play that
+    file twice — the exact stutter the timing model forbids. Records are
+    merged only when they reference the same audio source and touch; true
+    slices (distinct _a/_b files) stay separate, since each plays its own
+    audio.
+    """
+    out = []
+    for b in beats:
+        prev = out[-1] if out else None
+        same_src = (prev is not None
+                    and prev.get("index") == b.get("index")
+                    and prev.get("file") == b.get("file"))
+        touching = prev is not None and abs(b["start"] - prev["end"]) < 0.06
+        if same_src and touching:
+            prev["end"] = max(prev["end"], b["end"])
+        else:
+            out.append(dict(b))
+    return out
+
+
+def delete_segment(pdir, si):
+    """Delete ONE segment (image slot) from the timeline.
+
+    Narration is protected: if the segment carries audio and it shares a
+    narration group with siblings, its beats are handed to the adjacent
+    sibling first, so the sentence keeps playing over the remaining images
+    and the group's total is unchanged (siblings absorb the freed time).
+    A standalone segment takes its own audio with it — that IS delete — and
+    the runtime shrinks accordingly, which the caller reports back.
+    """
+    segs = load(pdir)
+    p = _pos(segs, si)
+    seg = segs[p]
+    group_segs, group_dur, gidx = _get_narration_group(pdir, segs, p)
+    had_beats = list(seg.get("beats") or [])
+    result = {"seg_index": si, "panel_id": seg.get("panel_id"),
+              "narration": "none" if not had_beats else "removed",
+              "audio_moved_to": None, "runtime_delta": 0.0}
+
+    in_group = len(gidx) > 1
+    if had_beats and in_group:
+        # hand the audio to the neighbour INSIDE the group (prefer the one
+        # before, so the sentence keeps its reading order)
+        others = [i for i in gidx if i != p]
+        host_pos = max([i for i in others if i < p], default=None)
+        if host_pos is None:
+            host_pos = min([i for i in others if i > p])
+        host = segs[host_pos]
+        host["beats"] = _merge_beats(sorted(host["beats"] + had_beats,
+                                            key=lambda b: b["start"]))
+        result["narration"] = "preserved"
+        result["audio_moved_to"] = host["seg_index"]
+
+    segs.pop(p)
+    _stale(pdir, [si])
+    clip = os.path.join(pdir, "clips", f"seg_{si:03d}.mp4")
+    if os.path.exists(clip):
+        os.remove(clip)
+
+    remaining = [i - (1 if i > p else 0) for i in gidx if i != p]
+    if in_group and remaining:
+        # the group keeps its duration; survivors split it again
+        for i in remaining:
+            segs[i]["duration_mode"] = "auto"
+        rebalance_group(pdir, segs, remaining, group_dur)
+    else:
+        result["runtime_delta"] = -round(seg["dur"], 3)
+
+    _ripple(segs)
+    save(pdir, segs)
+    _log(pdir, "delete_segment", seg=si, panel=seg.get("panel_id"),
+         narration=result["narration"], moved_to=result["audio_moved_to"])
+    return segs, result
+
+
+def duplicate_segment(pdir, si, hold=DEFAULT_HOLD):
+    """Duplicate a segment's IMAGE as a new slot right after it.
+
+    The copy deliberately carries NO narration: replaying a sentence is the
+    one thing the timing model forbids, so the duplicate is created as an
+    explicit silent hold the user can retime or drag anywhere. Runtime grows
+    by `hold` seconds — reported back so the UI can say so.
+    """
+    segs = load(pdir)
+    p = _pos(segs, si)
+    src = segs[p]
+    new_si = _next_seg_index(segs)
+    dup = {"seg_index": new_si,
+           "panel_id": src["panel_id"],
+           "panel_file": src.get("panel_file"),
+           "start": 0, "end": 0,
+           "dur": round(float(hold), 3),
+           "beats": [],
+           "silent_hold": True,
+           "duplicate_of": si,
+           "user_included": src.get("user_included", False),
+           "clip": f"clips/seg_{new_si:03d}.mp4"}
+    for k in ("crop", "crop_box", "crop_bbox_norm", "user_assigned"):
+        if src.get(k) is not None:
+            dup[k] = src[k]
+    segs.insert(p + 1, dup)
+    _ripple(segs)
+    save(pdir, segs)
+    _stale(pdir, [new_si])
+    _log(pdir, "duplicate_segment", seg=si, new=new_si, dur=dup["dur"])
+    return segs, {"new_seg_index": new_si, "dur": dup["dur"],
+                  "panel_id": src["panel_id"]}
+
+
 def reorder(pdir, si, to_position):
     """Move a segment (visual + its narration) to a new playback position."""
     segs = load(pdir)

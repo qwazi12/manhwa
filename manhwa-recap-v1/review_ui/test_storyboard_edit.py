@@ -210,6 +210,68 @@ def main():
 
     shutil.rmtree(g_pdir)
 
+    # ---- delete_segment / duplicate_segment (Session 24) -------------------
+    d_pdir = tempfile.mkdtemp(prefix="sbdel_")
+    os.makedirs(os.path.join(d_pdir, "crops"))
+    os.makedirs(os.path.join(d_pdir, "clips"))
+    for i, dur in enumerate([4.0, 3.0]):
+        tone(os.path.join(d_pdir, "audio", f"beat_{i:03d}.mp3"), dur)
+    for pid in ["d1", "d2", "d3", "d4"]:
+        open(os.path.join(d_pdir, "crops", f"{pid}.png"), "wb").write(b"png")
+    # group of 3 images sharing beat 0 (12s), plus a standalone with beat 1
+    dsegs = [
+        {"seg_index": 0, "panel_id": "d1", "scene_id": 1, "start": 0.0, "dur": 4.0,
+         "end": 4.0, "clip": "clips/seg_000.mp4", "group_dur": 12.0,
+         "beats": [{"index": 0, "text": "shared", "start": 0.0, "end": 4.0}]},
+        {"seg_index": 1, "panel_id": "d2", "scene_id": 1, "start": 4.0, "dur": 4.0,
+         "end": 8.0, "clip": "clips/seg_001.mp4", "group_dur": 12.0,
+         "beats": [{"index": 0, "text": "shared", "start": 4.0, "end": 8.0}]},
+        {"seg_index": 2, "panel_id": "d3", "scene_id": 1, "start": 8.0, "dur": 4.0,
+         "end": 12.0, "clip": "clips/seg_002.mp4", "group_dur": 12.0,
+         "beats": [{"index": 0, "text": "shared", "start": 8.0, "end": 12.0}]},
+        {"seg_index": 3, "panel_id": "d4", "scene_id": 2, "start": 12.0, "dur": 3.0,
+         "end": 15.0, "clip": "clips/seg_003.mp4", "group_dur": 3.0,
+         "beats": [{"index": 1, "text": "solo", "start": 12.0, "end": 15.0}]},
+    ]
+    json.dump(dsegs, open(os.path.join(d_pdir, "segments.json"), "w"))
+
+    # delete inside a group: narration preserved, group total unchanged
+    before_total = total(se.load(d_pdir))
+    s, info = se.delete_segment(d_pdir, 1)
+    grp = [x for x in s if x.get("scene_id") == 1]
+    kept = any(b["index"] == 0 for x in s for b in x["beats"])
+    check("delete in group keeps narration", info["narration"] == "preserved" and kept,
+          f"moved_to={info['audio_moved_to']}")
+    check("delete in group conserves group total", abs(total(grp) - 12.0) < 0.01,
+          f"durs={[x['dur'] for x in grp]}")
+    check("delete in group conserves runtime", abs(total(s) - before_total) < 0.01)
+    check("delete in group stays contiguous", contiguous(s))
+    check("deleted segment is gone", all(x["seg_index"] != 1 for x in s))
+
+    # delete a standalone: its narration leaves with it, runtime shrinks
+    before_total = total(se.load(d_pdir))
+    s, info = se.delete_segment(d_pdir, 3)
+    check("delete standalone removes its narration", info["narration"] == "removed")
+    check("delete standalone shrinks runtime",
+          abs(total(s) - (before_total - 3.0)) < 0.01 and contiguous(s))
+    check("no beat 1 remains", not any(b["index"] == 1 for x in s for b in x["beats"]))
+
+    # duplicate: silent copy right after, runtime grows, no audio replay
+    before_total = total(se.load(d_pdir))
+    s, info = se.duplicate_segment(d_pdir, 0)
+    pos = [i for i, x in enumerate(s) if x["seg_index"] == info["new_seg_index"]][0]
+    dup = s[pos]
+    src_pos = [i for i, x in enumerate(s) if x["seg_index"] == 0][0]
+    check("duplicate lands right after source", pos == src_pos + 1)
+    check("duplicate copies the image", dup["panel_id"] == "d1")
+    check("duplicate carries no narration", dup["beats"] == [] and dup["silent_hold"])
+    check("duplicate grows runtime by its hold",
+          abs(total(s) - (before_total + dup["dur"])) < 0.01 and contiguous(s))
+    beat0_holders = [x["seg_index"] for x in s for b in x["beats"] if b["index"] == 0]
+    check("duplicate never replays audio", len(beat0_holders) == len(set(beat0_holders)))
+
+    shutil.rmtree(d_pdir)
+
     shutil.rmtree(pdir)
     fails = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(fails)}/{len(RESULTS)} passed")

@@ -260,7 +260,8 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
   <button onclick="editNarr({si})">✏️ edit narration</button>
   <button onclick="addLine({si})">✚ add line</button>
   <button onclick="setStatus({si},'approved')">✅</button>
-  <button onclick="setStatus({si},'rejected')">🗑</button>
+  <button class="danger" title="DELETE this image slot (undoable)" onclick="delSeg({si})">🗑</button>
+  <button title="duplicate this image as a silent slot you can retime or drag" onclick="dupSeg({si})">⧉</button>
 </div></div>""")
         timing_cell = "".join(tcells) or '<i class="off">— not on video timeline —</i>'
 
@@ -545,6 +546,13 @@ function dropRow(ev, el) {{
        also ? 'moving here + re-sequencing…' : 'placing on this panel…');
 }}
 /* ---- existing controls ---- */
+async function delSeg(i) {{
+  if (!confirm('Delete segment #' + i + '?\n\nThe image slot is removed. If its sentence is shared with sibling images, the narration is kept and moves to a sibling; if this segment owns the sentence outright, that narration leaves the video too.\n\nUndo is available.')) return;
+  const r = await post('/api/storyboard/delete', {{seg_index: i}}, 'deleting…');
+}}
+function dupSeg(i) {{
+  post('/api/storyboard/duplicate', {{seg_index: i}}, 'duplicating…');
+}}
 async function swapPanel(i) {{
   const c = await j(`/api/segments/${{i}}/candidates`);
   const list = document.getElementById('candList');
