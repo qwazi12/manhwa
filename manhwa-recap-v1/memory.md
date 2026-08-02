@@ -2355,3 +2355,32 @@ APPROVE, then deploy + live verify.
   it: shorten narration, hand audio to a neighbour (cut buttons), or an
   EXPLICIT "extend with silence" control (NOT yet built — next item).
 - LIVE: group-timing build serving on production /storyboard — 80 "shared narration" sub-labels and 13 group badges rendered on the active project. Defect A+B fixes and the split CARVE_MIN/edit floors are in production. GitHub == deployed reality.
+
+#### Session 24 (cont.) — 🗑 delete + ⧉ duplicate on segment cards
+- USER ASK: 🗑 should DELETE the segment (not just reject), plus a duplicate
+  button so images can be copied and dragged around.
+- delete_segment(pdir, si): narration-safe hard delete.
+  * seg in a MULTI-IMAGE narration group -> its beats hand off to the
+    adjacent sibling (prefers the one before, keeping reading order), group
+    keeps its duration, survivors rebalance => runtime unchanged, sentence
+    intact.
+  * STANDALONE seg -> removed with its own audio; runtime shrinks by its dur.
+    Reported back as narration:"removed" so the UI can say so.
+  * clip file deleted; _snapshot() first => Undo covers it.
+- _merge_beats(): NEW invariant. A host absorbing a neighbour's audio could
+  end up with two records of the SAME beat (0-4s + 4-8s of one mp3); the
+  renderer emits one audio layer PER RECORD, so that would have replayed the
+  file — the stutter class the timing model forbids. Records merge only when
+  same index AND same file AND touching; genuine _a/_b slices stay separate.
+  Caught by the new test "duplicate never replays audio", not by inspection.
+- duplicate_segment(pdir, si): copies panel/crop into a NEW slot right after
+  the source, with NO beats (silent_hold=True, DEFAULT_HOLD 2.5s). Copying
+  beats would replay narration, so the duplicate is explicitly silent — the
+  user retimes it or drags it into a group, where rebalancing gives it a
+  share. Runtime grows by the hold, reported back.
+- Endpoints POST /api/storyboard/delete + /duplicate (both snapshot->undo).
+  UI: 🗑 now danger-styled with a confirm naming the narration consequence;
+  ⧉ sits after it. Tests 42/42 (7 new).
+- TRADEOFF LOGGED: the per-segment "reject but keep on board" action is gone
+  from the card (🗑 is now destructive). Row-level inclusion checkbox still
+  governs what renders; re-add a separate exclude toggle if the user misses it.
