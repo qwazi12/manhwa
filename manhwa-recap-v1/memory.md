@@ -2384,3 +2384,4 @@ APPROVE, then deploy + live verify.
 - TRADEOFF LOGGED: the per-segment "reject but keep on board" action is gone
   from the card (🗑 is now destructive). Row-level inclusion checkbox still
   governs what renders; re-add a separate exclude toggle if the user misses it.
+- LIVE: delete/duplicate build serving — 104 🗑 delete and 104 ⧉ duplicate handlers rendered on the active board (one pair per segment card). Both ops usable in production; Undo covers them.
