@@ -547,7 +547,7 @@ function dropRow(ev, el) {{
 }}
 /* ---- existing controls ---- */
 async function delSeg(i) {{
-  if (!confirm('Delete segment #' + i + '?\n\nThe image slot is removed. If its sentence is shared with sibling images, the narration is kept and moves to a sibling; if this segment owns the sentence outright, that narration leaves the video too.\n\nUndo is available.')) return;
+  if (!confirm('Delete segment #' + i + '?\\n\\nThe image slot is removed. If its sentence is shared with sibling images, the narration is kept and moves to a sibling; if this segment owns the sentence outright, that narration leaves the video too.\\n\\nUndo is available.')) return;
   const r = await post('/api/storyboard/delete', {{seg_index: i}}, 'deleting…');
 }}
 function dupSeg(i) {{

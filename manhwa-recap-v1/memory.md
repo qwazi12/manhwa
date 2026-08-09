@@ -2385,3 +2385,33 @@ APPROVE, then deploy + live verify.
   from the card (🗑 is now destructive). Row-level inclusion checkbox still
   governs what renders; re-add a separate exclude toggle if the user misses it.
 - LIVE: delete/duplicate build serving — 104 🗑 delete and 104 ⧉ duplicate handlers rendered on the active board (one pair per segment card). Both ops usable in production; Undo covers them.
+
+#### Session 24 — P0: entire storyboard UI was non-interactive in production (root cause + fix)
+- User report: "when i click the buttons they dont seem to work" — every
+  button, not just delete/duplicate.
+- Diagnosis: curl through the full auth chain (Vercel Basic Auth ->
+  middleware.js injects x-shared-secret -> Railway) proved backend+proxy
+  fully functional — including a live POST /api/storyboard/delete that
+  actually succeeded (accidental real mutation during diagnosis; immediately
+  reverted via /api/undo, verified 103 segments restored, zero lasting
+  impact). So the break was client-side only.
+- ROOT CAUSE (storyboard.py:550): the delSeg() confirm() message was written
+  with Python `\n` inside the f-string — a real Python escape, so Python
+  emits an ACTUAL newline byte into the HTML response. The browser's JS
+  engine then sees a literal line break inside a single-quoted JS string,
+  which is a SyntaxError. That ONE syntax error fails the entire inline
+  <script> block's parse, so NOTHING in it executes: delSeg, dupSeg,
+  swapPanel, editNarr, addLine, checkboxes, drag-and-drop, Approve — the
+  whole board was inert. Landed in the delete/duplicate commit (5bf7081)
+  and has been broken in production since.
+- FIX: escaped as `\\n` (the two literal characters `\`+`n`) so the browser
+  parses the escape itself. Verified by rendering the REAL page via
+  build_storyboard_html() against the real swordmasters-youngest-son_1
+  project data (both approved=True/False) and running `node --check` on the
+  extracted <script> body — passes clean.
+- REGRESSION GUARD ADDED: new manhwa-recap-v1/review_ui/test_storyboard_js_
+  syntax.py — renders the actual page for a real project and syntax-checks
+  the inline JS with node, so no future f-string escaping bug (or any JS
+  syntax break) can ship silently again. This is the general fix: nothing
+  in the existing suite touched what the BROWSER receives, only the Python
+  editing functions.
