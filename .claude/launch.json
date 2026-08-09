@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "review-ui",
-      "runtimeExecutable": "manhwa-recap-v1/venv/bin/python",
-      "runtimeArgs": ["-m", "uvicorn", "review_ui.server:app", "--port", "8000", "--app-dir", "manhwa-recap-v1"],
-      "port": 8000
+      "name": "recap-studio-local",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd \"$HOME/dev/manhwa/manhwa-recap-v1/review_ui\" && exec python3 -m uvicorn server:app --host 127.0.0.1 --port 8123"],
+      "port": 8123
     }
   ]
 }
