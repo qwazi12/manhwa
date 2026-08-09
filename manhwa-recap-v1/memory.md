@@ -2415,3 +2415,18 @@ APPROVE, then deploy + live verify.
   syntax break) can ship silently again. This is the general fix: nothing
   in the existing suite touched what the BROWSER receives, only the Python
   editing functions.
+
+#### Session 24 (cont.) — P0 FIX VERIFIED LIVE (deploy + end-to-end proof)
+- Deploy accepted first try; new build confirmed live: fetched the actual
+  production HTML with authenticated curl, extracted the real <script>
+  body, ran `node --check` against it — 0 errors (previously failed at
+  line 68 with "Unexpected token"). The literal-newline pattern is gone
+  from the deployed confirm() string.
+- END-TO-END PROOF: POST /api/storyboard/duplicate against the LIVE site —
+  103->104 segments, new_seg_index 103 returned — then POST /api/undo
+  restored 103. This is the same request the fixed delSeg/dupSeg JS now
+  fires on a real click; API + UI + auth chain all confirmed working
+  together. Net effect on the board: zero (test mutation reverted).
+- STATUS: the storyboard is fully interactive in production again. Diagnosed
+  and fixed same-session as reported; root cause + regression guard in the
+  entry above this one.
