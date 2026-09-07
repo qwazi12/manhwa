@@ -2530,3 +2530,69 @@ exact "unreadably small card" failure TALL_AR was introduced to fix.
  (4) upstream quality — unvalidated vision crops (Finding 5)
  (5) render regression — tall-strip bypass (Finding 6)
 Fix plan proposed to owner; NOTHING changed in this session.
+
+#### Session 25 (cont.) — audit re-run against the OWNER'S ACTIVE PROJECT
+Owner clarified they are working on **The Martial Genius Who Remembers
+Everything Ch.1**, not the swordmasters project audited above, and supplied
+4 screenshots (2 export/source pairs). Pulled that project read-only from
+production via `GET /api/backup/the-martial-genius-who-remembers-everything_1`
+(428MB tar.gz: segments.json, 180 audio files, descriptions, framing_cache,
+exports). No mutation, no `/api/activate` — the owner's session untouched.
+Project: 82 segments, 76 user_included, 650.3s timeline.
+
+##### AUDIO — the swapped-slice defect REPRODUCES here (same signature)
+Probe replicating seg_html() placement exactly, against the real mp3s:
+ - seg 81 / beat 53 `slices/b053_439187_b.mp3`: off 4.913 into a 4.913s
+   window -> the ENTIRE 4.663s is cut off at render.
+ - seg 50 / beat 53 `slices/b053_439187_a.mp3`: off -4.913 (audio scheduled
+   before the clip starts).
+Identical to swordmasters segs 92/54: beat 53 was sliced at t=439.187 and the
+two halves were handed to each other's segments. Confirms the defect is a
+PIPELINE bug, not per-project data corruption. Two projects, same signature.
+
+##### AUDIO — what is NOT wrong (ruled out with evidence)
+ - 88 audio refs, 0 missing.
+ - 0 cases of real mp3 LONGER than its json range -> metadata drift does not
+   cause cutoff. CORRECTION to the earlier entry's framing: the drift is
+   uniformly in the SAFE direction.
+ - 0 overlapping audio layers inside a segment; 0 segments with >1.5s dead air.
+ - Export/concat stage is CLEAN: exports/final_Aug16_12.29AM.mp4 is 623.25s;
+   concat.txt holds 76 clips + intro/outro in exactly segments.json included
+   order; sum of included durs 615.89 + 6s cards = 621.89 (~1.4s card
+   rounding). Stream-copy concat, no re-encode truncation. A/V streams
+   623.23 / 623.25 — no desync.
+ - So the ONLY audio cutoff in this project is the one swapped slice above.
+ - OPEN (minor): json beat length runs a UNIFORM 0.600s longer than the real
+   mp3 on 77 of 88 refs. Not GAP (0.35), source unidentified. Safe direction
+   (over-reservation -> ~0.6s dead air per beat, ~46s across the export) but
+   two disagreeing duration sources remain.
+
+##### FRAMING — the owner's 4 screenshots mapped to exact segments
+ - Images #4/#5 = **seg 9**, panel page004_panel_002_shot_08 (900x730),
+   box [0.09,0.04,0.96,0.49] -> keeps 39.1% of the panel, a 783x328 AR-2.38
+   letterbox band containing the speech bubble; the character below is
+   discarded. focus_source=vision, confidence 1.0, reason explicitly names
+   the speech bubble as the target.
+ - Images #6/#7 = **seg 11**, panel page005_panel_002_shot_02 (900x1274),
+   box [0.074,0.016,0.926,0.339] -> keeps 27.5%, top third only.
+   THE BOX CONTRADICTS ITS OWN STATED REASON: focus_reason says it is
+   highlighting the character's injured state (blood on face) AND the
+   dialogue, but y 0.016-0.339 covers the bubble and EXCLUDES the face.
+   Stored with focus_confidence 1.0. Same failure as swordmasters seg 71
+   (claimed the child's hand, returned the sword crossguard).
+ - => `focus_confidence` is worthless as a gate: the two worst boxes both
+   carry 1.0. Distribution across 41 sub-crops: 0.95 x21, 0.9 x9, 1.0 x7,
+   0.98 x2, 0.8 x2 — the model is uniformly overconfident.
+ - Crop census: 41 sub-crop, 31 full-box, 10 no box. Worst is seg 48 keeping
+   4.2% of its panel; segs 19/6/63/45/41 keep 8.7-18%.
+ - Tall-strip regression confirmed here too: 19 panels at AR>=2.2 carry a box
+   so the TALL_AR scroll-pan branch is bypassed; the full-box ones
+   (segs 71/70/26/51/55) render as ~18-19% frame-width cards.
+
+##### CONCLUSION
+Both reported symptoms are explained by exact code behaviour, on the owner's
+own data. The framing complaint is FINDING 4 (editor renders /panelimg
+uncropped; exporter applies crop_bbox_norm) + FINDING 5 (boxes stored with no
+validation) and is the dominant issue — 41 of 82 segments are affected. The
+audio complaint is ONE swapped slice pair, not a systemic timing failure.
+Fix plan P0-P4 unchanged and still un-implemented; nothing edited this session.
