@@ -1,45 +1,25 @@
 import { next } from '@vercel/edge';
 
+// PUBLIC ACCESS — the Basic Auth gate was removed at the owner's request.
+//
+// This middleware still runs on every request for one essential reason: it
+// injects SHARED_SECRET as the x-shared-secret header. The Railway backend
+// rejects /api, /clip, /thumb, /audio, /panelimg and /export without it
+// (server.py verify_shared_secret). That secret lives only in Vercel's edge
+// env and is never sent to the browser, so the backend stays unreachable
+// directly — but anyone who knows this site's URL can now use the board,
+// including its destructive controls (delete, approve/render, ingest).
+// Re-gating is a matter of restoring the auth check here and redeploying.
 export function middleware(req) {
-  const basicAuth = req.headers.get('authorization');
-  const basicAuthUser = process.env.BASIC_AUTH_USER;
-  const basicAuthPassword = process.env.BASIC_AUTH_PASSWORD;
-
-  if (basicAuthUser && basicAuthPassword) {
-    if (basicAuth) {
-      const authValue = basicAuth.split(' ')[1];
-      try {
-        const decoded = atob(authValue);
-        const [user, pwd] = decoded.split(':');
-
-        if (user === basicAuthUser && pwd === basicAuthPassword) {
-          // Authentication successful. Proceed and inject SHARED_SECRET
-          const requestHeaders = new Headers(req.headers);
-          if (process.env.SHARED_SECRET) {
-            requestHeaders.set('x-shared-secret', process.env.SHARED_SECRET);
-          }
-          return next({
-            request: {
-              headers: requestHeaders,
-            },
-          });
-        }
-      } catch (e) {
-        // Silent catch for bad/malformed auth header formats
-      }
-    }
-
-    // Return 401 response with WWW-Authenticate header to prompt browser login
-    return new Response('Authentication Required', {
-      status: 401,
-      headers: {
-        'WWW-Authenticate': 'Basic realm="Recap Studio"',
-      },
-    });
+  const requestHeaders = new Headers(req.headers);
+  if (process.env.SHARED_SECRET) {
+    requestHeaders.set('x-shared-secret', process.env.SHARED_SECRET);
   }
-
-  // If Basic Auth is not configured (e.g. local dev), allow request to pass through
-  return next();
+  return next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
 }
 
 export default middleware;
