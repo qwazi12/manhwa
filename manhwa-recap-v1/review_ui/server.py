@@ -132,28 +132,95 @@ def save_review(state):
 
 
 # ------------------------------------------------------------- thumbnails
-def thumb_path(seg_index):
+def _crop_api():
+    """shot_planner's crop contract — the SAME functions the exporter uses."""
+    if RECAP not in sys.path:
+        sys.path.insert(0, RECAP)
+    import shot_planner
+    return shot_planner
+
+
+def _panel_px_size(path):
+    """True (w, h) of the panel PNG — the crop rect must be in real pixels,
+    not in whatever width/height segments.json happens to carry."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+        if head[:8] == b"\x89PNG\r\n\x1a\n":
+            import struct
+            return struct.unpack(">II", head[16:24])
+    except OSError:
+        pass
+    return None, None
+
+
+def seg_crop_rect(seg):
+    """(x, y, w, h) this segment is cropped to for the video, or None.
+
+    P2 (Session 25): the board used to show the raw panel while the exporter
+    applied crop_bbox_norm, so an approved frame was not the delivered frame.
+    Both sides now resolve the box through shot_planner, so preview == export.
+    """
+    sp = _crop_api()
+    src = seg.get("panel_file")
+    if not src or not os.path.exists(src):
+        return None
+    if not sp.is_sub_crop(seg.get("crop_bbox_norm")):
+        return None                       # full-frame box == no crop (P4)
+    w, h = _panel_px_size(src)
+    if not (w and h):                     # unreadable header -> trust the manifest
+        w, h = seg.get("width"), seg.get("height")
+    return sp.crop_rect_px(seg.get("crop_bbox_norm"), w, h)
+
+
+def _thumb_key(seg):
+    """Cache key: changes whenever the RENDERED framing changes, so a panel
+    swap or a re-planned crop can never keep serving the old thumbnail."""
+    import hashlib
+    rect = seg_crop_rect(seg)
+    sig = f"{seg.get('panel_id')}|{rect or 'full'}"
+    return hashlib.md5(sig.encode()).hexdigest()[:8]
+
+
+def thumb_path(seg_index, seg=None):
     t_dir = os.path.join(active_project_dir(), "thumbnails")
     os.makedirs(t_dir, exist_ok=True)
-    return os.path.join(t_dir, f"seg_{seg_index:03d}.jpg")
+    if seg is None:
+        return os.path.join(t_dir, f"seg_{seg_index:03d}.jpg")
+    return os.path.join(t_dir, f"seg_{seg_index:03d}_{_thumb_key(seg)}.jpg")
 
 
 def ensure_thumb(seg):
-    """Make a small JPEG thumbnail from the segment's panel image (cached)."""
-    out = thumb_path(seg["seg_index"])
+    """Small JPEG of the frame the VIDEO will show for this segment (cached).
+
+    Cropped to crop_bbox_norm when the segment actually sub-crops; the whole
+    panel otherwise. Any failure falls back to the uncropped panel rather than
+    showing nothing.
+    """
+    out = thumb_path(seg["seg_index"], seg)
     if os.path.exists(out):
         return out
     src = seg.get("panel_file")
     if not src or not os.path.exists(src):
         return None
+    rect = seg_crop_rect(seg)
+    vf = "scale=200:-1"
+    if rect:
+        x, y, w, h = rect
+        vf = f"crop={w}:{h}:{x}:{y},scale=200:-1"
     try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", src, "-vf",
-             "scale=200:-1", "-frames:v", "1", out],
-            check=True, capture_output=True)
+        subprocess.run(["ffmpeg", "-y", "-i", src, "-vf", vf,
+                        "-frames:v", "1", out], check=True, capture_output=True)
         return out
     except Exception:
-        return None
+        if not rect:
+            return None
+        try:                              # crop failed -> never show nothing
+            subprocess.run(["ffmpeg", "-y", "-i", src, "-vf", "scale=200:-1",
+                            "-frames:v", "1", out], check=True, capture_output=True)
+            return out
+        except Exception:
+            return None
 
 
 # ---------------------------------------------------------------- routes
@@ -523,10 +590,15 @@ def _rerender(seg):
     rs.ensure_project()
     rs.render_segment(seg, AUDIO_DIR)
     _stamp_epoch(seg["seg_index"])
-    # thumbnail may be stale after a panel swap
-    tp = thumb_path(seg["seg_index"])
-    if os.path.exists(tp):
-        os.remove(tp)
+    # thumbnail may be stale after a panel swap / re-crop — the filename is
+    # keyed by framing, so clear EVERY thumb for this segment, not one name
+    import glob
+    for tp in glob.glob(os.path.join(active_project_dir(), "thumbnails",
+                                     f"seg_{seg['seg_index']:03d}*.jpg")):
+        try:
+            os.remove(tp)
+        except OSError:
+            pass
 
 
 @app.get("/api/segments/{seg_index}/candidates")
@@ -576,6 +648,40 @@ def panelimg(panel_id: str, thumb: int = 0):
         except Exception:
             raise HTTPException(404, "thumb failed")
     return FileResponse(tp, media_type="image/jpeg")
+
+
+@app.get("/segimg/{seg_index}")
+def segimg(seg_index: int, full: int = 0):
+    """The frame the VIDEO shows for this segment, at full resolution.
+
+    P2 (Session 25): /panelimg is keyed by PANEL and knows nothing about the
+    crop, but crop_bbox_norm is a property of the SEGMENT — one panel can feed
+    several segments with different crops. This route is the segment-accurate
+    view the storyboard links to. `?full=1` returns the uncropped panel so the
+    original art stays one click away.
+    """
+    segs = load_segments()
+    seg = next((s for s in segs if s["seg_index"] == seg_index), None)
+    if not seg:
+        raise HTTPException(404, "segment not found")
+    src = seg.get("panel_file")
+    if not src or not os.path.exists(src):
+        raise HTTPException(404, "panel image not found")
+    rect = None if full else seg_crop_rect(seg)
+    if not rect:
+        return FileResponse(src, media_type="image/png")
+    x, y, w, h = rect
+    c_dir = os.path.join(active_project_dir(), "thumbnails")
+    os.makedirs(c_dir, exist_ok=True)
+    out = os.path.join(c_dir, f"crop_{seg_index:03d}_{_thumb_key(seg)}.png")
+    if not os.path.exists(out):
+        try:
+            subprocess.run(["ffmpeg", "-y", "-i", src, "-vf",
+                            f"crop={w}:{h}:{x}:{y}", "-frames:v", "1", out],
+                           check=True, capture_output=True)
+        except Exception:
+            return FileResponse(src, media_type="image/png")   # safe fallback
+    return FileResponse(out, media_type="image/png")
 
 
 class SwapIn(BaseModel):

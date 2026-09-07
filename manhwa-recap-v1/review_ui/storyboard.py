@@ -12,7 +12,46 @@ import html
 import json
 import os
 import re
+import sys
 from datetime import datetime
+
+_RECAP = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+if _RECAP not in sys.path:
+    sys.path.insert(0, _RECAP)
+from shot_planner import is_sub_crop        # SAME crop test the exporter uses
+
+# Must match render_segments.TALL_AR — the board previously said "tall strip"
+# at AR>=3 while the renderer switched at 2.2, so panels between the two were
+# labelled wrongly (Session 25, P2: the board must describe the real path).
+TALL_AR = 2.2
+
+
+def _seg_preview(s, si):
+    """The frame the VIDEO will show for this segment.
+
+    P2 (Session 25): the board's panel column shows the whole panel, but the
+    exporter crops to crop_bbox_norm — so a segment could be approved on art
+    the video never shows (41 of 82 segments on Martial Genius Ch.1). This
+    renders the cropped frame itself, straight from /thumb (same crop the
+    exporter applies), and links to the full panel so the original art stays
+    one click away.
+    """
+    sub = is_sub_crop(s.get("crop_bbox_norm"))
+    if sub:
+        x0, y0, x1, y1 = s["crop_bbox_norm"]
+        pct = (x1 - x0) * (y1 - y0) * 100
+        note = (f'<span class="cropb tight" title="the exporter keeps only this '
+                f'part of the panel — click the frame for the full panel">'
+                f'✂ crop · keeps {pct:.0f}%</span>') if pct < 45 else (
+               f'<span class="cropb" title="the exporter crops the panel to '
+               f'this box">✂ crop · keeps {pct:.0f}%</span>')
+    else:
+        note = '<span class="cropb full" title="the whole panel is used">▣ full panel</span>'
+    return (f'<span class="segprev">'
+            f'<a href="/segimg/{si}" target="_blank" title="exact exported frame '
+            f'(full resolution)"><img src="/thumb/{si}" loading="lazy" alt=""></a>'
+            f'<a class="orig" href="/segimg/{si}?full=1" target="_blank" '
+            f'title="the original uncropped panel">original ↗</a>{note}</span>')
 
 
 def _natural(pid):
@@ -205,16 +244,16 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
             silent = s.get("silent_hold") or not s["beats"]
             if silent:
                 motion = "silent hold (no narration)"
-            elif s.get("crop_bbox_norm"):
+            elif is_sub_crop(s.get("crop_bbox_norm")):
                 motion = "planned sub-crop + Ken Burns"
-            elif ar >= 3:
+            elif ar >= TALL_AR:
                 motion = "tall strip → scroll-pan top→bottom"
             else:
                 motion = "Ken Burns " + ("push-in" if si % 2 == 0 else "pull-out")
             badges = []
             if s["dur"] > 12:
                 badges.append('<span class="b warn">⚠ long hold</span>')
-            if ar >= 3 and not s.get("crop_bbox_norm"):
+            if ar >= TALL_AR and not is_sub_crop(s.get("crop_bbox_norm")):
                 badges.append('<span class="b tall">📜 tall strip</span>')
             if silent:
                 badges.append('<span class="b sil">🔇 silent</span>')
@@ -241,6 +280,7 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
   ondragstart="dragSeg(event)" ondragover="event.preventDefault();this.classList.add('over')"
   ondragleave="this.classList.remove('over')" ondrop="dropSeg(event,this)">
 <span class="draghandle" title="drag to reorder">⠿</span>
+{_seg_preview(s, si)}
 <b>seg #{si}</b> · {(f'{_mmss(s["video_start"])}→{_mmss(s["video_start"]+s["dur"])}' if s.get("video_start") is not None else '<span class="off">not in video</span>')} <span class="mt" title="position on the master timeline (includes segments left out of the video)">[{_mmss(s["start"])}]</span> {' '.join(badges)}
 <div class="timectl">
   ⏱ <input type="number" step="0.1" min="0.8" value="{s['dur']:.1f}" id="dur{si}"
@@ -355,6 +395,15 @@ tr.fold td.script {{ background:#fffbe8; color:#7a6200; }} .unittxt {{ color:#7a
 tr.omit td.script {{ background:#fbeeee; color:#8a2f2f; }}
 tr.gray td.script {{ background:#f0f0f0; color:#777; }}
 .segblock {{ background:#f4f9f4; border:1px solid #dbe8db; border-radius:6px; padding:6px; margin-bottom:6px; position:relative; }}
+.segprev {{ float:right; width:118px; margin:0 0 4px 8px; text-align:center; }}
+.segprev img {{ width:118px; max-height:150px; object-fit:contain; border-radius:4px;
+  background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.28); display:block; }}
+.segprev .orig {{ display:block; font-size:10px; color:#5b6b5b; text-decoration:none; margin-top:2px; }}
+.segprev .orig:hover {{ text-decoration:underline; }}
+.cropb {{ display:block; font-size:10px; margin-top:2px; padding:1px 4px; border-radius:3px;
+  background:#eef3ee; color:#3c553c; }}
+.cropb.tight {{ background:#ffe9e0; color:#9c3d10; font-weight:600; }}
+.cropb.full {{ background:#eef3ee; color:#5b6b5b; }}
 .segblock.over {{ outline:2px dashed #5b8cff; }}
 td.timing.dropok {{ outline:3px dashed #22a06b; outline-offset:-3px; background:#eefaf3; }}
 .segblock[draggable] {{ cursor:grab; }}

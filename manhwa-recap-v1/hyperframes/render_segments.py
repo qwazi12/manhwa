@@ -44,7 +44,7 @@ W, H = 1920, 1080
 # stamped with an older epoch as needing a re-render — otherwise a renderer
 # upgrade silently ships old-looking clips, because the render step only
 # ever rebuilt clips whose FILE was missing (Session 23 finding).
-RENDER_EPOCH = 2
+RENDER_EPOCH = 3
 
 BEATSHEET = os.environ.get("HF_BEATSHEET", "build_test/beatsheet_full.json")
 BEATS = os.environ.get("HF_BEATS", "build_test/beats_full.json")
@@ -109,18 +109,33 @@ def seg_html(seg, audio_dir):
               else (1.0 + amp, 1.0))
     audio_layers, tl = [], []
 
-    has_crop = seg.get("crop_bbox_norm") is not None
-    pw, ph = seg.get("width"), seg.get("height")
+    # P4 (Session 25): a full-frame box ([0,0,1,1]) is NOT a crop. Testing
+    # `crop_bbox_norm is not None` meant any box — including a full-frame one
+    # written by the "subshot"/"fallback_full" planner paths — set has_crop,
+    # which silently disabled the TALL_AR scroll-pan branch below and rendered
+    # tall strips as ~18%-frame-width cards. is_sub_crop() is the shared test,
+    # also used by the editor preview, so board and video agree.
+    import sys
+    if RECAP not in sys.path:
+        sys.path.insert(0, RECAP)
+    from shot_planner import get_crop_layout, is_sub_crop, normalize_crop
+    crop = normalize_crop(seg.get("crop_bbox_norm"))
+    has_crop = is_sub_crop(crop)
+    # Measure the IMAGE WE ARE ABOUT TO RENDER, not the manifest. On Martial
+    # Genius Ch.1 segments.json still carries pre-resplit heights for several
+    # panels (page020_panel_003_shot_03: manifest 900x2582, real file 900x811),
+    # so the manifest AR picks the wrong branch — harmless while any crop box
+    # suppressed `tall`, actively wrong once P4 lets full-box panels reach it.
+    # stage_assets() has already copied the panel into ASSETS by this point.
+    pw, ph = _png_size(os.path.join(ASSETS, f"{pid}.png"))
+    if not (pw and ph) and seg.get("panel_file"):
+        pw, ph = _png_size(seg["panel_file"])
     if not (pw and ph):
-        pw, ph = _png_size(os.path.join(ASSETS, f"{pid}.png"))
+        pw, ph = seg.get("width"), seg.get("height")
     tall = (not has_crop) and pw and ph and (ph / pw) >= TALL_AR
 
     if has_crop:
-        import sys
-        if RECAP not in sys.path:
-            sys.path.insert(0, RECAP)
-        from shot_planner import get_crop_layout
-        layout = get_crop_layout(seg["crop_bbox_norm"], seg.get("width"), seg.get("height"))
+        layout = get_crop_layout(crop, pw, ph)
 
         card_html = f"""  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
     <div class="crop-container" id="card_container" style="position:relative; overflow:hidden; width:{layout["w"]:.1f}px; height:{layout["h"]:.1f}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">

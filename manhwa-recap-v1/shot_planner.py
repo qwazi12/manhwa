@@ -26,6 +26,68 @@ _DETAIL_KEYWORDS = [
     "bubble", "caption", "text", "shout", "scream", "cry", "tear", "tears"
 ]
 
+# --------------------------------------------------------------- crop contract
+# ONE definition of "does this segment actually crop?", shared by the exporter
+# (render_segments.seg_html) and the editor preview (server.ensure_thumb /
+# /segimg). Before this existed each side decided for itself: the exporter
+# treated ANY crop_bbox_norm as a crop, while the editor ignored the box
+# entirely — so the board showed the full panel and the video showed a
+# sub-crop (Session 25 audit, 41 of 82 segments affected on Martial Genius).
+FULL_FRAME_TOL = 0.01   # within 1% of every edge == the whole panel
+
+
+def normalize_crop(crop_bbox_norm):
+    """Validated [x0,y0,x1,y1] in [0,1], or None if absent/unusable.
+
+    Returning None is the safe fallback everywhere: caller renders the full
+    panel. Rejects wrong shapes, non-numerics, NaN, and inverted/empty boxes
+    rather than letting them reach ffmpeg or the CSS viewport.
+    """
+    if not crop_bbox_norm:
+        return None
+    try:
+        vals = [float(v) for v in crop_bbox_norm]
+    except (TypeError, ValueError):
+        return None
+    if len(vals) != 4 or any(v != v for v in vals):     # v != v catches NaN
+        return None
+    x0, y0, x1, y1 = (min(max(v, 0.0), 1.0) for v in vals)
+    if x1 - x0 <= 0 or y1 - y0 <= 0:
+        return None
+    return [x0, y0, x1, y1]
+
+
+def is_sub_crop(crop_bbox_norm, tol=FULL_FRAME_TOL):
+    """True only when the box MEANINGFULLY excludes part of the panel.
+
+    A full-frame box ([0,0,1,1], or within `tol` of it) is not a crop — it is
+    the whole panel wearing a crop key. Treating it as a crop is what silently
+    disabled the TALL_AR scroll-pan path for tall panels (Session 25, P4).
+    """
+    c = normalize_crop(crop_bbox_norm)
+    if c is None:
+        return False
+    x0, y0, x1, y1 = c
+    return not (x0 <= tol and y0 <= tol and x1 >= 1.0 - tol and y1 >= 1.0 - tol)
+
+
+def crop_rect_px(crop_bbox_norm, image_w, image_h):
+    """Integer pixel rect (x, y, w, h) for ffmpeg's crop filter, or None.
+
+    Same box the exporter's CSS viewport shows, expressed in pixels so the
+    editor thumbnail can be cut with ffmpeg and match it.
+    """
+    c = normalize_crop(crop_bbox_norm)
+    if c is None or not image_w or not image_h:
+        return None
+    x0, y0, x1, y1 = c
+    x = int(round(x0 * image_w))
+    y = int(round(y0 * image_h))
+    w = max(1, min(int(round((x1 - x0) * image_w)), int(image_w) - x))
+    h = max(1, min(int(round((y1 - y0) * image_h)), int(image_h) - y))
+    return x, y, w, h
+
+
 def get_crop_layout(crop_bbox_norm, image_w, image_h):
     """
     Given normalized crop coordinates [x0, y0, x1, y1] in range [0.0, 1.0],

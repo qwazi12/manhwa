@@ -2596,3 +2596,80 @@ uncropped; exporter applies crop_bbox_norm) + FINDING 5 (boxes stored with no
 validation) and is the dominant issue — 41 of 82 segments are affected. The
 audio complaint is ONE swapped slice pair, not a systemic timing failure.
 Fix plan P0-P4 unchanged and still un-implemented; nothing edited this session.
+
+### Session 25 (cont.) — P2 + P4 IMPLEMENTED (framing only; P0/P1/P3 untouched)
+Owner scoped this pass to the two framing fixes. Audio truncation, crop
+validation thresholds and slice re-binding were deliberately NOT touched.
+
+#### Shared crop contract — `shot_planner.py` (new)
+`normalize_crop()` / `is_sub_crop()` / `crop_rect_px()`. ONE definition of
+"does this segment actually crop?", now imported by BOTH the exporter and the
+editor. Previously each side decided independently, which is the whole bug.
+`normalize_crop` rejects wrong shapes, non-numerics, NaN and inverted boxes and
+clamps to [0,1]; every caller falls back to the full panel on None.
+`is_sub_crop` treats a box within 1% of every edge as the whole panel.
+
+#### P4 — full-frame box no longer disables the tall path
+`render_segments.seg_html()` used `crop_bbox_norm is not None`, so any box —
+including the `[0,0,1,1]` written by the subshot/fallback_full planner paths —
+set has_crop and suppressed the TALL_AR scroll-pan branch. Now uses
+`is_sub_crop()`. RENDER_EPOCH 2 -> 3 so existing clips re-render (compute only;
+no Gemini/TTS spend, guardrails untouched).
+
+SECOND DEFECT FOUND WHILE VERIFYING P4 — segments.json panel dimensions are
+STALE for several panels. Measured against the real files pulled from prod:
+  page020_panel_003_shot_03  manifest 900x2582  real 900x811
+  page009_panel_002          manifest 900x2465  real 900x849
+  page016_panel_001_shot_01  manifest 900x2435  real 900x1786
+  page017_panel_001_shot_03  manifest 900x2337  real 900x1900
+  page008_panel_002_shot_03  manifest 900x2210  real 900x2210  (only match)
+The renderer renders the REAL file but was choosing tall-vs-crop from the
+manifest. Harmless while any crop box suppressed `tall` — but P4 makes that
+branch reachable, so shipping P4 alone would have scroll-panned landscape art.
+seg_html now measures the staged asset (`_png_size`), falling back to
+panel_file then the manifest. The stale-manifest ROOT CAUSE is NOT fixed
+(likely a re-split that never rewrote segments.json) — logged as new backlog.
+
+#### P2 — the board now shows the frame the video renders
+ - `server.seg_crop_rect(seg)` — the export's box in real pixels, read from
+   the actual PNG header rather than the manifest.
+ - `ensure_thumb()` crops before scaling; on any ffmpeg failure it retries
+   uncropped so the board never shows an empty cell.
+ - Thumbnail filenames are keyed by `md5(panel_id|rect)[:8]`, so a re-crop or
+   panel swap can never be served from a stale cache. `_rerender` now globs
+   `seg_NNN*.jpg` instead of deleting one fixed name.
+ - NEW `GET /segimg/{seg_index}` — full-resolution exported frame, `?full=1`
+   for the untouched panel. /panelimg is keyed by PANEL and cannot express
+   this: one panel feeds several segments with different crops.
+ - `storyboard.py` renders the cropped frame inside every segment block with
+   an "original ↗" link and a badge (`✂ crop · keeps N%`, highlighted under
+   45%, or `▣ full panel`). The panel column still shows the full art.
+ - Motion labels now use `is_sub_crop`, and the board's tall threshold was
+   corrected 3.0 -> 2.2 to match the renderer, so the label finally describes
+   the branch that actually runs.
+
+#### VERIFIED (real Martial Genius Ch.1 data, not fixtures)
+Live active project confirmed == the-martial-genius-who-remembers-everything_1
+(identical 82-panel list). Panels pulled from prod /panelimg; read-only, no
+/api/activate, owner's session untouched.
+ - Old vs new exporter run over all 82 segments: 31 change branch.
+   old = 72 crop / 10 normal;  new = 41 crop / 38 normal / 3 tall.
+   The 41 that stay on the crop path are exactly the 41 real sub-crops the
+   audit counted — independent cross-check that nothing genuine was lost.
+   Only 3 go tall (segs 22/40/70): measuring real dimensions correctly
+   REJECTS the stale-manifest "tall" panels instead of scroll-panning them.
+ - seg 9  crop rect (81,29,783,328) on the real 900x730 panel — matches the
+   audit's 783x328 / 39.1%.
+ - seg 11 crop rect (67,20,767,412) on the real 900x1274 panel — 27.5%, the
+   top band; the board now shows the bubble-only frame the export delivers,
+   with the injured face visibly excluded. Before/after sheets sent to owner.
+ - segs 22 and 71 (full-frame boxes) correctly return None -> full panel.
+ - All 6 malformed box shapes fall back to the full panel without raising.
+ - Suites: crop_preview 16/16 (new), storyboard_edit 42/42, js_syntax 2/2,
+   render_epoch 4/4, assign ALL PASS. No regressions.
+NOT deployed — code committed and pushed only; owner decides when to deploy.
+
+#### NEW BACKLOG (found this pass, deliberately not fixed)
+ - segments.json width/height stale vs the real crop PNGs (see table above).
+ - `should_crop_close` keyword list includes "bubble/caption/text", which is
+   part of why the planner keeps framing speech bubbles over character art.
