@@ -2673,3 +2673,78 @@ NOT deployed — code committed and pushed only; owner decides when to deploy.
  - segments.json width/height stale vs the real crop PNGs (see table above).
  - `should_crop_close` keyword list includes "bubble/caption/text", which is
    part of why the planner keeps framing speech bubbles over character art.
+
+### Session 25 (cont.) — P2 + P4 DEPLOYED AND LIVE-VERIFIED on manhwa.nodepilot.dev
+
+#### Split-deploy gap caught BEFORE claiming success
+First liveness probe targeted /segimg/9 and would have hung forever: `/segimg`
+was in NEITHER vercel.json, and the domain-owning config
+(review_ui/static/vercel.json, project "manhwa-studio") has explicit rewrites
+for /api /clip /thumb /audio /panelimg /export and NO catch-all. A backend-only
+deploy therefore could not have exposed the new endpoint at all. Added
+`/segimg/:path*` to both configs (commit 8035846) and deployed BOTH layers.
+Lesson for future endpoint work: a new backend route is invisible on the live
+domain until the edge rewrite list ships too.
+
+#### Also caught: a false-positive probe (reported, not hidden)
+A `case` pattern compared `file -b` output "200x162" against "200 x 162" and
+fell through to the success branch, printing "RAILWAY LIVE ... now 200x162
+(was 200 x 162)" — the same value. Railway was still BUILDING at that moment.
+Re-probed on deployment STATE (SUCCESS|FAILED|CRASHED|REMOVED) instead of a
+scraped dimension string.
+
+#### Deployments
+ - Railway backend: deployment `4bb38b22-638c-4b75-a6a3-fa24fe3a7bb8` SUCCESS
+   (service 0baf7469, project recap-studio/production). /health and /ready 200.
+   Transient 502s on /panelimg during the container swap; cleared on their own.
+ - Vercel edge: `manhwa-studio-57c2tbp9m-qwazi12s-projects.vercel.app`,
+   target=production, status=Ready, alias **https://manhwa.nodepilot.dev**.
+
+#### LIVE evidence (fetched from the public domain, cache-busted)
+Storyboard grew 369,658 -> 400,922 bytes. Markers: 86 segprev blocks,
+164 /segimg links, 85 crop badges, 41 "keeps N%" + 41 "▣ full panel" = 82
+segments — exactly the 41 sub-crop / 41 non-sub-crop split the audit predicted.
+
+  seg_index  9 (page004_panel_002_shot_08, real 900x730, box .09/.04/.96/.49)
+    BEFORE /thumb/9  = 200x162  (= 900/730, the FULL panel)
+    AFTER  /thumb/9  = 200x84   (= 783/328, the EXPORTED crop)
+    /segimg/9         = 783 x 328   /segimg/9?full=1 = 900 x 730
+    board badge: "✂ crop · keeps 39%"  (audit said 39.1%)
+
+  seg_index 11 (page005_panel_002_shot_02, real 900x1274, box .074/.016/.926/.339)
+    BEFORE /thumb/11 = 200x283  (= 900/1274, the FULL panel)
+    AFTER  /thumb/11 = 200x107  (= 767/412, the EXPORTED crop)
+    /segimg/11        = 767 x 412   /segimg/11?full=1 = 900 x 1274
+    board badge: "✂ crop · keeps 28%"  (audit said 27.5%)
+
+Stale-cache check PASSED: both thumbnails changed dimensions across the deploy
+without any manual cache purge — the md5(panel_id|rect) filename key means the
+old uncropped seg_009.jpg can no longer be addressed, let alone served.
+Pre-deploy /segimg/9 was 404; post-deploy 200.
+
+#### P4 live
+Full-frame-box segments no longer take the crop path:
+  seg 22 / 40 / 70 -> "tall strip → scroll-pan top→bottom"  (was sub-crop)
+  seg 26 / 51 / 55 / 71 -> plain Ken Burns card, because measuring the REAL
+  file shows they are not tall despite the manifest claiming AR 2.4-2.9.
+Genuine sub-crops unchanged: segs 9, 11, 48, 19 still "planned sub-crop +
+Ken Burns" with badges 39% / 28% / 4% / 9%.
+Live label census over 82 segments: 41 sub-crop, 21 push-in, 15 pull-out,
+5 tall strip.
+
+#### RESIDUAL GAP — reported, NOT fixed (would exceed P2/P4 scope)
+There are THREE dimension sources and they disagree:
+  1. descriptions.json  -> storyboard.py:196 `w,h` -> the board's AR and its
+     tall/Ken-Burns TEXT label
+  2. segments.json width/height -> stale for several panels (see prior entry)
+  3. the real PNG -> what the renderer now measures (fixed this pass)
+So the board labels 5 segments "tall strip" while the renderer takes that path
+for 3 (22/40/70). Segs 72 and 73 are the extras — seg 72's manifest AR is 1.43,
+and seg 73 carries NO width/height keys at all. This is a TEXT-LABEL
+inconsistency only: the P2 image preview and the crop badge are both correct,
+because the preview measures real pixels and the badge derives from
+crop_bbox_norm. Fixing the label means plumbing real dimensions into
+storyboard.py and resolving the stale-dimension root cause first.
+
+STATUS: P2 and P4 are implemented, deployed to both layers, and verified on the
+live site against the real audited segments. P0/P1/P3 remain untouched.
