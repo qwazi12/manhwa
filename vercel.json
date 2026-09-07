@@ -38,6 +38,10 @@
       "destination": "https://recap-studio-production.up.railway.app/panelimg/:path*"
     },
     {
+      "source": "/segimg/:path*",
+      "destination": "https://recap-studio-production.up.railway.app/segimg/:path*"
+    },
+    {
       "source": "/export/:path*",
       "destination": "https://recap-studio-production.up.railway.app/export/:path*"
     },
