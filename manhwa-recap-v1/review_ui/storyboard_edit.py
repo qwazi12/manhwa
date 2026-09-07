@@ -901,7 +901,14 @@ if _RECAP_DIR not in _sys.path:
     _sys.path.insert(0, _RECAP_DIR)
 from shot_planner import crop_area, crop_status          # noqa: E402
 
-COVER_TOL = 0.06        # seconds of slack before coverage counts as broken
+# Slack before audio counts as falling outside its window.
+# 0.15s ~= 6 mp3 frames (1152 samples @44.1kHz = 26.1ms each). _slice_mp3
+# RE-ENCODES, and LAME appends encoder delay+padding, so a sliced part runs a
+# few frames longer than the cut asked for — live Martial Genius slices came
+# back +0.067s. That is trailing silence, not speech, and a tolerance of 0.06
+# wrongly flagged segs 0/1/14 as truncated and would have blocked a valid
+# export. Real truncation is orders of magnitude bigger (seg 81: 4.728s).
+COVER_TOL = 0.15
 _DUR_CACHE = {}
 
 

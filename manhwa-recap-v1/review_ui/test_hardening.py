@@ -107,6 +107,22 @@ def main():
     v = se.validate_timeline(tmp)
     r.append(("a healthy timeline validates clean", v["ok"] and v["n_errors"] == 0))
 
+    # mp3 re-encode padding must NOT be reported as truncation (live Martial
+    # Genius slices came back +0.067s and wrongly blocked export at tol 0.06)
+    segs = se.load(tmp)
+    segs[0]["dur"] = 8.94; segs[0]["end"] = 8.94       # 9.0s audio, 0.06s over
+    se.save(tmp, segs)
+    r.append(("a few frames of encoder padding is tolerated, not 'truncated'",
+              se.validate_timeline(tmp)["ok"]))
+    segs = se.load(tmp)
+    segs[0]["dur"] = 8.0; segs[0]["end"] = 8.0         # 9.0s audio, 1.0s over
+    se.save(tmp, segs)
+    r.append(("real truncation well past the padding is still caught",
+              any(e["rule"] == "G2-truncated"
+                  for e in se.validate_timeline(tmp)["errors"])))
+    segs = se.load(tmp); segs[0]["dur"] = 10.0; segs[0]["end"] = 10.0
+    se.save(tmp, segs)
+
     segs = se.load(tmp); segs[0]["dur"] = 5.0; segs[0]["end"] = 5.0; se.save(tmp, segs)
     v = se.validate_timeline(tmp)
     r.append(("audio longer than its window is REJECTED (G2)",
