@@ -84,6 +84,10 @@ def _png_size(path):
 # were rendering as ~1/3-width cards with unreadable dialogue.
 TALL_AR = 2.2
 
+# Slack before audio counts as falling outside its window (matches
+# storyboard_edit.COVER_TOL so the guard and the validator agree).
+COVER_TOL = 0.06
+
 
 def seg_html(seg, audio_dir):
     """Standalone HyperFrames composition for one segment: blurred blow-up
@@ -187,6 +191,16 @@ def seg_html(seg, audio_dir):
             continue
         off = round(b["start"] - seg["start"], 3)
         adur = ffprobe_dur(a)
+        # P0 (Session 25): the composition is exactly `dur` long, so audio
+        # scheduled outside it cannot exist in the mp4. This used to pass
+        # silently and simply lose the sentence. Fail loudly instead.
+        if off < -COVER_TOL or off + adur > dur + COVER_TOL:
+            raise RuntimeError(
+                f"seg {seg['seg_index']}: beat {b['index']} ({fname}) does not "
+                f"fit its {dur:.3f}s window — starts at {off:+.3f}s and runs "
+                f"{adur:.3f}s. Rendering would cut narration off. Fix the "
+                f"timeline (POST /api/storyboard/repair_slices for swapped "
+                f"slices) before rendering.")
         audio_layers.append(
             f'    <audio class="clip" id="a{b["index"]}_{n}" data-start="{off}" '
             f'data-duration="{adur}" data-track-index="9" data-volume="1" '

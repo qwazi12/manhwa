@@ -18,7 +18,8 @@ from datetime import datetime
 _RECAP = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 if _RECAP not in sys.path:
     sys.path.insert(0, _RECAP)
-from shot_planner import is_sub_crop        # SAME crop test the exporter uses
+from shot_planner import (crop_area, crop_status, is_sub_crop,  # SAME contract
+                          png_size)                             # as the exporter
 
 # Must match render_segments.TALL_AR — the board previously said "tall strip"
 # at AR>=3 while the renderer switched at 2.2, so panels between the two were
@@ -26,32 +27,73 @@ from shot_planner import is_sub_crop        # SAME crop test the exporter uses
 TALL_AR = 2.2
 
 
-def _seg_preview(s, si):
-    """The frame the VIDEO will show for this segment.
+_DIM_CACHE = {}
 
-    P2 (Session 25): the board's panel column shows the whole panel, but the
-    exporter crops to crop_bbox_norm — so a segment could be approved on art
-    the video never shows (41 of 82 segments on Martial Genius Ch.1). This
-    renders the cropped frame itself, straight from /thumb (same crop the
-    exporter applies), and links to the full panel so the original art stays
-    one click away.
+
+def _real_dims(pdir, pid, fallback_w=0, fallback_h=0):
+    """True (w, h) of the panel PNG, cached per render.
+
+    P-dims (Session 25): descriptions.json fed the board's AR/label while
+    segments.json fed other code and BOTH drift from the files on disk
+    (page020_panel_003_shot_03: recorded 900x2582, real 900x811). The board
+    then labelled panels "tall strip" that the renderer treats as ordinary
+    cards. The image itself is now the only geometry source; the recorded
+    numbers are a fallback for a missing/unreadable file.
     """
-    sub = is_sub_crop(s.get("crop_bbox_norm"))
-    if sub:
-        x0, y0, x1, y1 = s["crop_bbox_norm"]
-        pct = (x1 - x0) * (y1 - y0) * 100
-        note = (f'<span class="cropb tight" title="the exporter keeps only this '
-                f'part of the panel — click the frame for the full panel">'
-                f'✂ crop · keeps {pct:.0f}%</span>') if pct < 45 else (
-               f'<span class="cropb" title="the exporter crops the panel to '
-               f'this box">✂ crop · keeps {pct:.0f}%</span>')
+    key = (pdir, pid)
+    if key not in _DIM_CACHE:
+        w, h = png_size(os.path.join(pdir, "crops", f"{pid}.png"))
+        _DIM_CACHE[key] = (w, h) if (w and h) else (fallback_w, fallback_h)
+    return _DIM_CACHE[key]
+
+
+def _seg_preview(s, si):
+    """The frame the VIDEO will show, plus the reviewer's override controls.
+
+    P2 (Session 25) put the exported crop on the board. P3 makes it
+    ACTIONABLE: the badge grades how much of the panel survives, and a
+    reviewer who disagrees with the planner can take the whole panel back in
+    one click. Below shot_planner.CROP_MIN_AREA the box is not framing at all
+    and the full panel renders automatically — the badge says so.
+    """
+    box = s.get("crop_bbox_norm")
+    st = crop_status(box)
+    pct = crop_area(box) * 100
+    overridden = s.get("focus_source") == "manual_full"
+    restorable = s.get("crop_bbox_norm_ai") is not None
+
+    if st == "sub":
+        if pct >= 60:
+            cls, txt, tip = "ok", f"\u2702 keeps {pct:.0f}%", "most of the panel is kept"
+        elif pct >= 30:
+            cls, txt, tip = "rev", f"\u2702 keeps {pct:.0f}%", "under two-thirds of the panel is used \u2014 worth a look"
+        else:
+            cls, txt, tip = "tight", f"\u26a0 keeps {pct:.0f}%", "a small fragment of the panel \u2014 character art is probably lost"
+    elif st == "tiny":
+        cls, txt = "blocked", f"\u26d4 crop {pct:.0f}% \u2014 too small, full panel used"
+        tip = "below the usable floor, so the exporter falls back to the whole panel"
+    elif st == "invalid":
+        cls, txt, tip = "blocked", "\u26d4 invalid crop \u2014 full panel used", "the stored box is malformed"
     else:
-        note = '<span class="cropb full" title="the whole panel is used">▣ full panel</span>'
+        cls = "full"
+        txt = "\u25a3 full panel (your override)" if overridden else "\u25a3 full panel"
+        tip = "the whole panel is used"
+
+    acts = ""
+    if st in ("sub", "tiny"):
+        acts += (f'<button class="cropact" title="render the WHOLE panel for this '
+                 f'segment instead of the planner\'s crop \u2014 changes the export too" '
+                 f'onclick="useFullPanel({si})">use full panel</button>')
+    if restorable:
+        acts += (f'<button class="cropact alt" title="put the planner\'s crop back" '
+                 f'onclick="restoreCrop({si})">restore crop</button>')
+
     return (f'<span class="segprev">'
             f'<a href="/segimg/{si}" target="_blank" title="exact exported frame '
             f'(full resolution)"><img src="/thumb/{si}" loading="lazy" alt=""></a>'
             f'<a class="orig" href="/segimg/{si}?full=1" target="_blank" '
-            f'title="the original uncropped panel">original ↗</a>{note}</span>')
+            f'title="the original uncropped panel">original \u2197</a>'
+            f'<span class="cropb {cls}" title="{tip}">{txt}</span>{acts}</span>')
 
 
 def _natural(pid):
@@ -193,7 +235,7 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     rows = []
     for i, d in enumerate(descs, 1):
         pid = d["panel_id"]
-        w, h = d.get("width") or 0, d.get("height") or 0
+        w, h = _real_dims(pdir, pid, d.get("width") or 0, d.get("height") or 0)
         ar = h / max(w, 1)
         ocr = html.escape((d.get("ocr_text") or "").strip()) or "<i>none</i>"
         vis = html.escape((d.get("visual_description") or "").strip())
@@ -402,8 +444,15 @@ tr.gray td.script {{ background:#f0f0f0; color:#777; }}
 .segprev .orig:hover {{ text-decoration:underline; }}
 .cropb {{ display:block; font-size:10px; margin-top:2px; padding:1px 4px; border-radius:3px;
   background:#eef3ee; color:#3c553c; }}
+.cropb.ok {{ background:#eaf4ea; color:#2f5d2f; }}
+.cropb.rev {{ background:#fff6e0; color:#7a5a10; }}
 .cropb.tight {{ background:#ffe9e0; color:#9c3d10; font-weight:600; }}
+.cropb.blocked {{ background:#ffdcdc; color:#8c1414; font-weight:700; }}
 .cropb.full {{ background:#eef3ee; color:#5b6b5b; }}
+.cropact {{ display:block; width:100%; margin-top:3px; font-size:10px; padding:2px 3px;
+  border:1px solid #b9c9b9; background:#fff; border-radius:3px; cursor:pointer; }}
+.cropact:hover {{ background:#eef7ee; }}
+.cropact.alt {{ border-color:#cfcfcf; color:#666; }}
 .segblock.over {{ outline:2px dashed #5b8cff; }}
 td.timing.dropok {{ outline:3px dashed #22a06b; outline-offset:-3px; background:#eefaf3; }}
 .segblock[draggable] {{ cursor:grab; }}
@@ -564,6 +613,11 @@ function setDur(si) {{
   post('/api/storyboard/duration', {{seg_index: si, dur: v}}, 'retiming…');
 }}
 function nudge(si, delta) {{ post('/api/storyboard/boundary', {{seg_index: si, delta}}, 'moving cut…'); }}
+function useFullPanel(si) {{
+  if (!confirm('Render the WHOLE panel for segment ' + si + '? This changes the exported video too, not just this preview.')) return;
+  post('/api/storyboard/use_full_panel', {{seg_index: si}}, 'switching to full panel…');
+}}
+function restoreCrop(si) {{ post('/api/storyboard/restore_crop', {{seg_index: si}}, 'restoring planner crop…'); }}
 function addLine(si) {{
   const t = prompt('New narration sentence (costs its TTS characters):');
   if (t && t.trim()) post('/api/storyboard/addline', {{seg_index: si, text: t.trim()}}, 'synthesizing…');

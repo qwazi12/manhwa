@@ -520,8 +520,20 @@ def include_panel(pdir, panel_id, scenes, descs, hold=DEFAULT_HOLD):
                "beats": tail, "clip": f"clips/seg_{new_si:03d}.mp4"}
         host["dur"] = round(cut - host["start"], 3)
         segs.insert(hp + 1, new) if after else segs.insert(hp, new)
-        if not after:   # carved from the head of a later host: swap windows
-            new["start"], host["start"] = host["start"], cut
+        if not after:
+            # P1 (Session 25) — THE slice-swap bug. The promoted panel reads
+            # BEFORE its host, so it must take the FIRST half of the carved
+            # window: the early window AND the early audio, together.
+            # The old line swapped only the two `start` values, leaving the
+            # new segment on the early window holding the LATE slice (_b) and
+            # the host on the late window holding the EARLY slice (_a). Every
+            # "_a" then sat outside its own segment, so its sentence was cut
+            # off at render (Martial Genius seg 81/50 beat 53 = 4.66s lost;
+            # Swordmasters segs 92/54, 17/83, 24/87). Durations were swapped
+            # by the same omission. Swap the beats and set BOTH windows.
+            new["beats"], host["beats"] = host["beats"], new["beats"]
+            new["start"], new["dur"], new["end"] = h0, round(cut - h0, 3), cut
+            host["start"], host["dur"], host["end"] = cut, round(end - cut, 3), end
         _ripple(segs)
         save(pdir, segs)
         _stale(pdir, [host["seg_index"], new_si])
@@ -878,3 +890,177 @@ def resize_after_tts(pdir, beat_index, new_dur):
                 _log(pdir, "resize_after_tts", beat=beat_index, diff=diff)
                 return segs
     raise ValueError(f"beat {beat_index} not found")
+
+
+# ===================================================================== P3/P0/P1
+# Crop overrides, timeline validation, and slice-binding repair (Session 25).
+import sys as _sys
+
+_RECAP_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+if _RECAP_DIR not in _sys.path:
+    _sys.path.insert(0, _RECAP_DIR)
+from shot_planner import crop_area, crop_status          # noqa: E402
+
+COVER_TOL = 0.06        # seconds of slack before coverage counts as broken
+_DUR_CACHE = {}
+
+
+def _audio_len(path):
+    """Real mp3 length, cached on (path, mtime). The renderer schedules audio
+    by the FILE's duration, so validation must use the same number — the
+    beat's json range disagrees with it (Session 25: uniform 0.6s drift)."""
+    try:
+        key = (path, os.path.getmtime(path))
+    except OSError:
+        return None
+    if key not in _DUR_CACHE:
+        try:
+            _DUR_CACHE[key] = _ffdur(path)
+        except Exception:
+            _DUR_CACHE[key] = None
+    return _DUR_CACHE[key]
+
+
+# ------------------------------------------------------------ P3: crop override
+def use_full_panel(pdir, si):
+    """Reviewer override: render this segment's WHOLE panel.
+
+    The vision planner frames speech bubbles over character art and stores the
+    result at high confidence, so a human needs a one-click way out. The AI box
+    is kept in crop_bbox_norm_ai so the decision stays auditable and reversible.
+    """
+    segs = load(pdir)
+    s = segs[_pos(segs, si)]
+    if s.get("crop_bbox_norm_ai") is None and s.get("crop_bbox_norm") is not None:
+        s["crop_bbox_norm_ai"] = s["crop_bbox_norm"]
+        s["focus_source_ai"] = s.get("focus_source")
+    s["crop_bbox_norm"] = [0.0, 0.0, 1.0, 1.0]
+    s["focus_source"] = "manual_full"
+    s["focus_reason"] = "reviewer override — use full panel"
+    s["focus_confidence"] = 1.0
+    save(pdir, segs)
+    _stale(pdir, [si])
+    _log(pdir, "use_full_panel", seg=si)
+    return segs
+
+
+def restore_ai_crop(pdir, si):
+    """Undo use_full_panel: put the planner's box back."""
+    segs = load(pdir)
+    s = segs[_pos(segs, si)]
+    if s.get("crop_bbox_norm_ai") is None:
+        raise ValueError(f"segment {si} has no stored AI crop to restore")
+    s["crop_bbox_norm"] = s.pop("crop_bbox_norm_ai")
+    s["focus_source"] = s.pop("focus_source_ai", None) or "vision"
+    s["focus_reason"] = "restored planner crop"
+    save(pdir, segs)
+    _stale(pdir, [si])
+    _log(pdir, "restore_ai_crop", seg=si)
+    return segs
+
+
+# --------------------------------------------------- P1: repair swapped slices
+def _misfit(seg, beats):
+    """Seconds of `beats` audio falling outside seg's window (0.0 == clean)."""
+    out = 0.0
+    for b in beats:
+        out += max(0.0, seg["start"] - b["start"]) + max(0.0, b["end"] - seg["end"])
+    return round(out, 3)
+
+
+def repair_slice_binding(pdir, dry_run=False):
+    """Re-bind beats that the old carve bug handed to the wrong segment.
+
+    include_panel() used to swap two segments' window STARTS without swapping
+    their beats, so an adjacent pair ended up holding each other's audio. The
+    fix stops new breakage; this repairs projects already saved that way.
+    Only swaps an adjacent pair when doing so strictly reduces total misfit,
+    so a healthy timeline is never touched.
+    """
+    segs = load(pdir)
+    fixed = []
+    for i in range(len(segs) - 1):
+        a, b = segs[i], segs[i + 1]
+        now = _misfit(a, a["beats"]) + _misfit(b, b["beats"])
+        if now == 0:
+            continue
+        swapped = _misfit(a, b["beats"]) + _misfit(b, a["beats"])
+        if swapped < now:
+            if not dry_run:
+                a["beats"], b["beats"] = b["beats"], a["beats"]
+            fixed.append({"segs": [a["seg_index"], b["seg_index"]],
+                          "misfit_before": now, "misfit_after": swapped})
+    if fixed and not dry_run:
+        save(pdir, segs)
+        _stale(pdir, [i for f in fixed for i in f["segs"]])
+        _log(pdir, "repair_slice_binding", pairs=len(fixed))
+    return {"repaired": fixed, "n": len(fixed), "dry_run": dry_run}
+
+
+# ------------------------------------------------- P0: hard timeline validation
+def validate_timeline(pdir, segs=None):
+    """Enforce the timing contract BEFORE anything renders or exports.
+
+    The renderer builds a composition exactly `dur` long and schedules each
+    beat at `b.start - seg.start` for the FILE's real length; anything landing
+    outside that window simply does not exist in the mp4. Nothing used to
+    check it, so narration was cut silently. Errors block; warnings inform.
+    """
+    segs = segs if segs is not None else load(pdir)
+    adir = _audio_dir(pdir)
+    errors, warnings = [], []
+    for s in segs:
+        si, dur = s["seg_index"], s.get("dur", 0.0)
+        if dur < MIN_SEG - 1e-6:
+            errors.append({"seg": si, "rule": "G4-min-duration",
+                           "msg": f"duration {dur:.3f}s is below the {MIN_SEG}s floor"})
+        if dur <= 0:
+            errors.append({"seg": si, "rule": "G4-negative",
+                           "msg": f"duration {dur:.3f}s is not positive"})
+        beats = s.get("beats", [])
+        if not beats and not s.get("silent_hold"):
+            warnings.append({"seg": si, "rule": "G5-dead-air",
+                             "msg": f"{dur:.1f}s with no narration and no "
+                                    f"silent_hold flag — mark it silent if intended"})
+        seen = []
+        for b in beats:
+            fname = b.get("file") or f"beat_{b['index']:03d}.mp3"
+            path = os.path.join(adir, fname)
+            alen = _audio_len(path)
+            if alen is None:
+                errors.append({"seg": si, "rule": "G0-missing-audio",
+                               "msg": f"beat {b['index']} audio missing: {fname}"})
+                continue
+            off = round(b["start"] - s["start"], 3)
+            if off < -COVER_TOL:
+                errors.append({"seg": si, "rule": "G1-starts-before-window",
+                               "msg": f"beat {b['index']} ({fname}) starts {abs(off):.3f}s "
+                                      f"before its segment — it cannot be heard"})
+            if off + alen > dur + COVER_TOL:
+                errors.append({"seg": si, "rule": "G2-truncated",
+                               "msg": f"beat {b['index']} ({fname}) needs {off + alen:.3f}s "
+                                      f"but the segment is {dur:.3f}s — "
+                                      f"{off + alen - dur:.3f}s of narration is cut off"})
+            if b["start"] >= s["end"] - 0.005 or b["end"] <= s["start"] + 0.005:
+                errors.append({"seg": si, "rule": "G3-outside-window",
+                               "msg": f"beat {b['index']} ({fname}) lies entirely "
+                                      f"outside its segment window"})
+            for ob_i, ob_f, ob_s, ob_e in seen:
+                if ob_i == b["index"] and ob_f == fname and \
+                        min(b["end"], ob_e) - max(b["start"], ob_s) > 0.005:
+                    errors.append({"seg": si, "rule": "G6-duplicate-coverage",
+                                   "msg": f"beat {b['index']} ({fname}) is scheduled "
+                                          f"twice — the audio would replay"})
+            seen.append((b["index"], fname, b["start"], b["end"]))
+        cs = crop_status(s.get("crop_bbox_norm"))
+        if cs == "invalid":
+            warnings.append({"seg": si, "rule": "C1-invalid-crop",
+                             "msg": "crop box is malformed — the full panel will render"})
+        elif cs == "tiny":
+            warnings.append({"seg": si, "rule": "C2-tiny-crop",
+                             "msg": f"crop keeps only {crop_area(s['crop_bbox_norm'])*100:.1f}% "
+                                    f"of the panel — below the usable floor, so the full "
+                                    f"panel renders; use 'full panel' to make it explicit"})
+    return {"ok": not errors, "errors": errors, "warnings": warnings,
+            "n_errors": len(errors), "n_warnings": len(warnings),
+            "n_segments": len(segs)}

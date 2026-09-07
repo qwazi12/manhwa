@@ -369,6 +369,9 @@ def _do_export(speed=1.0):
     if missing:
         raise HTTPException(400, f"ticked segments not rendered yet: {missing} "
                                  "— run render-missing first")
+    # P0 (Session 25): never concatenate a timeline whose audio does not fit
+    # its windows — that is how narration was being lost silently.
+    _gate_timeline([s["seg_index"] for s in approved], "export")
     # E5: intro/outro title cards from project metadata (best-effort — the
     # export must never fail because a card couldn't render).
     pdir = active_project_dir()
@@ -466,6 +469,10 @@ def render_missing(force: bool = False):
     if not any(s.get("user_included") for s in segs):
         raise HTTPException(400, "nothing is ticked for the final video — "
                                  "tick segments on /storyboard first")
+    # P0 (Session 25): pre-render gate. The renderer now refuses a segment
+    # whose audio does not fit its window, so catch it here with a useful
+    # message instead of a mid-batch RuntimeError.
+    _gate_timeline(missing, "render")
     done = []
     for i in missing:
         env = os.environ.copy()
@@ -1681,6 +1688,71 @@ class BoundaryIn(BaseModel):
 def sb_boundary(body: BoundaryIn):
     import storyboard_edit
     return _sb_op(storyboard_edit.move_boundary, body.seg_index, body.delta)
+
+
+class SegOnlyIn(BaseModel):
+    seg_index: int
+
+
+@app.post("/api/storyboard/use_full_panel")
+def sb_use_full_panel(body: SegOnlyIn):
+    """P3: reviewer overrides a bad planner crop with the whole panel.
+
+    Writes crop_bbox_norm=[0,0,1,1] into segments.json — the SAME manifest the
+    exporter reads — so the override reaches the video, not just the board.
+    The planner's box is preserved in crop_bbox_norm_ai and is restorable.
+    """
+    import storyboard_edit
+    out = _sb_op(storyboard_edit.use_full_panel, body.seg_index)
+    out["crop"] = "full"
+    return out
+
+
+@app.post("/api/storyboard/restore_crop")
+def sb_restore_crop(body: SegOnlyIn):
+    import storyboard_edit
+    out = _sb_op(storyboard_edit.restore_ai_crop, body.seg_index)
+    out["crop"] = "planner"
+    return out
+
+
+class RepairIn(BaseModel):
+    dry_run: bool = False
+
+
+@app.post("/api/storyboard/repair_slices")
+def sb_repair_slices(body: RepairIn):
+    """P1: re-bind sliced beats the old carve bug handed to the wrong segment."""
+    import storyboard_edit
+    if not body.dry_run:
+        _snapshot()
+    try:
+        return storyboard_edit.repair_slice_binding(active_project_dir(),
+                                                    dry_run=body.dry_run)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/validate")
+def api_validate():
+    """P0: the timing/crop contract for the active project. Read-only."""
+    import storyboard_edit
+    return storyboard_edit.validate_timeline(active_project_dir())
+
+
+def _gate_timeline(seg_indexes, action):
+    """Refuse to render/export a timeline that would cut narration off."""
+    import storyboard_edit
+    v = storyboard_edit.validate_timeline(active_project_dir())
+    want = set(seg_indexes)
+    errs = [e for e in v["errors"] if e["seg"] in want]
+    if errs:
+        detail = "; ".join(f"seg {e['seg']}: {e['msg']}" for e in errs[:6])
+        raise HTTPException(400,
+            f"{action} blocked — {len(errs)} timing error(s) would cut narration. "
+            f"{detail}"
+            + (f" (+{len(errs) - 6} more)" if len(errs) > 6 else "")
+            + ". Run POST /api/storyboard/repair_slices if these are swapped slices.")
 
 
 class MoveIn(BaseModel):

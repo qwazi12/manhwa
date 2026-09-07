@@ -57,18 +57,90 @@ def normalize_crop(crop_bbox_norm):
     return [x0, y0, x1, y1]
 
 
+# P3 (Session 25): a vision crop keeping less than this fraction of the panel
+# is not framing, it is a magnified fragment — on Martial Genius Ch.1 seg 48
+# kept 4.2% and seg 19 kept 8.7%, both stored at high confidence. Boxes under
+# the floor auto-fall back to the whole panel rather than shipping silently.
+# focus_confidence is NOT usable as the gate: the two worst boxes in the audit
+# both carried 1.0.
+CROP_MIN_AREA = 0.12
+
+
+def crop_area(crop_bbox_norm):
+    """Fraction of the panel the box keeps (0..1); 0.0 when unusable."""
+    c = normalize_crop(crop_bbox_norm)
+    if c is None:
+        return 0.0
+    x0, y0, x1, y1 = c
+    return (x1 - x0) * (y1 - y0)
+
+
+def is_full_frame_crop(crop_bbox_norm, tol=FULL_FRAME_TOL):
+    """True when the box is the whole panel (within `tol` of every edge)."""
+    c = normalize_crop(crop_bbox_norm)
+    if c is None:
+        return False
+    x0, y0, x1, y1 = c
+    return x0 <= tol and y0 <= tol and x1 >= 1.0 - tol and y1 >= 1.0 - tol
+
+
+def crop_status(crop_bbox_norm):
+    """Classify a stored box, for reviewer-facing labels and gating.
+
+    "none"    — no box at all
+    "invalid" — malformed / inverted / unusable
+    "full"    — the whole panel
+    "tiny"    — a real box, but below CROP_MIN_AREA (auto-falls back)
+    "sub"     — a usable sub-crop
+    """
+    if not crop_bbox_norm:
+        return "none"
+    if normalize_crop(crop_bbox_norm) is None:
+        return "invalid"
+    if is_full_frame_crop(crop_bbox_norm):
+        return "full"
+    return "tiny" if crop_area(crop_bbox_norm) < CROP_MIN_AREA else "sub"
+
+
+def effective_crop(crop_bbox_norm):
+    """THE box actually rendered, or None meaning "use the whole panel".
+
+    One function so preview and export can never diverge: invalid, full-frame
+    and below-floor boxes all resolve to the full panel here, for both.
+    """
+    return (normalize_crop(crop_bbox_norm)
+            if crop_status(crop_bbox_norm) == "sub" else None)
+
+
 def is_sub_crop(crop_bbox_norm, tol=FULL_FRAME_TOL):
     """True only when the box MEANINGFULLY excludes part of the panel.
 
     A full-frame box ([0,0,1,1], or within `tol` of it) is not a crop — it is
     the whole panel wearing a crop key. Treating it as a crop is what silently
     disabled the TALL_AR scroll-pan path for tall panels (Session 25, P4).
+    Now also false for below-floor boxes, so an unusable crop takes the same
+    path as no crop at all.
     """
-    c = normalize_crop(crop_bbox_norm)
-    if c is None:
-        return False
-    x0, y0, x1, y1 = c
-    return not (x0 <= tol and y0 <= tol and x1 >= 1.0 - tol and y1 >= 1.0 - tol)
+    return effective_crop(crop_bbox_norm) is not None
+
+
+def png_size(path):
+    """(width, height) from a PNG's IHDR — the ONE geometry source.
+
+    segments.json width/height and descriptions.json width/height both drift
+    from the real files (Session 25: page020_panel_003_shot_03 recorded
+    900x2582, real file 900x811). Anything that decides framing or labels must
+    measure the file.
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+        if head[:8] == b"\x89PNG\r\n\x1a\n":
+            import struct
+            return struct.unpack(">II", head[16:24])
+    except OSError:
+        pass
+    return None, None
 
 
 def crop_rect_px(crop_bbox_norm, image_w, image_h):
