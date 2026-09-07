@@ -2453,3 +2453,80 @@ APPROVE, then deploy + live verify.
   BASIC_AUTH_USER/PASSWORD Vercel env vars are now inert — harmless to leave,
   and restoring the gate = restore the auth check in middleware.js + redeploy.
   Also note the previously-shared password is now moot for this site.
+
+### Session 25 — 2026-09-07 — AUDIT: export audio truncation + editor/export framing mismatch
+Read-only audit requested by owner (two symptoms: "audio cut off in exported
+clips", "images in the final video don't match the panels in the editor").
+No code changed. All claims below verified against the real
+`swordmasters-youngest-son_1` project (103 segments, 105 audio refs, 0 missing).
+
+#### FINDING 1 — the renderer has NO audio-coverage guard (render-time)
+`hyperframes/render_segments.py:seg_html()` sets the composition length from
+`dur = seg["dur"]` and then places each beat at `data-start = b["start"] -
+seg["start"]` for `data-duration = ffprobe_dur(file)`. Nothing ever checks
+`off + adur <= dur`. `render_segment()` runs `hyperframes render`, so the mp4
+is exactly `dur` long — any audio scheduled past that CANNOT exist in the file.
+The edit layer's floors (`storyboard_edit._occupied`, `_member_floor`,
+`set_duration`, `rebalance_group`) are correct and do enforce coverage, but
+they are the ONLY guard, and they only run on user edits. Data that arrives
+broken from any other path renders truncated in silence.
+
+#### FINDING 2 — 4 segments in live data are provably truncated (data-level)
+Probe replicating seg_html's placement exactly:
+ - seg 92 / beat 55 `_b`: off 5.849 into a 5.849s window -> ALL 5.599s cut.
+ - seg 54 / beat 55 `_a`: off -5.849 (audio starts before the clip does)
+ - seg 24 / beat 25 `_a`: off -5.777
+ - seg 17 / beat 18 `_a`: off -3.689
+ROOT CAUSE — systematic, not corruption: every `_a` slice sits exactly ONE
+list position too late and the one `_b` exactly one too early, i.e. the two
+halves of a straddling beat were handed to each other's segments. The beat
+records are internally consistent (range matches file); only the beat->segment
+binding is wrong. `move_boundary.transfer()` (storyboard_edit.py:386-414) is
+the only producer of `slices/b###_<cut>_[ab].mp3`, and `_ripple()` runs after
+the handoff. edits.log.jsonl holds no move_boundary entries for this project
+(ops present: include 30, assign 19, reorder 7, add_line 6), so the exact
+originating edit is NOT recoverable from the log — the reorder path is the
+prime suspect and needs its own repro. NOT yet root-caused to a single line.
+
+#### FINDING 3 — beat metadata vs real mp3 length disagree on 14 slices
+JSON `end-start` runs 50-65ms LONGER than the actual file (re-encode frame
+padding in `_slice_mp3`). Floors use the JSON number, renderer uses ffprobe.
+Direction is SAFE (floors overestimate), but the two sources of truth differ
+and only the renderer's is real.
+
+#### FINDING 4 — the editor NEVER shows the crop the exporter applies
+This is the framing mismatch, and it is a UI-preview gap, not a render bug.
+ - Editor: `storyboard.py:295` renders `<img src="/panelimg/{pid}">` — the
+   raw full panel. `server.ensure_thumb()` likewise does `scale=200:-1` on
+   `seg["panel_file"]` with no crop. The board only prints the TEXT label
+   "planned sub-crop + Ken Burns" (storyboard.py:208).
+ - Exporter: `seg_html()` takes `has_crop = crop_bbox_norm is not None` and
+   builds a viewport via `shot_planner.get_crop_layout()`, blowing the box up
+   to fill the card. Same source PNG, completely different framing.
+Live data: 44/103 segments carry a real sub-crop, 31 full-box, 28 none.
+Worst cases rendered as side-by-side proof: seg 71 box area 2.5% of the panel
+(narration says "chubby toddler hands"; the box lands on the sword crossguard
+and the child is gone entirely), seg 5 and seg 26 crop to speech-bubble text
+only. `focus_reason` strings confirm the intent is often the BUBBLE
+("Shows the second text bubble", "Focuses on the textual reaction").
+
+#### FINDING 5 — Gemini crop boxes are stored with zero validation
+`shot_planner.plan_shots()` assigns `s["crop_bbox_norm"] = r["crop_bbox_norm"]`
+straight from the model. No clamp to [0,1], no minimum area, no aspect sanity,
+no use of the `focus_confidence` it stores. A 2.5%-area box is accepted and
+cached to framing_cache.json.
+
+#### FINDING 6 — crop_bbox_norm silently disables the tall-strip fix (regression)
+`seg_html` computes `tall = (not has_crop) and ...`, so ANY crop box — even
+the full-frame `[0,0,1,1]` — bypasses the TALL_AR scroll-pan branch added in
+Session 23. 30 tall panels (AR>=2.2) carry a box; the full-box ones render
+through get_crop_layout as ~329x972 cards = 17% of frame width, which is the
+exact "unreadably small card" failure TALL_AR was introduced to fix.
+
+#### VERDICT: multiple independent issues, not one
+ (1) data bug — slice handoff mis-binds beats to segments (Findings 2)
+ (2) missing render-time invariant — no coverage guard (Finding 1)
+ (3) UI-preview gap — editor shows uncropped art (Finding 4)
+ (4) upstream quality — unvalidated vision crops (Finding 5)
+ (5) render regression — tall-strip bypass (Finding 6)
+Fix plan proposed to owner; NOTHING changed in this session.
