@@ -2748,3 +2748,71 @@ storyboard.py and resolving the stale-dimension root cause first.
 
 STATUS: P2 and P4 are implemented, deployed to both layers, and verified on the
 live site against the real audited segments. P0/P1/P3 remain untouched.
+
+### Session 26 — 2026-09-07 — Hardening pass: P3 + P0 + P1 + one geometry source
+
+#### P1 — ROOT CAUSE of the sliced-audio swap (found, fixed, repaired)
+`include_panel()` (storyboard_edit.py) carves a host segment in two when a
+panel is promoted. When the promoted panel reads BEFORE its host (`after`
+False) the old code did:
+    segs.insert(hp, new)
+    new["start"], host["start"] = host["start"], cut   # windows only
+It swapped the two window STARTS and never swapped the BEATS. `host["beats"]`
+holds the head (slice `_a`) and `new["beats"]` the tail (`_b`), so afterwards
+the new segment sat on the EARLY window holding the LATE audio and the host
+on the LATE window holding the EARLY audio. Durations were swapped by the
+same omission. Every `_a` therefore lay outside its own segment and its
+sentence was cut off at render.
+Predicted signature — "the lower (host) seg_index keeps `_a` while sitting on
+the later window" — was then confirmed in BOTH projects:
+  Martial Genius: seg 81 (new) window[434.274,439.187] held `_b`;
+                  seg 50 (host) window[439.187,444.100] held `_a`.
+  Swordmasters:   segs 92/54 identical; segs 17 and 24 the same shape.
+FIX: swap the beats and set both windows explicitly.
+REPAIR for already-saved projects: `repair_slice_binding()` swaps an adjacent
+pair's beats only when that strictly reduces total out-of-window misfit, so a
+healthy timeline is never touched. Rehearsed on a COPY of the real Martial
+Genius data: 4 errors -> 0, pair (81,50) misfit 9.826 -> 0.000, both beats
+landing at offset +0.000.
+
+#### P0 — validate_timeline() + hard render guard
+Rules G0 missing-audio, G1 starts-before-window, G2 truncated, G3
+outside-window, G4 duration floor, G5 unmarked dead air (warning), G6
+duplicate coverage; plus C1 invalid-crop / C2 tiny-crop warnings. Measures the
+FILE's real length (cached on path+mtime) because that is what the renderer
+schedules by — the beat's json range is a different number.
+Gates `/api/export` and `/api/render-missing` (only for the segments actually
+involved), and `seg_html()` now RAISES instead of silently dropping audio
+that will not fit. The guard caught a deliberately-bad fixture during test
+authoring, which is how it was confirmed to work.
+
+#### P3 — crop validation + reviewer override
+`crop_status()` -> none/invalid/full/tiny/sub; `effective_crop()` returns the
+box actually rendered, resolving invalid, full-frame AND below-floor boxes to
+the whole panel for preview and export alike. Floor `CROP_MIN_AREA = 0.12`,
+chosen because focus_confidence is provably useless as a gate (the two worst
+boxes in the audit both carried 1.0); on Martial Genius it catches seg 48
+(4.2%) and seg 19 (8.7%).
+`use_full_panel()` / `restore_ai_crop()` + POST /api/storyboard/use_full_panel
+and /restore_crop. The override is written into segments.json — the same
+manifest the exporter reads — so it reaches the video, not just the board; the
+planner's box is preserved in `crop_bbox_norm_ai`, so it is auditable and
+reversible. Board badges now grade severity (>=60% ok, 30-60% review, <30%
+warn, below floor "too small, full panel used").
+
+#### DIMENSIONS — three sources collapsed to one
+storyboard.py read `descriptions.json` width/height for its AR and labels,
+segments.json carried different numbers, and both drift from the files on
+disk. The panel PNG is now the only geometry source (`shot_planner.png_size`,
+`storyboard._real_dims`, cached per render), with the recorded numbers as a
+fallback only when the file cannot be read.
+
+#### Tests
+NEW `review_ui/test_hardening.py` 28/28 — crop classification, below-floor
+auto-fallback, override persistence AND its effect on the export path,
+restore, G1/G2/G3 rejection, silent-hold pass, dead-air warning, the render
+guard, the carve binding (the actual P1 regression test), repair idempotence,
+and real-file geometry. Existing: crop_preview 16/16, storyboard_edit 42/42,
+js_syntax 2/2, render_epoch 4/4, assign pass. No regressions.
+Commit 497c7f7. No new non-/api routes, so the edge config needed no change
+this pass (verified by enumerating routes).
