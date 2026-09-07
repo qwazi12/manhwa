@@ -2816,3 +2816,68 @@ and real-file geometry. Existing: crop_preview 16/16, storyboard_edit 42/42,
 js_syntax 2/2, render_epoch 4/4, assign pass. No regressions.
 Commit 497c7f7. No new non-/api routes, so the edge config needed no change
 this pass (verified by enumerating routes).
+
+#### Session 26 (cont.) — DEPLOYED AND LIVE-VERIFIED
+Deploys: 4d875e2f REMOVED (owner cancelled it while it sat INITIALIZING — I
+had wrongly guessed volume contention; no evidence supported that), bdc2f3b7
+SUCCESS 19:09, then c4205da9 SUCCESS 19:24 carrying the tolerance fix below.
+Backend only — every new endpoint is under /api/, which the edge already
+proxies (route list enumerated to confirm). Site stayed up on the old build
+throughout.
+
+##### A DEFECT IN THIS PASS'S OWN WORK, found by live verification
+First live /api/validate returned 7 errors, not the 4 seen locally. The three
+extra (segs 0, 1, 14) were each "truncated" by exactly 0.067s. Not narration
+loss: _slice_mp3 RE-ENCODES and LAME appends encoder delay+padding, so a
+sliced part runs a few frames long (0.067s ~= 2.5 frames @26.1ms). COVER_TOL
+0.06 was marginally too tight, so the NEW EXPORT GATE WOULD HAVE BLOCKED A
+VALID EXPORT — the gate failing inverted. Raised to 0.15 (~6 frames) in both
+the validator and the render guard; real truncation is ~70x larger (seg 81 =
+4.728s). Two regression tests added (padding tolerated / real truncation still
+caught). Commit be3652f. Suites after: hardening 30/30, crop_preview 16/16,
+edit 42/42, js_syntax 2/2, render_epoch 4/4, assign pass.
+NOTE: the backup's slices show 0.000 overhang, so the live files were
+re-sliced after that backup was taken.
+
+##### LIVE RESULTS (manhwa.nodepilot.dev, real project)
+P0 — /api/validate live. Before repair: ok=False, 4 errors, 2 warnings.
+     Errors were exactly the predicted pair:
+       seg 81 G2-truncated (b053_439187_b needs 9.641s, window 4.913s -> 4.728s cut)
+       seg 81 G3-outside-window
+       seg 50 G1-starts-before-window (b053_439187_a starts 4.913s early)
+       seg 50 G3-outside-window
+P1 — repair_slices dry-run: 1 pair [81,50], misfit 9.826 -> 0.000. Applied
+     (snapshot-backed/undoable). AFTER: ok=True, 0 errors, 2 warnings.
+     The live timeline no longer cuts narration off.
+P3 — use_full_panel round-trip on seg_index 9, all live:
+       before  /thumb/9 200x84   /segimg/9 783x328   ?full=1 900x730
+       after   /thumb/9 200x162  /segimg/9 900x730
+               manifest crop_bbox_norm=[0,0,1,1] focus_source=manual_full
+               (proves the override reaches the EXPORTER's manifest, not just
+                the preview)
+       restore /thumb/9 200x84, crop_bbox_norm=[0.09,0.04,0.96,0.49],
+               focus_source=vision  -> project left exactly as found.
+     Board: 39 "use full panel" buttons, 4 "restore crop", badges
+     ok=13 review=13 warn=10 blocked=2 full=44.
+     seg 48 "crop 4% — too small, full panel used" (blocked)
+     seg 19 "crop 9% — too small, full panel used" (blocked)
+     seg 9 "keeps 39%" (review)   seg 11 "keeps 28%" (warn)
+DIMENSIONS — RESOLVED. The board now measures the panel PNG. All 5 segments
+     labelled "tall strip" are genuinely tall by the real file:
+       seg 22 900x2210 AR2.46 | seg 40 900x2212 AR2.46 | seg 70 900x2481 AR2.76
+       seg 72 900x2582 AR2.87 | seg 73 900x2133 AR2.37
+     seg 72's manifest claimed 864x1234 (AR 1.43) and seg 73 had NO
+     width/height keys at all — both now correct. The board-label vs renderer
+     disagreement logged last session is closed: both read the same source.
+P2/P4 — preserved. seg 9 and 11 still "planned sub-crop + Ken Burns" with
+     /segimg 783x328 and 767x412; segs 22/40/70 still scroll-pan; 26/71 still
+     ordinary cards. Census: 36 sub-crop, 24 push-in, 17 pull-out, 5 tall.
+
+##### NOT VERIFIED — stated plainly
+The export gate's LIVE end-to-end path was never exercised. /api/export
+returns 400 from the pre-existing "nothing is ticked" check (the project has
+0 of 82 segments ticked), which runs BEFORE _gate_timeline. The gate is
+covered by unit tests (G1/G2/G3 rejection) but has not been proven live.
+Proving it would need a segment ticked with a rendered clip AND a broken
+timeline — and the timeline is now clean, so it would have to be re-broken
+deliberately. Left undone rather than mutate the owner's review state.
