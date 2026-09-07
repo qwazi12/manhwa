@@ -2430,3 +2430,26 @@ APPROVE, then deploy + live verify.
 - STATUS: the storyboard is fully interactive in production again. Diagnosed
   and fixed same-session as reported; root cause + regression guard in the
   entry above this one.
+
+#### Session 24 (cont.) — BASIC AUTH REMOVED: site is now PUBLIC
+- Owner asked to remove the login. Implemented in the Vercel edge middleware
+  (BOTH copies: repo-root middleware.js and review_ui/static/middleware.js —
+  the static one is what the domain-owning "manhwa-studio" project deploys).
+- CRITICAL DETAIL: the middleware did double duty — Basic Auth AND injecting
+  x-shared-secret for the Railway backend (server.py verify_shared_secret
+  guards /api, /clip, /thumb, /audio, /panelimg, /export). Simply clearing
+  BASIC_AUTH_USER/PASSWORD would have hit the old `return next()` fallthrough
+  which does NOT inject the secret => page shell loads but every image and
+  API call 401s. Rewrote the middleware to always inject the secret and never
+  challenge. SHARED_SECRET still stays server-side only; Railway remains
+  unreachable directly.
+- VERIFIED LIVE, no credentials: / 200, /storyboard 200 (365KB, 83 segment
+  cards, no auth prompt), /api/project 200, /panelimg/<id> 200, and a full
+  mutation round-trip (duplicate 82->83, undo 83->82) — board left unchanged.
+  Domain aliases dpl_DSMV4ezSCgke5mKUbnhnQ5BthNHn.
+- SECURITY POSTURE (stated to owner, their call): anyone with the URL now has
+  the destructive controls (delete, approve/render which spends Gemini+TTS
+  credit, ingest). usage.py caps bound the spend, not the vandalism. The
+  BASIC_AUTH_USER/PASSWORD Vercel env vars are now inert — harmless to leave,
+  and restoring the gate = restore the auth check in middleware.js + redeploy.
+  Also note the previously-shared password is now moot for this site.
