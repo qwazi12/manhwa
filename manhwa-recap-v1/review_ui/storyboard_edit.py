@@ -1005,6 +1005,10 @@ def repair_slice_binding(pdir, dry_run=False):
 
 
 # ------------------------------------------------- P0: hard timeline validation
+class TimelineNotReady(Exception):
+    """The project has no segments.json yet (mid-ingest, or never built)."""
+
+
 def validate_timeline(pdir, segs=None):
     """Enforce the timing contract BEFORE anything renders or exports.
 
@@ -1013,7 +1017,18 @@ def validate_timeline(pdir, segs=None):
     outside that window simply does not exist in the mp4. Nothing used to
     check it, so narration was cut silently. Errors block; warnings inform.
     """
-    segs = segs if segs is not None else load(pdir)
+    # A project that is still INGESTING has no segments.json yet — describe/
+    # narrate/segment all run before it is written. validate_timeline used to
+    # call load() unguarded and raise FileNotFoundError, which surfaced as a
+    # 500 from /api/validate the moment an ingest switched the active project
+    # (Session 26, doctors-rebirth_1). "Not built yet" is a state, not a fault.
+    if segs is None:
+        try:
+            segs = load(pdir)
+        except FileNotFoundError:
+            raise TimelineNotReady(
+                "this project has no segments.json yet — it is still being "
+                "ingested, or the ingest did not finish")
     adir = _audio_dir(pdir)
     errors, warnings = [], []
     for s in segs:

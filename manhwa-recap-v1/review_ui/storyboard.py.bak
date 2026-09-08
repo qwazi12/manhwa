@@ -517,7 +517,7 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <div id="exportlist">loading…</div>
 </div>
 <div class="drawer" id="d_logs">
-  <h3 style="margin-bottom:4px">RENDER / EXPORT JOBS <span id="logstamp" class="hint" style="font-weight:400;font-size:11px"></span></h3>
+  <h3 style="margin-bottom:4px">RENDER / EXPORT JOBS</h3>
   <div id="logrender" style="margin-bottom:12px">loading…</div>
   <h3>Logs</h3>
   <div class="hint">Live job history + every external API call (cost-tracked, Eastern Time). Survives restarts.</div>
@@ -842,16 +842,6 @@ async function startIngestPoller() {{
   }} finally {{ ingestPolling = false; }}
 }}
 if (activeJob()) startIngestPoller();   // survive reloads mid-ingest
-async function recoverActiveIngest() {{
-  // Pick up any running ingest job started outside the UI (e.g. curl / restart)
-  if (activeJob()) return;
-  try {{
-    const ij = await j('/api/logs/ingest');
-    const running = (ij.jobs || []).find(x => x.status === 'running' || x.status === 'queued');
-    if (running) {{ setActiveJob(running.job); startIngestPoller(); }}
-  }} catch (e) {{}}
-}}
-recoverActiveIngest();
 async function loadProjects() {{
   const box = document.getElementById('projlist');
   const d = await j('/api/projects');
@@ -881,33 +871,31 @@ async function activateProj(id) {{
   await j('/api/activate', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{id}})}});
   location.reload();
 }}
-let logsPolling = false;
 async function loadLogs() {{
-  // ONE renderer per list, and the poll refreshes ALL of them. The old code
-  // painted render/export + usage once on open and only ever re-rendered the
-  // ingest list, so the panel went stale the moment you looked at it. It also
-  // kept two divergent copies of the ingest renderer — the initial one used
-  // `x.pct ?` (0% showed nothing) and dropped x.msg.
-  const col = st => st === 'done' ? '#39c07f' : st === 'error' ? '#ef5f6b' : '#5b8cff';
-  const row = inner => `<div style="border-bottom:1px solid #282c38;padding:4px 0;font-size:12px">${{inner}}</div>`;
-
-  function renderJobs(rj) {{
-    return (rj.jobs || []).slice(0, 10).map(x => row(
-      `<div style="color:${{col(x.status)}}">${{x.status}} · ${{x.type || 'render'}} · ${{x.stage || ''}} ${{x.total ? ('· clip ' + x.done + '/' + x.total) : ''}}</div>
-       <div class="hint">${{x.project || ''}} ${{x.export ? ('→ ' + x.export) : ''}}</div>
-       ${{x.error ? `<div style="color:#ef5f6b">⚠ ${{x.error}}</div>` : ''}}`
-    )).join('') || 'No render/export jobs yet.';
-  }}
-  function renderIngest(ij) {{
-    return (ij.jobs || []).slice(0, 20).map(x => row(
-      `<div style="color:${{col(x.status)}}">${{x.status}} · ${{x.stage || ''}} ${{x.pct != null ? ('· ' + x.pct + '%') : ''}} ${{x.msg ? ('— ' + x.msg) : ''}}</div>
-       <div class="hint" style="word-break:break-all">${{(x.url || '').replace('https://','')}}</div>
-       ${{x.error ? `<div style="color:#ef5f6b">⚠ ${{x.error}}</div>` : ''}}`
-    )).join('') || 'No ingest jobs yet.';
-  }}
-  function renderUsage(uj) {{
+  try {{
+    try {{
+      const rj = await j('/api/jobs');
+      const rjHtml = (rj.jobs || []).slice(0, 10).map(x => {{
+        const col = x.status === 'done' ? '#39c07f' : x.status === 'error' ? '#ef5f6b' : '#5b8cff';
+        return `<div style="border-bottom:1px solid #282c38;padding:4px 0;font-size:12px">
+          <div style="color:${{col}}">${{x.status}} · ${{x.type || 'render'}} · ${{x.stage || ''}} ${{x.total ? ('· clip ' + x.done + '/' + x.total) : ''}}</div>
+          <div class="hint">${{x.project || ''}} ${{x.export ? ('→ ' + x.export) : ''}}</div>
+          ${{x.error ? `<div style="color:#ef5f6b">⚠ ${{x.error}}</div>` : ''}}</div>`;
+      }}).join('');
+      document.getElementById('logrender').innerHTML = rjHtml || 'No render/export jobs yet.';
+    }} catch (e) {{}}
+    const ij = await j('/api/logs/ingest');
+    document.getElementById('logjobs').innerHTML = (ij.jobs || []).slice(0, 20).map(x => {{
+      const col = x.status === 'done' ? '#39c07f' : x.status === 'error' ? '#ef5f6b' : '#5b8cff';
+      return `<div style="border-bottom:1px solid #282c38;padding:4px 0;font-size:12px">
+        <div style="color:${{col}}">${{x.status}} · ${{x.stage || ''}} ${{x.pct ? ('· ' + x.pct + '%') : ''}}</div>
+        <div class="hint" style="word-break:break-all">${{(x.url || '').replace('https://','')}}</div>
+        ${{x.error ? `<div style="color:#ef5f6b">⚠ ${{x.error}}</div>` : ''}}</div>`;
+    }}).join('') || 'No jobs yet.';
+    const uj = await j('/api/logs/usage?limit=60');
     const s = uj.summary || {{}}, life = s.lifetime || {{}};
-    return `<div style="font-size:12px;margin-bottom:6px"><b>${{s.gemini_calls || 0}}</b> Gemini · <b>${{(s.tts_chars || 0).toLocaleString()}}</b> TTS chars ·
+    document.getElementById('logusage').innerHTML =
+      `<div style="font-size:12px;margin-bottom:6px"><b>${{s.gemini_calls || 0}}</b> Gemini · <b>${{(s.tts_chars || 0).toLocaleString()}}</b> TTS chars ·
        est <b>$${{(s.est_cost_usd || 0).toFixed(3)}}</b> on ${{s.date || ''}} (ET)<br>
        all-time: <b>${{(life.gemini_calls || 0) + (s.gemini_calls || 0)}}</b> Gemini ·
        <b>$${{((life.est_cost_usd || 0) + (s.est_cost_usd || 0)).toFixed(2)}}</b></div>` +
@@ -915,36 +903,6 @@ async function loadLogs() {{
         `<div class="hint" style="border-bottom:1px solid #282c38;padding:2px 0">
          ${{c.kind}} · ${{c.model || ''}} · ${{c.units}} ${{c.unit || ''}} · $${{(c.est_cost_usd || 0).toFixed(4)}}
          <span style="opacity:.6">${{(c.job_id || '').slice(0, 8)}}</span></div>`).join('');
-  }}
-
-  // Each list fails independently — one dead endpoint must not blank the
-  // whole drawer (the old catch replaced everything with "Failed to load").
-  async function paint(id, url, fn) {{
-    try {{ document.getElementById(id).innerHTML = fn(await j(url)); }}
-    catch (e) {{ document.getElementById(id).innerHTML =
-      `<span style="color:#ef5f6b">⚠ could not load ${{url}} — ${{e.message || e}}</span>`; }}
-  }}
-  async function refreshAll() {{
-    await Promise.all([
-      paint('logrender', '/api/jobs', renderJobs),
-      paint('logjobs', '/api/logs/ingest', renderIngest),
-      paint('logusage', '/api/logs/usage?limit=60', renderUsage),
-    ]);
-    const el = document.getElementById('logstamp');
-    if (el) el.textContent = 'updated ' + new Date().toLocaleTimeString();
-  }}
-  await refreshAll();
-
-  if (!logsPolling) {{
-    logsPolling = true;
-    (async () => {{
-      while (document.getElementById('d_logs').style.display === 'block') {{
-        await new Promise(r => setTimeout(r, 5000));
-        if (document.getElementById('d_logs').style.display !== 'block') break;
-        await refreshAll();
-      }}
-      logsPolling = false;
-    }})();
-  }}
+  }} catch (e) {{ document.getElementById('logjobs').innerHTML = 'Failed to load logs.'; }}
 }}
 </script></body></html>"""

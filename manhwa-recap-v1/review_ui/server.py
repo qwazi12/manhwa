@@ -1737,13 +1737,23 @@ def sb_repair_slices(body: RepairIn):
 def api_validate():
     """P0: the timing/crop contract for the active project. Read-only."""
     import storyboard_edit
-    return storyboard_edit.validate_timeline(active_project_dir())
+    try:
+        return storyboard_edit.validate_timeline(active_project_dir())
+    except storyboard_edit.TimelineNotReady as e:
+        # 200 with ready=False, not a 500: the board polls this and a project
+        # mid-ingest is a normal state.
+        return {"ok": True, "ready": False, "reason": str(e),
+                "errors": [], "warnings": [], "n_errors": 0,
+                "n_warnings": 0, "n_segments": 0}
 
 
 def _gate_timeline(seg_indexes, action):
     """Refuse to render/export a timeline that would cut narration off."""
     import storyboard_edit
-    v = storyboard_edit.validate_timeline(active_project_dir())
+    try:
+        v = storyboard_edit.validate_timeline(active_project_dir())
+    except storyboard_edit.TimelineNotReady as e:
+        raise HTTPException(409, f"{action} blocked — {e}")
     want = set(seg_indexes)
     errs = [e for e in v["errors"] if e["seg"] in want]
     if errs:
