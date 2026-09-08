@@ -303,7 +303,14 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False):
             # chapter is now visible in project.json / /api/projects instead
             # of only in split.log.
             "n_pages": len(imgs),
-            "scrape_warning": scrape_warning}
+            "scrape_warning": scrape_warning,
+            # Phase 0 (Session 27): a run that fell back to lexical matching, or
+            # a long hold the cap could not split, must be visible in the
+            # project record — both used to vanish without trace.
+            "embed_fallback_reason": (matcher.EMBED_FALLBACK_REASON[-1]
+                                      if getattr(matcher, "EMBED_FALLBACK_REASON", None)
+                                      else ""),
+            "unsplit_long_holds": list(getattr(matcher, "HOLD_CAP_REPORT", []))}
     json.dump(meta, open(os.path.join(proj, "project.json"), "w"), indent=2)
     progress("segment", f"Done — {len(segs)} segments, {meta['duration']}s.", 100)
     return meta

@@ -34,6 +34,7 @@ import hashlib
 import json
 import math
 import os
+import time
 import re
 import sys
 from collections import Counter
@@ -279,72 +280,137 @@ def _text_key(text, model_name):
     return hashlib.sha256(payload).hexdigest()
 
 
-def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
-    """Embed each text via the Gemini embeddings API (one call per string).
+# Why the last _gemini_embed call gave up, or "" if it succeeded. Read by
+# build_scorer so a fallback to lexical carries its REASON instead of
+# vanishing (Session 27: Iron-Blooded silently matched on token overlap).
+LAST_EMBED_ERROR = ""
 
-    Same (texts, model_name) -> np.ndarray|None interface as _try_embed, so
-    build_scorer can use it transparently. Returns an L2-normalized array of
-    vectors, or None if the SDK / GEMINI_API_KEY is unavailable (caller then
-    falls back). Vectors are cached to disk keyed by a hash of the text so
-    repeat runs on the same strings make zero API calls.
+# Appended to whenever a run degrades, so ingest can persist the reason.
+EMBED_FALLBACK_REASON = []
+
+# Long holds the cap could not split (no free panel between). Silently doing
+# nothing here is why a 16.7s single image survived to a finished export.
+HOLD_CAP_REPORT = []
+
+EMBED_BATCH = 32          # texts per API call
+EMBED_RETRIES = 4         # attempts per batch before giving up
+_TRANSIENT = ("429", "rate", "quota", "exhaust", "unavailable", "timeout",
+              "deadline", "503", "500", "internal")
+
+
+def _is_transient(err):
+    m = f"{type(err).__name__} {err}".lower()
+    return any(t in m for t in _TRANSIENT)
+
+
+def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
+    """Embed texts via the Gemini embeddings API, BATCHED, with retries.
+
+    Returns an L2-normalized array, or None (and sets LAST_EMBED_ERROR) if the
+    SDK / key is missing or the API keeps failing. Vectors are cached on disk
+    by text hash so repeat runs cost nothing.
+
+    Session 27: this used to issue ONE CALL PER STRING — 133 calls for a
+    single chapter — and wrap the whole loop in `except Exception: return
+    None`. Iron-Blooded got 19 calls in, hit a transient API failure, and
+    silently degraded to lexical token-overlap matching with no trace of why.
+    Batching removes the rate-limit exposure that caused it; retries absorb
+    what is left; LAST_EMBED_ERROR makes any remaining fallback visible.
     """
+    global LAST_EMBED_ERROR
+    LAST_EMBED_ERROR = ""
     api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key or not texts:
+    if not texts:
+        LAST_EMBED_ERROR = "no texts to embed"
+        return None
+    if not api_key:
+        LAST_EMBED_ERROR = "GEMINI_API_KEY is not set"
         return None
     try:
         from google import genai
         from google.genai import types
         import numpy as np
-    except Exception:
+    except Exception as e:
+        LAST_EMBED_ERROR = f"google-genai SDK unavailable: {e}"
         return None
 
     cache = _load_embed_cache()
     client = None
     dirty = False
-    vectors = []
-    try:
-        for t in texts:
-            key = _text_key(t, model_name)
-            cached = cache.get(key)
-            if cached is not None:
-                vectors.append(cached)
-                continue
-            if client is None:
-                client = genai.Client(api_key=api_key)
+    out = {}
+    todo = []
+    for t in texts:
+        key = _text_key(t, model_name)
+        if cache.get(key) is not None:
+            out[key] = cache[key]
+        elif key not in [k for k, _ in todo]:
+            todo.append((key, t if t else " "))
 
-            def _call():
-                return client.models.embed_content(
-                    model=model_name,
-                    contents=t if t else " ",
-                    config=types.EmbedContentConfig(task_type=_EMBED_TASK),
-                )
+    for i in range(0, len(todo), EMBED_BATCH):
+        chunk = todo[i:i + EMBED_BATCH]
+        if client is None:
+            client = genai.Client(api_key=api_key)
 
-            if _usage:
-                with _usage.gate("gemini", 1, model=model_name):
+        def _call():
+            return client.models.embed_content(
+                model=model_name,
+                contents=[t for _, t in chunk],
+                config=types.EmbedContentConfig(task_type=_EMBED_TASK),
+            )
+
+        last_err = None
+        for attempt in range(EMBED_RETRIES):
+            try:
+                if _usage:
+                    with _usage.gate("gemini", len(chunk), model=model_name):
+                        resp = _call()
+                else:
                     resp = _call()
-            else:
-                resp = _call()
-            vec = list(resp.embeddings[0].values)
-            cache[key] = vec
-            vectors.append(vec)
-            dirty = True
-    except Exception as e:
-        # A guardrail cap breach must HALT the job, not silently degrade to
-        # the (known-bad) lexical fallback — that would mask the stop as a
-        # quality regression instead of a clear, loud cap-exceeded error.
-        if _usage and isinstance(e, _usage.UsageCapExceeded):
-            raise
-        # Partial progress is still worth persisting; the finally block saves.
-        return None
-    finally:
-        if dirty:
-            _save_embed_cache(cache)
+                embs = list(resp.embeddings)
+                if len(embs) != len(chunk):
+                    raise RuntimeError(
+                        f"API returned {len(embs)} vectors for {len(chunk)} texts")
+                for (key, _t), emb in zip(chunk, embs):
+                    vec = list(emb.values)
+                    cache[key] = vec
+                    out[key] = vec
+                dirty = True
+                last_err = None
+                break
+            except Exception as e:
+                # A guardrail cap breach must HALT the job, not degrade to the
+                # known-bad lexical fallback — that would mask a hard stop as a
+                # quality regression.
+                if _usage and isinstance(e, _usage.UsageCapExceeded):
+                    if dirty:
+                        _save_embed_cache(cache)
+                    raise
+                last_err = e
+                if not _is_transient(e) or attempt == EMBED_RETRIES - 1:
+                    break
+                time.sleep(2 ** attempt)          # 1s, 2s, 4s
+        if last_err is not None:
+            LAST_EMBED_ERROR = (
+                f"{type(last_err).__name__}: {last_err} "
+                f"(batch {i // EMBED_BATCH + 1} of "
+                f"{(len(todo) + EMBED_BATCH - 1) // EMBED_BATCH}, "
+                f"{len(out)}/{len(texts)} texts embedded)")
+            if dirty:
+                _save_embed_cache(cache)
+            return None
 
+    if dirty:
+        _save_embed_cache(cache)
+
+    try:
+        vectors = [out[_text_key(t, model_name)] for t in texts]
+    except KeyError as e:
+        LAST_EMBED_ERROR = f"missing vector for a text ({e})"
+        return None
     arr = np.asarray(vectors, dtype="float32")
-    # Guard against a degenerate result (empty input, poisoned cache entry):
-    # a 1-D/empty array here would crash np.linalg.norm(axis=1) downstream
-    # ("axis 1 is out of bounds for array of dimension 1" — job 4bfca87af66a).
     if arr.ndim != 2 or arr.shape[0] != len(texts):
+        LAST_EMBED_ERROR = (f"degenerate embedding array {arr.shape} "
+                            f"for {len(texts)} texts")
         return None
     norms = np.linalg.norm(arr, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
@@ -367,9 +433,16 @@ def build_scorer(beats, panels, embed_model):
     # sentence-transformers only if an embed_model is explicitly requested,
     # then to lexical token-overlap as a last resort.
     emb_b = _gemini_embed(beat_texts)
+    why = LAST_EMBED_ERROR
     emb_p = _gemini_embed(panel_texts) if emb_b is not None else None
+    if emb_b is not None and emb_p is None:
+        why = LAST_EMBED_ERROR
     method_name = "gemini-embeddings"
     if emb_b is None or emb_p is None:
+        # LOUD: semantic matching just degraded to token overlap. This used to
+        # be invisible and produced a whole chapter matched on bag-of-words.
+        print(f"[!] SEMANTIC MATCHING UNAVAILABLE — falling back. Reason: {why}")
+        EMBED_FALLBACK_REASON.append(why)
         emb_b = _try_embed(beat_texts, embed_model) if embed_model else None
         emb_p = _try_embed(panel_texts, embed_model) if embed_model else None
         method_name = "embeddings"
@@ -453,6 +526,12 @@ def enforce_hold_cap(beats, panels, assignments, cap_s=HOLD_CAP_S):
             lo = assignments[i]["panel_index"]
             hi = assignments[j + 1]["panel_index"] if j + 1 < len(assignments) else len(panels)
             gap = [k for k in range(lo + 1, hi) if k not in used and not junk[k]]
+            if not gap:
+                HOLD_CAP_REPORT.append({
+                    "panel": panels[lo].get("panel_id"),
+                    "seconds": round(dur, 2), "beats": len(run),
+                    "reason": ("no free non-junk panel between this one and the "
+                               "next assigned panel, so the hold could not be split")})
             if gap:
                 # spread the run's beats evenly across [lo] + gap panels
                 targets = [lo] + gap

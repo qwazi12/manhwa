@@ -232,6 +232,29 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
         pids = [p for p in sc.get("panel_ids", []) if p in seg_by_panel]
         scene_panels_count[sc_id] = len(pids)
 
+    # Phase 0 (Session 27): show HOW this chapter was matched. A run that
+    # degraded to lexical token-overlap used to be invisible, and produced a
+    # whole chapter of bag-of-words panel assignments (Iron-Blooded).
+    _meta = {}
+    try:
+        _meta = json.load(open(os.path.join(pdir, "project.json")))
+    except Exception:
+        pass
+    _mm = _meta.get("match_method") or "unknown"
+    _semantic = "gemini-embeddings" in _mm or _mm.startswith("embeddings")
+    _match_short = "semantic" if _semantic else ("lexical" if "lexical" in _mm else _mm)
+    _match_col = "#39c07f" if _semantic else "#ef5f6b"
+    _match_tip = f"match_method = {_mm}"
+    if not _semantic:
+        _match_tip += (" — semantic embeddings were NOT used for this chapter, "
+                       "so panels were matched on word overlap. Re-ingest to fix.")
+    if _meta.get("embed_fallback_reason"):
+        _match_tip += f"  Reason: {_meta['embed_fallback_reason']}"
+    _unsplit = _meta.get("unsplit_long_holds") or []
+    if _unsplit:
+        _match_tip += (f"  Also: {len(_unsplit)} long hold(s) exceeded the cap but "
+                       f"could not be split (no free panel between).")
+
     rows = []
     for i, d in enumerate(descs, 1):
         pid = d["panel_id"]
@@ -531,6 +554,7 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <div class="stat"><b>{len(segs)}</b>segments</div>
   <div class="stat"><b>{_mmss(video_total)}</b>video runtime</div>
   <div class="stat"><b>{holds}</b>holds &gt;12s</div>
+  <div class="stat" title="{html.escape(_match_tip)}"><b style="color:{_match_col}">{html.escape(_match_short)}</b>matching</div>
   <div class="stat"><b>{n_approved}</b>approved</div>
   <div class="stat"><b>{n_included}/{n_segs}</b>in final video</div>
   <button onclick="setIncludedAll(true)" class="mini">☑ all</button>
