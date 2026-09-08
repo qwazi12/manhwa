@@ -346,15 +346,24 @@ def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
         elif key not in [k for k, _ in todo]:
             todo.append((key, t if t else " "))
 
-    for i in range(0, len(todo), EMBED_BATCH):
-        chunk = todo[i:i + EMBED_BATCH]
+    # Whether the installed SDK really returns one vector per text for a list
+    # of contents. Dockerfile pins only "google-genai>=1.0.0", so production
+    # can differ from any dev box: a batch of 32 came back as 1 vector in
+    # prod while the same call returned 3-for-3 locally (Session 27). Rather
+    # than chase versions, probe once and drop to per-text if batching is not
+    # honoured — correctness must not depend on the resolved dependency.
+    batch_ok = True
+    i = 0
+    while i < len(todo):
+        chunk = todo[i:i + (EMBED_BATCH if batch_ok else 1)]
         if client is None:
             client = genai.Client(api_key=api_key)
 
         def _call():
+            payload = [t for _, t in chunk]
             return client.models.embed_content(
                 model=model_name,
-                contents=[t for _, t in chunk],
+                contents=payload if len(payload) > 1 else payload[0],
                 config=types.EmbedContentConfig(task_type=_EMBED_TASK),
             )
 
@@ -368,6 +377,12 @@ def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
                     resp = _call()
                 embs = list(resp.embeddings)
                 if len(embs) != len(chunk):
+                    if len(chunk) > 1:
+                        # This SDK does not batch. Redo this chunk one text at
+                        # a time; slower, but it actually works.
+                        batch_ok = False
+                        last_err = None
+                        break
                     raise RuntimeError(
                         f"API returned {len(embs)} vectors for {len(chunk)} texts")
                 for (key, _t), emb in zip(chunk, embs):
@@ -376,6 +391,7 @@ def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
                     out[key] = vec
                 dirty = True
                 last_err = None
+                i += len(chunk)
                 break
             except Exception as e:
                 # A guardrail cap breach must HALT the job, not degrade to the
@@ -392,9 +408,9 @@ def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
         if last_err is not None:
             LAST_EMBED_ERROR = (
                 f"{type(last_err).__name__}: {last_err} "
-                f"(batch {i // EMBED_BATCH + 1} of "
-                f"{(len(todo) + EMBED_BATCH - 1) // EMBED_BATCH}, "
-                f"{len(out)}/{len(texts)} texts embedded)")
+                f"(at text {i + 1} of {len(todo)} uncached, "
+                f"{len(out)}/{len(texts)} embedded, "
+                f"batching={'on' if batch_ok else 'off'})")
             if dirty:
                 _save_embed_cache(cache)
             return None

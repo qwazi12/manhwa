@@ -3082,3 +3082,36 @@ test_storyboard_js_syntax.py before deploy (0/2 -> 2/2 after escaping to \\n).
 That guard has now paid for itself twice.
 Suites: hardening 32/32, crop_preview 16/16, edit 42/42, js_syntax 2/2,
 render_epoch 4/4, scraper 15/15.
+
+#### Phase 0 (cont.) — the batch fix did NOT hold in production, and why
+Re-ingest #3 (job c57a8e02ed99) completed but STILL produced
+match_method = lexical+provenance+dp. The difference this time is that the
+visibility fix worked and named the cause exactly:
+  embed_fallback_reason:
+    "RuntimeError: API returned 1 vectors for 32 texts (batch 1 of 2,
+     0/46 texts embedded)"
+My own count guard caught it. Sending 32 texts returned ONE vector.
+ROOT CAUSE OF THE MISS: I verified the batched `contents=[...]` shape against
+the live API from this machine (3 texts -> 3 vectors, dim 3072, local
+google-genai 1.56.0), but deploy/Dockerfile pins only "google-genai>=1.0.0"
+with no upper bound, so the container resolved a different version whose
+embed_content collapses a list of contents into a single embedding. Verifying
+locally was not the same as verifying in production — the environment differs.
+FIX: stop assuming batch semantics. _gemini_embed now PROBES: if a batch
+returns the wrong number of vectors it flips batch_ok=False and redoes that
+chunk one text at a time (slower, but correct on any SDK version), instead of
+aborting the whole run. Passing a single string when the chunk is size 1 keeps
+the old, known-good call shape. Regression test added with a fake SDK that
+always returns one vector regardless of input size.
+Also observed from the same run — the hold-cap reporting works:
+  unsplit_long_holds: [{panel page005_panel_002, 12.15s, 2 beats,
+    "no free non-junk panel between this one and the next assigned panel"}]
+Suites: matcher_phase0 16/16, data_mgmt 14/14, scraper 15/15, hardening 32/32,
+crop_preview 16/16, edit 42/42, js_syntax 2/2, render_epoch 4/4, assign pass.
+
+OPERATIONAL TRAP (cost the owner two paid runs today): ingests are in-process
+threads with no checkpointing, so ANY container restart — a deploy OR a
+Railway env-var change — aborts them. Job 5f8702ad4c7a died at narrate 64%
+(env change when the Claude key was added); a5abcd42bcb3 died at voice 84%
+(deploy b62a28d2 at 16:12). Making ingest state durable per stage is a real
+robustness item, independent of any Claude work.

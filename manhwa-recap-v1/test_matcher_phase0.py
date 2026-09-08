@@ -67,6 +67,25 @@ def main():
     r.append(("every text still gets a vector back",
               out is not None and out.shape[0] == 70))
 
+    # ---- an SDK that IGNORES batching must still embed everything.
+    # Production pins only "google-genai>=1.0.0" and returned 1 vector for a
+    # 32-text batch while the same call gave 3-for-3 on a dev box, which is
+    # what kept Iron-Blooded on lexical even after the first fix.
+    class _NoBatch(_FakeModels):
+        def embed_content(self, model=None, contents=None, config=None):
+            self.calls.append(contents)
+            n = 1 if isinstance(contents, str) else len(contents)
+            # always returns ONE vector, however many texts were sent
+            return types.SimpleNamespace(embeddings=[_FakeEmb(0)])
+    nb = _NoBatch(); _install_fake_sdk(nb)
+    out = matcher._gemini_embed([f"t{i}" for i in range(5)])
+    r.append(("an SDK that ignores batching still embeds every text",
+              out is not None and out.shape[0] == 5))
+    r.append(("...by dropping to one call per text rather than failing",
+              all(isinstance(c, str) for c in nb.calls[1:])))
+    r.append(("...and reports no error once it succeeds",
+              matcher.LAST_EMBED_ERROR == ""))
+
     # ---- retry absorbs a transient failure (the Iron-Blooded failure mode)
     m = _FakeModels(fail_times=2); _install_fake_sdk(m)
     matcher.time = types.SimpleNamespace(sleep=lambda s: None)   # no real backoff
