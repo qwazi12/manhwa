@@ -759,12 +759,30 @@ async function pollFinalize(id) {{
 async function loadExports() {{
   try {{
     const ex = await j('/api/exports');
-    document.getElementById('exportlist').innerHTML = (ex.exports || []).map(e =>
-      `<div style="border-bottom:1px solid #282c38;padding:6px 0;font-size:12px">
-        <a href="${{e.url}}" target="_blank" style="color:#5b8cff;font-weight:700">${{e.name}}</a><br>
-        <span class="hint">${{e.duration ? (Math.floor(e.duration/60)+':'+String(Math.round(e.duration%60)).padStart(2,'0')) : '?'}} · ${{e.size_mb}} MB · ${{e.created}}</span>
-      </div>`).join('') || 'No exports yet — tick segments and APPROVE.';
+    const days = ex.retention_days || 7;
+    document.getElementById('exportlist').innerHTML =
+      `<div class="hint" style="margin-bottom:6px">Exports are kept ${{days}} days, then deleted automatically. Delete sooner with ✕.</div>` +
+      (ex.exports || []).map(e => {{
+        const left = e.expires_in_days;
+        const col = left <= 1 ? '#ef5f6b' : left <= 3 ? '#e0a33a' : '#8a93a6';
+        return `<div style="border-bottom:1px solid #282c38;padding:6px 0;font-size:12px">
+        <a href="${{e.url}}" target="_blank" style="color:#5b8cff;font-weight:700">${{e.name}}</a>
+        <button title="delete this export now" onclick="delExport('${{e.name}}','${{e.project}}')"
+          style="float:right;background:none;border:1px solid #4a3040;color:#ef5f6b;border-radius:3px;cursor:pointer;font-size:11px;padding:1px 6px">✕</button><br>
+        <span class="hint">${{e.duration ? (Math.floor(e.duration/60)+':'+String(Math.round(e.duration%60)).padStart(2,'0')) : '?'}} · ${{e.size_mb}} MB · ${{e.created}}</span><br>
+        <span class="hint">${{e.project}}${{e.active_project ? ' · open' : ''}}</span>
+        <span style="color:${{col}}"> · expires in ${{left < 1 ? (Math.round(left*24) + 'h') : (Math.round(left) + 'd')}}</span>
+      </div>`;
+      }}).join('') || 'No exports yet — tick segments and APPROVE.';
   }} catch (e) {{ document.getElementById('exportlist').textContent = 'failed to load'; }}
+}}
+async function delExport(name, project) {{
+  if (!confirm('Delete export ' + name + '? This cannot be undone.')) return;
+  try {{
+    await j('/api/exports/delete', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{name, project}})}});
+    loadExports();
+  }} catch (e) {{ alert('Delete failed: ' + (e.message || e)); }}
 }}
 /* resume progress strip after refresh */
 (function () {{
@@ -871,11 +889,22 @@ async function loadProjects() {{
     grouped[series].forEach(p => {{
       const label = p.chapter ? ('Chapter ' + p.chapter) : p.id;
       htmlOut += `<div class="projrow"><span>${{p.active ? '▶ ' : ''}}${{label}} <span class="hint">(${{p.n_segments}} segs${{p.duration ? ' · ' + p.duration + 's' : ''}})</span></span>
-        ${{p.active ? '<span class="hint">active</span>' : `<button onclick="activateProj('${{p.id}}')">Open</button>`}}</div>`;
+        <span>${{p.active ? '<span class="hint">active</span>' : `<button onclick="activateProj('${{p.id}}')">Open</button>`}}
+        ${{p.active || p.id === 'chapter-2 (current)' ? '' : `<button title="delete this project and everything in it" onclick="delProject('${{p.id}}')" style="border:1px solid #4a3040;color:#ef5f6b;background:none;border-radius:3px;cursor:pointer;padding:1px 6px">🗑</button>`}}</span></div>`;
     }});
     htmlOut += '</div>';
   }}
   box.innerHTML = htmlOut || 'No projects yet.';
+}}
+async function delProject(id) {{
+  if (!confirm('DELETE project ' + id + '?\\n\\nThis removes its crops, audio, clips and exports permanently. It cannot be undone.')) return;
+  if (!confirm('Really delete ' + id + '? Last chance.')) return;
+  try {{
+    const r = await j('/api/projects/delete', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{id}})}});
+    alert('Deleted ' + id + ' — freed ' + (r.freed_mb || 0) + ' MB');
+    loadProjects();
+  }} catch (e) {{ alert('Delete failed: ' + (e.message || e)); }}
 }}
 async function activateProj(id) {{
   await j('/api/activate', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{id}})}});

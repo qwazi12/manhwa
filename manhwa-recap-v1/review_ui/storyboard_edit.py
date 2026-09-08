@@ -1073,6 +1073,19 @@ def validate_timeline(pdir, segs=None):
                     errors.append({"seg": si, "rule": "G6-duplicate-coverage",
                                    "msg": f"beat {b['index']} ({fname}) is scheduled "
                                           f"twice — the audio would replay"})
+            # G7: two records of the SAME beat inside ONE segment that point
+            # at DIFFERENT slice files. Repeated carving of an already-sliced
+            # sentence produces suffixes of each other (b004_29244_b holds
+            # everything from 29.244 on, b004_30244_b everything from 30.244
+            # on), so the renderer layers overlapping audio and the line
+            # replays. G6 misses it because the filenames differ — which is
+            # exactly how it reached a finished export (Iron-Blooded seg 43).
+            for ob_i, ob_f, _os, _oe in seen:
+                if ob_i == b["index"] and ob_f != fname:
+                    errors.append({"seg": si, "rule": "G7-overlapping-slices",
+                                   "msg": f"beat {b['index']} appears twice in this "
+                                          f"segment as {ob_f} and {fname}; those "
+                                          f"slices overlap, so the sentence replays"})
             seen.append((b["index"], fname, b["start"], b["end"]))
         cs = crop_status(s.get("crop_bbox_norm"))
         if cs == "invalid":

@@ -150,6 +150,27 @@ def main():
     r.append(("an explicit silent hold passes without warning",
               v["ok"] and not any(w["rule"] == "G5-dead-air" for w in v["warnings"])))
 
+    # G7: repeated carving leaves two overlapping slices of one sentence in
+    # a single segment; G6 misses it because the filenames differ.
+    segs = se.load(tmp)
+    segs[0]["beats"] = [
+        {"index": 0, "text": "x", "start": 0.0, "end": 1.0,
+         "file": "slices/b000_29244_b.mp3"},
+        {"index": 0, "text": "x", "start": 1.0, "end": 3.0,
+         "file": "slices/b000_30244_b.mp3"}]
+    se.save(tmp, segs)
+    _mp3(os.path.join(tmp, "audio", "slices", "b000_29244_b.mp3"), 1.0)
+    _mp3(os.path.join(tmp, "audio", "slices", "b000_30244_b.mp3"), 2.0)
+    r.append(("two overlapping slices of one sentence are REJECTED (G7)",
+              any(e["rule"] == "G7-overlapping-slices"
+                  for e in se.validate_timeline(tmp)["errors"])))
+    segs = se.load(tmp)
+    segs[0]["beats"] = [{"index": 0, "text": "x", "start": 0.0, "end": 9.0}]
+    se.save(tmp, segs)
+    r.append(("a single clean beat does not trip G7",
+              not any(e["rule"] == "G7-overlapping-slices"
+                      for e in se.validate_timeline(tmp)["errors"])))
+
     # render-time guard is the last line of defence
     bad = {"seg_index": 0, "panel_id": "host", "dur": 3.0, "start": 0.0,
            "crop_bbox_norm": FULL, "width": 600, "height": 400,

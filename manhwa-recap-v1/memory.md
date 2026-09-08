@@ -3011,3 +3011,74 @@ has no gap and no warning, because nothing knows the true page count.
 JS-rendered/lazy-loaded pages would still yield partial results. A chapter
 served from several directories would lose the minority ones. And the warning
 informs, it does not block — ingest still spends credit on a short chapter.
+
+### Session 27 — 2026-09-08 — Iron-Blooded export analysis + exports/projects data management
+
+#### The export the owner reviewed: only 11 of 44 segments were in it
+revenge-of-the-iron-blooded-sword-hound_1 has 44 segments / 376.4s, but only
+11 are ticked (user_included) = 70.4s. The export is 76.4s with the 3s intro
+and outro cards. Reconstructed timeline (video time = 3s intro + cumulative
+included durations) matched the owner's observed timestamps closely, so the
+model below is trustworthy.
+
+#### WHY THE VISUALS LAG THE NARRATION — it is the MATCHER, not the timing
+Every beat's audio spans exactly its own segment window (checked: beat 1 =
+6.93-14.23 = seg 1's window, etc.). So a sentence always plays over exactly
+one panel; nothing drifts. What is wrong is WHICH panel the matcher chose:
+  beat 1 (6.93-14.23) mentions the guillotine but plays over
+    page002_panel_003_shot_01, while the guillotine art is shot_02, which is
+    not on screen until 14.23. That is the owner's "narration leads by ~6s".
+  beats 2 and 3 BOTH sit on page002_panel_003_shot_02 -> the same image holds
+    16.7s (14.23-30.93) while the narration moves through two sentences.
+    That is the owner's "shots held too long".
+So the recap is narrate-FIRST, match-SECOND: narration is written over the
+whole chapter, then panels are aligned to it monotonically (DP aligner). When
+a sentence refers to an event whose panel comes later in reading order, the
+aligner cannot reorder and lands one panel early. SYSTEMIC — a property of the
+pipeline, not of this chapter, and not caused by any Session 25/26 change.
+
+#### A REAL BUG FOUND: overlapping slices replay a sentence
+seg 43 holds TWO records of beat 4:
+    [29.244,30.244] slices/b004_29244_b.mp3
+    [30.244,32.553] slices/b004_30244_b.mp3
+b004_29244_b contains everything from 29.244 onward, so it CONTAINS what
+b004_30244_b contains. The renderer emits one audio layer per record, so both
+play and the sentence overlaps itself. Produced by carving an already-sliced
+beat twice (promote/delete round-trips), and G6 missed it because it only
+fires when index AND file match exactly — here the filenames differ.
+NEW RULE G7: two records of the same beat index inside ONE segment pointing at
+different files = overlapping slices = error. Tests added.
+
+#### Trailing dead air
+The owner reports narration ending ~1:07.7 with the video running to ~1:13.6.
+Segs 8 and 44 form a narration group both carrying beat 8 over a joint
+64.49-73.36 window (8.87s). If the real mp3 is shorter than that reservation
+the remainder is silence. NOT CONFIRMED: /audio/N serves the ACTIVE project,
+which is doctors-rebirth_1 (57 segs), so the lengths fetched were the wrong
+project's and were discarded. Needs re-checking with iron-blooded active.
+Also found: seg 42 (3.9s, first in the export) has NO beats and
+silent_hold=None -> 3.93s of silence right after the intro card. That is the
+G5-dead-air warning firing on real data.
+
+#### Data management (owner request)
+Exports never actually expired — nothing deleted them. They LOOKED like they
+vanished because /api/exports listed only the ACTIVE project's exports dir, so
+an ingest switching projects hid every earlier export. Now:
+ - EXPORT_RETENTION_DAYS = 7 (env-overridable), prune_exports() removes older
+   files and runs on every listing.
+ - /api/exports lists EVERY project's exports with project, age_days,
+   expires_in_days, active_project; /export/{name}?project=<id> serves any of
+   them. Drawer shows "expires in Nd", amber under 3 days, red under 1.
+ - POST /api/exports/delete {name, project} + a ✕ per row.
+ - POST /api/projects/delete {id} + a 🗑 per project row (double confirm,
+   reports freed MB). REFUSES the active project — deleting the data the
+   studio is serving would break every route.
+
+#### Process note
+The project-delete confirm reintroduced the Session 24 P0 bug exactly: a
+literal newline inside a JS string, because the generator wrote \n into
+storyboard.py's f-string SOURCE and Python expanded it. Caught by
+test_storyboard_js_syntax.py before deploy (0/2 -> 2/2 after escaping to \\n).
+That guard has now paid for itself twice.
+Suites: hardening 32/32, crop_preview 16/16, edit 42/42, js_syntax 2/2,
+render_epoch 4/4, scraper 15/15.

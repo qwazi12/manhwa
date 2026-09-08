@@ -97,6 +97,47 @@ def active_exports_dir():
     return path
 
 
+# Exports are kept this long, then removed to reclaim disk. Nothing used to
+# delete them at all — they only LOOKED like they vanished because the drawer
+# listed the ACTIVE project's folder only, so switching project (an ingest
+# does that automatically) hid every earlier export.
+EXPORT_RETENTION_DAYS = int(os.environ.get("EXPORT_RETENTION_DAYS", "7"))
+
+
+def _all_export_dirs():
+    """(project_id, exports_dir) for every project that has one."""
+    import ingest as _ing
+    out = []
+    try:
+        for pid in sorted(os.listdir(_ing.PROJECTS)):
+            if pid.startswith("_"):
+                continue
+            d = os.path.join(_ing.PROJECTS, pid, "exports")
+            if os.path.isdir(d):
+                out.append((pid, d))
+    except OSError:
+        pass
+    return out
+
+
+def prune_exports():
+    """Delete exports past the retention window. Returns what it removed."""
+    cutoff = time.time() - EXPORT_RETENTION_DAYS * 86400
+    removed = []
+    for pid, d in _all_export_dirs():
+        for f in os.listdir(d):
+            if not f.endswith(".mp4"):
+                continue
+            fp = os.path.join(d, f)
+            try:
+                if os.stat(fp).st_mtime < cutoff:
+                    os.remove(fp)
+                    removed.append({"project": pid, "name": f})
+            except OSError:
+                pass
+    return removed
+
+
 # ----------------------------------------------------------------- state
 def load_segments():
     path = os.path.join(active_project_dir(), "segments.json")
@@ -445,11 +486,74 @@ def _do_export(speed=1.0):
 
 
 @app.get("/export/{name}")
-def get_export(name: str):
-    path = os.path.join(active_exports_dir(), os.path.basename(name))
+def get_export(name: str, project: str = ""):
+    """`project` lets the drawer serve exports from any project, not just the
+    active one — the reason older exports appeared to vanish."""
+    import ingest as _ing
+    safe = os.path.basename(name)
+    if project:
+        if "/" in project or ".." in project:
+            raise HTTPException(400, "bad project id")
+        path = os.path.join(_ing.PROJECTS, project, "exports", safe)
+    else:
+        path = os.path.join(active_exports_dir(), safe)
     if not os.path.exists(path):
         raise HTTPException(404, "export not found")
     return FileResponse(path, media_type="video/mp4")
+
+
+class ExportDelIn(BaseModel):
+    name: str
+    project: str = ""
+
+
+@app.post("/api/exports/delete")
+def delete_export(body: ExportDelIn):
+    """Remove one export now, rather than waiting out the retention window."""
+    import ingest as _ing
+    safe = os.path.basename(body.name)
+    if body.project and ("/" in body.project or ".." in body.project):
+        raise HTTPException(400, "bad project id")
+    d = (os.path.join(_ing.PROJECTS, body.project, "exports")
+         if body.project else active_exports_dir())
+    path = os.path.join(d, safe)
+    if not os.path.exists(path):
+        raise HTTPException(404, "export not found")
+    os.remove(path)
+    return {"ok": True, "deleted": safe, "project": body.project}
+
+
+class ProjectDelIn(BaseModel):
+    id: str
+
+
+@app.post("/api/projects/delete")
+def delete_project(body: ProjectDelIn):
+    """Delete a whole project directory (crops, audio, clips, exports).
+
+    Refuses the ACTIVE project: deleting the data the studio is currently
+    serving would leave every route pointing at a missing directory.
+    """
+    import ingest as _ing
+    import shutil as _sh
+    pid = body.id
+    if not pid or "/" in pid or ".." in pid or pid.startswith("_"):
+        raise HTTPException(400, "bad project id")
+    pdir = os.path.join(_ing.PROJECTS, pid)
+    if not os.path.isdir(pdir):
+        raise HTTPException(404, "unknown project")
+    if os.path.abspath(pdir) == os.path.abspath(active_project_dir()):
+        raise HTTPException(409, "this project is currently open — open a "
+                                 "different project first, then delete it")
+    size_mb = 0
+    for root, _dirs, files in os.walk(pdir):
+        for fn in files:
+            try:
+                size_mb += os.path.getsize(os.path.join(root, fn))
+            except OSError:
+                pass
+    _sh.rmtree(pdir)
+    return {"ok": True, "deleted": pid, "freed_mb": round(size_mb / 1e6, 1)}
 
 
 @app.post("/api/render-missing")
@@ -1221,39 +1325,47 @@ def list_exports():
     import subprocess as sp
     from datetime import datetime
     from zoneinfo import ZoneInfo
-    d = active_exports_dir()
-    cache_p = os.path.join(d, ".durations.json")
-    try:
-        cache = json.load(open(cache_p))
-    except Exception:
-        cache = {}
+    prune_exports()
+    active_pid = os.path.basename(active_project_dir().rstrip("/"))
     out = []
-    for f in sorted(os.listdir(d)):
-        if not f.endswith(".mp4"):
-            continue
-        p = os.path.join(d, f)
-        st = os.stat(p)
-        key = f + str(int(st.st_mtime))
-        if key not in cache:
-            try:
-                cache[key] = round(float(sp.check_output(
-                    ["ffprobe", "-v", "error", "-show_entries",
-                     "format=duration", "-of", "csv=p=0", p],
-                    text=True).strip()), 1)
-            except Exception:
-                cache[key] = None
-        out.append({
-            "name": f, "size_mb": round(st.st_size / 1e6, 1),
-            "duration": cache[key],
-            "created": datetime.fromtimestamp(
-                st.st_mtime, ZoneInfo("America/New_York")
-            ).strftime("%b %d %I:%M %p ET"),
-            "url": f"/export/{f}"})
-    try:
-        json.dump(cache, open(cache_p, "w"))
-    except Exception:
-        pass
-    return {"exports": list(reversed(out))}
+    for pid, d in _all_export_dirs():
+        cache_p = os.path.join(d, ".durations.json")
+        try:
+            cache = json.load(open(cache_p))
+        except Exception:
+            cache = {}
+        for f in sorted(os.listdir(d)):
+            if not f.endswith(".mp4"):
+                continue
+            p = os.path.join(d, f)
+            st = os.stat(p)
+            key = f + str(int(st.st_mtime))
+            if key not in cache:
+                try:
+                    cache[key] = round(float(sp.check_output(
+                        ["ffprobe", "-v", "error", "-show_entries",
+                         "format=duration", "-of", "csv=p=0", p],
+                        text=True).strip()), 1)
+                except Exception:
+                    cache[key] = None
+            age_d = (time.time() - st.st_mtime) / 86400.0
+            out.append({
+                "name": f, "project": pid, "size_mb": round(st.st_size / 1e6, 1),
+                "duration": cache[key],
+                "created": datetime.fromtimestamp(
+                    st.st_mtime, ZoneInfo("America/New_York")
+                ).strftime("%b %d %I:%M %p ET"),
+                "mtime": st.st_mtime,
+                "age_days": round(age_d, 2),
+                "expires_in_days": max(0, round(EXPORT_RETENTION_DAYS - age_d, 2)),
+                "active_project": pid == active_pid,
+                "url": f"/export/{f}?project={pid}"})
+        try:
+            json.dump(cache, open(cache_p, "w"))
+        except Exception:
+            pass
+    out.sort(key=lambda e: e["mtime"], reverse=True)
+    return {"exports": out, "retention_days": EXPORT_RETENTION_DAYS}
 
 
 # ======================================================================
