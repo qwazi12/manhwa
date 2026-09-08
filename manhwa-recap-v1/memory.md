@@ -2960,3 +2960,54 @@ Not a local network fault: backboard.railway.com answers 200 in 4ms, github
 nothing half-shipped. Production still serves c4205da9 (the P0/P1/P3 build),
 which is healthy — /api/validate ok=True, 0 errors. Commit 16e20f4 is on
 origin/main and will go out on the next successful deploy.
+
+### Session 26 (cont.) — 2026-09-08 — scraper fix DEPLOYED, both chapters re-ingested
+Deploys: 048b334d SUCCESS 21:31 (scraper fix + safety checks), then 7fd08444
+SUCCESS 08:34 (the two fixes below). Several `railway up` runs printed
+"connection error" AFTER the upload had already landed — always confirm with
+`railway deployment list`, never trust that message, or you create duplicate
+builds chasing a false negative.
+
+#### Two defects found and fixed during this verification
+1. /api/validate returned HTTP 500. Traceback: an ingest switches the active
+   project BEFORE segments.json exists (describe/narrate/segment all run
+   first), and validate_timeline() called load() unguarded ->
+   FileNotFoundError on doctors-rebirth_1. "Not built yet" is a state, not a
+   fault: new TimelineNotReady exception, /api/validate answers 200 with
+   ready=false, the render/export gate returns 409. Mine, introduced in the
+   P0 work.
+2. The Logs drawer never refreshed. loadLogs() painted the render/export list
+   and the usage list ONCE on open; its 5s poll re-rendered only the ingest
+   list, so the panel the owner was watching was a snapshot frozen at open
+   time. It also held two divergent copies of the ingest renderer — the
+   initial one used `x.pct ?` (0% rendered nothing) and dropped x.msg, so a
+   just-started ingest looked like nothing at all. Now one renderer per list,
+   refreshAll() repaints all three, each list fails independently instead of
+   one error blanking the drawer, and an "updated HH:MM:SS" stamp makes a
+   stalled panel visibly stalled.
+   NOTE: while editing storyboard.py a stray "REPLACEMENTS: 2 4" line was
+   prepended and broke the file. Caught immediately by
+   test_storyboard_js_syntax.py, removed, diff confirmed to be the logs panel
+   only (67 insertions / 25 deletions). The regression guard earned its keep.
+
+#### RE-INGESTS — both verified against the live site
+  doctors-rebirth_1        3 -> 10 pages | 14 -> 98 crops |  8 -> 57 segs |  66.3 ->  428.7s
+                           coverage min 0.92 / mean 0.97, 0 pages below 85%
+  revenge-of-the-iron-...  8 -> 16 pages | 50 -> 98 crops | 26 -> 42 segs | 223.2 ->  380.3s
+                           coverage min 0.933 / mean 0.986, 0 pages below 85%
+The new metadata is confirmed live: project.json now carries
+  "n_pages": 16, "scrape_warning": ""
+so a truncated chapter is queryable across the library instead of hiding in
+split.log. Both chapters scraped clean with no gap/short warnings.
+
+#### Honest limits of the scraper fix (told to the owner)
+Fixed for good: filename-shape matching is gone; the chapter directory is the
+signal, so scanlator naming can change freely. Detection in place: numbering
+gaps, an implausible-page floor (<5), surfaced in the ingest UI, persisted to
+project.json, 15 network-free regression tests including two that assert the
+check is actually CALLED (the first cut of the fix left it as dead code).
+Still able to fail: TRAILING truncation is undetectable — pages 1-10 of 20
+has no gap and no warning, because nothing knows the true page count.
+JS-rendered/lazy-loaded pages would still yield partial results. A chapter
+served from several directories would lose the minority ones. And the warning
+informs, it does not block — ingest still spends credit on a short chapter.
