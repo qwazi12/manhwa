@@ -2881,3 +2881,55 @@ covered by unit tests (G1/G2/G3 rejection) but has not been proven live.
 Proving it would need a segment ticked with a rendered clip AND a broken
 timeline — and the timeline is now clean, so it would have to be re-broken
 deliberately. Left undone rather than mutate the owner's review state.
+
+### Session 26 (cont.) — SCRAPER BUG: chapters silently truncated
+Owner ran Doctors Rebirth ch1 and reported the scraper "only extracted limited
+selective images". Confirmed, root-caused, fixed.
+
+#### Evidence
+Project doctors-rebirth_1: 8 segments, 66.3s. split.log ends
+"Done: 14 crops from 3 pages." panels.json records 3 pages (page001/2/3) at
+99.7% / 96.6% / 100% coverage — so PANEL SPLITTING was fine; the loss was
+upstream in the fetch. For scale, Martial Genius ch1 = 20-23 pages.
+
+#### ROOT CAUSE (bug, not a design choice)
+The chapter's pages are 001.webp, 002_p1, 002_p2, 003_p1..p3, 004_p1, 004_p2,
+005, 006 — the scanlator split several pages into parts. scraper.py tried a
+list of SPECIFIC patterns and one of them was
+    r'https://[^\s"\'>]+?/\d{3}\.(?:webp|jpg|jpeg|png)'
+which requires the filename to be EXACTLY three digits. It matched 001, 005
+and 006 and skipped every "_pN" part. Reproduced against the live page:
+pattern 1 -> 0, pattern 2 -> 0, pattern 3 -> 3 unique, pattern 4 -> 0.
+The generic fallback WOULD have found 12 candidates, but it is guarded by
+`if not image_urls:` — a PARTIAL match suppresses it entirely. So 3 of 11
+pages were downloaded and nothing complained: no error, no gap check, and a
+66-second "chapter" that looked successful. The code even carries a
+`if len(image_urls) > 3: break` threshold, i.e. it already treats <=3 as
+suspicious, but never acts on it.
+
+#### FIX
+Filename shape is the wrong signal. Every page of a chapter is served from the
+SAME directory and outnumbers every other image on the page, so
+`find_page_urls()` now: takes every image in DOCUMENT order, drops furniture
+(logo/avatar/icon/covers/thumbnail/...), groups by directory, and keeps the
+directory holding the most. The old explicit patterns remain as a last resort
+if that yields <2. Extraction was split out of download_chapter() so it is
+testable without the network.
+`_sequence_warning()` NEW: detects holes in page numbering (001 then 005) and
+prints a loud warning — the silent partial job is the real defect. Split
+parts (002_p1/002_p2) correctly do not count as gaps.
+
+#### VERIFIED (live pages, extraction only, no re-ingest)
+  Doctors Rebirth ch1   3 -> 10 pages   (was truncated, now contiguous 1-6)
+  Martial Genius ch1   20 -> 20 pages   (no regression)
+  Swordmasters ch1     18 -> 18 pages   (no regression)
+NEW manhwa-recap-v1/test_scraper.py 10/10, network-free: split parts kept,
+cover excluded, furniture excluded, document order preserved, majority-dir
+rule, gap warning fires, contiguous/split-part cases warn nothing.
+Suites: hardening 30/30, crop_preview 16/16, edit 42/42, js_syntax 2/2,
+render_epoch 4/4, assign pass.
+
+NOT DONE: doctors-rebirth_1 still holds the 3-page result. Re-ingesting it
+spends Gemini + TTS credit, so it needs the owner's go-ahead; the stored
+project is unchanged until then. Any OTHER chapter ingested with the old
+scraper may be silently short — worth auditing page counts across projects.
