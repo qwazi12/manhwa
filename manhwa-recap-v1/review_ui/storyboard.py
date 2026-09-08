@@ -912,13 +912,50 @@ async function loadProjects() {{
     htmlOut += `<div class="projcard"><div class="ph">📚 ${{series}}</div>`;
     grouped[series].forEach(p => {{
       const label = p.chapter ? ('Chapter ' + p.chapter) : p.id;
-      htmlOut += `<div class="projrow"><span>${{p.active ? '▶ ' : ''}}${{label}} <span class="hint">(${{p.n_segments}} segs${{p.duration ? ' · ' + p.duration + 's' : ''}})</span></span>
+      const _sel = (p.active || p.id === 'chapter-2 (current)')
+        ? '<span style="display:inline-block;width:16px"></span>'
+        : `<input type="checkbox" class="projsel" value="${{p.id}}" onchange="updateProjSel()" title="select for bulk delete">`;
+      htmlOut += `<div class="projrow"><span>${{_sel}} ${{p.active ? '▶ ' : ''}}${{label}} <span class="hint">(${{p.n_segments}} segs${{p.duration ? ' · ' + p.duration + 's' : ''}})</span></span>
         <span>${{p.active ? '<span class="hint">active</span>' : `<button onclick="activateProj('${{p.id}}')">Open</button>`}}
         ${{p.active || p.id === 'chapter-2 (current)' ? '' : `<button title="delete this project and everything in it" onclick="delProject('${{p.id}}')" style="border:1px solid #4a3040;color:#ef5f6b;background:none;border-radius:3px;cursor:pointer;padding:1px 6px">🗑</button>`}}</span></div>`;
     }});
     htmlOut += '</div>';
   }}
-  box.innerHTML = htmlOut || 'No projects yet.';
+  const bar = `<div class="projbulk" style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;font-size:12px">
+      <label style="cursor:pointer"><input type="checkbox" id="projall" onchange="toggleAllProj(this)"> select all</label>
+      <button id="projdelbtn" onclick="delSelectedProjects()" disabled
+        style="border:1px solid #4a3040;color:#ef5f6b;background:none;border-radius:3px;cursor:pointer;padding:2px 8px">
+        🗑 delete selected (<span id="projseln">0</span>)</button>
+      <span class="hint">the open project cannot be deleted</span>
+    </div>`;
+  box.innerHTML = htmlOut ? (bar + htmlOut) : 'No projects yet.';
+  updateProjSel();
+}}
+function _projChecked() {{
+  return Array.from(document.querySelectorAll('.projsel')).filter(c => c.checked).map(c => c.value);
+}}
+function updateProjSel() {{
+  const n = _projChecked().length;
+  const el = document.getElementById('projseln'); if (el) el.textContent = n;
+  const b = document.getElementById('projdelbtn'); if (b) b.disabled = n === 0;
+}}
+function toggleAllProj(src) {{
+  document.querySelectorAll('.projsel').forEach(c => {{ c.checked = src.checked; }});
+  updateProjSel();
+}}
+async function delSelectedProjects() {{
+  const ids = _projChecked();
+  if (!ids.length) return;
+  if (!confirm('DELETE ' + ids.length + ' project(s): ' + ids.join(', ') + ' — this removes their crops, audio, clips and exports permanently and cannot be undone.')) return;
+  if (!confirm('Really delete ' + ids.length + ' project(s)? Last chance.')) return;
+  try {{
+    const r = await j('/api/projects/delete', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{ids}})}});
+    let msg = 'Deleted ' + (r.deleted || []).length + ' project(s), freed ' + (r.freed_mb || 0) + ' MB';
+    if ((r.skipped || []).length) msg += '. Skipped: ' + r.skipped.map(x => x.id + ' (' + x.reason + ')').join('; ');
+    alert(msg);
+    loadProjects();
+  }} catch (e) {{ alert('Bulk delete failed: ' + (e.message || e)); }}
 }}
 async function delProject(id) {{
   if (!confirm('DELETE project ' + id + '?\\n\\nThis removes its crops, audio, clips and exports permanently. It cannot be undone.')) return;

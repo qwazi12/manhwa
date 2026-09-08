@@ -524,36 +524,64 @@ def delete_export(body: ExportDelIn):
 
 
 class ProjectDelIn(BaseModel):
-    id: str
+    id: str = ""
+    ids: list[str] = []          # bulk select-and-delete from the Projects tab
+
+
+def _delete_one_project(pid):
+    """Remove one project dir. Returns (ok, detail_or_reason, freed_mb)."""
+    import ingest as _ing
+    import shutil as _sh
+    if not pid or "/" in pid or ".." in pid or pid.startswith("_"):
+        return False, "bad project id", 0.0
+    pdir = os.path.join(_ing.PROJECTS, pid)
+    if not os.path.isdir(pdir):
+        return False, "unknown project", 0.0
+    if os.path.abspath(pdir) == os.path.abspath(active_project_dir()):
+        return False, "currently open — open a different project first", 0.0
+    size = 0
+    for root, _dirs, files in os.walk(pdir):
+        for fn in files:
+            try:
+                size += os.path.getsize(os.path.join(root, fn))
+            except OSError:
+                pass
+    _sh.rmtree(pdir)
+    return True, "deleted", round(size / 1e6, 1)
 
 
 @app.post("/api/projects/delete")
 def delete_project(body: ProjectDelIn):
-    """Delete a whole project directory (crops, audio, clips, exports).
+    """Delete one project, or several at once from the Projects tab.
 
-    Refuses the ACTIVE project: deleting the data the studio is currently
-    serving would leave every route pointing at a missing directory.
+    Bulk is partial-success by design: one undeletable project (the open one)
+    must not abort the rest, so every id gets its own result. The ACTIVE
+    project is always refused — deleting the data the studio is serving would
+    leave every route pointing at a missing directory.
     """
-    import ingest as _ing
-    import shutil as _sh
-    pid = body.id
-    if not pid or "/" in pid or ".." in pid or pid.startswith("_"):
-        raise HTTPException(400, "bad project id")
-    pdir = os.path.join(_ing.PROJECTS, pid)
-    if not os.path.isdir(pdir):
-        raise HTTPException(404, "unknown project")
-    if os.path.abspath(pdir) == os.path.abspath(active_project_dir()):
-        raise HTTPException(409, "this project is currently open — open a "
-                                 "different project first, then delete it")
-    size_mb = 0
-    for root, _dirs, files in os.walk(pdir):
-        for fn in files:
-            try:
-                size_mb += os.path.getsize(os.path.join(root, fn))
-            except OSError:
-                pass
-    _sh.rmtree(pdir)
-    return {"ok": True, "deleted": pid, "freed_mb": round(size_mb / 1e6, 1)}
+    ids = [i for i in (list(body.ids) + ([body.id] if body.id else [])) if i]
+    seen, ordered = set(), []
+    for i in ids:
+        if i not in seen:
+            seen.add(i)
+            ordered.append(i)
+    if not ordered:
+        raise HTTPException(400, "no project id given")
+    deleted, skipped, freed = [], [], 0.0
+    for pid in ordered:
+        ok, why, mb = _delete_one_project(pid)
+        if ok:
+            deleted.append(pid)
+            freed += mb
+        else:
+            skipped.append({"id": pid, "reason": why})
+    # a single-id call that failed should still surface as an error
+    if len(ordered) == 1 and not deleted:
+        code = 409 if "currently open" in skipped[0]["reason"] else (
+            404 if skipped[0]["reason"] == "unknown project" else 400)
+        raise HTTPException(code, skipped[0]["reason"])
+    return {"ok": True, "deleted": deleted, "skipped": skipped,
+            "freed_mb": round(freed, 1)}
 
 
 @app.post("/api/render-missing")
