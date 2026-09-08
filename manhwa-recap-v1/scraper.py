@@ -5,6 +5,10 @@ import urllib.request
 import html
 import shutil
 
+# Set by download_chapter so ingest can SURFACE a short/gappy scrape instead
+# of leaving it in a log file nobody opens.
+LAST_WARNING = ""
+
 
 def find_page_urls(html_unescaped):
     r"""Every chapter-page image URL on the page, in reading order.
@@ -84,6 +88,28 @@ def _sequence_warning(image_urls):
     return ""
 
 
+MIN_PLAUSIBLE_PAGES = 5
+
+
+def scrape_warning(image_urls):
+    """Everything suspicious about this scrape, as one string ('' if fine).
+
+    Two independent smells: holes in the page numbering, and a chapter far
+    shorter than any real one. Kept out of download_chapter so both are
+    testable without the network — the first cut of this fix defined the gap
+    check but never called it, which the tests now also guard against.
+    """
+    parts = []
+    gap = _sequence_warning(image_urls)
+    if gap:
+        parts.append(gap)
+    if len(image_urls) < MIN_PLAUSIBLE_PAGES:
+        parts.append(f"only {len(image_urls)} page image(s) found — most "
+                     f"chapters run 10-25 pages, so this is probably an "
+                     f"incomplete scrape.")
+    return " ".join(parts)
+
+
 def download_chapter(url: str, output_dir: str):
     """
     Fetches the chapter HTML from the URL, extracts all panel image links in reading
@@ -109,6 +135,17 @@ def download_chapter(url: str, output_dir: str):
     html_unescaped = html.unescape(html_content)
 
     image_urls = find_page_urls(html_unescaped)
+
+    if not image_urls:
+        raise ValueError("Could not find any panel images on the page.")
+
+    # A chapter that comes back with holes in its page numbering, or with
+    # implausibly few pages, was NOT fully scraped. That used to pass in
+    # silence (Doctors Rebirth: 3 of 11 pages, no error anywhere).
+    global LAST_WARNING
+    LAST_WARNING = scrape_warning(image_urls)
+    if LAST_WARNING:
+        print(f"[!] {LAST_WARNING}")
 
     print(f"[*] Found {len(image_urls)} unique panel images.")
 

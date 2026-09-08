@@ -69,6 +69,24 @@ def main():
                    f"{CDN}/c/1/002_p2.webp", f"{CDN}/c/1/003.webp"]) == ""))
 
     # a page with no images at all yields nothing (download_chapter raises)
+    # the gap/low-count check must be WIRED IN, not just defined — the first
+    # cut of this fix left _sequence_warning unreachable from download_chapter
+    import inspect
+    src = inspect.getsource(scraper.download_chapter)
+    r.append(("download_chapter actually CALLS the gap check",
+              "scrape_warning(" in src))
+    r.append(("download_chapter exposes the warning to callers",
+              "LAST_WARNING" in src and hasattr(scraper, "LAST_WARNING")))
+    short = [f"{CDN}/c/1/001.webp", f"{CDN}/c/1/002.webp"]
+    r.append(("an implausibly short chapter is flagged",
+              "incomplete scrape" in scraper.scrape_warning(short)))
+    r.append(("a full-length chapter is not flagged as short",
+              scraper.scrape_warning(real) == ""))
+    r.append(("gaps and shortness are reported together",
+              scraper.scrape_warning(gappy).count("—") >= 1
+              and "GAPS" in scraper.scrape_warning(gappy)
+              and "incomplete scrape" in scraper.scrape_warning(gappy)))
+
     r.append(("a page with no images yields no urls",
               scraper.find_page_urls("<html><body>nothing</body></html>") == []))
 

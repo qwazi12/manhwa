@@ -122,7 +122,14 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False):
     imgs = scraper.download_chapter(url, pages)
     if not imgs:
         raise RuntimeError("scraper downloaded no images (blocked or bad URL)")
-    progress("scrape", f"Downloaded {len(imgs)} pages.", 12)
+    # Surface a short/gappy scrape where a human will actually see it. The
+    # Doctors Rebirth truncation (3 of 11 pages) sat in split.log and nothing
+    # else ever mentioned it, so the run looked entirely successful.
+    scrape_warning = getattr(scraper, "LAST_WARNING", "") or ""
+    if scrape_warning:
+        progress("scrape", f"\u26a0 {len(imgs)} pages — {scrape_warning}", 12)
+    else:
+        progress("scrape", f"Downloaded {len(imgs)} pages.", 12)
 
     # 2. split (with vision segmentation of tall panels) ------------------
     progress("split", "Splitting pages into panels…", 18)
@@ -291,7 +298,12 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False):
             "duration": round(shots[-1]["end"], 1) if shots else 0,
             "series": series_title, "chapter": chapter_title,
             "match_method": match_method,
-            "split_coverage": split_coverage}
+            "split_coverage": split_coverage,
+            # Persisted so the whole library stays auditable: a truncated
+            # chapter is now visible in project.json / /api/projects instead
+            # of only in split.log.
+            "n_pages": len(imgs),
+            "scrape_warning": scrape_warning}
     json.dump(meta, open(os.path.join(proj, "project.json"), "w"), indent=2)
     progress("segment", f"Done — {len(segs)} segments, {meta['duration']}s.", 100)
     return meta
