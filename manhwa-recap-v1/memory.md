@@ -2933,3 +2933,30 @@ NOT DONE: doctors-rebirth_1 still holds the 3-page result. Re-ingesting it
 spends Gemini + TTS credit, so it needs the owner's go-ahead; the stored
 project is unchanged until then. Any OTHER chapter ingested with the old
 scraper may be silently short — worth auditing page counts across projects.
+
+#### Scraper bug — BLAST RADIUS AUDIT (2 of 10 projects affected)
+Page counts pulled from every project's split.log on production, then each
+short chapter's URL re-tested with the old vs new extractor:
+  doctors-rebirth_1                          3 pages  ->  10   TRUNCATED
+  revenge-of-the-iron-blooded-sword-hound_1  8 pages  ->  16   TRUNCATED
+  dungeon-odyssey_2                         13 -> 13   ok
+  dungeon-odyssey_3                         12 -> 12   ok
+  swordmasters-youngest-son_1               18 pages   ok (18 -> 18 verified)
+  the-martial-genius-...                    23 pages   ok (20 -> 20 verified)
+  dungeon-odyssey_1                         18 pages   ok
+  3 / a-painter-... / the-ruler-of-darkness  no split.log (pre-dating it)
+So the bug silently halved a second chapter as well. Both stored projects
+still hold their truncated results; re-ingest spends Gemini + TTS credit and
+is NOT done pending the owner's go-ahead.
+
+#### DEPLOY BLOCKED — scraper fix is committed and pushed but NOT live
+`railway up` failed FOUR consecutive times, all at the upload step:
+  error sending request for url (https://backboard.railway.com/project/
+  20b15eed.../environment/3f43d097.../up?serviceId=0baf7469...)
+    0: client error (SendRequest)
+    1: connection error
+Not a local network fault: backboard.railway.com answers 200 in 4ms, github
+200, manhwa.nodepilot.dev 200. No deployment record is created at all, so
+nothing half-shipped. Production still serves c4205da9 (the P0/P1/P3 build),
+which is healthy — /api/validate ok=True, 0 errors. Commit 16e20f4 is on
+origin/main and will go out on the next successful deploy.
