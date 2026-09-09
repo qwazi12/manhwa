@@ -540,6 +540,11 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <div class="hint" style="margin-bottom:8px">What the source has published since you last ingested each series.
   Checked at most twice an hour — press refresh to look again.</div>
   <button style="width:100%;margin-bottom:8px" onclick="loadTracker(1)">↻ Check for new chapters now</button>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:12px;flex-wrap:wrap">
+    <label style="cursor:pointer"><input type="checkbox" id="trkall" onchange="toggleAllTrk(this)"> select all next</label>
+    <button id="trkqbtn" class="mini" disabled onclick="queueSelected()">▶ queue selected (<span id="trkseln">0</span>)</button>
+    <span class="hint">queued chapters run one at a time</span>
+  </div>
   <div id="trackerlist" class="hint">loading…</div>
 </div>
 <div class="drawer" id="d_exports">
@@ -548,13 +553,18 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <div id="exportlist">loading…</div>
 </div>
 <div class="drawer" id="d_logs">
-  <h3 style="margin-bottom:4px">RENDER / EXPORT JOBS <span id="logstamp" class="hint" style="font-weight:400;font-size:11px"></span></h3>
-  <div id="logrender" style="margin-bottom:12px">loading…</div>
-  <h3>Logs</h3>
-  <div class="hint">Live job history + every external API call (cost-tracked, Eastern Time). Survives restarts.</div>
-  <button style="width:100%;margin:8px 0" onclick="loadLogs()">↻ Refresh</button>
-  <div class="section"><h3>Ingest jobs</h3><div id="logjobs" class="hint">loading…</div></div>
+  <h3 style="margin-bottom:4px">JOBS <span id="logstamp" class="hint" style="font-weight:400;font-size:11px"></span></h3>
+  <div class="hint" style="margin-bottom:6px">Every ingest, render and export — newest first. Pause and stop take effect at
+  the next step (between pipeline stages, or between clips), so a stop lands within seconds rather than instantly.</div>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:12px;flex-wrap:wrap">
+    <label style="cursor:pointer"><input type="checkbox" id="joball" onchange="toggleAllJobs(this)"> select all</label>
+    <button id="jobstopbtn" onclick="bulkJobs('stop')" disabled class="mini">⏹ stop selected (<span id="jobseln">0</span>)</button>
+    <button id="jobdelbtn" onclick="bulkJobs('delete')" disabled class="mini">🗑 delete selected</button>
+    <button class="mini" onclick="loadLogs()">↻ refresh</button>
+  </div>
+  <div id="joblist">loading…</div>
   <div class="section"><h3>API usage</h3><div id="logusage" class="hint">loading…</div></div>
+</div></div>
 </div>
 <header>
   <div class="stat"><b>{html.escape(title)}</b>storyboard</div>
@@ -989,16 +999,18 @@ async function loadTracker(refresh) {{
         ? ('⚠ could not check — ' + sx.error + (sx.stale ? ' (showing last known)' : ''))
         : (behind ? (behind + ' new chapter' + (behind === 1 ? '' : 's') + ' available')
                   : 'up to date');
+      const lbl = (sx.series || '').replace(/'/g,"");
       const next = sx.next
-        ? `<button class="primary" style="margin-top:6px"
-             onclick="ingestChapter('${{sx.next_url}}','${{(sx.series||'').replace(/'/g,"")}} ch ${{sx.next}}')">
-             ▶ Ingest chapter ${{sx.next}}</button>`
+        ? `<div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+             <input type="checkbox" class="trksel" value="${{sx.next_url}}" data-label="${{lbl}} ch ${{sx.next}}" onchange="updateTrkSel()">
+             <button class="primary" onclick="ingestChapter('${{sx.next_url}}','${{lbl}} ch ${{sx.next}}')">
+               ▶ Ingest chapter ${{sx.next}}</button></div>`
         : '';
       const more = (sx.upcoming || []).length > 1
         ? `<details style="margin-top:6px"><summary class="hint" style="cursor:pointer">pick a different chapter</summary>
              <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">` +
-           sx.upcoming.map(u => `<button class="mini"
-             onclick="ingestChapter('${{u.url}}','${{(sx.series||'').replace(/'/g,"")}} ch ${{u.chapter}}')">${{u.chapter}}</button>`).join('') +
+           sx.upcoming.map(u => `<label class="mini" style="display:inline-flex;gap:3px;align-items:center;cursor:pointer">
+             <input type="checkbox" class="trksel" value="${{u.url}}" data-label="${{lbl}} ch ${{u.chapter}}" onchange="updateTrkSel()">${{u.chapter}}</label>`).join('') +
            `</div></details>`
         : '';
       return `<div style="border-bottom:1px solid #282c38;padding:8px 0">
@@ -1009,6 +1021,34 @@ async function loadTracker(refresh) {{
       </div>`;
     }}).join('');
   }} catch (e) {{ box.innerHTML = 'Failed to load tracker: ' + (e.message || e); }}
+}}
+function _trkChecked() {{ return Array.from(document.querySelectorAll('.trksel')).filter(c => c.checked); }}
+function updateTrkSel() {{
+  const n = _trkChecked().length;
+  const el = document.getElementById('trkseln'); if (el) el.textContent = n;
+  const b = document.getElementById('trkqbtn'); if (b) b.disabled = n === 0;
+}}
+function toggleAllTrk(src) {{
+  // "select all next" ticks each series' next chapter, not its whole backlog
+  document.querySelectorAll('#trackerlist > div > div > .trksel').forEach(c => {{ c.checked = src.checked; }});
+  updateTrkSel();
+}}
+async function queueSelected() {{
+  const sel = _trkChecked();
+  if (!sel.length) return;
+  const names = sel.map(c => c.dataset.label);
+  if (!confirm('Queue ' + sel.length + ' chapter(s)? ' + names.join(', ') +
+      ' — each runs the full pipeline and spends Gemini + TTS credit. They run one at a time.')) return;
+  let ok = 0;
+  for (const c of sel) {{
+    try {{
+      await j('/api/ingest', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{url: c.value, fresh: false, queue: true}})}});
+      ok++;
+    }} catch (e) {{ /* keep going; report at the end */ }}
+  }}
+  alert('Queued ' + ok + ' of ' + sel.length + ' chapter(s). Watch them in the Jobs tab.');
+  toggleDrawer('logs');
 }}
 async function ingestChapter(url, label) {{
   if (!confirm('Ingest ' + label + '?' + String.fromCharCode(10) + String.fromCharCode(10) +
@@ -1025,57 +1065,80 @@ async function activateProj(id) {{
 }}
 let logsPolling = false;
 async function loadLogs() {{
-  // ONE renderer per list, and the poll refreshes ALL of them. The old code
-  // painted render/export + usage once on open and only ever re-rendered the
-  // ingest list, so the panel went stale the moment you looked at it. It also
-  // kept two divergent copies of the ingest renderer — the initial one used
-  // `x.pct ?` (0% showed nothing) and dropped x.msg.
-  const col = st => st === 'done' ? '#39c07f' : st === 'error' ? '#ef5f6b' : '#5b8cff';
-  const row = inner => `<div style="border-bottom:1px solid #282c38;padding:4px 0;font-size:12px">${{inner}}</div>`;
+  // ONE list. Ingest jobs and render/export jobs used to live in separate
+  // sections with different shapes, and only the ingest list auto-refreshed.
+  const box = document.getElementById('joblist');
+  const pill = (txt, bg, fg) => `<span style="background:${{bg}};color:${{fg}};font-size:10px;font-weight:700;
+      padding:1px 7px;border-radius:99px;letter-spacing:.03em">${{txt}}</span>`;
+  const STAT = {{
+    running:['#16324a','#7fb4ff'], queued:['#2a2a35','#a0a6b8'], paused:['#3a2f12','#e0a33a'],
+    pausing:['#3a2f12','#e0a33a'], done:['#13291f','#54cb8f'], error:['#2e161a','#ef6470'],
+    cancelled:['#2a2a35','#a0a6b8']
+  }};
+  const live = st => ['running','queued','paused','pausing'].includes(st);
 
-  function renderJobs(rj) {{
-    return (rj.jobs || []).slice(0, 10).map(x => row(
-      `<div style="color:${{col(x.status)}}">${{x.status}} · ${{x.type || 'render'}} · ${{x.stage || ''}} ${{x.total ? ('· clip ' + x.done + '/' + x.total) : ''}}</div>
-       <div class="hint">${{x.project || ''}} ${{x.export ? ('→ ' + x.export) : ''}}</div>
-       ${{x.error ? `<div style="color:#ef5f6b">⚠ ${{x.error}}</div>` : ''}}`
-    )).join('') || 'No render/export jobs yet.';
+  async function rows() {{
+    const [ij, rj] = await Promise.all([
+      j('/api/logs/ingest').catch(() => ({{jobs:[]}})),
+      j('/api/jobs').catch(() => ({{jobs:[]}})),
+    ]);
+    const out = [];
+    for (const x of (ij.jobs || [])) out.push({{
+      id: x.job, kind: 'ingest', status: x.status || 'queued',
+      title: (x.url || '').replace('https://','').replace(/^www\\./,''),
+      detail: [x.stage, (x.pct != null ? x.pct + '%' : null), x.msg].filter(Boolean).join(' · '),
+      error: x.error, ts: x.ts || 0
+    }});
+    for (const x of (rj.jobs || [])) out.push({{
+      id: x.job, kind: x.type || 'render', status: x.status || 'queued',
+      title: x.project || '(project)',
+      detail: [x.stage, (x.total ? ('clip ' + x.done + '/' + x.total) : null),
+               (x.export ? ('→ ' + x.export) : null)].filter(Boolean).join(' · '),
+      error: x.error, ts: x.ts || 0
+    }});
+    return out.sort((a,b) => (b.ts||0) - (a.ts||0)).slice(0, 30);
   }}
-  function renderIngest(ij) {{
-    return (ij.jobs || []).slice(0, 20).map(x => row(
-      `<div style="color:${{col(x.status)}}">${{x.status}} · ${{x.stage || ''}} ${{x.pct != null ? ('· ' + x.pct + '%') : ''}} ${{x.msg ? ('— ' + x.msg) : ''}}</div>
-       <div class="hint" style="word-break:break-all">${{(x.url || '').replace('https://','')}}</div>
-       ${{x.error ? `<div style="color:#ef5f6b">⚠ ${{x.error}}</div>` : ''}}`
-    )).join('') || 'No ingest jobs yet.';
-  }}
-  function renderUsage(uj) {{
-    const s = uj.summary || {{}}, life = s.lifetime || {{}};
-    return `<div style="font-size:12px;margin-bottom:6px"><b>${{s.gemini_calls || 0}}</b> Gemini · <b>${{(s.tts_chars || 0).toLocaleString()}}</b> TTS chars ·
-       est <b>$${{(s.est_cost_usd || 0).toFixed(3)}}</b> on ${{s.date || ''}} (ET)<br>
-       all-time: <b>${{(life.gemini_calls || 0) + (s.gemini_calls || 0)}}</b> Gemini ·
-       <b>$${{((life.est_cost_usd || 0) + (s.est_cost_usd || 0)).toFixed(2)}}</b></div>` +
+
+  try {{
+    const list = await rows();
+    box.innerHTML = list.length ? list.map(x => {{
+      const [bg,fg] = STAT[x.status] || STAT.queued;
+      const ctl = live(x.status)
+        ? `<button class="mini" title="pause at the next step" onclick="jobCtl('${{x.id}}','pause')">⏸</button>
+           <button class="mini" title="resume" onclick="jobCtl('${{x.id}}','resume')">▶</button>
+           <button class="mini" title="stop this job" onclick="jobCtl('${{x.id}}','stop')">⏹</button>`
+        : `<button class="mini" title="remove this record" onclick="jobCtl('${{x.id}}','delete')">🗑</button>`;
+      return `<div style="border-bottom:1px solid #282c38;padding:7px 0;display:flex;gap:8px;align-items:flex-start">
+        <input type="checkbox" class="jobsel" value="${{x.id}}" data-live="${{live(x.status)?1:0}}" onchange="updateJobSel()" style="margin-top:3px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            ${{pill(x.kind, '#1b2440', '#7f9dff')}} ${{pill(x.status, bg, fg)}}
+            <span style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis">${{x.title}}</span>
+          </div>
+          <div class="hint" style="font-size:11px;word-break:break-all">${{x.detail || ''}}</div>
+          ${{x.error ? `<div style="color:#ef6470;font-size:11px">⚠ ${{x.error}}</div>` : ''}}
+        </div>
+        <div style="display:flex;gap:3px;flex-shrink:0">${{ctl}}</div>
+      </div>`;
+    }}).join('') : 'No jobs yet.';
+    updateJobSel();
+  }} catch (e) {{ box.innerHTML = `<span style="color:#ef6470">⚠ could not load jobs — ${{e.message || e}}</span>`; }}
+
+  try {{
+    const uj = await j('/api/logs/usage?limit=60');
+    const su = uj.summary || {{}}, life = su.lifetime || {{}};
+    document.getElementById('logusage').innerHTML =
+      `<div style="font-size:12px;margin-bottom:6px"><b>${{su.gemini_calls || 0}}</b> Gemini · <b>${{(su.tts_chars || 0).toLocaleString()}}</b> TTS chars ·
+       est <b>$${{(su.est_cost_usd || 0).toFixed(3)}}</b> on ${{su.date || ''}} (ET)<br>
+       all-time: <b>${{(life.gemini_calls || 0) + (su.gemini_calls || 0)}}</b> Gemini ·
+       <b>$${{((life.est_cost_usd || 0) + (su.est_cost_usd || 0)).toFixed(2)}}</b></div>` +
       (uj.calls || []).slice(-40).reverse().map(c =>
         `<div class="hint" style="border-bottom:1px solid #282c38;padding:2px 0">
-         ${{c.kind}} · ${{c.model || ''}} · ${{c.units}} ${{c.unit || ''}} · $${{(c.est_cost_usd || 0).toFixed(4)}}
-         <span style="opacity:.6">${{(c.job_id || '').slice(0, 8)}}</span></div>`).join('');
-  }}
+         ${{c.kind}} · ${{c.model || ''}} · ${{c.units}} ${{c.unit || ''}} · $${{(c.est_cost_usd || 0).toFixed(4)}}</div>`).join('');
+  }} catch (e) {{ document.getElementById('logusage').innerHTML = 'usage unavailable'; }}
 
-  // Each list fails independently — one dead endpoint must not blank the
-  // whole drawer (the old catch replaced everything with "Failed to load").
-  async function paint(id, url, fn) {{
-    try {{ document.getElementById(id).innerHTML = fn(await j(url)); }}
-    catch (e) {{ document.getElementById(id).innerHTML =
-      `<span style="color:#ef5f6b">⚠ could not load ${{url}} — ${{e.message || e}}</span>`; }}
-  }}
-  async function refreshAll() {{
-    await Promise.all([
-      paint('logrender', '/api/jobs', renderJobs),
-      paint('logjobs', '/api/logs/ingest', renderIngest),
-      paint('logusage', '/api/logs/usage?limit=60', renderUsage),
-    ]);
-    const el = document.getElementById('logstamp');
-    if (el) el.textContent = 'updated ' + new Date().toLocaleTimeString();
-  }}
-  await refreshAll();
+  const stamp = document.getElementById('logstamp');
+  if (stamp) stamp.textContent = 'updated ' + new Date().toLocaleTimeString();
 
   if (!logsPolling) {{
     logsPolling = true;
@@ -1083,10 +1146,59 @@ async function loadLogs() {{
       while (document.getElementById('d_logs').style.display === 'block') {{
         await new Promise(r => setTimeout(r, 5000));
         if (document.getElementById('d_logs').style.display !== 'block') break;
-        await refreshAll();
+        await loadLogs();
       }}
       logsPolling = false;
     }})();
   }}
+}}
+function _jobsChecked() {{
+  return Array.from(document.querySelectorAll('.jobsel')).filter(c => c.checked);
+}}
+function updateJobSel() {{
+  const sel = _jobsChecked();
+  const el = document.getElementById('jobseln'); if (el) el.textContent = sel.length;
+  const sb = document.getElementById('jobstopbtn');
+  const db = document.getElementById('jobdelbtn');
+  if (sb) sb.disabled = !sel.some(c => c.dataset.live === '1');
+  if (db) db.disabled = !sel.some(c => c.dataset.live === '0');
+}}
+function toggleAllJobs(src) {{
+  document.querySelectorAll('.jobsel').forEach(c => {{ c.checked = src.checked; }});
+  updateJobSel();
+}}
+async function jobCtl(id, action) {{
+  if (action === 'stop' && !confirm('Stop this job? Work already paid for is kept, but it will not finish.')) return;
+  if (action === 'delete' && !confirm('Remove this job record?')) return;
+  try {{
+    if (action === 'delete') {{
+      await j('/api/jobs/delete', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{job_id: id}})}});
+    }} else {{
+      await j('/api/jobs/control', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{job_id: id, action}})}});
+    }}
+    loadLogs();
+  }} catch (e) {{ alert('Could not ' + action + ': ' + (e.message || e)); }}
+}}
+async function bulkJobs(action) {{
+  const sel = _jobsChecked().filter(c => c.dataset.live === (action === 'stop' ? '1' : '0'));
+  const ids = sel.map(c => c.value);
+  if (!ids.length) return;
+  const verb = action === 'stop' ? 'Stop' : 'Delete';
+  if (!confirm(verb + ' ' + ids.length + ' job(s)?')) return;
+  try {{
+    if (action === 'delete') {{
+      const r = await j('/api/jobs/delete', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{job_ids: ids}})}});
+      if ((r.skipped || []).length) alert('Skipped: ' + r.skipped.map(x => x.id + ' (' + x.reason + ')').join('; '));
+    }} else {{
+      for (const id of ids) {{
+        await j('/api/jobs/control', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+          body: JSON.stringify({{job_id: id, action: 'stop'}})}}).catch(() => {{}});
+      }}
+    }}
+    loadLogs();
+  }} catch (e) {{ alert('Bulk ' + action + ' failed: ' + (e.message || e)); }}
 }}
 </script></body></html>"""

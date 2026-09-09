@@ -3165,3 +3165,62 @@ scraper 15/15.
 NOT DEPLOYED — deploy 4c9185de (the per-text embedding fallback) is still
 stuck INITIALIZING and the owner has been burned twice by restarts killing
 ingests. Deploying is the owner's call.
+
+### Session 27 (cont.) — CONTROL CHECKS phase (built, tested, NOT deployed)
+Owner: "do both, and make the Logs tab uniform. I should be able to pause,
+stop, or delete an ingest and even an export. This phase should be about
+control checks."
+
+#### Cooperative cancellation — the honest design
+Jobs run as in-process threads. Nothing could stop one, so the ONLY way to
+halt an ingest was a container restart — which is what destroyed two paid runs
+today. Preemptive killing is not available without that same restart, so
+control is COOPERATIVE: a worker notices pause/stop the next time it reports
+progress. For an ingest that is `progress()`, called throughout the pipeline;
+for a render it is the top of the per-clip loop. A stop therefore lands within
+seconds, not instantly — an in-flight Gemini call or ffmpeg render finishes
+first. Stated plainly in the UI rather than implied to be instant.
+  server.py: JobCancelled + _control_gate(store, job_id, persist); ingest
+  progress() and _run_render_job both gate; cancelled is its own status
+  distinct from error.
+
+#### Endpoints
+  POST /api/jobs/control {job_id, action: pause|resume|stop}
+    409 if the job already finished, 404 if unknown, 400 on a bad action.
+    Stopping a job still QUEUED removes it before it ever starts.
+  POST /api/jobs/delete {job_ids|job_id}
+    Partial-success. A running/queued/paused job is REFUSED with "stop it
+    first" — deleting a record out from under a live worker would orphan it.
+    Removes both persisted shapes ({jid}.json and render_{jid}.json).
+
+#### Sequential ingest queue
+Bulk-queueing from the Tracker must NOT fire concurrent ingests: that
+multiplies API pressure on a pipeline that already broke on a rate limit
+(the embedding failure), and races on shared active-project state. _QUEUE +
+single worker; /api/ingest gains queue=true. Tests assert order and that only
+one runs at a time.
+
+#### Logs tab rebuilt as ONE job list
+Was three sections with different shapes, and only the ingest list
+auto-refreshed. Now a single chronological list of ingest + render + export
+jobs, each row: kind pill, status pill, title, detail, error, and controls
+(⏸ ▶ ⏹ while live, 🗑 once finished). Per-row checkbox plus select-all with
+"stop selected" / "delete selected", enabled only for rows that action can
+apply to. API usage stays its own section — it is not a job.
+
+#### Tracker bulk queue
+Checkbox beside each series' next chapter and inside the expander; "select all
+next" ticks one chapter per series, not whole backlogs. "queue selected" fires
+them with queue=true so they run one at a time, then switches to the Jobs tab.
+
+#### Files / tests
+server.py, storyboard.py; NEW review_ui/test_job_control.py 16/16 — stop
+raises, pause blocks then resumes, stop escapes a pause, endpoint status codes,
+delete protects live jobs, queue order and one-at-a-time.
+Full suite: job_control 16/16, tracker 23/23, data_mgmt 14/14, hardening 32/32,
+crop_preview 16/16, edit 42/42, js_syntax 2/2, render_epoch 4/4, assign pass,
+matcher_phase0 16/16, scraper 15/15.
+
+NOT DEPLOYED. Queued behind: the tracker, the multi-select, and the per-text
+embedding fallback (deploy 4c9185de still stuck INITIALIZING). Deploying is
+the owner's call and should happen while nothing is running.

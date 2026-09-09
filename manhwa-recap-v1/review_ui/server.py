@@ -1298,6 +1298,7 @@ def _run_render_job(job_id, seg_indices):
     JOBS[job_id]["status"] = "running"
     try:
         for si in seg_indices:
+            _control_gate(JOBS, job_id, _persist_job)   # pause/stop between clips
             segs = load_segments()
             seg = next((s for s in segs if s["seg_index"] == si), None)
             if seg:
@@ -1305,6 +1306,10 @@ def _run_render_job(job_id, seg_indices):
                 _write_segments(segs)
             JOBS[job_id]["done"] += 1
         JOBS[job_id]["status"] = "done"
+    except JobCancelled as e:
+        JOBS[job_id]["status"] = "cancelled"
+        JOBS[job_id]["error"] = str(e)
+        _persist_job(job_id)
     except Exception as e:  # noqa
         JOBS[job_id]["status"] = "error"
         JOBS[job_id]["error"] = str(e)
@@ -1418,6 +1423,43 @@ def _persist_ingest(job_id):
         pass
 
 
+class JobCancelled(Exception):
+    """Raised inside a worker when the operator pressed stop."""
+
+
+# Jobs are cooperative, not preemptive: a worker only notices pause/stop when
+# it next reports progress. For an ingest that is between pipeline steps; for a
+# render it is between clips. So a stop lands within seconds, not instantly —
+# an in-flight Gemini call or ffmpeg render finishes first. Anything stronger
+# would mean killing the process, which is exactly the restart that has cost
+# this project two paid ingests.
+_PAUSE_POLL = 0.5
+_PAUSE_MAX = 3600.0
+
+
+def _control_gate(store, job_id, persist=None):
+    """Honour pause/stop for a running job. Raises JobCancelled on stop."""
+    rec = store.get(job_id)
+    if not rec:
+        return
+    if rec.get("control") == "stop":
+        raise JobCancelled("stopped by user")
+    waited = 0.0
+    while rec.get("control") == "pause" and waited < _PAUSE_MAX:
+        if rec.get("status") != "paused":
+            rec["status"] = "paused"
+            if persist:
+                persist(job_id)
+        time.sleep(_PAUSE_POLL)
+        waited += _PAUSE_POLL
+        if rec.get("control") == "stop":
+            raise JobCancelled("stopped by user")
+    if rec.get("status") == "paused":
+        rec["status"] = "running"
+        if persist:
+            persist(job_id)
+
+
 def _load_ingest(job_id):
     """In-memory first, else the durable file (survives restart)."""
     if job_id in INGEST:
@@ -1498,12 +1540,16 @@ def _run_ingest_job(job_id, url, fresh=False):
     _persist_ingest(job_id)
 
     def progress(stage, msg, pct):
+        # the one place an ingest can be paused or stopped
+        _control_gate(INGEST, job_id, _persist_ingest)
         INGEST[job_id].update(stage=stage, msg=msg, pct=pct)
         _persist_ingest(job_id)
 
     try:
         meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh)
         INGEST[job_id].update(status="done", project=meta, pct=100)
+    except JobCancelled as e:
+        INGEST[job_id].update(status="cancelled", error=str(e))
     except subprocess.CalledProcessError as e:
         INGEST[job_id].update(status="error",
                               error=(e.stderr or str(e))[-400:])
@@ -1515,9 +1561,128 @@ def _run_ingest_job(job_id, url, fresh=False):
     _persist_ingest(job_id)
 
 
+# ---------------------------------------------------------- ingest queue
+# Bulk-ingesting from the Tracker must run ONE chapter at a time. Firing five
+# concurrent ingests would multiply API pressure on a pipeline that already
+# broke once by hitting a rate limit (Session 27 embeddings), and would race
+# on the shared active-project state.
+_QUEUE = []
+_QUEUE_LOCK = threading.Lock()
+_QUEUE_RUNNING = False
+
+
+def _queue_worker():
+    global _QUEUE_RUNNING
+    while True:
+        with _QUEUE_LOCK:
+            if not _QUEUE:
+                _QUEUE_RUNNING = False
+                return
+            job_id, url, fresh = _QUEUE.pop(0)
+        rec = INGEST.get(job_id) or {}
+        if rec.get("control") == "stop" or rec.get("status") == "cancelled":
+            continue                       # dequeued before it ever started
+        try:
+            _run_ingest_job(job_id, url, fresh)
+        except Exception:                  # a worker crash must not kill the queue
+            pass
+
+
+def _enqueue_ingest(url, fresh=False):
+    global _QUEUE_RUNNING
+    job_id = uuid.uuid4().hex[:12]
+    INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "waiting for its turn",
+                      "status": "queued", "error": None, "project": None,
+                      "url": url, "ts": time.time(), "control": "run"}
+    _persist_ingest(job_id)
+    with _QUEUE_LOCK:
+        _QUEUE.append((job_id, url, fresh))
+        start = not _QUEUE_RUNNING
+        if start:
+            _QUEUE_RUNNING = True
+    if start:
+        threading.Thread(target=_queue_worker, daemon=True).start()
+    return job_id
+
+
+class JobControlIn(BaseModel):
+    job_id: str
+    action: str            # pause | resume | stop
+
+
+@app.post("/api/jobs/control")
+def job_control(body: JobControlIn):
+    """Pause, resume or stop a running ingest or render.
+
+    Cooperative: the worker acts on it the next time it reports progress —
+    between pipeline steps for an ingest, between clips for a render. A stop
+    therefore lands within seconds rather than instantly, which is the honest
+    trade for not killing the process.
+    """
+    action = (body.action or "").lower()
+    if action not in ("pause", "resume", "stop"):
+        raise HTTPException(400, "action must be pause, resume or stop")
+    ctl = {"pause": "pause", "resume": "run", "stop": "stop"}[action]
+    hit = False
+    for store, persist in ((INGEST, _persist_ingest), (JOBS, _persist_job)):
+        rec = store.get(body.job_id)
+        if rec is None:
+            continue
+        hit = True
+        if rec.get("status") in ("done", "error", "cancelled"):
+            raise HTTPException(409, f"job already {rec['status']} — nothing to "
+                                     f"{action}")
+        rec["control"] = ctl
+        if ctl == "stop":
+            # a job still waiting in the queue never starts at all
+            with _QUEUE_LOCK:
+                before = len(_QUEUE)
+                _QUEUE[:] = [q for q in _QUEUE if q[0] != body.job_id]
+            if rec.get("status") == "queued" or len(_QUEUE) != before:
+                rec.update(status="cancelled", error="stopped before it started")
+        elif ctl == "pause" and rec.get("status") == "running":
+            rec["status"] = "pausing"
+        try:
+            persist(body.job_id)
+        except Exception:
+            pass
+    if not hit:
+        raise HTTPException(404, "unknown job (it may predate this restart)")
+    return {"ok": True, "job": body.job_id, "action": action}
+
+
+class JobDelIn(BaseModel):
+    job_ids: list[str] = []
+    job_id: str = ""
+
+
+@app.post("/api/jobs/delete")
+def jobs_delete(body: JobDelIn):
+    """Remove finished job records. A running job must be stopped first."""
+    ids = [i for i in (list(body.job_ids) + ([body.job_id] if body.job_id else [])) if i]
+    if not ids:
+        raise HTTPException(400, "no job id given")
+    deleted, skipped = [], []
+    for jid in ids:
+        rec = INGEST.get(jid) or JOBS.get(jid)
+        if rec and rec.get("status") in ("running", "queued", "paused", "pausing"):
+            skipped.append({"id": jid, "reason": f"still {rec['status']} — stop it first"})
+            continue
+        INGEST.pop(jid, None)
+        JOBS.pop(jid, None)
+        for name in (f"{jid}.json", f"render_{jid}.json"):
+            try:
+                os.remove(os.path.join(_JOBS_DIR, name))
+            except OSError:
+                pass
+        deleted.append(jid)
+    return {"ok": True, "deleted": deleted, "skipped": skipped}
+
+
 class IngestIn(BaseModel):
     url: str
     fresh: bool = False    # S4: clear derived artifacts, regenerate all stages
+    queue: bool = False    # run after any in-flight ingest instead of alongside
 
 
 @app.post("/api/ingest")
@@ -1530,10 +1695,14 @@ def start_ingest(body: IngestIn):
     existing = _active_ingest_for_url(url)
     if existing:
         return {"job": existing, "stages": ingest_stages(), "existing": True}
+    if body.queue:
+        job_id = _enqueue_ingest(url, body.fresh)
+        return {"job": job_id, "stages": ingest_stages(), "existing": False,
+                "fresh": body.fresh, "queued": True}
     job_id = uuid.uuid4().hex[:12]
     INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "queued",
                       "status": "queued", "error": None, "project": None,
-                      "url": url, "ts": time.time()}
+                      "url": url, "ts": time.time(), "control": "run"}
     _persist_ingest(job_id)
     threading.Thread(target=_run_ingest_job, args=(job_id, url, body.fresh),
                      daemon=True).start()
