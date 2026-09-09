@@ -182,6 +182,32 @@ def main():
         guard = True
     r.append(("the renderer itself refuses to cut narration off", guard))
 
+    # ---- overlapping duplicate slices of ONE sentence (Overgeared seg 53:
+    # three "_b" records that are suffixes of each other, so the line replayed)
+    tmp3 = tempfile.mkdtemp(prefix="ovl_")
+    _project(tmp3)
+    _mp3(os.path.join(tmp3, "audio", "slices", "b000_2522_b.mp3"), 3.0)
+    _mp3(os.path.join(tmp3, "audio", "slices", "b000_3272_b.mp3"), 2.0)
+    _mp3(os.path.join(tmp3, "audio", "slices", "b000_4272_b.mp3"), 1.0)
+    segs = se.load(tmp3)
+    segs[0]["dur"] = 6.0; segs[0]["end"] = 6.0
+    segs[0]["beats"] = [
+        {"index": 0, "text": "x", "start": 0.0, "end": 1.0, "file": "slices/b000_2522_b.mp3"},
+        {"index": 0, "text": "x", "start": 1.0, "end": 2.0, "file": "slices/b000_3272_b.mp3"},
+        {"index": 0, "text": "x", "start": 2.0, "end": 3.0, "file": "slices/b000_4272_b.mp3"}]
+    se.save(tmp3, segs)
+    r.append(("three overlapping slices are rejected before repair",
+              not se.validate_timeline(tmp3)["ok"]))
+    got = se.repair_overlapping_slices(tmp3)
+    kept = se.load(tmp3)[0]["beats"]
+    r.append(("the repair leaves exactly one record for the sentence", len(kept) == 1))
+    r.append(("...and keeps the LONGEST file, which contains the others",
+              kept[0]["file"] == "slices/b000_2522_b.mp3"))
+    r.append(("...sized to the real audio", abs((kept[0]["end"] - kept[0]["start"]) - 3.0) < 0.2))
+    r.append(("...and the timeline validates afterwards", se.validate_timeline(tmp3)["ok"]))
+    r.append(("a healthy segment is left alone",
+              se.repair_overlapping_slices(tmp3) == []))
+
     # ------------------------------------------------- P1 carve binding + repair
     tmp2 = tempfile.mkdtemp(prefix="carve_")
     _project(tmp2)

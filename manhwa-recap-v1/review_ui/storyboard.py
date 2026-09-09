@@ -389,7 +389,7 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
             include_ctl = (
                 f'<label class="inc" title="tick = include this panel\'s narrations in the FINAL video">'
                 f'<input type="checkbox"{_inc}{" data-partial=1" if _partial else ""} '
-                f'onchange="setIncluded(\'{pid_js}\',this.checked)"></label>{_badge}')
+                f'onchange="setIncluded(\'{pid_js}\',this.checked,this)"></label>{_badge}')
         else:
             include_ctl = (
                 f'<button class="promote" title="give this panel its own slot on the timeline" '
@@ -642,9 +642,25 @@ function toggleInclude(pid, cb, isJunk) {{
   }}
   post('/api/storyboard/include', {{panel_id: pid, hold}}, 'placing panel on the timeline…');
 }}
-function setIncluded(pid, on) {{
-  post('/api/storyboard/set_included', {{panel_id: pid, included: on}},
-       on ? 'adding to final video…' : 'removing from final video…');
+async function setIncluded(pid, on, el) {{
+  // NO page reload. post() reloads on success, so ticking several boxes in a
+  // row reloaded the page out from under you and threw away the clicks that
+  // had not posted yet — which looked like boxes unticking themselves.
+  if (el) el.disabled = true;
+  try {{
+    const r = await j('/api/storyboard/set_included',
+      {{method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{panel_id: pid, included: on}})}});
+    if (typeof r.included === 'number') {{
+      const t = document.querySelector('#st_tick b');
+      if (t) t.textContent = r.included + '/' + (t.textContent.split('/')[1] || '');
+    }}
+  }} catch (e) {{
+    if (el) el.checked = !on;            // the server said no — show the truth
+    alert(e.message);
+  }} finally {{
+    if (el) el.disabled = false;
+  }}
 }}
 function setIncludedAll(on) {{
   post('/api/storyboard/set_included', {{all: true, included: on}}, 'updating all…');

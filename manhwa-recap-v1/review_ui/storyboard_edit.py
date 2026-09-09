@@ -975,6 +975,55 @@ def _misfit(seg, beats):
     return round(out, 3)
 
 
+def repair_overlapping_slices(pdir, segs=None, dry_run=False):
+    """Collapse duplicate, overlapping slices of one sentence in one segment.
+
+    Repeatedly carving an already-sliced beat leaves several "_b" records that
+    are SUFFIXES OF EACH OTHER — b053_2522_b holds everything from 2.522s on,
+    b053_3272_b everything from 3.272s on, and so on. The renderer emits one
+    audio layer per record, so the sentence plays over itself (Overgeared
+    seg 53 had three). The earliest cut contains all the later ones, so keeping
+    the LONGEST file and dropping the rest restores exactly one clean playback.
+    """
+    segs = load(pdir) if segs is None else segs
+    adir = _audio_dir(pdir)
+    fixed = []
+    for s in segs:
+        by_idx = {}
+        for b in s.get("beats", []):
+            by_idx.setdefault(b["index"], []).append(b)
+        for idx, recs in by_idx.items():
+            files = {r.get("file") for r in recs}
+            if len(recs) < 2 or len(files) < 2:
+                continue                      # single record, or true duplicates
+            best, best_len = None, -1.0
+            for rec in recs:
+                fname = rec.get("file") or f"beat_{idx:03d}.mp3"
+                alen = _audio_len(os.path.join(adir, fname)) or 0.0
+                if alen > best_len:
+                    best, best_len = rec, alen
+            start = min(r["start"] for r in recs)
+            if not dry_run:
+                keep = dict(best, start=start, end=round(start + best_len, 3))
+                s["beats"] = [b for b in s["beats"] if b["index"] != idx]
+                s["beats"].append(keep)
+                s["beats"].sort(key=lambda x: x["start"])
+                need = round(keep["end"] - s["start"], 3)
+                if s["dur"] < need:           # the whole line must fit again
+                    s["dur"] = need
+            fixed.append({"seg": s["seg_index"], "beat": idx,
+                          "dropped": sorted(f for f in files
+                                            if f != (best or {}).get("file")),
+                          "kept": (best or {}).get("file"),
+                          "kept_seconds": round(best_len, 3)})
+    if fixed and not dry_run:
+        _ripple(segs)
+        save(pdir, segs)
+        _stale(pdir, [f["seg"] for f in fixed])
+        _log(pdir, "repair_overlapping_slices", n=len(fixed))
+    return fixed
+
+
 def repair_slice_binding(pdir, dry_run=False):
     """Re-bind beats that the old carve bug handed to the wrong segment.
 
@@ -1001,7 +1050,12 @@ def repair_slice_binding(pdir, dry_run=False):
         save(pdir, segs)
         _stale(pdir, [i for f in fixed for i in f["segs"]])
         _log(pdir, "repair_slice_binding", pairs=len(fixed))
-    return {"repaired": fixed, "n": len(fixed), "dry_run": dry_run}
+    # The error message points operators here, so this must also fix the OTHER
+    # slice fault — overlapping duplicates of one sentence in one segment.
+    overlaps = repair_overlapping_slices(pdir, dry_run=dry_run)
+    return {"repaired": fixed, "n": len(fixed),
+            "overlaps_repaired": overlaps, "n_overlaps": len(overlaps),
+            "dry_run": dry_run}
 
 
 # ------------------------------------------------- P0: hard timeline validation

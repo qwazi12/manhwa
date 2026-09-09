@@ -205,8 +205,8 @@ def seg_html(seg, audio_dir):
                 f"seg {seg['seg_index']}: beat {b['index']} ({fname}) does not "
                 f"fit its {dur:.3f}s window — starts at {off:+.3f}s and runs "
                 f"{adur:.3f}s. Rendering would cut narration off. Fix the "
-                f"timeline (POST /api/storyboard/repair_slices for swapped "
-                f"slices) before rendering.")
+                f"timeline (POST /api/storyboard/repair_slices fixes swapped "
+                f"and overlapping slices) before rendering.")
         audio_layers.append(
             f'    <audio class="clip" id="a{b["index"]}_{n}" data-start="{off}" '
             f'data-duration="{adur}" data-track-index="9" data-volume="1" '

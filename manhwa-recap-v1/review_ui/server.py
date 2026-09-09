@@ -2084,7 +2084,8 @@ def _gate_timeline(seg_indexes, action):
             f"{action} blocked — {len(errs)} timing error(s) would cut narration. "
             f"{detail}"
             + (f" (+{len(errs) - 6} more)" if len(errs) > 6 else "")
-            + ". Run POST /api/storyboard/repair_slices if these are swapped slices.")
+            + ". Run POST /api/storyboard/repair_slices — it re-binds swapped "
+              "slices AND collapses overlapping duplicates of one sentence.")
 
 
 class MoveIn(BaseModel):

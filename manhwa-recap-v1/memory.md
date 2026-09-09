@@ -3224,3 +3224,41 @@ matcher_phase0 16/16, scraper 15/15.
 NOT DEPLOYED. Queued behind: the tracker, the multi-select, and the per-text
 embedding fallback (deploy 4c9185de still stuck INITIALIZING). Deploying is
 the owner's call and should happen while nothing is running.
+
+### Session 27 (cont.) — two owner-reported bugs: unticking checkboxes, failing export
+
+#### 1. Checkboxes unticked themselves — page reload on every click
+`setIncluded()` went through `post()`, which calls `location.reload()` on
+success. So EVERY tick reloaded the whole board. Tick several in a row and the
+page reloads out from under you, discarding clicks that had not posted yet —
+which reads as boxes unticking themselves.
+FIX: setIncluded no longer reloads. It POSTs, updates the "① ticked N/M"
+counter from the response (the endpoint already returns the included count),
+disables the box while in flight, and reverts it only if the server refuses.
+Other ops still reload — they change row colours and timing, so a re-render is
+genuinely needed there; inclusion does not.
+
+#### 2. Export kept failing — REAL corruption, correctly blocked by G7
+overgeared_338 seg 53 held THREE records of beat 53:
+  [ 8.544, 9.294] slices/b053_2522_b.mp3
+  [ 9.294,10.294] slices/b053_3272_b.mp3
+  [10.294,11.669] slices/b053_4272_b.mp3
+Every "_b" is "everything after the cut", so the later files are SUFFIXES OF
+the earlier ones — the sentence would play over itself three times. seg 52 also
+held b053_2272_a starting 2.897s before its window. Cause: repeatedly carving
+an already-sliced beat accumulates records instead of replacing them.
+The G7 rule added earlier this session caught it and blocked the export, which
+is correct — but MY ERROR MESSAGE told the operator to run repair_slices, and
+that repair only re-binds SWAPPED pairs. It could not fix this, so the advice
+was a dead end.
+FIX: new repair_overlapping_slices() keeps the LONGEST file for the beat (the
+earliest cut, which contains all the later ones), drops the duplicates, resizes
+the record to the real audio length and grows the segment if needed. Folded
+into repair_slice_binding so the endpoint the error names now fixes BOTH slice
+faults. Both error messages reworded to say so.
+
+Tests: hardening 38/38 (6 new — three overlapping slices rejected, repair
+leaves one record, keeps the longest file, sizes to real audio, validates
+afterwards, healthy segments untouched). Full suite 11 files green.
+NOT DEPLOYED — still queued behind the tracker, multi-select, control layer
+and the per-text embedding fallback.
