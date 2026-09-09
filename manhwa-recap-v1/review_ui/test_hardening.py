@@ -154,16 +154,34 @@ def main():
     # a single segment; G6 misses it because the filenames differ.
     segs = se.load(tmp)
     segs[0]["beats"] = [
-        {"index": 0, "text": "x", "start": 0.0, "end": 1.0,
+        {"index": 0, "text": "x", "start": 0.0, "end": 2.0,
          "file": "slices/b000_29244_b.mp3"},
-        {"index": 0, "text": "x", "start": 1.0, "end": 3.0,
+        {"index": 0, "text": "x", "start": 1.0, "end": 3.0,   # OVERLAPS 1.0-2.0
          "file": "slices/b000_30244_b.mp3"}]
     se.save(tmp, segs)
-    _mp3(os.path.join(tmp, "audio", "slices", "b000_29244_b.mp3"), 1.0)
+    _mp3(os.path.join(tmp, "audio", "slices", "b000_29244_b.mp3"), 2.0)
     _mp3(os.path.join(tmp, "audio", "slices", "b000_30244_b.mp3"), 2.0)
-    r.append(("two overlapping slices of one sentence are REJECTED (G7)",
+    r.append(("two slices covering the SAME moment are REJECTED (G7)",
               any(e["rule"] == "G7-overlapping-slices"
                   for e in se.validate_timeline(tmp)["errors"])))
+    # the false positive that blocked a valid Overgeared export: three
+    # CONSECUTIVE pieces of one sentence are legitimate, not duplicates
+    segs = se.load(tmp)
+    segs[0]["dur"] = 6.0; segs[0]["end"] = 6.0
+    segs[0]["beats"] = [
+        {"index": 0, "text": "x", "start": 0.0, "end": 0.75, "file": "slices/b000_2522_b.mp3"},
+        {"index": 0, "text": "x", "start": 0.75, "end": 1.75, "file": "slices/b000_3272_b.mp3"},
+        {"index": 0, "text": "x", "start": 1.75, "end": 3.125, "file": "slices/b000_4272_b.mp3"}]
+    se.save(tmp, segs)
+    _mp3(os.path.join(tmp, "audio", "slices", "b000_2522_b.mp3"), 0.75)
+    _mp3(os.path.join(tmp, "audio", "slices", "b000_3272_b.mp3"), 1.0)
+    _mp3(os.path.join(tmp, "audio", "slices", "b000_4272_b.mp3"), 1.375)
+    r.append(("CONSECUTIVE pieces of one sentence are NOT flagged (false positive)",
+              not any(e["rule"] == "G7-overlapping-slices"
+                      for e in se.validate_timeline(tmp)["errors"])))
+    r.append(("...and the repair leaves those three pieces alone",
+              se.repair_overlapping_slices(tmp) == []
+              and len(se.load(tmp)[0]["beats"]) == 3))
     segs = se.load(tmp)
     segs[0]["beats"] = [{"index": 0, "text": "x", "start": 0.0, "end": 9.0}]
     se.save(tmp, segs)
@@ -191,10 +209,10 @@ def main():
     _mp3(os.path.join(tmp3, "audio", "slices", "b000_4272_b.mp3"), 1.0)
     segs = se.load(tmp3)
     segs[0]["dur"] = 6.0; segs[0]["end"] = 6.0
-    segs[0]["beats"] = [
-        {"index": 0, "text": "x", "start": 0.0, "end": 1.0, "file": "slices/b000_2522_b.mp3"},
-        {"index": 0, "text": "x", "start": 1.0, "end": 2.0, "file": "slices/b000_3272_b.mp3"},
-        {"index": 0, "text": "x", "start": 2.0, "end": 3.0, "file": "slices/b000_4272_b.mp3"}]
+    segs[0]["beats"] = [   # all three cover the SAME moment — a real fault
+        {"index": 0, "text": "x", "start": 0.0, "end": 3.0, "file": "slices/b000_2522_b.mp3"},
+        {"index": 0, "text": "x", "start": 0.5, "end": 2.5, "file": "slices/b000_3272_b.mp3"},
+        {"index": 0, "text": "x", "start": 1.0, "end": 2.0, "file": "slices/b000_4272_b.mp3"}]
     se.save(tmp3, segs)
     r.append(("three overlapping slices are rejected before repair",
               not se.validate_timeline(tmp3)["ok"]))

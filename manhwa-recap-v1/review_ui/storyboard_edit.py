@@ -996,6 +996,15 @@ def repair_overlapping_slices(pdir, segs=None, dry_run=False):
             files = {r.get("file") for r in recs}
             if len(recs) < 2 or len(files) < 2:
                 continue                      # single record, or true duplicates
+            # Consecutive pieces of one sentence are LEGITIMATE — they play
+            # back to back and reconstruct it. Only genuinely overlapping
+            # ranges are a fault worth touching; anything else is real audio
+            # and deleting it would silently truncate narration.
+            ordered = sorted(recs, key=lambda x: x["start"])
+            overlaps = any(min(a["end"], b2["end"]) - max(a["start"], b2["start"]) > 0.005
+                           for a, b2 in zip(ordered, ordered[1:]))
+            if not overlaps:
+                continue
             best, best_len = None, -1.0
             for rec in recs:
                 fname = rec.get("file") or f"beat_{idx:03d}.mp3"
@@ -1134,12 +1143,25 @@ def validate_timeline(pdir, segs=None):
             # on), so the renderer layers overlapping audio and the line
             # replays. G6 misses it because the filenames differ — which is
             # exactly how it reached a finished export (Iron-Blooded seg 43).
-            for ob_i, ob_f, _os, _oe in seen:
-                if ob_i == b["index"] and ob_f != fname:
+            # G7 (corrected, Session 27): fire only when two records of one
+            # beat actually OVERLAP IN TIME. The first cut of this rule keyed
+            # on "different filenames", assuming a "_b" file always held
+            # everything after its cut and therefore contained any later "_b".
+            # That is false: _slice_mp3 slices whatever file the record points
+            # at, while the tag records an ABSOLUTE timeline position, so
+            # slices-of-slices carry no containment relation. Overgeared seg 53
+            # holds three CONSECUTIVE pieces (0.751 + 1.000 + 1.375 = 3.126s
+            # filling a 3.125s span) that reconstruct the sentence correctly —
+            # the old rule blocked a valid export, and the matching repair
+            # would have deleted two of the three.
+            for ob_i, ob_f, ob_s, ob_e in seen:
+                if ob_i != b["index"] or ob_f == fname:
+                    continue
+                if min(b["end"], ob_e) - max(b["start"], ob_s) > 0.005:
                     errors.append({"seg": si, "rule": "G7-overlapping-slices",
-                                   "msg": f"beat {b['index']} appears twice in this "
-                                          f"segment as {ob_f} and {fname}; those "
-                                          f"slices overlap, so the sentence replays"})
+                                   "msg": f"beat {b['index']} is scheduled twice over "
+                                          f"the same moment ({ob_f} and {fname}); the "
+                                          f"sentence would play over itself"})
             seen.append((b["index"], fname, b["start"], b["end"]))
         cs = crop_status(s.get("crop_bbox_norm"))
         if cs == "invalid":

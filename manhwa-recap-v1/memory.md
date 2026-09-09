@@ -3262,3 +3262,59 @@ leaves one record, keeps the longest file, sizes to real audio, validates
 afterwards, healthy segments untouched). Full suite 11 files green.
 NOT DEPLOYED — still queued behind the tracker, multi-select, control layer
 and the per-text embedding fallback.
+
+### Session 27 (cont.) — G7 WAS WRONG: a false positive blocking a valid export
+Owner reported the Overgeared export kept failing. It was blocked by G7, the
+rule added earlier THIS session. G7 was wrong, and the repair paired with it
+would have destroyed real narration. Caught by the dry run.
+
+#### What the data actually shows
+Measured the real files (downloaded overgeared_338 via /api/backup):
+  beat_053.mp3      8.544s   the whole sentence
+  b053_2272_a.mp3   5.169s   seg 52 holds this
+  b053_2522_b.mp3   0.751s  ┐
+  b053_3272_b.mp3   1.000s  ├ seg 53 holds these three
+  b053_4272_b.mp3   1.375s  ┘
+seg 53's three records span 8.544->11.669 = 3.125s and the three files total
+3.126s — each piece exactly fills its own slot and they play CONSECUTIVELY.
+5.169 + 3.126 = 8.295 ~= the 8.544s original. The timeline was CORRECT.
+
+#### The wrong assumption
+G7 keyed on "same beat index, DIFFERENT filenames, in one segment", assuming a
+"_b" file always holds everything after its cut and therefore contains any
+later "_b". False: _slice_mp3 slices whatever file the record currently points
+at, while the tag records an ABSOLUTE timeline position. Slices of slices carry
+no containment relation, so filenames say nothing about content overlap. Proof
+in the durations above — the LATER cut (4272_b, 1.375s) is LONGER than the
+earlier one (2522_b, 0.751s), the opposite of what the model predicted.
+
+#### Near miss
+repair_overlapping_slices() was built on the same wrong model ("keep the
+longest file, it contains the others"). Its dry run on the live project would
+have dropped 2522_b and 3272_b and kept only 1.375s of a 3.125s span — deleting
+real narration to "fix" a healthy timeline. Only the dry run stopped it.
+This also casts doubt on the earlier Iron-Blooded seg 43 diagnosis: those two
+records were [29.244,30.244] and [30.244,32.553] — CONTIGUOUS, not overlapping,
+so that was probably a false positive too and the "sentence replays" claim in
+the previous entry is likely WRONG.
+
+#### Fix
+G7 now fires only when two records of one beat OVERLAP IN TIME (>5ms), the
+same test G6 uses, regardless of filename. repair_overlapping_slices() skips
+any group whose records are merely consecutive — only genuinely overlapping
+ranges are touched, because anything else is real audio and deleting it
+truncates narration.
+Tests: hardening 40/40, including "two slices covering the SAME moment are
+REJECTED" and the regression "CONSECUTIVE pieces are NOT flagged" plus "the
+repair leaves those three pieces alone". Full suite 11 files green.
+
+#### Also: Railway auto-deploys from GitHub
+Owner clarified the repo is connected, so every PUSH deploys. Consequences:
+my `railway up` calls created a SECOND deployment racing the push-triggered
+one, which is the likely cause of deployments sitting in INITIALIZING, and of
+the duplicate pairs seconds apart. Everything I described as "not deployed"
+this session was in fact live. The real operational rule is DO NOT PUSH while
+an ingest or render is running — a push restarts the container and kills it.
+Verified live before this entry: /api/tracker 200, /api/jobs/control live,
+/api/jobs/delete live, exports retention 7, board carries the tracker,
+multi-select, job controls and the checkbox fix.
