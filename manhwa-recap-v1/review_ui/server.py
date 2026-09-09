@@ -1602,6 +1602,19 @@ class ActivateIn(BaseModel):
     id: str
 
 
+@app.get("/api/tracker")
+def api_tracker(refresh: int = 0):
+    """New-chapter tracker: what we have vs what the source has published.
+
+    Cached for tracker.TTL_SECONDS; pass refresh=1 to re-check now. A series
+    whose check FAILED reports an error rather than looking up to date — the
+    scraper bug taught us that silence reads as success.
+    """
+    import ingest as _ing
+    import tracker as _trk
+    return _trk.build(_ing.list_projects(), _ing.PROJECTS, refresh=bool(refresh))
+
+
 @app.post("/api/activate")
 def activate_project(body: ActivateIn):
     """Point the studio at an ingested project: load its segments + audio."""

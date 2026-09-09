@@ -3115,3 +3115,53 @@ Railway env-var change — aborts them. Job 5f8702ad4c7a died at narrate 64%
 (env change when the Claude key was added); a5abcd42bcb3 died at voice 84%
 (deploy b62a28d2 at 16:12). Making ingest state durable per stage is a real
 robustness item, independent of any Claude work.
+
+### Session 27 (cont.) — NEW CHAPTER TRACKER (built, tested, NOT deployed)
+Owner asked for a tab that lists new chapters per series with one-click ingest.
+
+#### Feasibility, confirmed first
+Series pages list every chapter as /chapter/<n> links: Doctors Rebirth 241,
+Iron-Blooded 179. The series page is derivable from any stored chapter URL by
+stripping "/chapter/<n>", so no new metadata is needed.
+
+#### DESIGN DECISION — "next chapter", not "all missing"
+A naive list is 240 rows. Since a series is worked through in order, the tab
+reports per series: what we hold, what is published, how many are NEW, and a
+single button for the NEXT one, with an expander to pick another.
+
+#### BUG CAUGHT BY THE LIVE CHECK (not by the unit tests)
+First live run reported:
+  Overgeared            have ch 338 · latest 338 · 338 behind · next -> ch 0
+  Regressed Mercenary   have ch 105 · latest 105 · 105 behind · next -> ch 1
+Counting every chapter we lack as "new" means ingesting a LATE chapter makes
+the whole back catalogue look like new releases, and offers chapter 0 as the
+next thing to do. FIXED: "new" = published AFTER the highest chapter held;
+chapters below that which were skipped are reported separately as
+backfill_count. Live re-check now reads:
+  Doctors Rebirth       have   1 · latest 241 · 240 new · next ch 2
+  Overgeared            have 338 · latest 338 ·   0 new · up to date · 338 earlier skipped
+  Iron-Blooded          have   1 · latest 179 · 178 new · next ch 2
+  Martial Genius        have   1 · latest  25 ·  24 new · next ch 2
+  Regressed Mercenary   have 105 · latest 105 ·   0 new · up to date · 105 earlier skipped
+
+#### Files
+NEW review_ui/tracker.py — series_page_url(), chapter_numbers() (RAISES on a
+page with no chapter links rather than returning empty), build() with a 30-min
+disk cache keyed by series page. A failed check reports an error and, if a
+previous list is cached, shows it flagged stale — it must NEVER render as
+"up to date", which is the scraper-bug lesson applied.
+server.py — GET /api/tracker?refresh=0|1.
+storyboard.py — 📡 Tracker nav button + drawer; per-series status, "▶ Ingest
+chapter N" (confirms first, naming the cost and the do-not-redeploy rule),
+an expander to choose another chapter, and the skipped-earlier count.
+NEW review_ui/test_tracker.py 23/23 — url derivation, parsing, raise-on-empty,
+gap maths, the late-chapter case above, failed-check-is-not-up-to-date,
+stale-cache fallback, TTL caching, refresh forcing, 25-item cap, untrackable
+projects skipped.
+Suites: tracker 23/23, data_mgmt 14/14, hardening 32/32, crop_preview 16/16,
+edit 42/42, js_syntax 2/2, render_epoch 4/4, assign pass, matcher_phase0 16/16,
+scraper 15/15.
+
+NOT DEPLOYED — deploy 4c9185de (the per-text embedding fallback) is still
+stuck INITIALIZING and the owner has been burned twice by restarts killing
+ingests. Deploying is the owner's call.

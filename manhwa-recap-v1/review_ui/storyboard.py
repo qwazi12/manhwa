@@ -514,6 +514,7 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <button class="navbtn active" title="Storyboard" onclick="location.reload()"><span class="ic">🎬</span>Board</button>
   <button class="navbtn" data-d="ingest" onclick="toggleDrawer('ingest')"><span class="ic">🔗</span>Ingest</button>
   <button class="navbtn" data-d="projects" onclick="toggleDrawer('projects')"><span class="ic">📚</span>Projects</button>
+  <button class="navbtn" data-d="tracker" onclick="toggleDrawer('tracker')"><span class="ic">📡</span>Tracker</button>
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
   <button class="navbtn" data-d="exports" onclick="toggleDrawer('exports')"><span class="ic">📤</span>Exports</button>
   <a class="navbtn" href="/legacy/" title="legacy player UI"><span class="ic">🕰️</span>Legacy</a>
@@ -533,6 +534,13 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
 <div class="drawer" id="d_projects">
   <h3>Projects</h3>
   <div id="projlist" class="hint">loading…</div>
+</div>
+<div class="drawer" id="d_tracker">
+  <h3>NEW CHAPTERS</h3>
+  <div class="hint" style="margin-bottom:8px">What the source has published since you last ingested each series.
+  Checked at most twice an hour — press refresh to look again.</div>
+  <button style="width:100%;margin-bottom:8px" onclick="loadTracker(1)">↻ Check for new chapters now</button>
+  <div id="trackerlist" class="hint">loading…</div>
 </div>
 <div class="drawer" id="d_exports">
   <h3>EXPORTS — final videos</h3>
@@ -823,7 +831,7 @@ async function delExport(name, project) {{
 }})();
 /* ---- drawers: ingest / projects / logs (ported from legacy UI) ---- */
 function toggleDrawer(name) {{
-  for (const d of ['ingest','projects','logs','exports']) {{
+  for (const d of ['ingest','projects','tracker','logs','exports']) {{
     const el = document.getElementById('d_' + d);
     const btn = document.querySelector(`.navbtn[data-d="${{d}}"]`);
     const show = d === name && el.style.display !== 'block';
@@ -831,6 +839,7 @@ function toggleDrawer(name) {{
     if (btn) btn.classList.toggle('active', show);
   }}
   if (name === 'projects') loadProjects();
+  if (name === 'tracker') loadTracker(0);
   if (name === 'logs') loadLogs();
   if (name === 'exports') loadExports();
   if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
@@ -966,6 +975,49 @@ async function delProject(id) {{
     alert('Deleted ' + id + ' — freed ' + (r.freed_mb || 0) + ' MB');
     loadProjects();
   }} catch (e) {{ alert('Delete failed: ' + (e.message || e)); }}
+}}
+async function loadTracker(refresh) {{
+  const box = document.getElementById('trackerlist');
+  box.innerHTML = refresh ? 'checking the source…' : 'loading…';
+  try {{
+    const d = await j('/api/tracker?refresh=' + (refresh ? 1 : 0));
+    if (!(d.series || []).length) {{ box.innerHTML = 'No trackable series yet — ingest a chapter first.'; return; }}
+    box.innerHTML = d.series.map(sx => {{
+      const behind = sx.behind || 0;
+      const col = sx.error ? '#ef5f6b' : (behind ? '#e0a33a' : '#39c07f');
+      const status = sx.error
+        ? ('⚠ could not check — ' + sx.error + (sx.stale ? ' (showing last known)' : ''))
+        : (behind ? (behind + ' new chapter' + (behind === 1 ? '' : 's') + ' available')
+                  : 'up to date');
+      const next = sx.next
+        ? `<button class="primary" style="margin-top:6px"
+             onclick="ingestChapter('${{sx.next_url}}','${{(sx.series||'').replace(/'/g,"")}} ch ${{sx.next}}')">
+             ▶ Ingest chapter ${{sx.next}}</button>`
+        : '';
+      const more = (sx.upcoming || []).length > 1
+        ? `<details style="margin-top:6px"><summary class="hint" style="cursor:pointer">pick a different chapter</summary>
+             <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">` +
+           sx.upcoming.map(u => `<button class="mini"
+             onclick="ingestChapter('${{u.url}}','${{(sx.series||'').replace(/'/g,"")}} ch ${{u.chapter}}')">${{u.chapter}}</button>`).join('') +
+           `</div></details>`
+        : '';
+      return `<div style="border-bottom:1px solid #282c38;padding:8px 0">
+        <div style="font-weight:700">${{sx.series}}</div>
+        <div style="color:${{col}};font-size:12px">${{status}}</div>
+        <div class="hint" style="font-size:11px">have ch ${{sx.highest_have || '—'}} · latest ch ${{sx.latest || '?'}} · ${{sx.have_count}} ingested${{sx.backfill_count ? (' · ' + sx.backfill_count + ' earlier chapters skipped') : ''}}</div>
+        ${{next}}${{more}}
+      </div>`;
+    }}).join('');
+  }} catch (e) {{ box.innerHTML = 'Failed to load tracker: ' + (e.message || e); }}
+}}
+async function ingestChapter(url, label) {{
+  if (!confirm('Ingest ' + label + '?' + String.fromCharCode(10) + String.fromCharCode(10) +
+      'This runs the full pipeline (10-20 min) and spends Gemini + TTS credit. Do not redeploy while it runs.')) return;
+  try {{
+    const r = await j('/api/ingest', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{url: url, fresh: false}})}});
+    setActiveJob(r.job); toggleDrawer('ingest'); startIngestPoller();
+  }} catch (e) {{ alert('Could not start ingest: ' + (e.message || e)); }}
 }}
 async function activateProj(id) {{
   await j('/api/activate', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{id}})}});
