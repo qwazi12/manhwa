@@ -502,6 +502,280 @@ def get_export(name: str, project: str = ""):
     return FileResponse(path, media_type="video/mp4")
 
 
+# ====================================================================
+#  PHASE A — review a rendered export inside the tool
+#  Deliberately separate from storyboard.json's `approved` flag, which is a
+#  RENDER gate ("edits are final, clips may build"). A verdict on a finished
+#  video is a different decision with a different lifetime; conflating them
+#  would mean approving a video silently re-armed the render gate.
+# ====================================================================
+REVIEWS_NAME = "reviews.json"
+
+
+def project_dir_for(project=""):
+    """A project's directory by id, or the active one when blank.
+
+    Review POSTs always carry an explicit project: an ingest can switch the
+    active project underneath a reviewer mid-session.
+    """
+    import ingest as _ing
+    if not project:
+        return active_project_dir()
+    if "/" in project or ".." in project:
+        raise HTTPException(400, "bad project id")
+    d = os.path.join(_ing.PROJECTS, project)
+    if not os.path.isdir(d):
+        raise HTTPException(404, "unknown project")
+    return d
+
+
+def cut_signature(segs=None, pdir=None):
+    """Stable fingerprint of the cut an export was made from.
+
+    Covers only what actually reaches the video — the segments video_segments()
+    concatenates — and the things that change what you SEE and HEAR: order,
+    duration, panel, crop, and which audio each beat plays. An mtime cannot
+    tell an edited timeline from an untouched one; this can.
+    """
+    import hashlib
+    if segs is None:
+        segs = _load_segments_from(pdir) if pdir else load_segments()
+    review = _load_reviews_side(pdir) if pdir else load_review()
+    parts = []
+    for s in segs:
+        if not s.get("user_included"):
+            continue
+        if (review.get(str(s["seg_index"])) or {}).get("status") == "rejected":
+            continue
+        beats = ",".join(f"{b.get('index')}:{b.get('file') or ''}"
+                         for b in s.get("beats", []))
+        parts.append("|".join([
+            str(s.get("seg_index")), f"{float(s.get('dur', 0)):.3f}",
+            str(s.get("panel_id")), str(s.get("crop_bbox_norm")), beats]))
+    return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:12]
+
+
+def _load_segments_from(pdir):
+    try:
+        with open(os.path.join(pdir, "segments.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _load_reviews_side(pdir):
+    """The per-SEGMENT review.json (approve/reject), for a given project."""
+    try:
+        with open(os.path.join(pdir, "review.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def load_reviews(pdir):
+    """The per-EXPORT review records (Phase A)."""
+    try:
+        with open(os.path.join(pdir, REVIEWS_NAME), encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_reviews(pdir, data):
+    tmp = os.path.join(pdir, REVIEWS_NAME + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, os.path.join(pdir, REVIEWS_NAME))
+
+
+def review_state(pdir, name, rec=None, current_sig=None):
+    """Stored status plus the DERIVED superseded flag.
+
+    superseded is never stored — it is a comparison against the cut as it
+    stands right now, so it stays true after later edits without anyone having
+    to remember to update the record.
+    """
+    recs = load_reviews(pdir)
+    rec = rec if rec is not None else (recs.get(name) or {})
+    sig = current_sig if current_sig is not None else cut_signature(pdir=pdir)
+    status = rec.get("status") or "review_pending"
+    superseded = bool(rec.get("cut_signature") and rec["cut_signature"] != sig)
+    return {"status": status, "notes": rec.get("notes", ""),
+            "reviewed_at": rec.get("reviewed_at"),
+            "reviewed_by": rec.get("reviewed_by"),
+            "cut_signature": rec.get("cut_signature"),
+            "current_signature": sig, "superseded": superseded,
+            "history": rec.get("history", [])}
+
+
+def latest_export(project=""):
+    """Newest export for a project: (name, project_id) or (None, project_id)."""
+    pdir = project_dir_for(project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    d = os.path.join(pdir, "exports")
+    best, best_m = None, -1
+    try:
+        for f in os.listdir(d):
+            if not f.endswith(".mp4"):
+                continue
+            m = os.stat(os.path.join(d, f)).st_mtime
+            if m > best_m:
+                best, best_m = f, m
+    except OSError:
+        pass
+    return best, pid
+
+
+def _qc_bundle(pdir, name):
+    """Existing signals only — surfaced, not recomputed."""
+    import storyboard_edit as _sbe
+    meta = {}
+    try:
+        meta = json.load(open(os.path.join(pdir, "project.json")))
+    except Exception:
+        pass
+    segs = _load_segments_from(pdir)
+    side = _load_reviews_side(pdir)
+    inc = [s for s in segs if s.get("user_included")
+           and (side.get(str(s["seg_index"])) or {}).get("status") != "rejected"]
+    holds, i = [], 0
+    while i < len(inc):
+        j = i
+        while j + 1 < len(inc) and inc[j + 1]["panel_id"] == inc[i]["panel_id"]:
+            j += 1
+        if j > i:
+            dur = sum(x.get("dur", 0) for x in inc[i:j + 1])
+            if dur > 12.0:
+                holds.append({"panel": inc[i]["panel_id"], "seconds": round(dur, 1)})
+        i = j + 1
+    silent = [s["seg_index"] for s in inc if not s.get("beats")]
+    try:
+        v = _sbe.validate_timeline(pdir)
+    except Exception as e:
+        v = {"ok": None, "errors": [], "warnings": [], "note": str(e)}
+    mm = meta.get("match_method") or "unknown"
+    job = None
+    for f in os.listdir(_jobs_dir()):
+        if not f.startswith("render_"):
+            continue
+        try:
+            rec = json.load(open(os.path.join(_jobs_dir(), f)))
+        except Exception:
+            continue
+        if rec.get("export") == name:
+            job = rec
+            break
+    return {
+        "match_method": mm,
+        "semantic": ("gemini-embeddings" in mm or mm.startswith("embeddings")),
+        "embed_fallback_reason": meta.get("embed_fallback_reason") or "",
+        "unsplit_long_holds": meta.get("unsplit_long_holds") or [],
+        "split_coverage": meta.get("split_coverage"),
+        "n_pages": meta.get("n_pages"),
+        "scrape_warning": meta.get("scrape_warning") or "",
+        "segments_total": len(segs), "segments_in_video": len(inc),
+        "runtime_s": round(sum(s.get("dur", 0) for s in inc), 1),
+        "long_holds": holds, "silent_segments": silent,
+        "validation": {"ok": v.get("ok"), "errors": v.get("errors", []),
+                       "warnings": v.get("warnings", [])},
+        "render_job": ({"ended": job.get("ended"), "clips": job.get("total"),
+                        "status": job.get("status")} if job else None),
+    }
+
+
+def _export_stat(pdir, name):
+    p = os.path.join(pdir, "exports", os.path.basename(name))
+    if not os.path.exists(p):
+        return None
+    st = os.stat(p)
+    return {"size_mb": round(st.st_size / 1e6, 1), "mtime": st.st_mtime}
+
+
+@app.get("/api/review")
+def api_review(project: str = "", name: str = ""):
+    """Everything the review page needs, in one call."""
+    pdir = project_dir_for(project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    if not name:
+        name, pid = latest_export(project or pid)
+    exports = []
+    d = os.path.join(pdir, "exports")
+    recs = load_reviews(pdir)
+    sig = cut_signature(pdir=pdir)
+    try:
+        for f in sorted(os.listdir(d)):
+            if not f.endswith(".mp4"):
+                continue
+            st = os.stat(os.path.join(d, f))
+            rs = review_state(pdir, f, recs.get(f), sig)
+            exports.append({"name": f, "mtime": st.st_mtime,
+                            "size_mb": round(st.st_size / 1e6, 1),
+                            "status": rs["status"], "superseded": rs["superseded"]})
+    except OSError:
+        pass
+    exports.sort(key=lambda e: e["mtime"], reverse=True)
+    if not name:
+        return {"project": pid, "name": None, "exports": [], "missing": True,
+                "reason": "no export has been rendered for this project yet"}
+    stat = _export_stat(pdir, name)
+    return {"project": pid, "name": name, "exports": exports,
+            "file_present": stat is not None, "stat": stat,
+            "url": f"/export/{name}?project={pid}",
+            "review": review_state(pdir, name, recs.get(name), sig),
+            "qc": _qc_bundle(pdir, name)}
+
+
+class ReviewIn(BaseModel):
+    project: str = ""
+    name: str
+    status: str = ""       # approved | sent_back | review_pending ("" = notes only)
+    notes: str = ""
+
+
+@app.post("/api/review")
+def api_review_save(body: ReviewIn):
+    """Record a verdict and/or notes against ONE export.
+
+    Notes save independently of a verdict, so a half-finished review is not
+    lost. The record stamps the cut signature at decision time, which is what
+    makes a later edit show up as superseded.
+    """
+    status = (body.status or "").strip()
+    if status and status not in ("approved", "sent_back", "review_pending"):
+        raise HTTPException(400, "status must be approved, sent_back or review_pending")
+    pdir = project_dir_for(body.project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    name = os.path.basename(body.name)
+    if not name.endswith(".mp4"):
+        raise HTTPException(400, "name must be an export filename")
+    recs = load_reviews(pdir)
+    rec = recs.get(name) or {"history": []}
+    if status and rec.get("status") and rec["status"] != status:
+        rec.setdefault("history", []).append(
+            {"status": rec["status"], "notes": rec.get("notes", ""),
+             "at": rec.get("reviewed_at")})
+    if status:
+        rec["status"] = status
+    rec["notes"] = body.notes
+    rec["reviewed_at"] = time.time()
+    rec.setdefault("reviewed_by", None)      # placeholder for multi-user later
+    stat = _export_stat(pdir, name)
+    rec["export_mtime"] = stat["mtime"] if stat else rec.get("export_mtime")
+    if status:                                # a verdict pins the cut it judged
+        rec["cut_signature"] = cut_signature(pdir=pdir)
+    recs[name] = rec
+    save_reviews(pdir, recs)
+    return {"ok": True, "project": pid, "name": name,
+            "review": review_state(pdir, name, rec)}
+
+
+@app.get("/review")
+def review_page():
+    import review_page as _rp
+    project = ""
+    return HTMLResponse(_rp.build_review_html(active_project_dir()))
+
+
 class ExportDelIn(BaseModel):
     name: str
     project: str = ""
@@ -1382,8 +1656,15 @@ def list_exports():
                 except Exception:
                     cache[key] = None
             age_d = (time.time() - st.st_mtime) / 86400.0
+            try:                       # Phase A: review verdict per export
+                _rs = review_state(os.path.dirname(d), f)
+            except Exception:
+                _rs = {"status": "review_pending", "superseded": False}
             out.append({
                 "name": f, "project": pid, "size_mb": round(st.st_size / 1e6, 1),
+                "review_status": _rs.get("status"),
+                "superseded": _rs.get("superseded"),
+                "review_url": f"/review?project={pid}&name={f}",
                 "duration": cache[key],
                 "created": datetime.fromtimestamp(
                     st.st_mtime, ZoneInfo("America/New_York")

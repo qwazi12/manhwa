@@ -517,6 +517,7 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <button class="navbtn" data-d="tracker" onclick="toggleDrawer('tracker')"><span class="ic">📡</span>Tracker</button>
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
   <button class="navbtn" data-d="exports" onclick="toggleDrawer('exports')"><span class="ic">📤</span>Exports</button>
+  <a class="navbtn" href="/review" title="watch and rule on a rendered export"><span class="ic">📺</span>Review</a>
   <a class="navbtn" href="/legacy/" title="legacy player UI"><span class="ic">🕰️</span>Legacy</a>
 </div>
 <div class="drawer" id="d_ingest">
@@ -829,6 +830,8 @@ async function loadExports() {{
           style="float:right;background:none;border:1px solid #4a3040;color:#ef5f6b;border-radius:3px;cursor:pointer;font-size:11px;padding:1px 6px">✕</button><br>
         <span class="hint">${{e.duration ? (Math.floor(e.duration/60)+':'+String(Math.round(e.duration%60)).padStart(2,'0')) : '?'}} · ${{e.size_mb}} MB · ${{e.created}}</span><br>
         <span class="hint">${{e.project}}${{e.active_project ? ' · open' : ''}}</span>
+        <a href="${{e.review_url || ('/review?project=' + e.project + '&name=' + e.name)}}"
+           style="font-size:11px;margin-left:6px">review${{e.review_status && e.review_status !== 'review_pending' ? (' · ' + (e.superseded ? 'superseded' : e.review_status.replace('_',' '))) : ''}}</a>
         <span style="color:${{col}}"> · expires in ${{left < 1 ? (Math.round(left*24) + 'h') : (Math.round(left) + 'd')}}</span>
       </div>`;
       }}).join('') || 'No exports yet — tick segments and APPROVE.';

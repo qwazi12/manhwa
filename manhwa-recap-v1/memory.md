@@ -3318,3 +3318,60 @@ an ingest or render is running — a push restarts the container and kills it.
 Verified live before this entry: /api/tracker 200, /api/jobs/control live,
 /api/jobs/delete live, exports retention 7, board carries the tracker,
 multi-select, job controls and the checkbox fix.
+
+### Session 27 (cont.) — PHASE A: in-app review of rendered exports (COMMITTED, NOT PUSHED)
+Owner approved Phase A steps 1-3 only. No YouTube, no OAuth, no publish, no
+auth work, no rights gating — those stay deferred behind their own blockers.
+
+#### Design decisions kept from the proposal
+ - Review state is SEPARATE from storyboard.json's `approved`, which is a
+   RENDER gate. Conflating them would mean approving a video silently re-armed
+   the render gate.
+ - /review is a FULL PAGE, not a drawer — drawers are narrow side panels and a
+   video needs width. Nav entry is an <a> link, matching the Legacy button.
+ - Per-project reviews.json keyed by export filename.
+ - Every POST carries an explicit project; an ingest can switch the active
+   project underneath a reviewer mid-session.
+
+#### cut_signature — the point of the whole phase
+sha1 over the segments that actually reach the video (user_included and not
+rejected), covering seg_index, dur, panel_id, crop_bbox_norm and each beat's
+audio file. Stored ON the record when a verdict is given. `superseded` is
+DERIVED at read time by comparing against the cut as it stands now, never
+stored — so it stays true after later edits with nobody having to remember to
+update anything. An mtime cannot tell an edited timeline from an untouched one.
+
+#### Files
+NEW review_ui/review_page.py — the /review page. Written as a PLAIN string,
+not an f-string: storyboard.py is one giant f-string where every JS brace must
+be doubled and every backslash escaped, which has broken the board TWICE with
+a literal newline inside a JS string. Interpolating nothing removes that whole
+class of bug; the page fetches /api/review itself.
+server.py — project_dir_for(), cut_signature(), load_reviews()/save_reviews(),
+review_state(), latest_export(), _qc_bundle(), GET+POST /api/review, GET
+/review, and review_status/superseded/review_url on /api/exports.
+storyboard.py — 📺 Review nav link, per-export review link showing the verdict.
+NEW review_ui/test_review.py 32/32.
+
+#### QC panel surfaces existing signals only
+match_method + embed_fallback_reason (project.json), timing validation
+(validate_timeline), long holds >12s and silent segments (derived from the
+included cut), crop warnings (C2), scrape_warning, page count, segments in
+video vs total, runtime, and the finalize job's ended/clips. Nothing new was
+computed.
+
+#### Tests
+review 32/32 — latest-export selection, signature stability and reaction to
+panel swap / retime / untick, record round-trip, the superseded transition and
+its reversal, notes without a verdict, history on verdict change, explicit
+project routing not leaking into the active project, bad status / bad filename
+/ path traversal refused, deleted export keeps its record, empty project
+explains itself, QC bundle contents, and node --check on the page's inline JS.
+Full suite 12 files green (hardening 40/40, job_control 16/16, tracker 23/23,
+data_mgmt 14/14, crop_preview 16/16, edit 42/42, js_syntax 2/2, render_epoch
+4/4, assign pass, matcher_phase0 16/16, scraper 15/15).
+
+#### NOT PUSHED — deliberately
+Pushing auto-deploys and restarts the container. Nothing was running when
+checked, but the owner asked to be told before any deploy that would restart
+the service. Commit is local; awaiting the go-ahead to push.
