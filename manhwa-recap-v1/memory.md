@@ -3391,3 +3391,53 @@ FIX: added /review to both vercel.json files.
 GUARD ADDED: test_edge_routes.py asserts every non-/api page route registered
 in server.py has a matching rewrite in BOTH configs, so a third repeat fails a
 test instead of reaching the owner as a 404.
+
+### Session 27 (cont.) — PHASE B: publish preparation (metadata + manual package)
+Built, tested, pushed. Still NO OAuth, NO upload, NO posting — Phase B ends at
+a zip a human uploads by hand, which deliberately keeps the rights decision
+with a person rather than behind a button.
+
+#### What it does
+ - publish.json per project, keyed by export filename.
+ - publish_defaults() seeds title/description/tags/playlist from project.json
+   (series + chapter). PRIVACY DEFAULTS TO private — never public.
+   synthetic_disclosure defaults TRUE because the narration is TTS and YouTube
+   requires disclosure of realistic synthetic content.
+ - validate_publish() enforces the platform's own limits before anything is
+   assembled: title <=100, description <=5000, tags <=500 chars, known privacy
+   and category, and publish_at only alongside privacy=private.
+ - publish_readiness() gates on the REVIEW verdict: a package can only be built
+   from an APPROVED and NON-SUPERSEDED export. Editing the cut re-blocks it.
+   This is the whole reason Phase A's cut_signature exists.
+ - GET/POST /api/publish, GET /api/publish/package (zip: metadata.json,
+   upload-checklist.txt, thumbnail.png if chosen). The VIDEO is NOT bundled —
+   exports are hundreds of MB and already downloadable from /export.
+ - The checklist ends with an explicit reminder to confirm rights before
+   uploading, naming that aggregators are not the rights holder.
+ - Review page gains a Publish Preparation panel, disabled with the reason
+   shown whenever readiness is false.
+
+#### No edge change needed
+Everything new is under /api/, which the edge already wildcards. Confirmed by
+test_edge_routes.py rather than assumed — that guard exists because /review
+404'd for exactly this reason.
+
+#### Tests
+NEW test_publish_prep.py 35/35 — defaults, every validation limit, save
+round-trip and tag coercion, the readiness gate in all three states
+(unreviewed / approved / superseded), 409 when unreviewed, 400 when metadata
+is invalid, zip contents including the rights warning, video NOT bundled, and
+bad-input refusals. Full suite 14 files green.
+
+#### PHASES C, D, E REMAIN BLOCKED — and not by choice of ordering
+ C (OAuth) and D (upload) cannot proceed from this side at all:
+   - the site still has NO AUTH. It is public. Wiring a stored refresh token to
+     a publish button would let anyone with the URL post to the owner's
+     channel. This is a hard prerequisite, not a preference.
+   - OAuth needs a Google Cloud project, a consent screen and a client
+     id/secret that only the owner can create.
+   - unverified OAuth apps can only upload PRIVATE videos until Google's audit
+     passes, so "publish publicly" is not available on day one regardless.
+ E (rights gating) is a POLICY decision, not code: CLAUDE.md already states the
+ content is scraped from unlicensed aggregators and is internal-R&D only until
+ rights gating exists. Nothing technical unblocks that.

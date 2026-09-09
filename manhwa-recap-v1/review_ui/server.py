@@ -769,6 +769,225 @@ def api_review_save(body: ReviewIn):
             "review": review_state(pdir, name, rec)}
 
 
+# ====================================================================
+#  PHASE B — publish PREPARATION. Metadata + a manual upload package.
+#  No OAuth, no upload, no posting. The package exists so a human can upload
+#  by hand, which keeps the rights decision with a person rather than a button.
+# ====================================================================
+PUBLISH_NAME = "publish.json"
+
+# YouTube's own limits, enforced here so a package is never assembled from
+# metadata the platform would reject.
+YT_TITLE_MAX = 100
+YT_DESC_MAX = 5000
+YT_TAGS_CHARS_MAX = 500
+YT_PRIVACY = ("private", "unlisted", "public")
+# 1 = Film & Animation, 24 = Entertainment, 31 = Anime/Animation
+YT_CATEGORIES = {"1": "Film & Animation", "24": "Entertainment", "31": "Anime/Animation"}
+
+
+def load_publish(pdir):
+    try:
+        with open(os.path.join(pdir, PUBLISH_NAME), encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_publish(pdir, data):
+    tmp = os.path.join(pdir, PUBLISH_NAME + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, os.path.join(pdir, PUBLISH_NAME))
+
+
+def publish_defaults(pdir):
+    """Sensible starting metadata from what the project already knows."""
+    meta = {}
+    try:
+        meta = json.load(open(os.path.join(pdir, "project.json")))
+    except Exception:
+        pass
+    series = (meta.get("series") or "").strip()
+    chapter = str(meta.get("chapter") or "").strip()
+    title = f"{series} Chapter {chapter} — Recap" if series else "Chapter Recap"
+    return {
+        "title": title[:YT_TITLE_MAX],
+        "description": (f"A recap of {series} chapter {chapter}."
+                        if series else "A chapter recap."),
+        "tags": [t for t in [series, "recap", "manhwa"] if t],
+        "category_id": "1",
+        "privacy": "private",       # safe default; never public by default
+        "publish_at": "",
+        "playlist": series,
+        "made_for_kids": False,
+        # The narration is synthetic speech, so this starts TRUE — YouTube
+        # requires disclosure of realistic altered or synthetic content.
+        "synthetic_disclosure": True,
+        "thumbnail": None,
+    }
+
+
+def validate_publish(md):
+    """Platform-limit problems, as a list of human sentences ([] == fine)."""
+    out = []
+    title = (md.get("title") or "").strip()
+    if not title:
+        out.append("A title is required.")
+    elif len(title) > YT_TITLE_MAX:
+        out.append(f"Title is {len(title)} characters; the limit is {YT_TITLE_MAX}.")
+    if len(md.get("description") or "") > YT_DESC_MAX:
+        out.append(f"Description is over the {YT_DESC_MAX}-character limit.")
+    tags = md.get("tags") or []
+    if not isinstance(tags, list):
+        out.append("Tags must be a list.")
+    else:
+        total = sum(len(t) for t in tags) + max(0, len(tags) - 1)
+        if total > YT_TAGS_CHARS_MAX:
+            out.append(f"Tags total {total} characters; the limit is {YT_TAGS_CHARS_MAX}.")
+    if md.get("privacy") not in YT_PRIVACY:
+        out.append(f"Privacy must be one of {', '.join(YT_PRIVACY)}.")
+    if str(md.get("category_id")) not in YT_CATEGORIES:
+        out.append("Pick a category.")
+    if md.get("publish_at") and md.get("privacy") != "private":
+        out.append("A scheduled publish time requires privacy to be private.")
+    return out
+
+
+def publish_readiness(pdir, name):
+    """Whether a package may be assembled at all, and why not.
+
+    Preparation is gated on the REVIEW verdict: a package is a step towards
+    publishing, and publishing an unreviewed or stale cut is the mistake this
+    whole phase exists to prevent.
+    """
+    rv = review_state(pdir, name)
+    blockers = []
+    if rv["status"] != "approved":
+        blockers.append("This export has not been approved in Review yet.")
+    if rv["superseded"]:
+        blockers.append("The cut changed after this export was approved — "
+                        "re-render and re-review before preparing it.")
+    return {"review_status": rv["status"], "superseded": rv["superseded"],
+            "blockers": blockers, "ready": not blockers}
+
+
+@app.get("/api/publish")
+def api_publish(project: str = "", name: str = ""):
+    pdir = project_dir_for(project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    if not name:
+        name, pid = latest_export(project or pid)
+    if not name:
+        return {"project": pid, "name": None, "missing": True,
+                "reason": "no export has been rendered for this project yet"}
+    store = load_publish(pdir)
+    md = {**publish_defaults(pdir), **(store.get(name) or {})}
+    return {"project": pid, "name": name, "metadata": md,
+            "problems": validate_publish(md),
+            "readiness": publish_readiness(pdir, name),
+            "categories": YT_CATEGORIES, "privacy_options": list(YT_PRIVACY),
+            "limits": {"title": YT_TITLE_MAX, "description": YT_DESC_MAX,
+                       "tags_chars": YT_TAGS_CHARS_MAX}}
+
+
+class PublishIn(BaseModel):
+    project: str = ""
+    name: str
+    metadata: dict
+
+
+@app.post("/api/publish")
+def api_publish_save(body: PublishIn):
+    pdir = project_dir_for(body.project)
+    name = os.path.basename(body.name)
+    if not name.endswith(".mp4"):
+        raise HTTPException(400, "name must be an export filename")
+    md = {**publish_defaults(pdir), **(body.metadata or {})}
+    if isinstance(md.get("tags"), str):
+        md["tags"] = [t.strip() for t in md["tags"].split(",") if t.strip()]
+    md["privacy"] = md.get("privacy") or "private"
+    store = load_publish(pdir)
+    store[name] = md
+    save_publish(pdir, store)
+    return {"ok": True, "name": name, "metadata": md,
+            "problems": validate_publish(md),
+            "readiness": publish_readiness(pdir, name)}
+
+
+@app.get("/api/publish/package")
+def api_publish_package(project: str = "", name: str = ""):
+    """A zip a human can upload by hand: metadata, a checklist, the thumbnail.
+
+    The VIDEO is not bundled — exports run to hundreds of MB and are already
+    downloadable from /export. The package carries everything you would
+    otherwise retype into the upload form.
+    """
+    import io
+    import zipfile
+    from fastapi.responses import Response
+    pdir = project_dir_for(project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    if not name:
+        name, pid = latest_export(project or pid)
+    if not name:
+        raise HTTPException(404, "no export to package")
+    ready = publish_readiness(pdir, name)
+    if not ready["ready"]:
+        raise HTTPException(409, "not ready to package — " + " ".join(ready["blockers"]))
+    store = load_publish(pdir)
+    md = {**publish_defaults(pdir), **(store.get(name) or {})}
+    problems = validate_publish(md)
+    if problems:
+        raise HTTPException(400, "fix the metadata first: " + " ".join(problems))
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("metadata.json", json.dumps(md, indent=2))
+        lines = [
+            f"UPLOAD PACKAGE — {name}",
+            f"project: {pid}",
+            "",
+            "Paste these into the YouTube upload form:",
+            "",
+            f"TITLE:\n{md['title']}",
+            "",
+            f"DESCRIPTION:\n{md['description']}",
+            "",
+            f"TAGS: {', '.join(md.get('tags') or [])}",
+            f"CATEGORY: {YT_CATEGORIES.get(str(md.get('category_id')), '?')}",
+            f"PRIVACY: {md.get('privacy')}",
+            f"SCHEDULED: {md.get('publish_at') or '(none)'}",
+            f"PLAYLIST: {md.get('playlist') or '(none)'}",
+            f"MADE FOR KIDS: {'yes' if md.get('made_for_kids') else 'no'}",
+            f"SYNTHETIC/ALTERED CONTENT DISCLOSURE: "
+            f"{'yes' if md.get('synthetic_disclosure') else 'no'}",
+            "",
+            "The video file itself is not in this zip — download it from the",
+            "Exports tab. Thumbnail (if chosen) is included as thumbnail.png.",
+            "",
+            "BEFORE YOU UPLOAD: confirm you have the rights to publish this",
+            "artwork. The pipeline sources pages from aggregators, which are",
+            "not the rights holder.",
+        ]
+        z.writestr("upload-checklist.txt", "\n".join(lines))
+        thumb = md.get("thumbnail") or {}
+        tp = None
+        if thumb.get("type") == "panel" and thumb.get("panel_id"):
+            tp = os.path.join(pdir, "crops", f"{thumb['panel_id']}.png")
+        elif thumb.get("type") == "segment" and thumb.get("seg_index") is not None:
+            segs = _load_segments_from(pdir)
+            sg = next((x for x in segs
+                       if x["seg_index"] == thumb["seg_index"]), None)
+            tp = (sg or {}).get("panel_file")
+        if tp and os.path.exists(tp):
+            z.write(tp, "thumbnail.png")
+    buf.seek(0)
+    fn = name.replace(".mp4", "") + "_upload_package.zip"
+    return Response(content=buf.read(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+
+
 @app.get("/review")
 def review_page():
     import review_page as _rp

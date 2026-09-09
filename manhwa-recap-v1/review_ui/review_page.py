@@ -79,6 +79,7 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 <div id="root"><div class="empty">loading…</div></div>
 <script>
 var DATA = null;
+var PUB = null;
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -115,6 +116,11 @@ async function load(name) {
   if (name) u += '&name=' + encodeURIComponent(name);
   try {
     DATA = await api(u);
+    try {
+      PUB = await api('/api/publish?cb=' + Date.now() +
+        (DATA.project ? '&project=' + encodeURIComponent(DATA.project) : '') +
+        (DATA.name ? '&name=' + encodeURIComponent(DATA.name) : ''));
+    } catch (e2) { PUB = null; }
   } catch (e) {
     document.getElementById('root').innerHTML =
       '<div class="empty">Could not load review data — ' + esc(e.message) + '</div>';
@@ -187,8 +193,120 @@ function render() {
           ' · cut ' + esc(rv.current_signature || '?') +
         '</div>' +
       '</div>' +
+      publishCard() +
       historyCard(rv) +
     '</div><div>' + qcCard(d, qc) + '</div></div>';
+}
+
+function publishCard() {
+  if (!PUB || PUB.missing) return '';
+  var md = PUB.metadata || {}, rd = PUB.readiness || {}, probs = PUB.problems || [];
+  var locked = !rd.ready;
+
+  var blockers = locked
+    ? '<div class="banner b-warn" style="margin:0 0 11px">' +
+      (rd.blockers || []).map(esc).join(' ') +
+      '</div>'
+    : '';
+  var problems = probs.length
+    ? '<div class="banner b-bad" style="margin:11px 0 0">' +
+      probs.map(esc).join('<br>') + '</div>'
+    : '';
+
+  var cats = Object.keys(PUB.categories || {}).map(function (k) {
+    return '<option value="' + esc(k) + '"' +
+      (String(md.category_id) === k ? ' selected' : '') + '>' +
+      esc(PUB.categories[k]) + '</option>';
+  }).join('');
+  var privs = (PUB.privacy_options || []).map(function (v) {
+    return '<option value="' + esc(v) + '"' +
+      (md.privacy === v ? ' selected' : '') + '>' + esc(v) + '</option>';
+  }).join('');
+
+  var dis = locked ? ' disabled' : '';
+  var th = md.thumbnail || {};
+  return '<div class="card"><h2>Publish preparation</h2>' + blockers +
+    '<div class="hint" style="margin-bottom:9px">Prepares metadata and a package you upload ' +
+    'to YouTube <b>by hand</b>. Nothing is posted from here.</div>' +
+    fld('Title', '<input id="p_title" maxlength="' + (PUB.limits || {}).title +
+        '" value="' + esc(md.title) + '"' + dis + '>') +
+    fld('Description', '<textarea id="p_desc" style="min-height:90px"' + dis + '>' +
+        esc(md.description) + '</textarea>') +
+    fld('Tags (comma separated)', '<input id="p_tags" value="' +
+        esc((md.tags || []).join(', ')) + '"' + dis + '>') +
+    fld('Category', '<select id="p_cat"' + dis + '>' + cats + '</select>') +
+    fld('Privacy', '<select id="p_priv"' + dis + '>' + privs + '</select>') +
+    fld('Schedule (private only)', '<input id="p_at" placeholder="2026-09-20T15:00:00Z" value="' +
+        esc(md.publish_at || '') + '"' + dis + '>') +
+    fld('Playlist', '<input id="p_play" value="' + esc(md.playlist || '') + '"' + dis + '>') +
+    fld('Thumbnail from segment #', '<input id="p_thumb" type="number" min="0" value="' +
+        (th.seg_index != null ? th.seg_index : '') + '" oninput="thumbPreview()"' + dis + '>' +
+        '<div id="p_thumbprev" style="margin-top:6px"></div>') +
+    '<label style="display:block;margin:8px 0"><input type="checkbox" id="p_kids"' +
+      (md.made_for_kids ? ' checked' : '') + dis + '> Made for kids</label>' +
+    '<label style="display:block;margin:8px 0"><input type="checkbox" id="p_synth"' +
+      (md.synthetic_disclosure ? ' checked' : '') + dis + '> Contains synthetic / AI-generated ' +
+      'narration (disclose on upload)</label>' +
+    '<div class="actions">' +
+      '<button onclick="savePublish()"' + dis + '>Save metadata</button>' +
+      '<button onclick="downloadPackage()"' + dis + '>⬇ Download upload package</button>' +
+      '<span id="p_saved" class="hint"></span>' +
+    '</div>' + problems + '</div>';
+}
+
+function fld(label, control) {
+  return '<div style="margin:9px 0"><div class="hint" style="margin-bottom:3px">' +
+    esc(label) + '</div>' + control + '</div>';
+}
+
+function thumbPreview() {
+  var v = (document.getElementById('p_thumb') || {}).value;
+  var box = document.getElementById('p_thumbprev');
+  if (!box) return;
+  box.innerHTML = (v === '' || v == null) ? '' :
+    '<img src="/segimg/' + encodeURIComponent(v) + '?cb=' + Date.now() +
+    '" style="max-width:150px;border-radius:5px;border:1px solid #272b38">';
+}
+
+function collectPublish() {
+  var t = (document.getElementById('p_thumb') || {}).value;
+  return {
+    title: (document.getElementById('p_title') || {}).value || '',
+    description: (document.getElementById('p_desc') || {}).value || '',
+    tags: ((document.getElementById('p_tags') || {}).value || '')
+      .split(',').map(function (x) { return x.trim(); }).filter(Boolean),
+    category_id: (document.getElementById('p_cat') || {}).value || '1',
+    privacy: (document.getElementById('p_priv') || {}).value || 'private',
+    publish_at: (document.getElementById('p_at') || {}).value || '',
+    playlist: (document.getElementById('p_play') || {}).value || '',
+    made_for_kids: !!(document.getElementById('p_kids') || {}).checked,
+    synthetic_disclosure: !!(document.getElementById('p_synth') || {}).checked,
+    thumbnail: (t === '' || t == null) ? null
+      : { type: 'segment', seg_index: parseInt(t, 10) }
+  };
+}
+
+async function savePublish() {
+  var el = document.getElementById('p_saved');
+  if (el) el.textContent = 'saving…';
+  try {
+    PUB = await api('/api/publish', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: DATA.project, name: DATA.name,
+                             metadata: collectPublish() })
+    });
+    render();
+    var e2 = document.getElementById('p_saved');
+    if (e2) e2.textContent = (PUB.problems && PUB.problems.length) ? 'saved, with problems' : 'saved';
+  } catch (e) {
+    if (el) el.textContent = '';
+    alert('Could not save: ' + e.message);
+  }
+}
+
+function downloadPackage() {
+  window.location = '/api/publish/package?project=' + encodeURIComponent(DATA.project) +
+    '&name=' + encodeURIComponent(DATA.name);
 }
 
 function historyCard(rv) {
