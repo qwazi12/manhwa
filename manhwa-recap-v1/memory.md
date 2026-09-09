@@ -3375,3 +3375,19 @@ data_mgmt 14/14, crop_preview 16/16, edit 42/42, js_syntax 2/2, render_epoch
 Pushing auto-deploys and restarts the container. Nothing was running when
 checked, but the owner asked to be told before any deploy that would restart
 the service. Commit is local; awaiting the go-ahead to push.
+
+#### Phase A (cont.) — /review 404'd on the live domain: the edge route, AGAIN
+Owner clicked the Review tab and got a Vercel 404 (iad1::...). Diagnosis:
+  railway   /review     -> 200   the page works
+  nodepilot /review     -> 404   the edge never forwards it
+  nodepilot /api/review -> 200   because /api/:path* was already routed
+Neither vercel.json listed /review, so it never reached Railway. This is the
+SAME failure as /segimg in Session 26, and the lesson was already written in
+this file — "a new backend route is invisible on the live domain until the edge
+rewrite list ships too" — and I still did not apply it to my own new route.
+Root cause of the repeat: the edge allowlist is a second, separate place that
+must change for every non-/api route, and nothing checks the two lists agree.
+FIX: added /review to both vercel.json files.
+GUARD ADDED: test_edge_routes.py asserts every non-/api page route registered
+in server.py has a matching rewrite in BOTH configs, so a third repeat fails a
+test instead of reaching the owner as a 404.

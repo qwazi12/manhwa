@@ -11,6 +11,10 @@
       "destination": "https://recap-studio-production.up.railway.app/storyboard"
     },
     {
+      "source": "/review",
+      "destination": "https://recap-studio-production.up.railway.app/review"
+    },
+    {
       "source": "/legacy",
       "destination": "/legacy/index.html"
     },

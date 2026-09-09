@@ -10,6 +10,10 @@
       "destination": "https://recap-studio-production.up.railway.app/storyboard"
     },
     {
+      "source": "/review",
+      "destination": "https://recap-studio-production.up.railway.app/review"
+    },
+    {
       "source": "/legacy",
       "destination": "/manhwa-recap-v1/review_ui/static/legacy/index.html"
     },
