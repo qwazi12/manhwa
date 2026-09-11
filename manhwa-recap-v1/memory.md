@@ -3636,3 +3636,20 @@ no field is documented — they must not be faked.
 Tests: outstand_connect 68/68 (up from 50); full suite 16 files, 100%.
 STILL BLOCKED on credentials: no OUTSTAND_API_KEY / OUTSTAND_ORG_ID /
 OUTSTAND_REDIRECT_URI, so nothing has run against the live service.
+
+#### Phase C (cont.) — case-sensitive env lookup hid a key that WAS set
+Owner set the Outstand key as `Outstand_API_KEY`. Env vars are case-sensitive
+on Linux and config() read `OUTSTAND_API_KEY`, so a key that existed reported as
+"not configured" — indistinguishable from never setting it. The project already
+mixes conventions (Claude_API_KEY sits beside GEMINI_API_KEY), so exact-case
+lookup was a trap waiting to fire.
+FIX: env_any_case() resolves any capitalisation for all three Outstand vars.
+The regression test initially FAILED because the test's own _clear_env() popped
+only exact-case names — the helper fell into the very trap under test. Both
+fixed; _clear_env now clears any casing.
+Tests: outstand_connect 72/72; full suite 16 files, 100%.
+
+STILL NOT LIVE-VERIFIED. I cannot reach /api myself any more: the domain is
+behind Basic Auth (no password here) and the Railway backend requires
+x-shared-secret. Verification needs either the owner to read
+/api/outstand/status in their browser, or credentials shared deliberately.

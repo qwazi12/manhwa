@@ -26,8 +26,8 @@ CFG = {"configured": True, "api_key": "KEY", "org_id": "ORG",
 
 
 def _clear_env():
-    for k in ("OUTSTAND_API_KEY", "OUTSTAND_ORG_ID", "OUTSTAND_REDIRECT_URI",
-              "OUTSTAND_ALLOW_PUBLIC"):
+    # any casing — the helper must not fall into the very trap under test
+    for k in [k for k in os.environ if k.upper().startswith("OUTSTAND")]:
         os.environ.pop(k, None)
 
 
@@ -64,6 +64,23 @@ def main():
                                     "OUTSTAND_REDIRECT_URI"}))
     r.append(("youtube is among the supported networks", "youtube" in osd.NETWORKS))
     r.append(("the model is not hardcoded to one network", len(osd.NETWORKS) > 5))
+
+    # ---- capitalisation must not decide whether a key "exists".
+    # Env vars are case-sensitive on Linux and this project already mixes
+    # conventions (Claude_API_KEY beside GEMINI_API_KEY), so an exact-case
+    # lookup reported "not configured" for a key that was set — indistinguishable
+    # from never setting it.
+    _clear_env()
+    os.environ["Outstand_API_KEY"] = "k"
+    os.environ["outstand_org_id"] = "o"
+    os.environ["OUTSTAND_REDIRECT_URI"] = "https://x/cb"
+    c2 = osd.config()
+    r.append(("a mixed-case API key is found", bool(c2["api_key"])))
+    r.append(("a lowercase org id is found", bool(c2["org_id"])))
+    r.append(("...so the integration reads as configured", c2["configured"] is True))
+    _clear_env()
+    r.append(("with nothing set it still reports all three missing",
+              len(osd.config()["missing"]) == 3))
 
     # ---- connect url
     r.append(("a connect URL cannot be built while unconfigured",

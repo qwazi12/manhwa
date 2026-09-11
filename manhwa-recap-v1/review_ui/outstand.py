@@ -54,11 +54,30 @@ class OutstandError(RuntimeError):
         self.status = status
 
 
+def env_any_case(name):
+    """Look up an env var ignoring capitalisation.
+
+    Environment variables are case-sensitive on Linux, and this project already
+    mixes conventions (Claude_API_KEY sits beside GEMINI_API_KEY). An exact-case
+    lookup silently reports "not configured" when the value is right there under
+    a different capitalisation, which is indistinguishable from never having set
+    it. Accept any casing and remove the trap.
+    """
+    v = os.environ.get(name)
+    if v:
+        return v
+    want = name.lower()
+    for k, val in os.environ.items():
+        if k.lower() == want and val:
+            return val
+    return None
+
+
 def config():
     """What is configured and precisely what is missing."""
-    key = os.environ.get("OUTSTAND_API_KEY")
-    org = os.environ.get("OUTSTAND_ORG_ID")
-    redirect = os.environ.get("OUTSTAND_REDIRECT_URI") or ""
+    key = env_any_case("OUTSTAND_API_KEY")
+    org = env_any_case("OUTSTAND_ORG_ID")
+    redirect = env_any_case("OUTSTAND_REDIRECT_URI") or ""
     missing = []
     if not key:
         missing.append("OUTSTAND_API_KEY")
