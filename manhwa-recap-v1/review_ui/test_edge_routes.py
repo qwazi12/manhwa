@@ -76,6 +76,34 @@ def main():
         r.append(("the domain-owning config still has NO catch-all "
                   "(so the allowlist must stay complete)", not has_catch_all))
 
+    # ---- middleware invariants. The documented failure mode: an early
+    # `return next()` that skipped the header meant the page shell loaded
+    # while every image and API call 401'd, which looks like a broken app
+    # rather than a config problem. One exit, and the header set before it.
+    mw = [os.path.join(ROOT, "middleware.js"),
+          os.path.join(HERE, "static", "middleware.js")]
+    bodies = {}
+    for f in mw:
+        r.append((f"{os.path.relpath(f, ROOT)} exists", os.path.exists(f)))
+        if os.path.exists(f):
+            bodies[f] = open(f, encoding="utf-8").read()
+    if len(bodies) == 2:
+        a, b = list(bodies.values())
+        r.append(("both middleware copies are identical", a == b))
+    for f, src in bodies.items():
+        tag = os.path.basename(os.path.dirname(f)) or "root"
+        r.append((f"[{tag}] injects x-shared-secret", "x-shared-secret" in src))
+        r.append((f"[{tag}] has exactly ONE next() exit, so no path can skip "
+                  f"the header", src.count("return next(") == 1))
+        i_hdr = src.find("x-shared-secret")
+        i_next = src.find("return next(")
+        r.append((f"[{tag}] sets the header BEFORE returning",
+                  i_hdr != -1 and i_next != -1 and i_hdr < i_next))
+        r.append((f"[{tag}] challenges with WWW-Authenticate on refusal",
+                  "WWW-Authenticate" in src))
+        r.append((f"[{tag}] only gates when credentials are configured "
+                  f"(never locks the owner out)", "USER && PASS" in src))
+
     for name, ok in r:
         print(("PASS " if ok else "FAIL ") + name)
     n = sum(1 for _, ok in r if ok)

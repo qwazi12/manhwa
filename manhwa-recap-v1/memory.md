@@ -3441,3 +3441,57 @@ bad-input refusals. Full suite 14 files green.
  E (rights gating) is a POLICY decision, not code: CLAUDE.md already states the
  content is scraped from unlicensed aggregators and is internal-R&D only until
  rights gating exists. Nothing technical unblocks that.
+
+### Session 28 — 2026-09-11 — auth restored + review/logs UX batch
+Resumed a batch interrupted by a dropped connection. All six edits were found
+already on disk and complete; nothing was redone, only verified and finished
+(tests, commit, deploy).
+
+#### A. Basic Auth restored on the edge
+middleware.js (BOTH copies) now challenges when BASIC_AUTH_USER and
+BASIC_AUTH_PASSWORD are set, and still injects x-shared-secret for the backend.
+Written with ONE `return next()` exit so no branch can skip the header — the
+Session 24 failure was an early return that loaded the page shell while every
+image and API call 401'd, which looks like a broken app rather than a config
+problem. Gate engages ONLY when both env vars are set; enforcing with nothing
+configured would lock the owner out of their own tool with no way back in. The
+trade is that a missing env var silently leaves the site open, so it MUST be
+verified after deploy rather than assumed.
+GUARD: test_edge_routes.py now asserts, for both copies — identical files,
+x-shared-secret present, exactly one next() exit, header set BEFORE that
+return, a WWW-Authenticate challenge on refusal, and that gating is
+conditional on credentials existing.
+
+#### B. Logs checkbox reverted after ~5s — the poll wiped it
+The auto-refresh called loadLogs(), which re-renders every row, so ticks
+vanished. Same class as the storyboard checkbox bug. Fixed two ways: the poll
+now SKIPS a refresh entirely while any box is ticked (a selection means the
+user is mid-action), and a manual refresh captures the checked ids first and
+restores them after the re-render.
+
+#### C. Review dropdown now lists EVERY export
+It previously showed only the active project's exports. It now loads
+/api/exports — the same universe the Exports tab shows — labels each option
+"project · file · status", and the option value carries project|name so
+switching loads the right project explicitly rather than depending on whichever
+project happens to be active.
+
+#### D. The verdict now leads somewhere (it was half decoration)
+Approve already unlocked Phase B publish packaging. SEND BACK did not reach the
+person editing — it only showed on /review. Now the board renders a banner at
+the top carrying the send-back notes and a link back to /review, and a second
+banner when an approved export has been superseded by later edits. Help text
+under the verdict states plainly: Approve unlocks Publish preparation; Send
+back posts notes to the board and keeps publishing locked; re-rendering
+produces a new export that arrives unreviewed. That closes the loop:
+review -> send back -> edit -> re-render -> re-review -> approve.
+
+#### E. Legacy tab removed from the nav; Back to the board is now a button
+The /legacy route and its edge rewrite remain (cold storage, reachable
+directly); only the nav entry is gone.
+
+Tests: 14 files, 100% — edge_routes 37/37 (incl. the new middleware
+invariants), publish_prep 35/35, review 32/32, hardening 40/40, job_control
+16/16, tracker 23/23, data_mgmt 14/14, crop_preview 16/16, edit 42/42,
+js_syntax 2/2, render_epoch 4/4, assign pass, matcher_phase0 16/16, scraper
+15/15. review_page and middleware JS both node --check clean.

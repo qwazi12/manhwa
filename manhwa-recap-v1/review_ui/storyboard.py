@@ -518,7 +518,6 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
   <button class="navbtn" data-d="exports" onclick="toggleDrawer('exports')"><span class="ic">📤</span>Exports</button>
   <a class="navbtn" href="/review" title="watch and rule on a rendered export"><span class="ic">📺</span>Review</a>
-  <a class="navbtn" href="/legacy/" title="legacy player UI"><span class="ic">🕰️</span>Legacy</a>
 </div>
 <div class="drawer" id="d_ingest">
   <h3>Ingest a chapter</h3>
@@ -589,6 +588,8 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <button id="approveBtn" class="{'on' if approved else ''}" onclick="toggleApproval()">
     {'✔ APPROVED — click to re-render &amp; re-export' if approved else 'APPROVE PROJECT FOR RENDER'}</button>
 </header>
+<div id="sentback" style="display:none;margin:0 14px 10px;padding:11px 14px;border-radius:8px;
+  background:#3a2412;border-left:3px solid #e0a33a;color:#ffcf9b;font-size:13px"></div>
 <div id="pipebar">
   <span id="st_tick">① ticked <b>{n_included}/{n_segs}</b></span>
   <span id="st_appr">② approved <b>{'✓' if approved else '—'}</b></span>
@@ -846,6 +847,25 @@ async function delExport(name, project) {{
   }} catch (e) {{ alert('Delete failed: ' + (e.message || e)); }}
 }}
 /* resume progress strip after refresh */
+/* A "send back" verdict on /review has to reach the person editing, or the
+   button is decoration. Surface it at the top of the board with its notes. */
+fetch('/api/review').then(r => r.ok ? r.json() : null).then(d => {{
+  if (!d || !d.review) return;
+  const el = document.getElementById('sentback');
+  if (!el) return;
+  if (d.review.status === 'sent_back') {{
+    el.style.display = 'block';
+    el.innerHTML = '<b>↩ This render was sent back for revision.</b> ' +
+      (d.review.notes ? ('<br>' + d.review.notes.replace(/</g, '&lt;')) : '') +
+      '<br><span style="opacity:.85">Fix it below, re-render, then ' +
+      '<a href="/review" style="color:#ffd9a8">review the new export</a>.</span>';
+  }} else if (d.review.superseded && d.review.status === 'approved') {{
+    el.style.display = 'block';
+    el.innerHTML = '<b>⚠ The approved export no longer matches this cut.</b> ' +
+      'Re-render and <a href="/review" style="color:#ffd9a8">review the new one</a> ' +
+      'before publishing.';
+  }}
+}}).catch(() => {{}});
 (function () {{
   const id = localStorage.getItem('finalizeJob');
   if (id) pollFinalize(id);
@@ -1118,6 +1138,7 @@ async function loadLogs() {{
     return out.sort((a,b) => (b.ts||0) - (a.ts||0)).slice(0, 30);
   }}
 
+  const keep = new Set(_jobsChecked().map(c => c.value));   // survive a re-render
   try {{
     const list = await rows();
     box.innerHTML = list.length ? list.map(x => {{
@@ -1140,6 +1161,9 @@ async function loadLogs() {{
         <div style="display:flex;gap:3px;flex-shrink:0">${{ctl}}</div>
       </div>`;
     }}).join('') : 'No jobs yet.';
+    if (keep.size) {{
+      document.querySelectorAll('.jobsel').forEach(c => {{ c.checked = keep.has(c.value); }});
+    }}
     updateJobSel();
   }} catch (e) {{ box.innerHTML = `<span style="color:#ef6470">⚠ could not load jobs — ${{e.message || e}}</span>`; }}
 
@@ -1165,6 +1189,10 @@ async function loadLogs() {{
       while (document.getElementById('d_logs').style.display === 'block') {{
         await new Promise(r => setTimeout(r, 5000));
         if (document.getElementById('d_logs').style.display !== 'block') break;
+        // Never refresh out from under a selection — the re-render replaces
+        // every row and the ticks vanish, which reads as boxes unticking
+        // themselves. A selection means the user is mid-action; wait.
+        if (_jobsChecked().length) continue;
         await loadLogs();
       }}
       logsPolling = false;

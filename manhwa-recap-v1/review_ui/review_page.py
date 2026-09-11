@@ -30,7 +30,10 @@ a { color:var(--accent); }
 header { display:flex; gap:16px; align-items:center; padding:12px 20px;
   border-bottom:1px solid var(--rule); background:var(--panel); flex-wrap:wrap; }
 header h1 { font-size:15px; margin:0; font-weight:700; letter-spacing:-.01em; }
-.back { font-size:12px; text-decoration:none; }
+.back { font-size:12.5px; text-decoration:none; font-weight:600; padding:7px 13px;
+  border-radius:6px; background:var(--panel2); border:1px solid var(--rule); color:var(--ink);
+  white-space:nowrap; }
+.back:hover { border-color:var(--accent); color:var(--accent); }
 .wrap { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:20px;
   padding:20px; align-items:start; }
 @media (max-width:980px) { .wrap { grid-template-columns:1fr; } }
@@ -72,7 +75,7 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 </style></head><body>
 <header>
   <h1>📺 Review</h1>
-  <a class="back" href="/storyboard">← back to the board</a>
+  <a class="back" href="/storyboard">← Back to the board</a>
   <select id="picker" onchange="pick(this.value)"></select>
   <span id="hdrstate"></span>
 </header>
@@ -80,6 +83,7 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 <script>
 var DATA = null;
 var PUB = null;
+var ALL = [];
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -109,8 +113,12 @@ async function api(url, opts) {
   return r.json();
 }
 
-async function load(name) {
-  var proj = q('project');
+async function load(name, proj) {
+  proj = proj || q('project');
+  // Every export in the library, so the picker is not limited to whichever
+  // project happens to be active — an ingest can change that underneath you.
+  try { ALL = (await api('/api/exports?cb=' + Date.now())).exports || []; }
+  catch (e) { ALL = []; }
   var u = '/api/review?cb=' + Date.now();
   if (proj) u += '&project=' + encodeURIComponent(proj);
   if (name) u += '&name=' + encodeURIComponent(name);
@@ -129,7 +137,10 @@ async function load(name) {
   render();
 }
 
-function pick(name) { load(name); }
+function pick(v) {
+  var i = v.indexOf('|');
+  load(v.slice(i + 1), v.slice(0, i));
+}
 
 function render() {
   var d = DATA, root = document.getElementById('root');
@@ -145,12 +156,20 @@ function render() {
     return;
   }
 
-  sel.innerHTML = (d.exports || []).map(function (e) {
+  var list = ALL.length ? ALL : (d.exports || []).map(function (e) {
+    return { name: e.name, project: d.project, size_mb: e.size_mb,
+             review_status: e.status, superseded: e.superseded };
+  });
+  sel.innerHTML = list.map(function (e) {
+    var st = e.review_status || e.status;
     var mark = e.superseded ? ' — superseded' :
-      (e.status === 'approved' ? ' — approved' :
-       (e.status === 'sent_back' ? ' — sent back' : ''));
-    return '<option value="' + esc(e.name) + '"' + (e.name === d.name ? ' selected' : '') +
-      '>' + esc(e.name) + ' (' + e.size_mb + ' MB)' + esc(mark) + '</option>';
+      (st === 'approved' ? ' — approved' :
+       (st === 'sent_back' ? ' — sent back' : ' — not reviewed'));
+    var val = (e.project || d.project) + '|' + e.name;
+    var on = (e.name === d.name && (e.project || d.project) === d.project);
+    return '<option value="' + esc(val) + '"' + (on ? ' selected' : '') + '>' +
+      esc(e.project || d.project) + ' · ' + esc(e.name) +
+      ' (' + e.size_mb + ' MB)' + esc(mark) + '</option>';
   }).join('');
 
   var rv = d.review || {}, qc = d.qc || {};
@@ -180,6 +199,12 @@ function render() {
   root.innerHTML =
     '<div class="wrap"><div>' + banners + player +
       '<div class="card" style="margin-top:14px"><h2>Verdict</h2>' +
+        '<div class="hint" style="margin-bottom:8px">' +
+          '<b>Approve</b> unlocks Publish preparation below for this export. ' +
+          '<b>Send back</b> posts your notes to the top of the board so the ' +
+          'next edit starts with them, and keeps publishing locked. ' +
+          'Re-render after editing and the new export arrives here unreviewed.' +
+        '</div>' +
         '<textarea id="notes" placeholder="Notes — what to fix, or why this is good. Saved on its own.">' +
         esc(rv.notes || '') + '</textarea>' +
         '<div class="actions">' +
@@ -393,7 +418,7 @@ async function send(status) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    await load(DATA.name);
+    await load(DATA.name, DATA.project);
     var e2 = document.getElementById('saved');
     if (e2) e2.textContent = 'saved';
   } catch (e) {
@@ -404,7 +429,7 @@ async function send(status) {
 function decide(status) { send(status); }
 function saveNotes() { send(''); }
 
-load(q('name'));
+load(q('name'), q('project'));
 </script></body></html>
 """
 
