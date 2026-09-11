@@ -4221,3 +4221,54 @@ earlier this session is catching it. Data defect, not code; /api/storyboard/
 repair_slices is the fix. NOT actioned (outside this batch).
 
 Tests: 19 files, 0 failing (test_render_epoch 4 -> 11).
+
+### Session 28 (cont.) — validation batch (no code changes)
+Verification only. Nothing was changed in the app; no render was in flight.
+
+#### 1. Deployment verified LIVE on the pinned install
+Build log: `npm ci --omit=dev` -> "added 142 packages in 19s", then
+`./node_modules/.bin/hyperframes --version` -> **0.8.35**. The Chrome-wrap step
+also ran through /app/manhwa-recap-v1/hyperframes/node_modules/.bin/hyperframes.
+NO npx anywhere in the build. Deployment 0762326f, 2026-09-11 22:50 UTC, SUCCESS.
+/health 200 in 89ms.
+
+Also confirmed live, from the deploy logs, that the /review waterfall fix is
+really working in production — the cache-buster timestamps prove the grouping:
+  round 1  cb=...841780  exports + review + outstand/status   (fired together)
+  round 2  cb=...841905  publish/status + eligibility + publish (125ms later)
+Two rounds of three, exactly as designed. Previously six serial trips.
+
+#### 2. Railway limits — MEASURED, and they overturn the old premise
+`railway metrics` (last 1h):
+  CPU     limit 32.0 vCPU   current 0.11 (0%)   max 0.11
+  Memory  limit 32.0 GB     current 243 MB (1%) max 243 MB
+  Volume  /app/data 2.24 GB of 29.3 GB (8%)
+  Latency p50 34ms · p90 91ms · p95 821ms · p99 3476ms
+  HTTP    1.3K reqs, 87.1% 4xx (the Basic-Auth 401 preflights), 0.1% 5xx
+
+The Dockerfile's justification for PRODUCER_LOW_MEMORY_MODE=1 says the
+container has a "much smaller cgroup limit" than the host's 48 cores. That is
+NOT true of this service: it is 32 vCPU / 32 GB, and peak memory in an hour of
+real use was 243 MB — under 1%. At hyperframes' documented ~256 MB per worker,
+even 8 workers is ~2 GB = 6% of the limit.
+So the memory fear that motivated 1-worker rendering is not supported by data.
+
+NOT verified: whether the container SEES 32 vCPU (nproc) or the host's 48. That
+distinction is why "auto" over-spawned before, and it is the reason to set an
+EXPLICIT -w rather than turning LOW_MEMORY_MODE off and trusting auto.
+`railway ssh` still fails on host-key verification; I did NOT add the host key,
+because writing ~/.ssh/known_hosts is a security-setting change to make with
+the owner's consent, not silently.
+
+#### 3. 24fps vs 30fps on a REAL export (8 consecutive segments, 56.3s)
+Pinned binary, PRODUCER_LOW_MEMORY_MODE=1 (today's production setting):
+  30fps  render 90.3s  1691 frames  30.0 MB  duration 56.39s
+  24fps  render 75.8s  1355 frames  28.5 MB  duration 56.48s
+  -> 24fps is 16% faster; projected full chapter 15.7 min -> 13.2 min
+Duration is preserved to ~0.1s, so narration timing is unaffected — the audio
+is untouched, only frame count changes. Size drops 5%.
+Both files were sent to the owner to judge judder on the Ken Burns pans
+themselves. NO DEFAULT CHANGED — awaiting approval.
+
+Levers ranked by measured gain, on today's hardware:
+  workers (32 vCPU idle)  >  24fps (-16%)  >  npx removal (already done, -12%)
