@@ -27,7 +27,7 @@ CFG = {"configured": True, "api_key": "KEY", "org_id": "ORG",
 
 def _clear_env():
     for k in ("OUTSTAND_API_KEY", "OUTSTAND_ORG_ID", "OUTSTAND_REDIRECT_URI",
-              "OUTSTAND_ALLOW_UNCONTROLLED_VISIBILITY"):
+              "OUTSTAND_ALLOW_PUBLIC"):
         os.environ.pop(k, None)
 
 
@@ -99,13 +99,17 @@ def main():
             return [{"id": "acc_1", "network": "youtube", "username": "flamingoremix",
                      "nickname": "Flamingo Remix"},
                     {"id": "acc_2", "network": "x", "username": "someone"}]
-        if url.endswith("/posts/"):
-            return {"id": "post_9"}
-        if "/posts/" in url:
-            return {"id": "post_9", "status": "pending", "accounts": [
-                {"accountId": "acc_1", "status": "published",
-                 "platformPostId": "yt_abc", "url": "https://youtu.be/yt_abc"},
-                {"accountId": "acc_2", "status": "failed", "error": "rate limited"}]}
+        if url.endswith("/posts/") or "/posts/" in url:
+            return {"success": True, "post": {
+                "id": "9dyJS", "publishedAt": "2026-01-15T10:30:00Z",
+                "socialAccounts": [
+                    {"id": "acc_1", "network": "youtube", "username": "flamingoremix",
+                     "status": "published", "error": None,
+                     "platformPostId": "yt_abc",
+                     "publishedAt": "2026-01-15T10:30:02Z"},
+                    {"id": "acc_2", "network": "x", "username": "someone",
+                     "status": "failed", "error": "rate limited",
+                     "platformPostId": None, "publishedAt": None}]}}
         if url.endswith("/media/upload"):
             return {"id": "med_1", "upload_url": "https://up.test/put"}
         return {}
@@ -155,27 +159,64 @@ def main():
 
     # ---- publish request shape
     res = osd.create_post([{"content": "hello"}], ["acc_1"],
-                          scheduled_at="2026-10-01T09:00:00Z", cfg=CFG, _http=http)
+                          scheduled_at="2026-10-01T09:00:00Z",
+                          youtube=osd.build_youtube_config({"title": "T"}),
+                          cfg=CFG, _http=http)
     body = calls[-1]["body"]
     r.append(("publishing posts to /posts/", calls[-1]["url"].endswith("/posts/")))
     r.append(("...with containers and accounts",
               body["containers"][0]["content"] == "hello" and body["accounts"] == ["acc_1"]))
     r.append(("...and scheduledAt when given",
               body["scheduledAt"] == "2026-10-01T09:00:00Z"))
-    r.append(("...returning the post id", res["id"] == "post_9"))
+    r.append(("...returning the post id from the documented envelope",
+              res["post_id"] == "9dyJS"))
+    r.append(("...and the youtube config as a TOP-LEVEL key",
+              body["youtube"]["privacyStatus"] == "private"))
     r.append(("a post with no accounts is refused",
-              _err(osd.create_post, [{"content": "x"}], [], None, CFG, http) == "OutstandError"))
+              _err(osd.create_post, [{"content": "x"}], []) == "OutstandError"))
     r.append(("a post with no containers is refused",
-              _err(osd.create_post, [], ["acc_1"], None, CFG, http) == "OutstandError"))
+              _err(osd.create_post, [], ["acc_1"]) == "OutstandError"))
+    r.append(("a youtube config without privacyStatus is refused outright",
+              _err(osd.create_post, [{"content": "x"}], ["acc_1"], None,
+                   {"title": "no privacy"}, CFG, http) == "OutstandError"))
+
+    # ---- the YouTube mapping, per outstand.so/docs/configurations/youtube
+    yc = osd.build_youtube_config({})
+    r.append(("privacyStatus is ALWAYS set, because the API default is public",
+              yc["privacyStatus"] == "private"))
+    r.append(("...and defaults to private", yc["privacyStatus"] == "private"))
+    r.append(("public is clamped to private in this pass",
+              osd.build_youtube_config({"privacy": "public"})["privacyStatus"] == "private"))
+    r.append(("an explicit unforced choice is honoured",
+              osd.build_youtube_config({"privacy": "unlisted"},
+                                       force_private=False)["privacyStatus"] == "unlisted"))
+    r.append(("a nonsense privacy falls back to private",
+              osd.build_youtube_config({"privacy": "semi"},
+                                       force_private=False)["privacyStatus"] == "private"))
+    full = osd.build_youtube_config({"title": "My Recap", "tags": ["a", "b"],
+                                     "category_id": "24", "made_for_kids": True})
+    r.append(("title maps to youtube.title", full["title"] == "My Recap"))
+    r.append(("tags map to youtube.tags", full["tags"] == ["a", "b"]))
+    r.append(("category maps to youtube.categoryId", full["categoryId"] == "24"))
+    r.append(("made-for-kids maps to youtube.madeForKids", full["madeForKids"] is True))
+    r.append(("category defaults to 22 when unset",
+              osd.build_youtube_config({})["categoryId"] == "22"))
+    r.append(("no description field is invented — it is the post content",
+              "description" not in full))
+    r.append(("no thumbnail or playlist field is invented",
+              "thumbnail" not in full and "playlist" not in full))
 
     # ---- per-account status, not one vague flag
-    stat = osd.post_status("post_9", CFG, _http=http)
+    stat = osd.post_status("9dyJS", CFG, _http=http)
     ids = {x["account_id"]: x for x in stat["results"]}
     r.append(("status is reported PER ACCOUNT", set(ids) == {"acc_1", "acc_2"}))
     r.append(("...with the platform id for the one that worked",
               ids["acc_1"]["platform_post_id"] == "yt_abc"))
     r.append(("...and the failure reason for the one that did not",
               ids["acc_2"]["status"] == "failed" and ids["acc_2"]["error"] == "rate limited"))
+    r.append(("a YouTube watch URL is derived from platformPostId, not invented",
+              ids["acc_1"]["url"] == "https://www.youtube.com/watch?v=yt_abc"))
+    r.append(("a failed account gets no URL", ids["acc_2"]["url"] is None))
 
     # ---- media
     osd.request_media_upload("v.mp4", "video/mp4", CFG, _http=http)
@@ -205,12 +246,23 @@ def main():
                                        metadata={"title": "T", "privacy": "private",
                                                  "targets": ["acc_1"]}))
     el = srv.publish_eligibility(pd, NAME)
-    r.append(("visibility cannot be guaranteed, so publishing is BLOCKED",
-              el["ready"] is False
-              and any("no visibility setting" in b for b in el["blockers"])))
-    os.environ["OUTSTAND_ALLOW_UNCONTROLLED_VISIBILITY"] = "1"
+    r.append(("a private, approved, targeted export is eligible", el["ready"] is True))
+    r.append(("...with private as the effective visibility",
+              el["effective_privacy"] == "private"))
+    srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
+                                       metadata={"title": "T", "privacy": "public",
+                                                 "targets": ["acc_1"]}))
     el = srv.publish_eligibility(pd, NAME)
-    r.append(("...unless an operator deliberately overrides it", el["ready"] is True))
+    r.append(("asking for public is refused without a deliberate override",
+              el["ready"] is False
+              and any("OUTSTAND_ALLOW_PUBLIC" in b for b in el["blockers"])))
+    os.environ["OUTSTAND_ALLOW_PUBLIC"] = "1"
+    r.append(("...and allowed once that override is set",
+              srv.publish_eligibility(pd, NAME)["ready"] is True))
+    os.environ.pop("OUTSTAND_ALLOW_PUBLIC")
+    srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
+                                       metadata={"title": "T", "privacy": "private",
+                                                 "targets": ["acc_1"]}))
 
     srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
                                        metadata={"title": "T", "privacy": "private",

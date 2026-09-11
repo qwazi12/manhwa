@@ -268,8 +268,49 @@ def accounts_status(root, cfg=None):
     }
 
 
-def create_post(containers, accounts, scheduled_at=None, cfg=None, _http=None):
-    """Publish. `accounts` is a list of Outstand account ids (or names)."""
+# YouTube config, per outstand.so/docs/configurations/youtube. The field that
+# matters most: privacyStatus DEFAULTS TO "public". Omitting it publishes a
+# scraped-artwork recap publicly on the owner's channel, so this builder always
+# sets it explicitly — there is no code path that leaves it unset.
+YT_PRIVACY = ("private", "unlisted", "public")
+YT_DEFAULT_CATEGORY = "22"
+
+
+def build_youtube_config(md, force_private=True):
+    """Map Phase B publish metadata onto Outstand's `youtube` object.
+
+    Documented fields only: isShort, categoryId, privacyStatus, madeForKids,
+    tags, title. There is NO description field — YouTube's description comes
+    from the post content — and no documented thumbnail or playlist field, so
+    those are not sent.
+    """
+    privacy = (md or {}).get("privacy") or "private"
+    if privacy not in YT_PRIVACY:
+        privacy = "private"
+    if force_private:
+        privacy = "private"
+    cfg = {
+        "privacyStatus": privacy,          # never omitted: the default is public
+        "categoryId": str((md or {}).get("category_id") or YT_DEFAULT_CATEGORY),
+        "madeForKids": bool((md or {}).get("made_for_kids")),
+    }
+    title = ((md or {}).get("title") or "").strip()
+    if title:
+        cfg["title"] = title
+    tags = [t for t in ((md or {}).get("tags") or []) if t]
+    if tags:
+        cfg["tags"] = tags
+    if (md or {}).get("is_short"):
+        cfg["isShort"] = True
+    return cfg
+
+
+def create_post(containers, accounts, scheduled_at=None, youtube=None,
+                cfg=None, _http=None):
+    """Publish. `accounts` is a list of Outstand account ids, names or handles.
+
+    `youtube` is the top-level per-network config object.
+    """
     if not containers:
         raise OutstandError("a post needs at least one container")
     if not accounts:
@@ -277,25 +318,51 @@ def create_post(containers, accounts, scheduled_at=None, cfg=None, _http=None):
     body = {"containers": containers, "accounts": list(accounts)}
     if scheduled_at:
         body["scheduledAt"] = scheduled_at
-    return _request("POST", "/posts/", cfg, body=body, _http=_http)
+    if youtube:
+        if "privacyStatus" not in youtube:
+            # belt and braces: the API default is public
+            raise OutstandError("youtube config must set privacyStatus explicitly")
+        body["youtube"] = youtube
+    data = _request("POST", "/posts/", cfg, body=body, _http=_http)
+    return _parse_post(data)
+
+
+def _parse_post(data):
+    """Normalise Outstand's post envelope.
+
+    Documented shape: {"success": true, "post": {"id", "publishedAt",
+    "socialAccounts": [{"id", "network", "username", "status", "error",
+    "platformPostId", "publishedAt"}]}}. Note there is NO public URL field —
+    one is derived for YouTube from platformPostId rather than invented.
+    """
+    post = (data or {}).get("post") or data or {}
+    results = []
+    for it in (post.get("socialAccounts") or []):
+        ppid = it.get("platformPostId")
+        network = it.get("network")
+        url = None
+        if ppid and network == "youtube":
+            url = f"https://www.youtube.com/watch?v={ppid}"
+        results.append({
+            "account_id": it.get("id"),
+            "network": network,
+            "username": it.get("username"),
+            "status": it.get("status"),
+            "platform_post_id": ppid,
+            "published_at": it.get("publishedAt"),
+            "error": it.get("error"),
+            "url": url,
+        })
+    return {"post_id": post.get("id"), "published_at": post.get("publishedAt"),
+            "scheduled_at": post.get("scheduledAt"), "results": results,
+            "raw": data}
 
 
 def post_status(post_id, cfg=None, _http=None):
-    """Per-account outcome for a published post."""
+    """Per-account outcome for a post. Statuses: pending | published | failed."""
     if not post_id:
         raise OutstandError("no post id")
-    data = _request("GET", f"/posts/{post_id}", cfg, _http=_http)
-    results = []
-    for it in ((data or {}).get("accounts") or (data or {}).get("results") or []):
-        results.append({
-            "account_id": it.get("accountId") or it.get("account_id") or it.get("id"),
-            "status": it.get("status"),
-            "platform_post_id": it.get("platformPostId") or it.get("platform_post_id"),
-            "error": it.get("error"),
-            "url": it.get("url") or it.get("permalink"),
-        })
-    return {"post_id": (data or {}).get("id") or post_id,
-            "status": (data or {}).get("status"), "results": results, "raw": data}
+    return _parse_post(_request("GET", f"/posts/{post_id}", cfg, _http=_http))
 
 
 def request_media_upload(filename, content_type, cfg=None, _http=None):

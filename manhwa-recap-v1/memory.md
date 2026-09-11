@@ -3597,3 +3597,42 @@ as a target directly once the API key exists.
 
 Tests: NEW test_outstand_connect.py 50/50; full suite 16 files, 100%.
 NOT live-verified — every Outstand call in tests is an injected fake.
+
+#### Phase C (cont.) — YouTube config schema read: the visibility blocker is RESOLVED
+Read outstand.so/docs/configurations/youtube and /docs/post-lifecycle before
+changing anything. Both earlier gaps are now answered, and one of my earlier
+guesses was WRONG.
+
+DOCUMENTED `youtube` config (top-level key on the post body):
+  privacyStatus  "public" | "private" | "unlisted"  — DEFAULTS TO "public"
+  title          optional; falls back to the first line of the post content
+  tags           array of strings
+  categoryId     string, defaults "22"
+  madeForKids    boolean, defaults false
+  isShort        boolean
+NOT documented: description (it IS the post content), thumbnail, playlist.
+
+The critical fact: privacyStatus defaults to PUBLIC. Omitting it would publish
+a scraped-artwork recap publicly on the owner's channel. build_youtube_config()
+therefore ALWAYS sets it, create_post() REFUSES a youtube config that lacks it,
+and this pass clamps to private unless OUTSTAND_ALLOW_PUBLIC=1 is set
+deliberately. The old hard block (VISIBILITY_UNCONTROLLED) is removed.
+
+MY EARLIER RESPONSE PARSING WAS WRONG. I had guessed accounts[]/results[] with
+accountId. The documented envelope is:
+  {"success": true, "post": {"id", "publishedAt", "socialAccounts": [
+     {"id", "network", "username", "status", "error", "platformPostId",
+      "publishedAt"}]}}
+status is 'pending' | 'published' | 'failed'. There is NO public URL field, so
+a YouTube watch URL is DERIVED from platformPostId rather than invented, and a
+failed account gets none. _parse_post() now matches the documented shape.
+
+Metadata mapping settled: title -> youtube.title; description -> post content
+(no separate field); tags -> youtube.tags; category -> youtube.categoryId;
+made-for-kids -> youtube.madeForKids; privacy -> youtube.privacyStatus;
+schedule -> top-level scheduledAt. Thumbnail and playlist are DEFERRED because
+no field is documented — they must not be faked.
+
+Tests: outstand_connect 68/68 (up from 50); full suite 16 files, 100%.
+STILL BLOCKED on credentials: no OUTSTAND_API_KEY / OUTSTAND_ORG_ID /
+OUTSTAND_REDIRECT_URI, so nothing has run against the live service.

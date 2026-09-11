@@ -1136,20 +1136,13 @@ def _os_root():
     return _ing.PROJECTS
 
 
-# Outstand's documented post body is {containers[], accounts[], scheduledAt}.
-# It exposes NO visibility/privacy field, so "upload privately" cannot be
-# guaranteed through it. Publishing is therefore refused until either the field
-# is confirmed or an operator deliberately lifts this, rather than letting a
-# recap go public by default on someone's channel.
-VISIBILITY_UNCONTROLLED = (
-    "Outstand's documented publish API has no visibility setting, so this tool "
-    "cannot guarantee a private upload. Publishing is blocked until that is "
-    "resolved — set OUTSTAND_ALLOW_UNCONTROLLED_VISIBILITY=1 to override "
-    "deliberately.")
-
-
-def _visibility_override():
-    return os.environ.get("OUTSTAND_ALLOW_UNCONTROLLED_VISIBILITY") == "1"
+# RESOLVED (Session 28): Outstand's `youtube` config DOES expose privacyStatus
+# (private | unlisted | public) — but it DEFAULTS TO PUBLIC. Omitting it would
+# publish a scraped-artwork recap publicly on the owner's channel, so the
+# builder always sets it explicitly and this pass clamps to private unless an
+# operator deliberately lifts that.
+def _allow_public():
+    return os.environ.get("OUTSTAND_ALLOW_PUBLIC") == "1"
 
 
 @app.get("/api/outstand/status")
@@ -1266,8 +1259,13 @@ def publish_eligibility(pdir, name):
             blockers.append("These selected accounts are no longer connected: "
                             + ", ".join(gone))
 
-    if not _visibility_override():
-        blockers.append(VISIBILITY_UNCONTROLLED)
+    import outstand as _osd
+    privacy = md.get("privacy") or "private"
+    if privacy not in _osd.YT_PRIVACY:
+        blockers.append(f"Privacy must be one of {', '.join(_osd.YT_PRIVACY)}.")
+    elif privacy != "private" and not _allow_public():
+        blockers.append(f"This pass publishes privately only; '{privacy}' needs "
+                        f"OUTSTAND_ALLOW_PUBLIC=1 set deliberately.")
 
     pubs = load_publishes(pdir)
     prior = pubs.get(name) or {}
@@ -1281,7 +1279,9 @@ def publish_eligibility(pdir, name):
             "review_status": rv["status"], "superseded": rv["superseded"],
             "accounts": acct, "targets": targets,
             "metadata_problems": problems,
-            "visibility_controlled": _visibility_override(),
+            "effective_privacy": ("private" if not _allow_public()
+                                  else (md.get("privacy") or "private")),
+            "allow_public": _allow_public(),
             "already_published": prior or None}
 
 
