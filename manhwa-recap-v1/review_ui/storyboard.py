@@ -912,6 +912,9 @@ function toggleDrawer(name) {{
   }}
   if (name === 'projects') loadProjects();
   if (name === 'tracker') loadTracker(0);
+  if (name === 'logs') loadLogs();
+  if (name === 'exports') loadExports();
+  if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
 }}
 /* Arriving from another page with ?open=<drawer> should land on that drawer,
    so the rail behaves the same wherever you clicked it. */
@@ -919,11 +922,6 @@ function toggleDrawer(name) {{
   var m = /[?&]open=([a-z]+)/.exec(location.search);
   if (m) setTimeout(function () {{ toggleDrawer(m[1]); }}, 60);
 }})();
-function _navNoop() {{
-  if (name === 'logs') loadLogs();
-  if (name === 'exports') loadExports();
-  if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
-}}
 const ING_STAGES = ['scrape','split','describe','narrate','voice','match','segment'];
 let ingestState = null, ingestPolling = false;
 function activeJob() {{ return localStorage.getItem('activeIngestJob'); }}

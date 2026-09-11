@@ -183,6 +183,25 @@ def main():
     r.append(("controls have their own surface, distinct from any panel",
               "--btn:" in rhtml and "background:var(--btn)" in rhtml))
 
+    # ---- every drawer must actually load when its tab is clicked
+    # Session 28 regression: inserting the ?open= handler closed toggleDrawer
+    # early, stranding the logs/exports/ingest loaders in a function that was
+    # never called. The tabs opened to their static "loading..." placeholder
+    # and stayed there. Syntax was valid, so nothing caught it. Assert the
+    # dispatch body itself, since that is what broke.
+    import re as _re
+    _m = _re.search(r"function toggleDrawer\(name\) \{(.*?)\n\}", bhtml, _re.S)
+    _body = _m.group(1) if _m else ""
+    for _fn in ("loadProjects", "loadTracker", "loadLogs", "loadExports",
+                "paintIngest"):
+        r.append(("clicking a tab calls %s" % _fn, _fn in _body))
+    r.append(("no drawer loader is stranded in an uncalled function",
+              "_navNoop" not in bhtml))
+    # The board's placeholders say "loading..."; if a loader never runs the tab
+    # shows that forever, so the placeholder must have a loader behind it.
+    r.append(("the exports tab has a loader behind its placeholder",
+              "loading" in bhtml and "loadExports" in _body))
+
     # ---- the page's own JavaScript must parse
     html = review_page.build_review_html()
     body = max(re.findall(r"<script>(.*?)</script>", html, re.S), key=len)

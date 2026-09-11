@@ -162,27 +162,35 @@ async function load(name, proj) {
   proj = proj || q('project');
   // Every export in the library, so the picker is not limited to whichever
   // project happens to be active — an ingest can change that underneath you.
-  try { ALL = (await api('/api/exports?cb=' + Date.now())).exports || []; }
-  catch (e) { ALL = []; }
+  // These six calls used to run one after another. Each is a round trip through
+  // the edge to Railway (~150 ms measured) for well under 1 ms of server work,
+  // so the page sat blank for most of a second doing nothing but waiting.
+  // Only two things are actually ordered: the last three need DATA.project and
+  // DATA.name. Everything else goes in parallel, turning six trips into two.
   var u = '/api/review?cb=' + Date.now();
   if (proj) u += '&project=' + encodeURIComponent(proj);
   if (name) u += '&name=' + encodeURIComponent(name);
   try {
-    DATA = await api(u);
-    try { OS = await api('/api/outstand/status?cb=' + Date.now()); }
-    catch (e3) { OS = null; }
+    // Round 1. /api/review is NOT caught here: if it fails the page has
+    // nothing to show, and the outer catch renders that properly.
+    var r1 = await Promise.all([
+      api(u),
+      api('/api/exports?cb=' + Date.now()).catch(function () { return {}; }),
+      api('/api/outstand/status?cb=' + Date.now()).catch(function () { return null; })
+    ]);
+    DATA = r1[0];
+    ALL = (r1[1] || {}).exports || [];
+    OS = r1[2];
+    YT = null;
+    // Round 2 — all three depend only on the project/name just resolved.
     var qs = (DATA.project ? '&project=' + encodeURIComponent(DATA.project) : '') +
              (DATA.name ? '&name=' + encodeURIComponent(DATA.name) : '');
-    try { ELIG = await api('/api/outstand/eligibility?cb=' + Date.now() + qs); }
-    catch (e5) { ELIG = null; }
-    try { PUBST = await api('/api/outstand/publish/status?cb=' + Date.now() + qs); }
-    catch (e6) { PUBST = null; }
-    try { YT = null; } catch (e4) { YT = null; }
-    try {
-      PUB = await api('/api/publish?cb=' + Date.now() +
-        (DATA.project ? '&project=' + encodeURIComponent(DATA.project) : '') +
-        (DATA.name ? '&name=' + encodeURIComponent(DATA.name) : ''));
-    } catch (e2) { PUB = null; }
+    var r2 = await Promise.all([
+      api('/api/outstand/eligibility?cb=' + Date.now() + qs).catch(function () { return null; }),
+      api('/api/outstand/publish/status?cb=' + Date.now() + qs).catch(function () { return null; }),
+      api('/api/publish?cb=' + Date.now() + qs).catch(function () { return null; })
+    ]);
+    ELIG = r2[0]; PUBST = r2[1]; PUB = r2[2];
   } catch (e) {
     document.getElementById('root').innerHTML =
       '<div class="empty">Could not load review data — ' + esc(e.message) + '</div>';

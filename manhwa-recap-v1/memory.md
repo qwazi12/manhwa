@@ -4040,3 +4040,82 @@ dropped instead of rendering a broken preview, and a traversing export name
 cannot write outside the project.
 
 New test_thumbnail.py: 35 assertions. Suite now 18 files, 0 failing.
+
+### Session 28 (cont.) — full performance audit + 4 measured fixes
+Owner asked why the site got slow, why tabs show "loading", and why rendering
+takes so long. Audited with instrumentation rather than assumption.
+
+#### THE TAB BUG — a regression I introduced two commits ago
+commit 00d8e2f (the ?open=<drawer> handler) inserted `}}` that closed
+toggleDrawer EARLY. The logs/exports/ingest branches were left behind in a
+function `_navNoop()` that is defined once and NEVER CALLED — and which
+referenced `name`, undefined in that scope. So since 00d8e2f:
+  Logs / Exports / Ingest tabs never loaded anything.
+#exportlist's static placeholder is the literal text "loading…", which is
+EXACTLY the reported symptom: "clicking certain tabs now shows loading."
+Not a performance problem at all — a correctness regression. JS syntax stayed
+valid, so the syntax guard could not see it.
+FIXED + regression test: test_review now extracts toggleDrawer's BODY from the
+rendered HTML and asserts all five loaders are dispatched, and that no loader
+is stranded in an uncalled function (47 assertions, was 40).
+
+#### Measured, not assumed
+/api/project: 248 file opens per call, 208 of them the SAME 40-byte
+active_project.txt — active_project_dir() was called twice per segment inside
+the loop (103 segs). thumb_path() also ran os.makedirs per segment.
+  FIXED -> 4.2ms/248 opens becomes 1.7ms/40 opens (-60% time, -84% opens).
+  Worth more on Railway, where the volume makes each open dearer than local
+  page-cached SSD.
+
+/review fired SIX sequential round trips (exports, review, outstand status,
+eligibility, publish status, publish) for <1ms of server work each. Measured
+edge RTT to manhwa.nodepilot.dev: 100-180ms; Railway direct 79-114ms. So ~0.9-1.5s
+of the page being blank was pure waiting. Only the last three actually depend
+on DATA.project/name.
+  FIXED -> two parallel rounds (3 + 3). Saves ~4 RTTs.
+
+No gzip anywhere: board HTML ships at 430 KB. Starlette's GZipMiddleware was
+deliberately NOT used — it ignores content-type and would gzip the MP4 clips
+and PNG panels, burning CPU on a CPU-limited container for nothing.
+  FIXED -> content-type-aware gzip_text middleware, verified live:
+  /storyboard 440,381 -> 58,388 bytes (-87%), /api/project -85%, JPEG thumb
+  correctly NOT compressed.
+
+DISPROVED hypothesis: I expected the board's 241 images to be a load problem.
+All 241 already carry loading="lazy". Not a bottleneck.
+
+#### Render pipeline — measured with hyperframes' own phase traces
+One clip (seg 0, 5.92s, 178 frames @30fps), production profile:
+  capture_streaming  8283ms  82.6%   <- the bottleneck
+  startup (npx+node+browser launch) 1250ms  12.5%
+  assemble (encode/mux) 202ms   2.0%
+  compile 141ms, audio_process 137ms, browser_probe 19ms
+So frame capture dominates; ENCODING IS 2% and is not worth optimising.
+
+npx: 0.51s warm per invocation, 6.15s cold; installed binary 0.21s. A full
+103-clip render pays ~52s of npx, ~31s of which an install would remove.
+Dockerfile already warms the npx cache at BUILD, so runtime pays the warm cost.
+But `npx --yes hyperframes` resolves UNPINNED at runtime — a hyperframes
+release can change render output or break renders with no code change. That
+reliability point matters more than the 31s.
+
+PRODUCER_LOW_MEMORY_MODE=1 (set in the Dockerfile) pins hyperframes to ONE
+worker. Measured 6.32s/clip vs 4.94s/clip local auto-workers (+28%). My laptop
+has 10 cores; production has one worker on a small container, so production is
+materially slower than any local timing suggests.
+FPS is therefore a MUCH better lever in production than locally:
+  local (10 workers): 30->24fps = -6%
+  production profile:  30->24fps = -14%, 30->20fps = -21%, 24fps+draft = -20%
+  (draft also cuts file size 42%)
+Whole-project projection at measured 1.96x realtime on 587s of video: ~19 min
+on my Mac under the production profile; Railway will be slower.
+
+hyperframes 0.8.35 has --batch (one invocation, many outputs) which could
+amortise the 1.25s startup across all clips (~2 min saved), but each segment is
+its own HTML today, so using it means expressing segments as variable rows —
+real work, not a quick win.
+
+NOT changed (deliberately): FPS/quality defaults are a picture-quality decision
+for the owner, not mine to make silently.
+
+Tests: 18 files, 0 failing (test_review 40 -> 47).

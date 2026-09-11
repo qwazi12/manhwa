@@ -24,7 +24,7 @@ import sys
 import time
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -70,17 +70,74 @@ async def verify_shared_secret(request: Request, call_next):
     return await call_next(request)
 
 
+# Measured: the board's HTML is ~430 KB and /api/project ~87 KB, both shipped
+# uncompressed — they gzip to ~57 KB and ~13 KB (87% / 85% smaller).
+#
+# Starlette's own GZipMiddleware is deliberately NOT used: it does not look at
+# content-type, so it would also gzip the MP4 clips and PNG panels this server
+# streams. That burns CPU on a CPU-limited container for ~0 bytes saved, and
+# clips are fetched constantly during review. This compresses text only, and
+# returns file/stream responses untouched so large media is never buffered.
+_COMPRESSIBLE = ("text/", "application/json", "application/javascript",
+                 "image/svg+xml")
+_GZIP_MIN = 1024
+
+
+@app.middleware("http")
+async def gzip_text(request: Request, call_next):
+    response = await call_next(request)
+    if "gzip" not in request.headers.get("accept-encoding", "").lower():
+        return response
+    ctype = (response.headers.get("content-type") or "").lower()
+    if not any(ctype.startswith(c) or c in ctype for c in _COMPRESSIBLE):
+        return response
+    if response.headers.get("content-encoding"):
+        return response
+    body = b""
+    async for chunk in response.body_iterator:
+        body += chunk if isinstance(chunk, bytes) else chunk.encode()
+    if len(body) < _GZIP_MIN:
+        # Below this, the gzip header costs more than it saves.
+        return Response(content=body, status_code=response.status_code,
+                        headers=dict(response.headers), media_type=ctype or None)
+    import gzip as _gz
+    packed = _gz.compress(body, 6)
+    headers = dict(response.headers)
+    headers["content-encoding"] = "gzip"
+    headers["content-length"] = str(len(packed))
+    headers["vary"] = "Accept-Encoding"
+    return Response(content=packed, status_code=response.status_code,
+                    headers=headers, media_type=ctype or None)
+
 
 # ----------------------------------------------------------------- project-scoped workspace
+# The active-project pointer is read on almost every code path, and
+# /api/project used to re-read it once PER SEGMENT — 206 opens of the same
+# ~40-byte file in a single request on a 103-segment project (measured).
+# Cache it against the file's mtime+size: a stat is far cheaper than an
+# open+read, and an ingest switching the active project still invalidates
+# immediately because writing the file changes both.
+_ACTIVE_CACHE = {"key": None, "value": ""}
+
+
 def get_active_project_id():
     path = os.path.join(WORK, "active_project.txt")
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read().strip()
-        except Exception:
-            pass
-    return ""
+    try:
+        st = os.stat(path)
+        key = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        _ACTIVE_CACHE["key"] = None
+        return ""
+    if _ACTIVE_CACHE["key"] == key:
+        return _ACTIVE_CACHE["value"]
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            val = f.read().strip()
+    except Exception:
+        return ""
+    _ACTIVE_CACHE["key"] = key
+    _ACTIVE_CACHE["value"] = val
+    return val
 
 
 def active_project_dir():
@@ -223,9 +280,16 @@ def _thumb_key(seg):
     return hashlib.md5(sig.encode()).hexdigest()[:8]
 
 
+_THUMBDIR_MADE = set()
+
+
 def thumb_path(seg_index, seg=None):
     t_dir = os.path.join(active_project_dir(), "thumbnails")
-    os.makedirs(t_dir, exist_ok=True)
+    # os.makedirs ran once per segment on every /api/project. The directory
+    # only has to be created once per process per project.
+    if t_dir not in _THUMBDIR_MADE:
+        os.makedirs(t_dir, exist_ok=True)
+        _THUMBDIR_MADE.add(t_dir)
     if seg is None:
         return os.path.join(t_dir, f"seg_{seg_index:03d}.jpg")
     return os.path.join(t_dir, f"seg_{seg_index:03d}_{_thumb_key(seg)}.jpg")
@@ -272,10 +336,11 @@ def project():
     total = segs[-1]["end"] if segs else 0
     out = []
     approved_dur = 0.0
+    pdir = active_project_dir()          # once, not once per segment
     for s in segs:
         st = review.get(str(s["seg_index"]), {}).get("status", "pending")
         note = review.get(str(s["seg_index"]), {}).get("note", "")
-        clip_ok = os.path.exists(os.path.join(active_project_dir(), s.get("clip", "")))
+        clip_ok = os.path.exists(os.path.join(pdir, s.get("clip", "")))
         if st == "approved":
             approved_dur += s.get("dur", 0)
         ensure_thumb(s)
