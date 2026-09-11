@@ -40,6 +40,10 @@ NETWORKS = ("youtube", "x", "linkedin", "instagram", "facebook", "threads",
             "tiktok", "pinterest", "google_business", "vimeo", "reddit",
             "bluesky")
 
+# Identifies this app to Outstand. See the note in _request(): an absent or
+# default urllib User-Agent is blocked at their Cloudflare edge.
+USER_AGENT = "ManhwaRecapStudio/1.0 (+https://manhwa.nodepilot.dev)"
+
 ACCOUNTS_FILE = "_outstand_accounts.json"
 STATE_FILE = "_outstand_state.json"
 STATE_TTL = 600
@@ -100,10 +104,16 @@ def _request(method, path, cfg=None, body=None, _http=None):
     if _http is not None:
         return _http(method, url, body, cfg)
     data = json.dumps(body).encode() if body is not None else None
+    # A User-Agent is mandatory in practice. Without one urllib sends
+    # "Python-urllib/3.x", which Cloudflare in front of Outstand rejects with
+    # error 1010 (browser_signature_banned) BEFORE the API key is even looked
+    # at — the failure reads as an auth problem but is not one. Identify the
+    # client honestly instead.
     req = urllib.request.Request(url, data=data, method=method, headers={
         "Authorization": f"Bearer {cfg['api_key']}",
         "Content-Type": "application/json",
-        "Accept": "application/json"})
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             raw = r.read().decode("utf-8")
@@ -114,6 +124,12 @@ def _request(method, path, cfg=None, body=None, _http=None):
             detail = e.read().decode("utf-8")[:400]
         except Exception:
             pass
+        if e.code == 403 and "1010" in detail:
+            raise OutstandError(
+                "Outstand's Cloudflare edge rejected this client (error 1010, "
+                "browser signature). The API key was never checked. If this "
+                "persists with a proper User-Agent set, ask Outstand to allow "
+                "server-side API clients for your organisation.", e.code)
         raise OutstandError(f"Outstand returned {e.code}: {detail}", e.code)
     except urllib.error.URLError as e:
         raise OutstandError(f"could not reach Outstand: {e.reason}")

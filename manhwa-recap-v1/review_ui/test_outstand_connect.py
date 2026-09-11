@@ -97,6 +97,30 @@ def main():
     r.append(("an unknown network is refused",
               _err(osd.connect_url, "myspace", None, CFG) == "OutstandError"))
 
+    # ---- a User-Agent is mandatory in practice. Without one urllib sends
+    # "Python-urllib/3.x" and Outstand's Cloudflare edge returns 403 error 1010
+    # (browser_signature_banned) BEFORE checking the API key — it reads as an
+    # auth failure but is not one.
+    import urllib.request as _ur
+    captured = {}
+    _real = _ur.Request
+    class _Spy(_real):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            captured.update(self.headers)
+    _ur.Request = _Spy
+    try:
+        osd._request("GET", "/social-accounts", CFG)
+    except Exception:
+        pass
+    _ur.Request = _real
+    r.append(("a User-Agent is sent on every request",
+              any(h.lower() == "user-agent" for h in captured)))
+    r.append(("...and it is not urllib's default",
+              "python-urllib" not in str(captured.get("User-agent", "")).lower()))
+    r.append(("...while still sending the bearer token",
+              str(captured.get("Authorization", "")).startswith("Bearer ")))
+
     # ---- CSRF state
     st = osd.new_state(root)
     r.append(("a state token verifies once", osd.check_state(root, st) is True))

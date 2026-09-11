@@ -3653,3 +3653,24 @@ STILL NOT LIVE-VERIFIED. I cannot reach /api myself any more: the domain is
 behind Basic Auth (no password here) and the Railway backend requires
 x-shared-secret. Verification needs either the owner to read
 /api/outstand/status in their browser, or credentials shared deliberately.
+
+#### Phase C (cont.) — first REAL Outstand call: Cloudflare 1010, my client's fault
+Owner clicked Refresh. Live response:
+  Outstand returned 403 — Cloudflare error 1010, browser_signature_banned,
+  "The site owner has blocked access based on your browser's signature."
+Read correctly this is GOOD news: the request reached Outstand's edge, so the
+base URL, path and routing are right. But it was rejected BEFORE the API key
+was examined, so it says nothing about whether the credentials are valid.
+ROOT CAUSE (mine): _request() sent no User-Agent, so urllib defaulted to
+"Python-urllib/3.x", which Cloudflare blocks as a bot signature.
+FIX: USER_AGENT = "ManhwaRecapStudio/1.0 (+https://manhwa.nodepilot.dev)" sent
+on every request — an honest client identifier, not a browser impersonation.
+A 403 carrying "1010" is now reported as an edge block that never reached
+authentication, with the next step named, instead of surfacing as a generic
+failure that looks like a bad key.
+Regression test asserts a User-Agent is present, is not urllib's default, and
+that the bearer token is still sent.
+Tests: outstand_connect 75/75; full suite 16 files, 100%.
+IF IT PERSISTS after this deploy, the block is Outstand-side configuration and
+they need to allow server-side API clients for this organisation — that is not
+something to work around from here.
