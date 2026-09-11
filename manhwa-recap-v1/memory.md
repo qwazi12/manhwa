@@ -3876,3 +3876,54 @@ it touches 169 literals in storyboard.py — a large edit to working code, so it
 needs explicit approval per the surgical-change rule. NOT started.
 
 Tests: 17 files, 0 failing.
+
+### Session 28 (cont.) — board unified to the dark token set (owner chose dark)
+Owner picked "unify dark". storyboard.py's stylesheet is now one tokenized dark
+sheet using the SAME token names and values as review_page.py — the two files
+finally share a palette instead of two hand-copied ones.
+
+Before: body #fafafa / text #1a1a1a (a LIGHT page wearing dark chrome), 169 hex
+literals, zero variables.
+After: :root with --bg/--panel/--panel2/--rule/--ink/--ink2/--ink3/--accent/
+--ok/--warn/--bad (identical to review_page.py) plus tint PAIRS for the row and
+badge meanings the light sheet encoded ad hoc: --sa-*, --fold-*, --omit-*,
+--gray-*, --seg-*, --okb-*, --warnb-*, --badb-*, --tall-*, --tight-*.
+122 var() uses; every remaining literal is either a token DEFINITION or one of
+three deliberately kept brand values (#8d6e63 approve, #2e7d32 approved,
+#9be8c3 render text). Zero light values used as a background.
+Also added: color-scheme:dark (native checkboxes/scrollbars/pickers cannot be
+darkened by CSS alone), accent-color on checkboxes, dialog::backdrop, and dark
+form-control defaults — without these the dark page still renders white inputs.
+
+#### Verified by LOOKING, not by assuming
+Rendered the board with a real 138-panel project, served it locally and opened
+it in Chrome. Ran a contrast audit in-page: 3542 text nodes, 49 distinct
+foreground/background pairs, **0 failing WCAG AA**.
+
+That audit caught a real miss: the legend sentence at the top hardcoded its OWN
+copies of the row-tint colours (#1552b8 blue / #7a6200 yellow / #8a2f2f red),
+so converting the table left the legend naming colours that no longer existed
+AND unreadable on dark (2.29:1, 2.65:1, 3.24:1). Root cause is duplication —
+the legend should never have held its own copy. It now reads var(--sa-ink),
+var(--fold-ink), var(--omit-ink), so it cannot desync from the rows again.
+
+#### Second real bug found the same way: '\203A'
+Both storyboard.py and review_page.py wrote the retract chevron as
+content:'\203A'. These are ordinary (non-raw) Python strings, so Python
+consumed \203 as an OCTAL escape and emitted U+0083 (a control character)
+followed by a literal "A" — the sliver showed a stray "A", not a chevron.
+Verified in the rendered bytes (302 203 A). Fixed by using the character '›'
+itself: no escape layer left to get wrong. This is the fourth escaping bug in
+this project's templates; the lesson is the same each time — remove the escape,
+do not try to count backslashes.
+
+#### A non-bug worth recording
+getComputedStyle reported the retracted rail as 64px while the rule clearly
+said 14px. It was NOT a cascade problem: the transition simply never advances
+in an automated tab that is not painting frames. With transitions disabled it
+reads 14px immediately. Retract verified end to end: retracted rail 14px /
+body margin 14px / icons opacity 0 / chevron '›'; on hover rail 64px with body
+margin STILL 14px and z-index 80 — it overlays instead of reflowing, which was
+the design claim.
+
+Tests: 17 files, 0 failing.

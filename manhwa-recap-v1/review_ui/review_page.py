@@ -46,7 +46,7 @@ header h1 { font-size:15px; margin:0; font-weight:700; letter-spacing:-.01em; }
   body.railoff .shell { margin-left:14px; }
   body.railoff .nav { width:14px; }
   body.railoff .nav > * { opacity:0; pointer-events:none; transition:opacity .12s ease; }
-  body.railoff .nav::after { content:'\203A'; position:absolute; top:50%; left:0; width:14px;
+  body.railoff .nav::after { content:'›'; position:absolute; top:50%; left:0; width:14px;
     margin-top:-10px; text-align:center; color:var(--accent); font-size:14px; }
   body.railoff .nav:hover, body.railoff .nav:focus-within { width:64px; z-index:80;
     box-shadow:4px 0 18px rgba(0,0,0,.45); }

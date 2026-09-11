@@ -413,24 +413,52 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>{html.escape(title)} — storyboard: story + render plan</title>
 <style>
-body {{ font-family: -apple-system, Helvetica, sans-serif; margin: 0 0 0 64px; background:#fafafa; color:#1a1a1a; }}
-header {{ position: sticky; top:0; z-index:5; background:#161616; color:#fff; padding:10px 18px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }}
-header .stat b {{ display:block; font-size:15px; color:#fff; }} header .stat {{ font-size:11px; color:#bbb; }}
-.usage {{ font-size:11px; color:#9ad27d; line-height:1.5; }}
+/* ---------------------------------------------------------------- palette
+   One token set, identical in name and value to review_page.py, so the board
+   and /review finally share a palette instead of two hand-copied ones. The
+   board used to be a LIGHT page (#fafafa) wearing dark chrome — the rail,
+   header, pipebar and drawers were already dark — which is what made /review
+   feel like a separate application. Everything below now reads from these
+   tokens; re-theming is editing this block, not hunting 169 literals.
+   color-scheme:dark also makes native checkboxes, scrollbars and date pickers
+   render dark, which CSS alone cannot do. */
+:root {{
+  color-scheme: dark;
+  --bg:#0e1016; --panel:#161923; --panel2:#1b1f2a; --rule:#272b38;
+  --ink:#e9ebf2; --ink2:#b2b8c8; --ink3:#858ca0;
+  --accent:#5b8cff; --ok:#39c07f; --warn:#e0a33a; --bad:#ef5f6b;
+  /* Tinted rows and badges. The light sheet carried a bg/ink pair per meaning
+     (accepted, folded, omitted, greyed, ...); these are the dark equivalents,
+     kept as pairs so contrast stays deliberate rather than emergent. */
+  --sa-bg:#121c2e;    --sa-ink:#9dc0ff;
+  --fold-bg:#241f10;  --fold-ink:#e6c579;
+  --omit-bg:#2a1518;  --omit-ink:#f09aa2;
+  --gray-bg:#1a1d26;  --gray-ink:#8d94a6;
+  --seg-bg:#131820;   --seg-rule:#242b38;
+  --okb-bg:#12251c;   --okb-ink:#7fd8a6;
+  --warnb-bg:#2a2010; --warnb-ink:#e8c07a;
+  --badb-bg:#2c1519;  --badb-ink:#f3a1a8;
+  --tall-bg:#1f1b33;  --tall-ink:#b9a6ff;
+  --tight-bg:#2e1c10; --tight-ink:#f0a97a;
+}}
+body {{ font-family: -apple-system, Helvetica, sans-serif; margin: 0 0 0 64px; background:var(--bg); color:var(--ink); }}
+header {{ position: sticky; top:0; z-index:5; background:var(--panel); color:var(--ink); padding:10px 18px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--rule); }}
+header .stat b {{ display:block; font-size:15px; color:var(--ink); }} header .stat {{ font-size:11px; color:var(--ink3); }}
+.usage {{ font-size:11px; color:var(--ok); line-height:1.5; }}
 #approveBtn {{ margin-left:auto; background:#8d6e63; border:0; color:#fff; padding:10px 16px; border-radius:6px; font-weight:700; cursor:pointer; }}
 #approveBtn.on {{ background:#2e7d32; }}
-#pipebar {{ position:sticky; top:52px; z-index:49; background:#12141b; color:#c6cbd8; font-size:12px;
-  display:flex; gap:18px; align-items:center; padding:7px 18px; border-bottom:1px solid #23262f; }}
-#pipebar b {{ color:#fff; }}
+#pipebar {{ position:sticky; top:52px; z-index:49; background:var(--panel2); color:var(--ink2); font-size:12px;
+  display:flex; gap:18px; align-items:center; padding:7px 18px; border-bottom:1px solid var(--rule); }}
+#pipebar b {{ color:var(--ink); }}
 #renderprog {{ flex:1; display:flex; align-items:center; gap:10px; }}
-#renderbar {{ height:8px; background:#39c07f; border-radius:4px; width:0%; min-width:2px; transition:width .5s;
+#renderbar {{ height:8px; background:var(--ok); border-radius:4px; width:0%; min-width:2px; transition:width .5s;
   box-shadow:0 0 8px rgba(57,192,127,.6); }}
 #rendertxt {{ color:#9be8c3; white-space:nowrap; }}
 /* ---- left rail (ported from legacy UI) ---- */
-#rail {{ position:fixed; left:0; top:0; bottom:0; width:64px; background:#15171e; border-right:1px solid #282c38; display:flex; flex-direction:column; align-items:center; gap:6px; padding-top:12px; z-index:20; }}
-.navbtn {{ width:52px; height:56px; border:0; background:transparent; border-radius:9px; display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center; color:#8b90a0; font-size:10px; cursor:pointer; }}
+#rail {{ position:fixed; left:0; top:0; bottom:0; width:64px; background:var(--panel); border-right:1px solid var(--rule); display:flex; flex-direction:column; align-items:center; gap:6px; padding-top:12px; z-index:20; }}
+.navbtn {{ width:52px; height:56px; border:0; background:transparent; border-radius:9px; display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center; color:var(--ink3); font-size:10px; cursor:pointer; }}
 .navbtn .ic {{ font-size:19px; line-height:1; }}
-.navbtn:hover, .navbtn.active {{ background:#1b1e27; color:#5b8cff; }}
+.navbtn:hover, .navbtn.active {{ background:var(--panel2); color:var(--accent); }}
 /* Retractable rail. Retracted it is a 14px sliver; hovering it — or tabbing
    into it, so this is not mouse-only — slides it back to full width OVER the
    content instead of reflowing the board, so nothing shifts under the pointer
@@ -441,8 +469,8 @@ body.railoff {{ margin-left:14px; }}
 body.railoff .drawer {{ left:14px; }}
 body.railoff #rail {{ width:14px; }}
 body.railoff #rail > * {{ opacity:0; pointer-events:none; transition:opacity .12s ease; }}
-body.railoff #rail::after {{ content:'\203A'; position:absolute; top:50%; left:0; width:14px;
-  margin-top:-10px; text-align:center; color:#5b8cff; font-size:14px; }}
+body.railoff #rail::after {{ content:'›'; position:absolute; top:50%; left:0; width:14px;
+  margin-top:-10px; text-align:center; color:var(--accent); font-size:14px; }}
 body.railoff #rail:hover, body.railoff #rail:focus-within {{ width:64px; z-index:80;
   box-shadow:4px 0 18px rgba(0,0,0,.45); }}
 body.railoff #rail:hover > *, body.railoff #rail:focus-within > * {{ opacity:1; pointer-events:auto; }}
@@ -450,83 +478,86 @@ body.railoff #rail:hover::after, body.railoff #rail:focus-within::after {{ conte
 #railpin {{ margin-top:auto; margin-bottom:10px; }}
 @media (prefers-reduced-motion: reduce) {{ #rail, body.railoff #rail > * {{ transition:none; }} }}
 /* ---- drawers ---- */
-.drawer {{ position:fixed; left:64px; top:86px; bottom:0; width:360px; background:#15171e; color:#e6e8ef; border-right:1px solid #282c38; z-index:70; padding:16px; overflow-y:auto; display:none; font-size:13px; box-shadow:4px 0 18px rgba(0,0,0,.5); }}
-.drawer h3 {{ font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:#8b90a0; margin:0 0 10px; }}
-.drawer .hint {{ color:#8b90a0; font-size:11px; }}
-.drawer input.field {{ width:100%; background:#1b1e27; border:1px solid #282c38; border-radius:7px; color:#e6e8ef; padding:8px; font:inherit; margin:10px 0; }}
-.drawer button {{ font:inherit; cursor:pointer; color:#e6e8ef; background:#1b1e27; border:1px solid #282c38; border-radius:7px; padding:6px 10px; }}
-.drawer button.primary {{ background:#5b8cff; border-color:#5b8cff; color:#fff; width:100%; }}
-.drawer .section {{ border-top:1px solid #282c38; margin-top:12px; padding-top:12px; }}
-.projcard {{ margin-top:8px; background:#1b1e27; border:1px solid #282c38; border-radius:8px; overflow:hidden; }}
-.projcard .ph {{ font-weight:600; font-size:12px; padding:8px 12px; background:#15171e; border-bottom:1px solid #282c38; }}
+.drawer {{ position:fixed; left:64px; top:86px; bottom:0; width:360px; background:var(--panel); color:var(--ink); border-right:1px solid var(--rule); z-index:70; padding:16px; overflow-y:auto; display:none; font-size:13px; box-shadow:4px 0 18px rgba(0,0,0,.5); }}
+.drawer h3 {{ font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink3); margin:0 0 10px; }}
+.drawer .hint {{ color:var(--ink3); font-size:11px; }}
+.drawer input.field {{ width:100%; background:var(--panel2); border:1px solid var(--rule); border-radius:7px; color:var(--ink); padding:8px; font:inherit; margin:10px 0; }}
+.drawer button {{ font:inherit; cursor:pointer; color:var(--ink); background:var(--panel2); border:1px solid var(--rule); border-radius:7px; padding:6px 10px; }}
+.drawer button.primary {{ background:var(--accent); border-color:var(--accent); color:#fff; width:100%; }}
+.drawer .section {{ border-top:1px solid var(--rule); margin-top:12px; padding-top:12px; }}
+.projcard {{ margin-top:8px; background:var(--panel2); border:1px solid var(--rule); border-radius:8px; overflow:hidden; }}
+.projcard .ph {{ font-weight:600; font-size:12px; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--rule); }}
 .projrow {{ display:flex; justify-content:space-between; align-items:center; padding:6px 10px; font-size:12px; }}
 .wrap {{ padding: 14px 18px; }}
-h1 {{ font-size: 19px; margin: 8px 0; }} p.meta {{ color:#555; max-width: 1200px; font-size: 13px; }}
+h1 {{ font-size: 19px; margin: 8px 0; }} p.meta {{ color:var(--ink2); max-width: 1200px; font-size: 13px; }}
 table {{ border-collapse: collapse; width: 100%; }}
-th, td {{ border: 1px solid #ddd; padding: 8px; vertical-align: top; text-align: left; }}
-th {{ background: #222; color: #fff; position: sticky; top: 58px; z-index: 2; }}
-td.n {{ width: 54px; font-weight: 700; }} .pid {{ font-weight:400; font-size:10px; color:#666; word-break:break-all; }}
-.dim {{ font-size:10px; color:#999; }}
-.inc {{ display:block; margin-bottom:4px; }} .inc input {{ width:16px; height:16px; cursor:pointer; }}
-td.img {{ width: 185px; }} td.img img {{ max-width: 175px; max-height: 320px; object-fit: contain; border-radius:4px; box-shadow:0 1px 4px rgba(0,0,0,.25); }}
-td.ocr {{ width: 11%; font-size: 11px; color:#444; }}
+th, td {{ border: 1px solid var(--rule); padding: 8px; vertical-align: top; text-align: left; }}
+th {{ background: var(--panel2); color: var(--ink); position: sticky; top: 58px; z-index: 2; }}
+td.n {{ width: 54px; font-weight: 700; }} .pid {{ font-weight:400; font-size:10px; color:var(--ink3); word-break:break-all; }}
+.dim {{ font-size:10px; color:var(--ink3); }}
+.inc {{ display:block; margin-bottom:4px; }} .inc input {{ width:16px; height:16px; cursor:pointer; accent-color:var(--accent); }}
+td.img {{ width: 185px; }} td.img img {{ max-width: 175px; max-height: 320px; object-fit: contain; border-radius:4px; box-shadow:0 1px 4px rgba(0,0,0,.55); }}
+td.ocr {{ width: 11%; font-size: 11px; color:var(--ink2); }}
 td.vis {{ width: 16%; font-size: 12px; }}
 td.script {{ width: 21%; font-size: 12px; }}
 td.timing {{ width: 26%; font-size: 12px; }}
-tr.sa td.script {{ background:#f2f7ff; }} .ln {{ color:#1552b8; }}
-tr.fold td.script {{ background:#fffbe8; color:#7a6200; }} .unittxt {{ color:#7a6200; font-size:11px; margin-top:4px; }}
-tr.omit td.script {{ background:#fbeeee; color:#8a2f2f; }}
-tr.gray td.script {{ background:#f0f0f0; color:#777; }}
-.segblock {{ background:#f4f9f4; border:1px solid #dbe8db; border-radius:6px; padding:6px; margin-bottom:6px; position:relative; }}
+tr.sa td.script {{ background:var(--sa-bg); }} .ln {{ color:var(--sa-ink); }}
+tr.fold td.script {{ background:var(--fold-bg); color:var(--fold-ink); }} .unittxt {{ color:var(--fold-ink); font-size:11px; margin-top:4px; }}
+tr.omit td.script {{ background:var(--omit-bg); color:var(--omit-ink); }}
+tr.gray td.script {{ background:var(--gray-bg); color:var(--gray-ink); }}
+.segblock {{ background:var(--seg-bg); border:1px solid var(--seg-rule); border-radius:6px; padding:6px; margin-bottom:6px; position:relative; }}
 .segprev {{ float:right; width:118px; margin:0 0 4px 8px; text-align:center; }}
 .segprev img {{ width:118px; max-height:150px; object-fit:contain; border-radius:4px;
-  background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.28); display:block; }}
-.segprev .orig {{ display:block; font-size:10px; color:#5b6b5b; text-decoration:none; margin-top:2px; }}
+  background:var(--panel2); box-shadow:0 1px 4px rgba(0,0,0,.5); display:block; }}
+.segprev .orig {{ display:block; font-size:10px; color:var(--ink3); text-decoration:none; margin-top:2px; }}
 .segprev .orig:hover {{ text-decoration:underline; }}
 .cropb {{ display:block; font-size:10px; margin-top:2px; padding:1px 4px; border-radius:3px;
-  background:#eef3ee; color:#3c553c; }}
-.cropb.ok {{ background:#eaf4ea; color:#2f5d2f; }}
-.cropb.rev {{ background:#fff6e0; color:#7a5a10; }}
-.cropb.tight {{ background:#ffe9e0; color:#9c3d10; font-weight:600; }}
-.cropb.blocked {{ background:#ffdcdc; color:#8c1414; font-weight:700; }}
-.cropb.full {{ background:#eef3ee; color:#5b6b5b; }}
+  background:var(--panel2); color:var(--ink2); }}
+.cropb.ok {{ background:var(--okb-bg); color:var(--okb-ink); }}
+.cropb.rev {{ background:var(--warnb-bg); color:var(--warnb-ink); }}
+.cropb.tight {{ background:var(--tight-bg); color:var(--tight-ink); font-weight:600; }}
+.cropb.blocked {{ background:var(--badb-bg); color:var(--badb-ink); font-weight:700; }}
+.cropb.full {{ background:var(--panel2); color:var(--ink3); }}
 .cropact {{ display:block; width:100%; margin-top:3px; font-size:10px; padding:2px 3px;
-  border:1px solid #b9c9b9; background:#fff; border-radius:3px; cursor:pointer; }}
-.cropact:hover {{ background:#eef7ee; }}
-.cropact.alt {{ border-color:#cfcfcf; color:#666; }}
-.segblock.over {{ outline:2px dashed #5b8cff; }}
-td.timing.dropok {{ outline:3px dashed #22a06b; outline-offset:-3px; background:#eefaf3; }}
+  border:1px solid var(--rule); background:var(--panel2); color:var(--ink); border-radius:3px; cursor:pointer; }}
+.cropact:hover {{ background:var(--rule); }}
+.cropact.alt {{ border-color:var(--rule); color:var(--ink3); }}
+.segblock.over {{ outline:2px dashed var(--accent); }}
+td.timing.dropok {{ outline:3px dashed var(--ok); outline-offset:-3px; background:var(--okb-bg); }}
 .segblock[draggable] {{ cursor:grab; }}
-.part {{ display:block; font-size:10px; color:#8a6d00; font-weight:700; }}
+.part {{ display:block; font-size:10px; color:var(--warn); font-weight:700; }}
 .editrow {{ display:flex; gap:6px; margin-bottom:8px; }}
 .editrow textarea {{ flex:1; min-height:60px; }}
 .delline {{ align-self:flex-start; }}
-.hint {{ color:#555; font-size:12px; max-width:640px; }}
-.draghandle {{ position:absolute; right:6px; top:6px; cursor:grab; color:#9ab; }}
+.hint {{ color:var(--ink2); font-size:12px; max-width:640px; }}
+.draghandle {{ position:absolute; right:6px; top:6px; cursor:grab; color:var(--ink3); }}
 .timectl {{ margin:5px 0; font-size:11px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }}
-.timectl input {{ width:52px; font:inherit; padding:2px 4px; }}
-.timectl button {{ font-size:10px; padding:2px 6px; border:1px solid #bbb; background:#fff; border-radius:4px; cursor:pointer; }}
+.timectl input {{ width:52px; font:inherit; padding:2px 4px; background:var(--panel2); color:var(--ink); border:1px solid var(--rule); border-radius:4px; }}
+.timectl button {{ font-size:10px; padding:2px 6px; border:1px solid var(--rule); background:var(--panel2); color:var(--ink); border-radius:4px; cursor:pointer; }}
 .bctl {{ white-space:nowrap; }}
-.mo {{ color:#557; font-size:11px; }} .beat {{ margin-top:4px; }} .bt {{ color:#1552b8; font-size:10px; font-weight:600; }}
-.slice {{ color:#a05a00; margin-left:4px; }}
+.mo {{ color:var(--ink3); font-size:11px; }} .beat {{ margin-top:4px; }} .bt {{ color:var(--sa-ink); font-size:10px; font-weight:600; }}
+.slice {{ color:var(--warn); margin-left:4px; }}
 .b {{ font-size:10px; padding:1px 6px; border-radius:8px; }}
-.b.warn {{ background:#ffe6cc; color:#8a4b00; }} .b.tall {{ background:#e8e0ff; color:#4b2fa0; }}
-.b.user {{ background:#ffd9d9; color:#a01f1f; font-weight:700; }} .b.ok {{ background:#dcf0dc; color:#1d5e1d; }}
-.bpart {{ background:#eef1f6; color:#44506b; border-radius:3px; padding:0 4px;
+.b.warn {{ background:var(--warnb-bg); color:var(--warnb-ink); }} .b.tall {{ background:var(--tall-bg); color:var(--tall-ink); }}
+.b.user {{ background:var(--badb-bg); color:var(--badb-ink); font-weight:700; }} .b.ok {{ background:var(--okb-bg); color:var(--okb-ink); }}
+.bpart {{ background:var(--panel2); color:var(--ink2); border-radius:3px; padding:0 4px;
   font-size:9px; font-weight:700; letter-spacing:.3px; }}
-.mt {{ color:#98a0b0; font-size:10px; }}
-.b.sil {{ background:#e8e8e8; color:#555; }}
-.off {{ color:#999; }}
+.mt {{ color:var(--ink3); font-size:10px; }}
+.b.sil {{ background:var(--panel2); color:var(--ink3); }}
+.off {{ color:var(--ink3); }}
 .acts {{ margin-top:6px; display:flex; gap:5px; flex-wrap:wrap; }}
-.acts button {{ font-size:11px; padding:4px 7px; border:1px solid #bbb; background:#fff; border-radius:5px; cursor:pointer; }}
-.acts button:hover {{ background:#eee; }}
+.acts button {{ font-size:11px; padding:4px 7px; border:1px solid var(--rule); background:var(--panel2); color:var(--ink); border-radius:5px; cursor:pointer; }}
+.acts button:hover {{ background:var(--rule); }}
 #cands {{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; overflow:auto; padding:30px; z-index:30; }}
-#cands .inner {{ background:#fff; border-radius:10px; padding:16px; max-width:1100px; margin:0 auto; }}
+#cands .inner {{ background:var(--panel); color:var(--ink); border-radius:10px; padding:16px; max-width:1100px; margin:0 auto; }}
 #cands img {{ max-width:150px; max-height:240px; margin:6px; cursor:pointer; border:3px solid transparent; border-radius:4px; }}
-#cands img:hover {{ border-color:#1552b8; }}
-dialog {{ border:0; border-radius:10px; padding:18px; width:640px; box-shadow:0 20px 60px rgba(0,0,0,.4); }}
-textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
-#busy {{ position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#161616; color:#fff; padding:8px 16px; border-radius:8px; display:none; z-index:40; font-size:12px; }}
+#cands img:hover {{ border-color:var(--accent); }}
+dialog {{ border:1px solid var(--rule); border-radius:10px; padding:18px; width:640px; background:var(--panel); color:var(--ink); box-shadow:0 20px 60px rgba(0,0,0,.6); }}
+dialog::backdrop {{ background:rgba(0,0,0,.6); }}
+textarea, input[type=text], input[type=number], select {{ background:var(--panel2); color:var(--ink); border:1px solid var(--rule); border-radius:5px; }}
+textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; padding:6px; }}
+a {{ color:var(--accent); }}
+#busy {{ position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--panel2); color:var(--ink); border:1px solid var(--rule); padding:8px 16px; border-radius:8px; display:none; z-index:40; font-size:12px; }}
 </style></head><body>
 <div id="rail">
   <button class="navbtn active" title="Storyboard" onclick="location.reload()"><span class="ic">🎬</span>Board</button>
@@ -620,8 +651,8 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
 <div class="wrap">
 <h1>{html.escape(title)} — combined: all {len(descs)} panels · story placement · render timing ({n_included} of {len(segs)} segments in the video, {_mmss(video_total)})</h1>
 <p class="meta">Left half: system OCR/description and where each extracted panel lands in the script
-(<b style="color:#1552b8">blue</b> carries narration unit ¶N on screen · <b style="color:#7a6200">yellow</b> folded — its
-story is told in ¶N while another panel holds the screen · <b style="color:#8a2f2f">red</b> LEFT OUT, with the junk
+(<b style="color:var(--sa-ink)">blue</b> carries narration unit ¶N on screen · <b style="color:var(--fold-ink)">yellow</b> folded — its
+story is told in ¶N while another panel holds the screen · <b style="color:var(--omit-ink)">red</b> LEFT OUT, with the junk
 filter's reason). Right column: the renderer's real timeline with LIVE EDITING — ✔ checkbox puts a panel on/off the
 final video (folded panels get a slice of their unit's window; script-less panels get a silent hold), ⏱ sets a
 segment's on-screen duration, "cut" buttons move the boundary between neighbours (narration audio slices seamlessly
