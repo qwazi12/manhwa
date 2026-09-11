@@ -4272,3 +4272,44 @@ themselves. NO DEFAULT CHANGED — awaiting approval.
 
 Levers ranked by measured gain, on today's hardware:
   workers (32 vCPU idle)  >  24fps (-16%)  >  npx removal (already done, -12%)
+
+### Session 28 (cont.) — explicit 2-worker render profile
+Nothing was rendering locally or on prod when this started.
+
+#### The precedence question that decided the design
+Does PRODUCER_LOW_MEMORY_MODE=1 (set in the image) override an explicit -w?
+MEASURED on 4 clips / 26.1s:
+  LOW_MEMORY=1, no -w      43.4s   banner: "auto workers (10 cores detected)"
+  LOW_MEMORY=1 + -w 2      30.2s   banner: "2 workers"      <- -w WINS
+  LOW_MEMORY=0 + -w 2      31.6s   banner: "2 workers"
+So an explicit -w beats the env var, and keeping LOW_MEMORY_MODE=1 costs
+nothing (30.2 vs 31.6s is within noise, if anything slightly better). The
+Dockerfile is therefore UNCHANGED — the env var stays as the safety floor for
+anything that does not pass -w, and the renderer simply states the count it
+wants. That is the minimal, reversible form of this change.
+
+Explicit, never "auto", on purpose: auto reads the HOST's core count, which is
+the thing that over-spawned Chrome in Session 19.
+
+#### Implemented (render_segments.py only)
+RENDER_WORKERS env, default 2, clamped 1-8, emitted as `-w N` on every render.
+RENDER_FPS env, default 30, clamped 12-60, emits `--fps` ONLY when != 30 — so
+30fps remains the default and 24 is an opt-in "faster render" preset, exactly
+as the owner specified. Garbage env values fall back to defaults rather than
+crashing. Reverting is `RENDER_WORKERS=1` as a Railway variable — no deploy.
+
+#### Local before/after on the SAME 8-segment representative export (56.3s)
+  1 worker   90.3s
+  2 workers  65.5s    = -27%
+  projected full 587s chapter: 15.7 min -> 11.4 min
+CORRECTNESS, ffprobe on the concatenated export, 1 worker vs 2:
+  fps 30/1 == 30/1 · frames 1691 == 1691 · 1920x1080 == 1920x1080
+  duration delta 0.000s · bytes 29993395 vs 29993419 (24 bytes, the known
+  byte-level non-determinism — properties are what matter and they match)
+
+test_render_epoch 11 -> 20: asserts an explicit -w is always passed, defaults
+to 2, is never "auto", that 30fps emits no --fps, that both are env-tunable,
+that an absurd count is clamped and garbage falls back.
+
+Suite 19 files, 0 failing.
+PENDING: production render to confirm under the real container.

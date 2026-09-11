@@ -70,6 +70,43 @@ def _hyperframes_cmd():
 HYPERFRAMES_CMD = _hyperframes_cmd()
 USING_NPX = HYPERFRAMES_CMD[0] == "npx"
 
+
+# ------------------------------------------------------------ render profile
+# Workers. PRODUCER_LOW_MEMORY_MODE=1 is set in the image and pins hyperframes
+# to conservative auto-calibration, which in practice renders with ONE worker.
+# Railway reports this service at 32 vCPU / 32 GB with peak memory over an hour
+# of real use at 243 MB — under 1% — so one worker was leaving the box idle.
+#
+# An EXPLICIT -w beats PRODUCER_LOW_MEMORY_MODE (measured: the banner flips from
+# "auto workers" to "2 workers" and the same 4 clips go 43.4s -> 30.2s), so the
+# env var stays as the safety floor for anything that does not pass -w, and we
+# simply state the count we want. Explicit rather than "auto" on purpose: auto
+# reads the HOST's core count, which is what over-spawned Chrome before.
+#
+# Each worker is roughly 256 MB of Chrome. Set RENDER_WORKERS=1 to revert
+# without a deploy.
+def _int_env(name, default, lo, hi):
+    try:
+        return max(lo, min(hi, int(os.environ.get(name, default))))
+    except (TypeError, ValueError):
+        return default
+
+
+RENDER_WORKERS = _int_env("RENDER_WORKERS", 2, 1, 8)
+
+# Frame rate. 30 stays the default — 24fps renders ~16% faster on a real export
+# with identical duration and audio, but it is a picture-quality decision, so it
+# is opt-in: set RENDER_FPS=24 for a "faster render" pass.
+RENDER_FPS = _int_env("RENDER_FPS", 30, 12, 60)
+
+
+def render_flags():
+    """Profile flags appended to every hyperframes render invocation."""
+    flags = ["-w", str(RENDER_WORKERS)]
+    if RENDER_FPS != 30:
+        flags += ["--fps", str(RENDER_FPS)]
+    return flags
+
 BEATSHEET = os.environ.get("HF_BEATSHEET", "build_test/beatsheet_full.json")
 BEATS = os.environ.get("HF_BEATS", "build_test/beats_full.json")
 AUDIO_SUBDIR = os.environ.get("HF_AUDIO_DIR", "build_test/tts_full")
@@ -323,7 +360,7 @@ def render_segment(seg, audio_dir, workdir=None):
     # --yes: npx must never hit its interactive install prompt in a non-TTY
     # container (that prompt aborts with exit 1). Capture output so a render
     # failure raises WITH the real reason instead of a blind exit status.
-    r = subprocess.run(HYPERFRAMES_CMD + ["render", "-o", dst],
+    r = subprocess.run(HYPERFRAMES_CMD + ["render", "-o", dst] + render_flags(),
                        cwd=wd, capture_output=True, text=True)
     if r.returncode != 0:
         tail = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()[-800:]
@@ -367,7 +404,7 @@ tl.to("#w", {{ opacity: 0, duration: 0.5, ease: "power2.in" }}, {dur - 0.5});
 window.__timelines["main"] = tl;
 </script></body></html>"""
     open(os.path.join(wd, "index.html"), "w").write(page)
-    r = subprocess.run(HYPERFRAMES_CMD + ["render", "-o", dst],
+    r = subprocess.run(HYPERFRAMES_CMD + ["render", "-o", dst] + render_flags(),
                        cwd=wd, capture_output=True, text=True)
     if r.returncode != 0:
         print(f"title card failed (skipping): {(r.stderr or r.stdout or '')[-160:]}")

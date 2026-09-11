@@ -81,6 +81,43 @@ def main():
     _ck("...but /thumb still builds them on demand",
           "ensure_thumb" in _insp.getsource(_srv.thumb))
 
+    # ---- explicit worker count, never "auto"
+    # PRODUCER_LOW_MEMORY_MODE=1 pins conservative auto-calibration (one worker
+    # in practice) on a 32 vCPU / 32 GB service that peaked at 243 MB. An
+    # explicit -w overrides it (measured: banner flips to "2 workers", 43.4s ->
+    # 30.2s). Auto is deliberately NOT used: it reads the HOST core count,
+    # which is what over-spawned Chrome before.
+    import importlib
+    flags = _rs.render_flags()
+    _ck("every render passes an explicit worker count", "-w" in flags)
+    _ck("...defaulting to 2", flags[flags.index("-w") + 1] == "2")
+    _ck("...and never the string 'auto'", "auto" not in flags)
+    _ck("30fps stays the default (no --fps flag emitted)", "--fps" not in flags)
+
+    _old = dict(os.environ)
+    try:
+        os.environ["RENDER_WORKERS"] = "4"
+        os.environ["RENDER_FPS"] = "24"
+        importlib.reload(_rs)
+        f = _rs.render_flags()
+        _ck("workers are tunable by env, so reverting needs no deploy",
+            f[f.index("-w") + 1] == "4")
+        _ck("24fps is available as an opt-in preset",
+            "--fps" in f and f[f.index("--fps") + 1] == "24")
+        os.environ["RENDER_WORKERS"] = "999"
+        importlib.reload(_rs)
+        _ck("an absurd worker count is clamped, not obeyed",
+            _rs.RENDER_WORKERS <= 8)
+        os.environ["RENDER_WORKERS"] = "nonsense"
+        importlib.reload(_rs)
+        _ck("garbage in the env falls back to the default rather than crashing",
+            _rs.RENDER_WORKERS == 2)
+    finally:
+        os.environ.clear()
+        os.environ.update(_old)
+        importlib.reload(_rs)
+    _ck("defaults restored after the env test", _rs.render_flags() == ["-w", "2"])
+
     for name, ok in results:
         print(("PASS " if ok else "FAIL ") + name)
     n = sum(1 for _, ok in results if ok)
