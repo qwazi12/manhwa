@@ -245,8 +245,7 @@ function publishCard() {
 
   var blockers = locked
     ? '<div class="banner b-warn" style="margin:0 0 11px">' +
-      (rd.blockers || []).map(esc).join(' ') +
-      '</div>'
+      (rd.blockers || []).map(esc).join(' ') + '</div>'
     : '';
   var problems = probs.length
     ? '<div class="banner b-bad" style="margin:11px 0 0">' +
@@ -266,47 +265,63 @@ function publishCard() {
   var dis = locked ? ' disabled' : '';
   var th = md.thumbnail || {};
   return '<div class="card"><h2>Publish preparation</h2>' + blockers +
-    '<div class="hint" style="margin-bottom:9px">Prepares metadata and a package you upload ' +
-    'to YouTube <b>by hand</b>. Nothing is posted from here.</div>' +
+    '<div class="hint" style="margin-bottom:10px">' +
+      'These details are sent with the video. <b>Publish to</b> chooses which ' +
+      'connected accounts receive it, and <b>Privacy</b> decides who can see it — ' +
+      'private is the default and the only option enabled in this pass. ' +
+      'Changes save as you make them; <b>Download upload package</b> gives you the ' +
+      'same details as a file if you would rather upload by hand.' +
+    '</div>' +
     fld('Title', '<input id="p_title" maxlength="' + (PUB.limits || {}).title +
-        '" value="' + esc(md.title) + '"' + dis + '>') +
-    fld('Description', '<textarea id="p_desc" style="min-height:90px"' + dis + '>' +
+        '" value="' + esc(md.title) + '" onchange="savePublish()"' + dis + '>') +
+    fld('Description — becomes the video description',
+        '<textarea id="p_desc" style="min-height:90px" onchange="savePublish()"' + dis + '>' +
         esc(md.description) + '</textarea>') +
-    fld('Tags (comma separated)', '<input id="p_tags" value="' +
-        esc((md.tags || []).join(', ')) + '"' + dis + '>') +
-    fld('Category', '<select id="p_cat"' + dis + '>' + cats + '</select>') +
-    fld('Privacy', '<select id="p_priv"' + dis + '>' + privs + '</select>') +
-    fld('Schedule (private only)', '<input id="p_at" placeholder="2026-09-20T15:00:00Z" value="' +
-        esc(md.publish_at || '') + '"' + dis + '>') +
-    fld('Playlist', '<input id="p_play" value="' + esc(md.playlist || '') + '"' + dis + '>') +
-    fld('Publish to', targetPicker(md, dis)) +
-    fld('Thumbnail from segment #', '<input id="p_thumb" type="number" min="0" value="' +
-        (th.seg_index != null ? th.seg_index : '') + '" oninput="thumbPreview()"' + dis + '>' +
+    fld('Tags — comma separated', '<input id="p_tags" value="' +
+        esc((md.tags || []).join(', ')) + '" onchange="savePublish()"' + dis + '>') +
+    fld('Category', '<select id="p_cat" onchange="savePublish()"' + dis + '>' + cats + '</select>') +
+    fld('Privacy', '<select id="p_priv" onchange="savePublish()"' + dis + '>' + privs + '</select>') +
+    fld('Publish to — hold ⌘ or Ctrl to pick several', targetPicker(md, dis)) +
+    fld('Schedule — optional, private only',
+        '<input id="p_at" placeholder="2026-09-20T15:00:00Z" value="' +
+        esc(md.publish_at || '') + '" onchange="savePublish()"' + dis + '>') +
+    fld('Playlist — not sent yet, kept for the manual package',
+        '<input id="p_play" value="' + esc(md.playlist || '') + '" onchange="savePublish()"' + dis + '>') +
+    fld('Thumbnail from segment # — not sent yet, kept for the manual package',
+        '<input id="p_thumb" type="number" min="0" value="' +
+        (th.seg_index != null ? th.seg_index : '') +
+        '" oninput="thumbPreview()" onchange="savePublish()"' + dis + '>' +
         '<div id="p_thumbprev" style="margin-top:6px"></div>') +
     '<label style="display:block;margin:8px 0"><input type="checkbox" id="p_kids"' +
-      (md.made_for_kids ? ' checked' : '') + dis + '> Made for kids</label>' +
+      (md.made_for_kids ? ' checked' : '') + ' onchange="savePublish()"' + dis +
+      '> Made for kids</label>' +
     '<label style="display:block;margin:8px 0"><input type="checkbox" id="p_synth"' +
-      (md.synthetic_disclosure ? ' checked' : '') + dis + '> Contains synthetic / AI-generated ' +
-      'narration (disclose on upload)</label>' +
+      (md.synthetic_disclosure ? ' checked' : '') + ' onchange="savePublish()"' + dis +
+      '> Contains AI-generated narration — disclosed on upload</label>' +
     '<div class="actions">' +
-      '<button onclick="savePublish()"' + dis + '>Save metadata</button>' +
+      '<button onclick="savePublish()"' + dis + '>Save</button>' +
       '<button onclick="downloadPackage()"' + dis + '>⬇ Download upload package</button>' +
       '<span id="p_saved" class="hint"></span>' +
     '</div>' + problems + '</div>';
 }
 
 function targetPicker(md, dis) {
+  // A multi-select, not checkboxes: the list grows as accounts are added and a
+  // dropdown stays the same size whether there is one account or twenty.
   var accounts = ((OS || {}).accounts || []).filter(function (a) { return a.active; });
   if (!accounts.length) {
-    return '<div class="hint">No connected accounts yet — link one above.</div>';
+    return '<div class="hint">No connected accounts yet — link one in ' +
+      '<b>Publishing accounts</b> above.</div>';
   }
   var chosen = md.targets || [];
-  return accounts.map(function (a) {
+  var opts = accounts.map(function (a) {
     var on = chosen.indexOf(a.account_id) !== -1;
-    return '<label style="display:block;margin:3px 0"><input type="checkbox" class="os_target" value="' +
-      esc(a.account_id) + '"' + (on ? ' checked' : '') + dis + '> ' +
-      esc(a.network || '?') + ' · ' + esc(a.username || a.account_id) + '</label>';
+    return '<option value="' + esc(a.account_id) + '"' + (on ? ' selected' : '') + '>' +
+      esc(a.network || '?') + ' · ' + esc(a.username || a.account_id) + '</option>';
   }).join('');
+  return '<select id="p_targets" class="os_target" multiple size="' +
+    Math.min(Math.max(accounts.length, 2), 6) + '" onchange="savePublish()"' + dis +
+    ' style="width:100%">' + opts + '</select>';
 }
 
 function fld(label, control) {
@@ -336,9 +351,9 @@ function collectPublish() {
     playlist: (document.getElementById('p_play') || {}).value || '',
     made_for_kids: !!(document.getElementById('p_kids') || {}).checked,
     synthetic_disclosure: !!(document.getElementById('p_synth') || {}).checked,
-    targets: Array.from(document.querySelectorAll('.os_target'))
-      .filter(function (c) { return c.checked; })
-      .map(function (c) { return c.value; }),
+    targets: Array.from(
+      ((document.getElementById('p_targets') || {}).selectedOptions) || []
+    ).map(function (o) { return o.value; }),
     thumbnail: (t === '' || t == null) ? null
       : { type: 'segment', seg_index: parseInt(t, 10) }
   };
@@ -353,6 +368,12 @@ async function savePublish() {
       body: JSON.stringify({ project: DATA.project, name: DATA.name,
                              metadata: collectPublish() })
     });
+    // Eligibility depends on what was just saved (targets, privacy), so
+    // refresh it here — otherwise picking an account leaves Publish disabled.
+    var qs = '&project=' + encodeURIComponent(DATA.project) +
+             '&name=' + encodeURIComponent(DATA.name);
+    try { ELIG = await api('/api/outstand/eligibility?cb=' + Date.now() + qs); }
+    catch (e9) { /* keep the previous eligibility on screen */ }
     render();
     var e2 = document.getElementById('p_saved');
     if (e2) e2.textContent = (PUB.problems && PUB.problems.length) ? 'saved, with problems' : 'saved';

@@ -872,6 +872,16 @@ def publish_readiness(pdir, name):
             "blockers": blockers, "ready": not blockers}
 
 
+def _publish_payload(pdir, pid, name, md):
+    """The one response shape the publish form is built from."""
+    return {"project": pid, "name": name, "metadata": md,
+            "problems": validate_publish(md),
+            "readiness": publish_readiness(pdir, name),
+            "categories": YT_CATEGORIES, "privacy_options": list(YT_PRIVACY),
+            "limits": {"title": YT_TITLE_MAX, "description": YT_DESC_MAX,
+                       "tags_chars": YT_TAGS_CHARS_MAX}}
+
+
 @app.get("/api/publish")
 def api_publish(project: str = "", name: str = ""):
     pdir = project_dir_for(project)
@@ -883,12 +893,7 @@ def api_publish(project: str = "", name: str = ""):
                 "reason": "no export has been rendered for this project yet"}
     store = load_publish(pdir)
     md = {**publish_defaults(pdir), **(store.get(name) or {})}
-    return {"project": pid, "name": name, "metadata": md,
-            "problems": validate_publish(md),
-            "readiness": publish_readiness(pdir, name),
-            "categories": YT_CATEGORIES, "privacy_options": list(YT_PRIVACY),
-            "limits": {"title": YT_TITLE_MAX, "description": YT_DESC_MAX,
-                       "tags_chars": YT_TAGS_CHARS_MAX}}
+    return _publish_payload(pdir, pid, name, md)
 
 
 class PublishIn(BaseModel):
@@ -910,9 +915,11 @@ def api_publish_save(body: PublishIn):
     store = load_publish(pdir)
     store[name] = md
     save_publish(pdir, store)
-    return {"ok": True, "name": name, "metadata": md,
-            "problems": validate_publish(md),
-            "readiness": publish_readiness(pdir, name)}
+    pid = os.path.basename(pdir.rstrip("/"))
+    # Same shape as the GET. Returning a thinner object here emptied the
+    # category and privacy dropdowns the moment anything was saved, because the
+    # page assigns this response straight over its state.
+    return {"ok": True, **_publish_payload(pdir, pid, name, md)}
 
 
 @app.get("/api/publish/package")

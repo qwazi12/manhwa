@@ -3719,3 +3719,37 @@ Full suite 17 files, 100%.
 No real publish has run. Every Outstand call in the Phase D tests is replaced.
 A live test would put a real (private) video on Flamingo Remix, consume quota
 and need deleting afterwards — the owner's call, not mine to take.
+
+### Session 28 (cont.) — Review-tab UI bugs reported by the owner, fixed before any publish test
+Owner could not run the publish test: Category and Privacy dropdowns were
+empty, ticking "Publish to" never enabled the Publish button, and the publish
+card looked nothing like the Verdict card.
+
+#### ROOT CAUSE of the empty dropdowns
+GET /api/publish returned categories + privacy_options + limits; POST
+/api/publish returned a THINNER object without them. The page assigns the
+response straight over its state (PUB = await api(...)), so the dropdowns were
+fine on load and emptied the instant anything was saved. Fixed with one
+canonical _publish_payload() used by both verbs, plus a regression test
+asserting the save response still carries every field the form is built from.
+
+#### Publish button never activated
+Ticking a target only changed the DOM. Eligibility was fetched once on load, so
+ELIG.ready stayed false and the button stayed disabled. savePublish() now
+re-fetches /api/outstand/eligibility after saving, so choosing an account wakes
+the button up.
+
+#### "Publish to" is now a dropdown, for the reason the owner gave
+Checkboxes grow the card without limit as accounts are added. Replaced with a
+multi-select whose height is capped at 6 rows, so one account or twenty looks
+the same.
+
+#### Consistency with the Verdict card
+The Verdict card explains what each control DOES before showing the controls.
+Publish preparation now opens the same way — what Publish to and Privacy mean,
+that private is the only option in this pass, that changes save as you make
+them — and field labels carry their own explanation ("Description — becomes the
+video description"). Fields that are collected but NOT sent to Outstand
+(playlist, thumbnail) now say so, rather than implying they are published.
+
+Tests: publish_prep 47/47; full suite 17 files, 100%.

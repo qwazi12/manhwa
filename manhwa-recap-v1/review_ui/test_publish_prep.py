@@ -95,6 +95,25 @@ def main():
     r.append(("unset fields fall back to defaults",
               out["metadata"]["synthetic_disclosure"] is True))
 
+    # ---- GET and POST must return the SAME shape. The POST used to omit
+    # categories/privacy_options, and the page assigns the response straight
+    # over its state — so the Category and Privacy dropdowns emptied the moment
+    # anything was saved. They looked fine until you touched them.
+    got = srv.api_publish(project="proj", name=NAME)
+    saved = srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
+                                               metadata={"title": "X"}))
+    for field in ("categories", "privacy_options", "limits", "metadata",
+                  "problems", "readiness", "project", "name"):
+        r.append((f"save response still carries '{field}'", field in saved))
+    r.append(("...with the same category options as the GET",
+              saved["categories"] == got["categories"]))
+    r.append(("...and the same privacy options",
+              saved["privacy_options"] == got["privacy_options"]))
+    r.append(("privacy options are exactly private/unlisted/public",
+              list(saved["privacy_options"]) == ["private", "unlisted", "public"]))
+    r.append(("categories are non-empty, so the dropdown has content",
+              len(saved["categories"]) >= 3))
+
     # ---- readiness is gated on the REVIEW verdict
     rd = srv.publish_readiness(pd, NAME)
     r.append(("an unreviewed export cannot be packaged", rd["ready"] is False))
