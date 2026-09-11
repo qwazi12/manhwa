@@ -988,6 +988,143 @@ def api_publish_package(project: str = "", name: str = ""):
                     headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 
+# ====================================================================
+#  PHASE C — YouTube account connection (SCAFFOLDING)
+#  No Google OAuth credentials are configured on this deployment, so the live
+#  handshake has never run. Everything here refuses cleanly when unconfigured
+#  rather than failing halfway through a connect.
+# ====================================================================
+def _yt_root():
+    import ingest as _ing
+    return _ing.PROJECTS
+
+
+@app.get("/api/youtube/status")
+def yt_status():
+    """Connection state for the UI. Never returns token material."""
+    import youtube as _yt
+    return _yt.account_status(_yt_root())
+
+
+@app.get("/api/youtube/connect")
+def yt_connect():
+    """Send the operator to Google's consent screen."""
+    import youtube as _yt
+    from fastapi.responses import RedirectResponse
+    cfg = _yt.oauth_config()
+    if not cfg["configured"]:
+        raise HTTPException(503, "YouTube connection is not available: missing "
+                                 + ", ".join(cfg["missing"]) +
+                                 ". Create an OAuth client in Google Cloud and "
+                                 "set these on Railway.")
+    state = _yt.new_state(_yt_root())
+    return RedirectResponse(_yt.authorize_url(state, cfg))
+
+
+@app.get("/api/youtube/callback")
+def yt_callback(code: str = "", state: str = "", error: str = ""):
+    """Google redirects back here with a one-time code."""
+    import youtube as _yt
+    from fastapi.responses import RedirectResponse
+    if error:
+        raise HTTPException(400, f"Google refused the connection: {error}")
+    cfg = _yt.oauth_config()
+    if not cfg["configured"]:
+        raise HTTPException(503, "YouTube connection is not configured")
+    if not _yt.check_state(_yt_root(), state):
+        # A mismatched state means this callback did not originate from our
+        # connect flow — treat it as hostile rather than retrying.
+        raise HTTPException(400, "connection state did not match — start again "
+                                 "from the Connect button")
+    if not code:
+        raise HTTPException(400, "no authorization code returned")
+    tokens = _yt.exchange_code(code, cfg)
+    channel = {}
+    try:
+        channel = _yt.fetch_channel(tokens.get("access_token"))
+    except Exception:
+        pass                    # identity is a nicety; the connection still works
+    _yt.store_tokens(_yt_root(), tokens, channel)
+    return RedirectResponse("/review?connected=1")
+
+
+@app.post("/api/youtube/disconnect")
+def yt_disconnect():
+    import youtube as _yt
+    removed = _yt.clear_account(_yt_root())
+    return {"ok": True, "removed": removed,
+            "status": _yt.account_status(_yt_root())}
+
+
+def upload_eligibility(pdir, name):
+    """Every condition that must hold before an upload may start (Phase D).
+
+    Implemented and tested NOW so Phase D inherits a gate that has been
+    exercised, rather than one written in the same breath as the upload it is
+    supposed to restrain.
+    """
+    import youtube as _yt
+    blockers = []
+    stat = _export_stat(pdir, name) if name else None
+    if not name or not stat:
+        blockers.append("The export file no longer exists.")
+    rv = review_state(pdir, name) if name else {"status": "review_pending",
+                                                "superseded": False}
+    if rv["status"] != "approved":
+        blockers.append("This export has not been approved in Review.")
+    if rv["superseded"]:
+        blockers.append("The cut changed after approval — re-render and "
+                        "re-review before uploading.")
+    store = load_publish(pdir)
+    md = {**publish_defaults(pdir), **(store.get(name) or {})}
+    problems = validate_publish(md)
+    if problems:
+        blockers.append("Publish metadata is incomplete: " + " ".join(problems))
+    acct = _yt.account_status(_yt_root())
+    if not acct.get("can_upload"):
+        blockers.append(acct.get("detail") or "No usable YouTube connection.")
+    # Phase C/D safety: never escalate visibility silently.
+    if md.get("privacy") != "private":
+        blockers.append("Only private uploads are permitted in this phase; set "
+                        "privacy to private.")
+    uploads = load_uploads(pdir)
+    prior = uploads.get(name) or {}
+    if prior.get("status") == "uploaded":
+        blockers.append(f"This export was already uploaded "
+                        f"({prior.get('video_url') or prior.get('video_id')}).")
+    return {"ready": not blockers, "blockers": blockers,
+            "review_status": rv["status"], "superseded": rv["superseded"],
+            "account": acct, "metadata_problems": problems,
+            "already_uploaded": prior or None}
+
+
+UPLOADS_NAME = "uploads.json"
+
+
+def load_uploads(pdir):
+    try:
+        with open(os.path.join(pdir, UPLOADS_NAME), encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_uploads(pdir, data):
+    tmp = os.path.join(pdir, UPLOADS_NAME + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, os.path.join(pdir, UPLOADS_NAME))
+
+
+@app.get("/api/youtube/eligibility")
+def yt_eligibility(project: str = "", name: str = ""):
+    pdir = project_dir_for(project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    if not name:
+        name, pid = latest_export(project or pid)
+    return {"project": pid, "name": name, **upload_eligibility(pdir, name)}
+
+
 @app.get("/review")
 def review_page():
     import review_page as _rp

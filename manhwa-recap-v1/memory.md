@@ -3495,3 +3495,49 @@ invariants), publish_prep 35/35, review 32/32, hardening 40/40, job_control
 16/16, tracker 23/23, data_mgmt 14/14, crop_preview 16/16, edit 42/42,
 js_syntax 2/2, render_epoch 4/4, assign pass, matcher_phase0 16/16, scraper
 15/15. review_page and middleware JS both node --check clean.
+
+### Session 28 (cont.) — PHASE C: YouTube connection — BLOCKED, scaffolding shipped
+Checked Railway's configured env var NAMES first (values never printed):
+  Claude_API_KEY, GEMINI_API_KEY, TTS_API_KEY, SHARED_SECRET, the four usage
+  caps, and Railway's own RAILWAY_* vars.
+NO Google OAuth credentials exist — no GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+/ OAUTH_REDIRECT_URI under any accepted name. Phase C therefore CANNOT be
+completed and Phase D was NOT started, per the owner's hard gate.
+
+#### What was built anyway (testable without secrets)
+review_ui/youtube.py — oauth_config() naming exactly what is missing;
+authorize_url() (offline access + prompt=consent, because a refresh token is
+only issued on first consent and without it the link dies in an hour);
+exchange_code() and refresh_access_token() with an INJECTABLE http layer so
+tests drive them without touching Google; single-use expiring CSRF state;
+account storage written 0600 because a refresh token is a long-lived
+credential; store_tokens() KEEPS an existing refresh token when a later
+response omits one; account_status() which never returns token material and
+distinguishes not_configured / disconnected / needs_reauth / connected.
+server.py — GET /api/youtube/status, /connect (503 with the missing names),
+/callback (state-checked), POST /disconnect, GET /api/youtube/eligibility,
+plus upload_eligibility() and the uploads.json store for Phase D.
+review_page.py — a YouTube card showing state, channel identity, and what is
+missing, with Connect/Reconnect/Disconnect.
+
+#### upload_eligibility() — built and tested NOW, deliberately
+Phase D's gate exists and is exercised BEFORE the upload it restrains is
+written. It blocks unless: the export file exists, review status is approved,
+the cut is not superseded, publish metadata validates, an account is connected
+AND upload-capable, privacy is private, and the export has not already been
+uploaded.
+
+#### The live handshake is UNVERIFIED
+exchange_code/refresh/fetch_channel have never run against Google. They are
+written to the documented request shapes and driven by injected fakes in tests.
+Do not describe Phase C as working until a real connect round-trip succeeds.
+
+#### To unblock
+Create an OAuth client (type: Web application) in Google Cloud with the
+YouTube Data API v3 enabled, add redirect URI
+https://manhwa.nodepilot.dev/api/youtube/callback, then set on Railway:
+GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, OAUTH_REDIRECT_URI.
+Note: an UNVERIFIED OAuth app can only upload PRIVATE videos until Google's
+audit passes — public publishing is not available on day one regardless.
+
+Tests: youtube_connect 39/39 NEW; full suite 15 files 100%.

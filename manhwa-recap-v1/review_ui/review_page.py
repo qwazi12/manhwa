@@ -84,6 +84,7 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 var DATA = null;
 var PUB = null;
 var ALL = [];
+var YT = null;
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -124,6 +125,8 @@ async function load(name, proj) {
   if (name) u += '&name=' + encodeURIComponent(name);
   try {
     DATA = await api(u);
+    try { YT = await api('/api/youtube/status?cb=' + Date.now()); }
+    catch (e3) { YT = null; }
     try {
       PUB = await api('/api/publish?cb=' + Date.now() +
         (DATA.project ? '&project=' + encodeURIComponent(DATA.project) : '') +
@@ -220,7 +223,7 @@ function render() {
       '</div>' +
       publishCard() +
       historyCard(rv) +
-    '</div><div>' + qcCard(d, qc) + '</div></div>';
+    '</div><div>' + youtubeCard() + qcCard(d, qc) + '</div></div>';
 }
 
 function publishCard() {
@@ -341,6 +344,50 @@ function historyCard(rv) {
       (h.at ? new Date(h.at * 1000).toLocaleDateString() : '') + '</span></div>' +
       (h.notes ? '<div class="hint">' + esc(h.notes) + '</div>' : '');
   }).join('') + '</div>';
+}
+
+function youtubeCard() {
+  if (!YT) return '';
+  var st = YT.state, body = '', actions = '';
+
+  if (st === 'not_configured') {
+    body = '<div class="hint">' + esc(YT.detail) + '</div>' +
+      '<div class="hint" style="margin-top:7px">Missing: <b>' +
+      esc((YT.missing || []).join(', ')) + '</b></div>';
+    actions = '<button disabled title="set the credentials first">Connect YouTube</button>';
+  } else if (st === 'disconnected') {
+    body = '<div class="hint">' + esc(YT.detail) + '</div>';
+    actions = '<button onclick="connectYT()">Connect YouTube</button>';
+  } else {
+    body = '<div class="row"><span>channel</span><span>' +
+      esc(YT.channel_title || YT.channel_id || 'unknown') + '</span></div>' +
+      '<div class="row"><span>usable for upload</span><span>' +
+      (YT.can_upload ? pill('yes', 'p-ok') : pill('no', 'p-bad')) + '</span></div>' +
+      (YT.detail ? '<div class="hint" style="margin-top:6px">' + esc(YT.detail) + '</div>' : '');
+    actions =
+      '<button onclick="connectYT()">Reconnect</button>' +
+      '<button onclick="disconnectYT()">Disconnect</button>';
+  }
+
+  var badge = st === 'connected' ? pill('connected', 'p-ok')
+    : (st === 'not_configured' ? pill('not set up', 'p-neutral')
+    : (st === 'needs_reauth' ? pill('needs reconnect', 'p-warn') : pill('disconnected', 'p-neutral')));
+
+  return '<div class="card"><h2>YouTube ' + badge + '</h2>' + body +
+    '<div class="actions">' + actions + '</div>' +
+    '<div class="hint" style="margin-top:8px">Direct upload requires a connected ' +
+    'account. Until then, use <b>Download upload package</b> above and upload by hand.</div>' +
+    '</div>';
+}
+
+function connectYT() { location.href = '/api/youtube/connect'; }
+
+async function disconnectYT() {
+  if (!confirm('Disconnect the YouTube account? The stored token is deleted.')) return;
+  try {
+    await api('/api/youtube/disconnect', { method: 'POST' });
+    await load(DATA.name, DATA.project);
+  } catch (e) { alert('Could not disconnect: ' + e.message); }
 }
 
 function qcCard(d, qc) {
