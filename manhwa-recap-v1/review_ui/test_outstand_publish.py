@@ -71,9 +71,14 @@ def main():
         puts.append({"url": u, "ctype": ctype, "size": size}); return {"status": 200}
     med = osd.upload_media(os.path.join(pd, "exports", NAME), "video/mp4",
                            _http=http, _put=put)
+    # Order is the contract; the exact index is not. The client probes both
+    # documented spellings of the slot endpoint, so assert that a slot request
+    # precedes the confirm and that exactly one PUT happens between them,
+    # rather than pinning steps[0]/steps[1].
+    slot = next((i for i, u in enumerate(steps) if u.endswith("/media/upload")), -1)
+    conf = next((i for i, u in enumerate(steps) if u.endswith("/confirm")), -1)
     r.append(("upload asks for a slot, PUTs, then confirms — in that order",
-              steps[0].endswith("/media/upload") and steps[1].endswith("/confirm")
-              and len(puts) == 1))
+              slot >= 0 and conf > slot and len(puts) == 1))
     r.append(("...PUTting to the signed URL Outstand returned",
               puts[0]["url"] == "https://up.test/put"))
     r.append(("...with the real byte size", puts[0]["size"] == 2048))

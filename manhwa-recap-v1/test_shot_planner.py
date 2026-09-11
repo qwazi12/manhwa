@@ -3,13 +3,36 @@ import sys
 import json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# Add manhwa-recap-v1 to path
-sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..", "manhwa-recap-v1")))
+# This file already lives in manhwa-recap-v1; the old "up one, back down"
+# insert only resolved by accident and broke from any other checkout.
+sys.path.insert(0, HERE)
 
 import shot_planner
 
-# Load existing project context
-proj_dir = "/Users/kwasiyeboah/Desktop/manhwa/manhwa-recap-v1/review_ui/projects/the-ruler-of-darkness_1"
+# This pointed at an absolute path inside the iCloud Desktop copy, which
+# CLAUDE.md says not to rely on — so the script failed for everyone working in
+# the real clone. Resolve relative to this file, and take a project name on the
+# command line, defaulting to whichever project is actually present.
+PROJECTS = os.path.join(HERE, "review_ui", "projects")
+
+
+def _pick_project():
+    if len(sys.argv) > 1:
+        return os.path.join(PROJECTS, sys.argv[1])
+    try:
+        names = sorted(n for n in os.listdir(PROJECTS)
+                       if os.path.exists(os.path.join(PROJECTS, n, "segments.json")))
+    except OSError:
+        names = []
+    if not names:
+        print(f"No project with a segments.json under {PROJECTS}")
+        print("Usage: python3 test_shot_planner.py [project-name]")
+        sys.exit(1)
+    return os.path.join(PROJECTS, names[0])
+
+
+proj_dir = _pick_project()
+print(f"Project: {os.path.basename(proj_dir)}")
 desc_path = os.path.join(proj_dir, "descriptions.json")
 crops_dir = os.path.join(proj_dir, "crops")
 segments_path = os.path.join(proj_dir, "segments.json")

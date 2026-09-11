@@ -151,8 +151,14 @@ def main():
                     {"id": "acc_2", "network": "x", "username": "someone",
                      "status": "failed", "error": "rate limited",
                      "platformPostId": None, "publishedAt": None}]}}
+        # This deployment answers only the getting-started spelling. The
+        # create-a-post page documents different paths, so the client tries
+        # both; these branches prove the fallback actually reaches a working
+        # endpoint instead of failing on the first 404.
         if url.endswith("/media/upload"):
             return {"id": "med_1", "upload_url": "https://up.test/put"}
+        if url.endswith("/media/med_1/confirm"):
+            return {"id": "med_1", "url": "https://cdn.test/v.mp4"}
         return {}
     accts = osd.list_accounts(CFG, _http=http)
     r.append(("listing accounts uses the documented endpoint",
@@ -260,14 +266,47 @@ def main():
     r.append(("a failed account gets no URL", ids["acc_2"]["url"] is None))
 
     # ---- media
-    osd.request_media_upload("v.mp4", "video/mp4", CFG, _http=http)
-    r.append(("media upload asks for an upload URL first",
+    # The two Outstand docs pages disagree on these paths. A publish failed in
+    # production with "did not return an upload URL" because the client knew
+    # only one spelling and treated a shapeless 2xx as success.
+    del calls[:]
+    started = osd.request_media_upload("v.mp4", "video/mp4", CFG, _http=http)
+    r.append(("media upload tries the create-a-post spelling first",
+              calls[0]["url"].endswith("/get-upload-url")))
+    r.append(("...falls back to the getting-started spelling when that is empty",
               calls[-1]["url"].endswith("/media/upload")
               and calls[-1]["body"]["content_type"] == "video/mp4"))
-    osd.confirm_media("med_1", 1234, CFG, _http=http)
-    r.append(("...and confirms with the byte size",
+    r.append(("...and returns the signed URL it actually found",
+              started["upload_url"] == "https://up.test/put"))
+    del calls[:]
+    done = osd.confirm_media("med_1", 1234, CFG, _http=http)
+    r.append(("confirm falls back the same way and sends the byte size",
               calls[-1]["url"].endswith("/media/med_1/confirm")
               and calls[-1]["body"]["size"] == 1234))
+    r.append(("...and yields the public URL the post body needs",
+              done["url"] == "https://cdn.test/v.mp4"))
+
+    # A 2xx with the wrong shape is what actually broke the live publish, so
+    # the error has to name the paths tried and the keys received.
+    def http_shapeless(method, url, body, cfg):
+        return {"ok": True}
+    try:
+        osd.request_media_upload("v.mp4", "video/mp4", CFG, _http=http_shapeless)
+        got = ""
+    except osd.OutstandError as e:
+        got = str(e)
+    r.append(("a 2xx with no upload URL fails loudly, not silently",
+              "could not obtain" in got))
+    r.append(("...naming both paths tried and the keys returned",
+              "/get-upload-url" in got and "/media/upload" in got
+              and "ok" in got))
+
+    # Field-name variants: nothing guarantees snake_case on a signed-URL API.
+    def http_camel(method, url, body, cfg):
+        return {"media": {"mediaId": "m2", "uploadUrl": "https://up.test/2"}}
+    alt = osd.request_media_upload("v.mp4", "video/mp4", CFG, _http=http_camel)
+    r.append(("a camelCase, wrapper-nested response is still understood",
+              alt["uploadUrl"] == "https://up.test/2"))
 
     # ---- the Phase D gate
     pd = _project(root)

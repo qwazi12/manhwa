@@ -3785,3 +3785,53 @@ in publishes.json and now visible in the UI, but was not captured before this
 fix. GET /api/outstand/publish/status returns the record.
 
 Tests: full suite 17 files, 100%.
+
+### Session 28 (cont.) — root cause of the failed publish: the docs contradict each other
+Owner pasted the now-visible error: **"Outstand did not return an upload URL,
+reached: failed"**. So the publish never got as far as creating a post; it died
+at the very first media call.
+
+#### Cause
+Outstand's two docs pages document DIFFERENT media endpoints:
+  - getting-started: POST /media/upload  → then POST /media/{id}/confirm
+  - create-a-post:   POST /get-upload-url → then POST /confirm-upload
+I implemented only the first pair. The live deployment answered with a 2xx that
+did not contain the fields I read, and the client turned that into a dead-end
+message that named neither the path it called nor the keys it got back.
+
+Two defects, not one:
+ 1. Knowing only one of two documented spellings.
+ 2. Treating a shapeless 2xx as an unexplainable failure. The response was in
+    hand and thrown away — the same class of mistake as the failed-publish card
+    rendering nothing while the error sat in publishes.json.
+
+#### Fix
+- request_media_upload/confirm_media try BOTH documented spellings in turn and
+  return the first that yields a usable URL.
+- Field names are read tolerantly (upload_url/uploadUrl/url/signedUrl,
+  id/media_id/mediaId, url/public_url/publicUrl) and wrapper keys
+  (media/data/result/upload) are unwrapped — nothing guarantees snake_case on a
+  signed-URL API.
+- On failure the error now names every path tried, whether each 404'd or
+  returned a shapeless 2xx, and the exact keys received. The next failure is
+  diagnosable from the UI text alone; this one was not.
+
+NOT claimed as verified: no live publish has been run since. This is a
+docs-driven fix, and which spelling the deployment actually honours is still
+unknown until the owner retries. That is exactly what the new error text will
+reveal if it is still wrong.
+
+#### Two unrelated defects found while running the suite
+- test_shot_planner.py had an ABSOLUTE path into the iCloud Desktop copy that
+  CLAUDE.md says not to rely on, so it failed for anyone in the real clone. Now
+  resolves relative to the file, takes a project name on argv, and defaults to
+  whichever project is present. Its sys.path insert ("up one, back down") also
+  only resolved by accident; fixed.
+- My own suite-runner shell compared "ALL PASS" against an n/n pattern and
+  reported a passing file as FAIL — the identical shell-comparison bug as the
+  earlier "200x162" deploy probe. Worth remembering: shell case/string matching
+  has now produced two false results this project.
+
+Tests: 17 files, 0 failing. test_outstand_connect 75 → 81 (fallback order,
+diagnostic error text, camelCase+wrapper parsing); test_outstand_publish's
+ordering assertion now checks relative order instead of steps[0]/steps[1].

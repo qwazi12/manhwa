@@ -436,28 +436,86 @@ def upload_media(path, content_type="video/mp4", cfg=None, _http=None,
     if on_step:
         on_step("requesting an upload slot")
     started = request_media_upload(filename, content_type, cfg, _http=_http)
-    media_id = started.get("id") or started.get("media_id")
-    upload_url = started.get("upload_url") or started.get("uploadUrl")
-    if not media_id or not upload_url:
-        raise OutstandError("Outstand did not return an upload URL")
+    media_id = _pick(started, "id", "media_id", "mediaId")
+    upload_url = _pick(started, "upload_url", "uploadUrl", "url",
+                       "signedUrl", "signed_url")
+    if not upload_url:
+        raise OutstandError(
+            "no upload URL in the response. Keys returned: "
+            + str(sorted((started or {}).keys())))
     if on_step:
         on_step(f"uploading {filename}")
     put_media_bytes(upload_url, path, content_type, _put=_put)
     if on_step:
         on_step("confirming the upload")
     done = confirm_media(media_id, os.path.getsize(path), cfg, _http=_http)
-    url = done.get("url") or done.get("public_url")
+    url = _pick(done, "url", "public_url", "publicUrl")
     if not url:
-        raise OutstandError("Outstand did not return a media URL after confirm")
+        raise OutstandError(
+            "no public URL after confirm. Keys returned: "
+            + str(sorted((done or {}).keys())))
     return {"media_id": media_id, "url": url, "filename": filename}
 
 
+def _unwrap(data):
+    """Outstand docs show bare objects; some APIs nest under media/data/result."""
+    if isinstance(data, dict):
+        for k in ("media", "data", "result", "upload"):
+            inner = data.get(k)
+            if isinstance(inner, dict):
+                return {**data, **inner}
+    return data or {}
+
+
+def _pick(d, *names):
+    for n in names:
+        v = (d or {}).get(n)
+        if v:
+            return v
+    return None
+
+
+# The two docs pages disagree on these paths: getting-started shows
+# /media/upload and /media/{id}/confirm, while create-a-post shows
+# /get-upload-url and /confirm-upload. Rather than pick one and fail opaquely,
+# try each documented spelling and report what actually happened.
+UPLOAD_PATHS = ("/get-upload-url", "/media/upload")
+CONFIRM_PATHS = ("/confirm-upload", "/media/{id}/confirm")
+
+
 def request_media_upload(filename, content_type, cfg=None, _http=None):
-    return _request("POST", "/media/upload", cfg,
-                    body={"filename": filename, "content_type": content_type},
-                    _http=_http)
+    """Ask for a signed upload slot. Returns the raw (unwrapped) response."""
+    body = {"filename": filename, "content_type": content_type,
+            "contentType": content_type}
+    tried = []
+    for path in UPLOAD_PATHS:
+        try:
+            data = _unwrap(_request("POST", path, cfg, body=body, _http=_http))
+        except OutstandError as e:
+            tried.append(f"{path} -> {e}")
+            continue
+        if _pick(data, "upload_url", "uploadUrl", "url", "signedUrl", "signed_url"):
+            return data
+        tried.append(f"{path} -> 2xx but no upload URL; keys: "
+                     f"{sorted((data or {}).keys())}")
+    raise OutstandError("could not obtain a media upload URL. Tried: "
+                        + " | ".join(tried))
 
 
 def confirm_media(media_id, size, cfg=None, _http=None):
-    return _request("POST", f"/media/{media_id}/confirm", cfg,
-                    body={"size": int(size)}, _http=_http)
+    """Confirm the upload and get the public URL."""
+    body = {"size": int(size), "id": media_id, "media_id": media_id}
+    tried = []
+    for path in CONFIRM_PATHS:
+        real = path.replace("{id}", str(media_id))
+        try:
+            data = _unwrap(_request("POST", real, cfg, body=body, _http=_http))
+        except OutstandError as e:
+            tried.append(f"{real} -> {e}")
+            continue
+        if _pick(data, "url", "public_url", "publicUrl"):
+            return data
+        tried.append(f"{real} -> 2xx but no public URL; keys: "
+                     f"{sorted((data or {}).keys())}")
+    raise OutstandError("could not confirm the media upload. Tried: "
+                        + " | ".join(tried))
