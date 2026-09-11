@@ -3835,3 +3835,44 @@ reveal if it is still wrong.
 Tests: 17 files, 0 failing. test_outstand_connect 75 → 81 (fallback order,
 diagnostic error text, camelCase+wrapper parsing); test_outstand_publish's
 ordering assertion now checks relative order instead of steps[0]/steps[1].
+
+### Session 28 (cont.) — publish SUCCEEDED; retractable rail; the two-theme finding
+**Phase D controlled private publish test: PASSED.** Owner reports the card now
+reads published / youtube @flamingoremix / Overall: published. The endpoint
+fallback (499f0b1) was the fix — the deployment answers one of the two
+documented media spellings, and the client now finds it either way.
+
+#### Retractable rail (both pages)
+Retracted, the rail is a 14px sliver with a chevron; hover OR keyboard focus
+(:focus-within, so it is not mouse-only) slides it back to 64px OVER the content
+rather than reflowing it — nothing shifts under the pointer as it opens. A pin
+button toggles it and the choice persists in localStorage under 'railoff',
+which BOTH pages read, so the sidebar is one habit rather than a per-page one.
+Respects prefers-reduced-motion. Below 701px the rail is already a horizontal
+strip and the retract rules are scoped out.
+
+New in test_review.py (32 -> 36): both pages ship #railpin/toggleRail, both use
+the same localStorage key, and both keep :focus-within. That is a direct guard
+against the two pages drifting apart again, which was the original complaint.
+
+#### MEASURED: the board and /review are opposite themes, not just styles
+Owner asked what UI system each page uses. Counted rather than guessed:
+  storyboard.py  — body background #fafafa, text #1a1a1a  => LIGHT page
+                   169 hardcoded hex literals, ZERO CSS variables
+                   rail is #rail (id selector)
+  review_page.py — --bg #0e1016                            => DARK page
+                   7 CSS custom properties (--bg/--panel/--rule/--ink/--ink2/
+                   --ink3/--accent + --ok/--warn/--bad), 34 hex literals
+                   rail is .nav (class selector)
+So there is no shared design system at all. The rails match because their
+colours were copied by hand; everything around them does not. The board is a
+light app wearing a dark rail; /review is dark throughout. That is the literal
+source of "2 different worlds" — it is a theme mismatch, not a polish gap.
+
+PENDING DECISION (owner's call, not mine): unify in which direction? Dark
+(adopt review's tokens across the board) or light (retheme /review)? Dark is
+the smaller net change for the rails and drawers, which are already dark, but
+it touches 169 literals in storyboard.py — a large edit to working code, so it
+needs explicit approval per the surgical-change rule. NOT started.
+
+Tests: 17 files, 0 failing.

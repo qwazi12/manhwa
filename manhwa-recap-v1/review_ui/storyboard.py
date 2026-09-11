@@ -431,6 +431,24 @@ header .stat b {{ display:block; font-size:15px; color:#fff; }} header .stat {{ 
 .navbtn {{ width:52px; height:56px; border:0; background:transparent; border-radius:9px; display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center; color:#8b90a0; font-size:10px; cursor:pointer; }}
 .navbtn .ic {{ font-size:19px; line-height:1; }}
 .navbtn:hover, .navbtn.active {{ background:#1b1e27; color:#5b8cff; }}
+/* Retractable rail. Retracted it is a 14px sliver; hovering it — or tabbing
+   into it, so this is not mouse-only — slides it back to full width OVER the
+   content instead of reflowing the board, so nothing shifts under the pointer
+   as it opens. The pin keeps it out, and the choice is stored under the same
+   localStorage key /review uses, so the rail behaves the same on both. */
+#rail {{ transition:width .16s ease; }}
+body.railoff {{ margin-left:14px; }}
+body.railoff .drawer {{ left:14px; }}
+body.railoff #rail {{ width:14px; }}
+body.railoff #rail > * {{ opacity:0; pointer-events:none; transition:opacity .12s ease; }}
+body.railoff #rail::after {{ content:'\203A'; position:absolute; top:50%; left:0; width:14px;
+  margin-top:-10px; text-align:center; color:#5b8cff; font-size:14px; }}
+body.railoff #rail:hover, body.railoff #rail:focus-within {{ width:64px; z-index:80;
+  box-shadow:4px 0 18px rgba(0,0,0,.45); }}
+body.railoff #rail:hover > *, body.railoff #rail:focus-within > * {{ opacity:1; pointer-events:auto; }}
+body.railoff #rail:hover::after, body.railoff #rail:focus-within::after {{ content:none; }}
+#railpin {{ margin-top:auto; margin-bottom:10px; }}
+@media (prefers-reduced-motion: reduce) {{ #rail, body.railoff #rail > * {{ transition:none; }} }}
 /* ---- drawers ---- */
 .drawer {{ position:fixed; left:64px; top:86px; bottom:0; width:360px; background:#15171e; color:#e6e8ef; border-right:1px solid #282c38; z-index:70; padding:16px; overflow-y:auto; display:none; font-size:13px; box-shadow:4px 0 18px rgba(0,0,0,.5); }}
 .drawer h3 {{ font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:#8b90a0; margin:0 0 10px; }}
@@ -518,6 +536,7 @@ textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; }}
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
   <button class="navbtn" data-d="exports" onclick="toggleDrawer('exports')"><span class="ic">📤</span>Exports</button>
   <a class="navbtn" href="/review" title="watch and rule on a rendered export"><span class="ic">📺</span>Review</a>
+  <button id="railpin" class="navbtn" onclick="toggleRail()"><span class="ic">«</span><span id="railpinlbl">Hide</span></button>
 </div>
 <div class="drawer" id="d_ingest">
   <h3>Ingest a chapter</h3>
@@ -879,6 +898,23 @@ fetch('/api/review').then(r => r.ok ? r.json() : null).then(d => {{
   }}).catch(() => {{}});
 }})();
 /* ---- drawers: ingest / projects / logs (ported from legacy UI) ---- */
+function applyRail() {{
+  const off = localStorage.getItem('railoff') === '1';
+  document.body.classList.toggle('railoff', off);
+  const ic = document.querySelector('#railpin .ic');
+  const lb = document.getElementById('railpinlbl');
+  const p = document.getElementById('railpin');
+  if (ic) ic.textContent = off ? '»' : '«';
+  if (lb) lb.textContent = off ? 'Pin' : 'Hide';
+  if (p) p.title = off ? 'Keep the sidebar open' : 'Retract the sidebar to a sliver';
+}}
+function toggleRail() {{
+  localStorage.setItem('railoff',
+    document.body.classList.contains('railoff') ? '0' : '1');
+  applyRail();
+}}
+applyRail();
+
 function toggleDrawer(name) {{
   for (const d of ['ingest','projects','tracker','logs','exports']) {{
     const el = document.getElementById('d_' + d);

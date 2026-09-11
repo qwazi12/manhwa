@@ -38,6 +38,23 @@ header h1 { font-size:15px; margin:0; font-weight:700; letter-spacing:-.01em; }
   color:#8b90a0; font-size:10px; cursor:pointer; text-decoration:none; }
 .navbtn .ic { font-size:19px; line-height:1; }
 .navbtn:hover, .navbtn.active { background:#1b1e27; color:var(--accent); }
+/* Retractable rail — same behaviour and same localStorage key as the board, so
+   the sidebar is not a per-page habit. Retracted it is a 14px sliver; hover or
+   keyboard focus slides it back over the content rather than reflowing it. */
+@media (min-width:701px) {
+  .nav { transition:width .16s ease; }
+  body.railoff .shell { margin-left:14px; }
+  body.railoff .nav { width:14px; }
+  body.railoff .nav > * { opacity:0; pointer-events:none; transition:opacity .12s ease; }
+  body.railoff .nav::after { content:'\203A'; position:absolute; top:50%; left:0; width:14px;
+    margin-top:-10px; text-align:center; color:var(--accent); font-size:14px; }
+  body.railoff .nav:hover, body.railoff .nav:focus-within { width:64px; z-index:80;
+    box-shadow:4px 0 18px rgba(0,0,0,.45); }
+  body.railoff .nav:hover > *, body.railoff .nav:focus-within > * { opacity:1; pointer-events:auto; }
+  body.railoff .nav:hover::after, body.railoff .nav:focus-within::after { content:none; }
+}
+#railpin { margin-top:auto; margin-bottom:10px; }
+@media (prefers-reduced-motion: reduce) { .nav, body.railoff .nav > * { transition:none; } }
 .shell { margin-left:64px; }
 @media (max-width:700px) {
   .nav { position:static; width:auto; flex-direction:row; bottom:auto;
@@ -95,6 +112,7 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
   <a class="navbtn" href="/storyboard?open=logs"><span class="ic">📋</span>Logs</a>
   <a class="navbtn" href="/storyboard?open=exports"><span class="ic">📤</span>Exports</a>
   <a class="navbtn active" href="/review"><span class="ic">📺</span>Review</a>
+  <button id="railpin" class="navbtn" onclick="toggleRail()"><span class="ic">«</span><span id="railpinlbl">Hide</span></button>
 </div>
 <div class="shell">
 <header>
@@ -106,6 +124,22 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 <div id="root"><div class="empty">loading…</div></div>
 </div>
 <script>
+function applyRail() {
+  const off = localStorage.getItem('railoff') === '1';
+  document.body.classList.toggle('railoff', off);
+  const ic = document.querySelector('#railpin .ic');
+  const lb = document.getElementById('railpinlbl');
+  const p = document.getElementById('railpin');
+  if (ic) ic.textContent = off ? '\u00bb' : '\u00ab';
+  if (lb) lb.textContent = off ? 'Pin' : 'Hide';
+  if (p) p.title = off ? 'Keep the sidebar open' : 'Retract the sidebar to a sliver';
+}
+function toggleRail() {
+  localStorage.setItem('railoff',
+    document.body.classList.contains('railoff') ? '0' : '1');
+  applyRail();
+}
+applyRail();
 var DATA = null;
 var PUB = null;
 var ALL = [];

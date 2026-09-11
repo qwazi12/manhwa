@@ -146,6 +146,25 @@ def main():
               "match_method" in qc and "validation" in qc and "long_holds" in qc))
     r.append(("...including whether matching was semantic", qc.get("semantic") is True))
 
+    # ---- the rail must stay the SAME control on both pages
+    # The owner's complaint was that /review felt like a separate application.
+    # A rail that retracts on one page and not the other, or that remembers the
+    # choice under a different key, recreates exactly that split — so pin both
+    # pages to one key and one control here rather than trusting they match.
+    rhtml = review_page.build_review_html()
+    sboard = open("storyboard.py", encoding="utf-8").read()
+    r.append(("the review page ships the retract control",
+              'id="railpin"' in rhtml and "toggleRail" in rhtml))
+    r.append(("the board ships the same control",
+              'id="railpin"' in sboard and "toggleRail" in sboard))
+    keys = set(re.findall(r"localStorage\.(?:get|set)Item\('([a-z]+)'", rhtml))
+    bkeys = set(re.findall(r"localStorage\.(?:get|set)Item\('([a-z]+)'", sboard))
+    r.append(("...remembering the choice under one shared key, so the sidebar "
+              "is not a per-page habit",
+              "railoff" in keys and "railoff" in bkeys))
+    r.append(("the retracted rail still opens on keyboard focus, not hover only",
+              ":focus-within" in rhtml and ":focus-within" in sboard))
+
     # ---- the page's own JavaScript must parse
     html = review_page.build_review_html()
     body = max(re.findall(r"<script>(.*?)</script>", html, re.S), key=len)
