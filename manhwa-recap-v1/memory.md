@@ -4313,3 +4313,33 @@ that an absurd count is clamped and garbage falls back.
 
 Suite 19 files, 0 failing.
 PENDING: production render to confirm under the real container.
+
+#### Production render: STOPPED AND REPORTED, deliberately
+Deploy 7218251c SUCCESS 23:38 UTC (commit 0d240c2), all 11 build stages,
+/health 200 in 0.19s, memory 54 MB current / 389 MB max of 32 GB.
+
+I did NOT run a production render. Every available trigger has a side effect on
+the owner's working data, and I read the code before acting:
+  - /api/render-missing renders only segments LACKING a clip. The active
+    project (chapter-2) has 8 ticked and 0 missing, so it would render nothing.
+  - /api/storyboard/approve with rerender_all=true is the only force path, and
+    it DELETES every ticked clip first (os.remove per clip), removes
+    .render_epochs.json, and then ALSO produces a new export — the approve
+    contract is "render AND export". That is destroying working files and
+    adding an artifact to their library, not "running a render".
+  - Activating a different project to find missing clips changes which project
+    is active underneath them.
+Per the owner's own constraint ("if runtime testing would interrupt live work,
+stop and report first"), this needs their go-ahead. They were actively
+reviewing overgeared_338 an hour earlier.
+
+#### 4 workers — measured locally, NOT adopted
+Same 8-segment export (56.3s), production profile, pinned binary:
+  1 worker   90.3s     -
+  2 workers  66.9s   -26%
+  4 workers  52.6s   -42%   (-21% beyond 2 workers)
+Frames 1691 and duration 56.39s identical at every worker count.
+4 looks clearly better and this box has 10 cores against the container's
+32 vCPU limit, so it should scale at least as well there — but that is
+inference, not production evidence, so the default stays 2. RENDER_WORKERS=4
+is a Railway variable away if the owner wants it after a real render.
