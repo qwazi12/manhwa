@@ -46,6 +46,30 @@ W, H = 1920, 1080
 # ever rebuilt clips whose FILE was missing (Session 23 finding).
 RENDER_EPOCH = 3
 
+
+# ------------------------------------------------------- the renderer binary
+# Renders used to shell out to `npx --yes hyperframes`, which costs ~0.3s per
+# clip over invoking the installed binary (measured: 0.51s vs 0.21s startup)
+# and — the bigger problem — resolves the package at RUNTIME. A hyperframes
+# release could change render output, or fail outright, with no commit here.
+#
+# package.json/package-lock.json next to this file pin the exact version and
+# the image installs it. npx remains the fallback so a checkout without
+# node_modules (a dev box, this file run standalone) still renders.
+def _hyperframes_cmd():
+    override = os.environ.get("HYPERFRAMES_BIN")
+    if override and os.path.exists(override):
+        return [override]
+    local = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "node_modules", ".bin", "hyperframes")
+    if os.path.exists(local):
+        return [local]
+    return ["npx", "--yes", "hyperframes"]
+
+
+HYPERFRAMES_CMD = _hyperframes_cmd()
+USING_NPX = HYPERFRAMES_CMD[0] == "npx"
+
 BEATSHEET = os.environ.get("HF_BEATSHEET", "build_test/beatsheet_full.json")
 BEATS = os.environ.get("HF_BEATS", "build_test/beats_full.json")
 AUDIO_SUBDIR = os.environ.get("HF_AUDIO_DIR", "build_test/tts_full")
@@ -299,7 +323,7 @@ def render_segment(seg, audio_dir, workdir=None):
     # --yes: npx must never hit its interactive install prompt in a non-TTY
     # container (that prompt aborts with exit 1). Capture output so a render
     # failure raises WITH the real reason instead of a blind exit status.
-    r = subprocess.run(["npx", "--yes", "hyperframes", "render", "-o", dst],
+    r = subprocess.run(HYPERFRAMES_CMD + ["render", "-o", dst],
                        cwd=wd, capture_output=True, text=True)
     if r.returncode != 0:
         tail = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()[-800:]
@@ -343,7 +367,7 @@ tl.to("#w", {{ opacity: 0, duration: 0.5, ease: "power2.in" }}, {dur - 0.5});
 window.__timelines["main"] = tl;
 </script></body></html>"""
     open(os.path.join(wd, "index.html"), "w").write(page)
-    r = subprocess.run(["npx", "--yes", "hyperframes", "render", "-o", dst],
+    r = subprocess.run(HYPERFRAMES_CMD + ["render", "-o", dst],
                        cwd=wd, capture_output=True, text=True)
     if r.returncode != 0:
         print(f"title card failed (skipping): {(r.stderr or r.stdout or '')[-160:]}")

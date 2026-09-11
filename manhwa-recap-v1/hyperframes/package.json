@@ -1,0 +1,8 @@
+{
+  "name": "manhwa-recap-render",
+  "private": true,
+  "description": "Pins the hyperframes CLI used by render_segments.py. Renders used to shell out to `npx --yes hyperframes`, which resolved the package at RUNTIME: a new release could change render output, or break rendering, with no commit here. An exact version plus a lockfile makes the renderer part of the build.",
+  "dependencies": {
+    "hyperframes": "0.8.35"
+  }
+}

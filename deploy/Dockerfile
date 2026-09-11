@@ -47,14 +47,21 @@ RUN cat panel-split/weights/yolo_panel_detector.pt.part-* > panel-split/yolo_pan
 RUN curl -fsSL -o panel-split/yolov8n.pt \
       https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n.pt \
     && python3 -c "import os;assert os.path.getsize('panel-split/yolov8n.pt') > 5_000_000"
-# hyperframes CLI (pinned via npx at runtime; warm the cache), then bake its
-# Chrome-for-testing into the image so renders never download at runtime
+# hyperframes CLI installed from the committed lockfile — NOT resolved by npx
+# at runtime. npx cost ~0.3s per clip over the installed binary (0.51s vs 0.21s
+# startup, measured) and, more importantly, resolved the package fresh on every
+# render: a new release could change output or break rendering with no commit
+# here. `npm ci` installs exactly what package-lock.json pins.
+RUN cd manhwa-recap-v1/hyperframes \
+    && npm ci --omit=dev --no-audit --no-fund \
+    && ./node_modules/.bin/hyperframes --version
+ENV HYPERFRAMES_BIN=/app/manhwa-recap-v1/hyperframes/node_modules/.bin/hyperframes
+# Bake Chrome-for-testing into the image so renders never download at runtime
 # (the runtime download inside the container ended in "Browser not available").
 # The cached binary is wrapped with --no-sandbox: the container runs as root,
 # and Chrome refuses to start sandboxed as root — the other half of that error.
-RUN cd manhwa-recap-v1/review_ui && npx --yes hyperframes --version || true
-RUN npx --yes hyperframes browser ensure \
-    && CHROME="$(npx --yes hyperframes browser path | tr -d '\r' | grep -E '^/' | tail -1)" \
+RUN "$HYPERFRAMES_BIN" browser ensure \
+    && CHROME="$("$HYPERFRAMES_BIN" browser path | tr -d '\r' | grep -E '^/' | tail -1)" \
     && echo "wrapping: $CHROME" \
     && mv "$CHROME" "$CHROME.real" \
     && printf '#!/bin/sh\nexec "%s.real" --no-sandbox "$@"\n' "$CHROME" > "$CHROME" \

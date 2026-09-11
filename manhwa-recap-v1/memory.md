@@ -4152,3 +4152,72 @@ set. The header now SAYS which basis produced the figure — "≈ at default
 rates" vs "at configured rates" — so an assumption is never shown as a bill.
 
 New test_usage_tokens.py: 21 assertions. Suite 19 files, 0 failing.
+
+### Session 28 (cont.) — render optimization batch
+Nothing was running; no jobs disturbed.
+
+#### 1A. hyperframes pinned + invoked directly (DONE)
+package.json + package-lock.json next to render_segments.py pin 0.8.35 exactly;
+Dockerfile runs `npm ci` and exports HYPERFRAMES_BIN; render_segments resolves
+HYPERFRAMES_BIN -> ./node_modules/.bin/hyperframes -> npx (fallback kept so a
+dev checkout still renders).
+MEASURED on 3 identical clips, production profile:
+  npx 7.12s/clip  ->  pinned binary 6.24s/clip   = 0.88s/clip, -12%
+  103 clips: ~91s (1.5 min) saved per full render.
+That is BIGGER than the 0.30s the `--version` test predicted: a real
+invocation also pays npx's cache/registry check, not just node startup.
+The reliability win matters more: `npx --yes` resolved the package fresh at
+RUNTIME, so a hyperframes release could change output or break renders with no
+commit here. Now it is part of the image.
+
+#### 1C. FPS — measured, NOT changed (owner's call)
+Representative 5-clip / 31s sample spread across the chapter, prod profile:
+  30fps LOW_MEMORY=1 (today)  50.62s    -
+  24fps LOW_MEMORY=1          42.80s   -15%
+  30fps 2 workers             37.28s   -26%
+  24fps 2 workers             32.75s   -35%
+Full 587s chapter at today's setting: ~16.0 min on this Mac.
+Output size barely moves (22.2 -> 21.4 MB), so 24fps buys time, not bytes.
+
+#### 2. ensure_thumb out of the request path (DONE)
+Removed from the /api/project loop. /thumb/{seg_index} already built them on
+demand and every <img> is loading="lazy", so the work is now per-image and only
+for thumbnails actually scrolled into view.
+MEASURED cold cache: /api/project 4.1s (103 x 39ms ffmpeg, serialized in ONE
+GET) -> 2 ms, 0 thumbs generated during the request. Real cache backed up and
+restored intact (206 files).
+
+#### 1B. --batch — COMPATIBLE ON NAMING, BUT NOT WORTH IT (evidence)
+Output naming is NOT a blocker: hyperframes supports placeholders and refuses
+collisions outright ("Rows 0 and 1 both resolve to ... Use placeholders such as
+{index}"); `-o out/{label}.mp4` produced correctly named files + a manifest.json.
+The blocker is that it BUYS NOTHING. Measured 3 rows one invocation vs 3
+separate invocations: 140.83s vs 141.31s — 0.16s/clip, 0%. It does not amortise
+the browser launch; each row is a full render. Consistent with their own note
+that --batch-concurrency defaults to 1 "because each render already
+parallelizes across workers".
+Second, independent blocker: seg_html varies STRUCTURALLY per segment — three
+card regimes (sub-crop / tall-strip scroll-pan / normal) and a variable number
+of audio layers — so batching would mean one composition branching at runtime
+over variables. Real rework for a measured 0% gain. NOT ADOPTED.
+
+#### 3. Worker profile — measured locally, NOT verified on Railway
+2 workers is -26% locally. Could NOT read the container's limits: `railway ssh`
+failed with "Host key verification failed", and I did not disable host key
+checking to force it. My local peak-RSS number was polluted by the IDE and
+browser on this box (4.3 GB) and is discarded as meaningless.
+So PRODUCER_LOW_MEMORY_MODE=1 STAYS until the real cgroup limits are known.
+The owner can run:  railway ssh "cat /sys/fs/cgroup/memory.max; nproc"
+
+#### Correctness
+hyperframes is byte-NON-deterministic: same binary, same input, rendered twice
+gave different bytes (2591597 vs 2597468) but identical properties (1920x1080,
+h264, 30/1, 95 frames, 3.167s). So byte-comparing npx vs binary output was
+never a valid test; properties match, which is what matters.
+
+Incidental finding: 4 of 87 included segments in swordmasters cannot render —
+seg 54's beat 55 does not fit its 5.849s window. The audio-coverage guard from
+earlier this session is catching it. Data defect, not code; /api/storyboard/
+repair_slices is the fix. NOT actioned (outside this batch).
+
+Tests: 19 files, 0 failing (test_render_epoch 4 -> 11).

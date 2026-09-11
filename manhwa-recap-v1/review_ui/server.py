@@ -343,7 +343,14 @@ def project():
         clip_ok = os.path.exists(os.path.join(pdir, s.get("clip", "")))
         if st == "approved":
             approved_dur += s.get("dur", 0)
-        ensure_thumb(s)
+        # ensure_thumb() used to run HERE, once per segment. On a cold cache
+        # that is an ffmpeg spawn per segment (~40ms each, 103 segments = ~4s
+        # measured) serialized inside a single GET, and the cache key includes
+        # the crop, so ANY re-crop re-paid it. /thumb/{seg_index} already
+        # builds the thumbnail on demand, the <img> tags are loading="lazy",
+        # and the browser fetches several at once — so the work now happens
+        # per-image, only for thumbnails actually scrolled into view, instead
+        # of all of them up front while the page waits.
         out.append({
             "seg_index": s["seg_index"],
             "panel_id": s["panel_id"],
