@@ -889,6 +889,14 @@ function toggleDrawer(name) {{
   }}
   if (name === 'projects') loadProjects();
   if (name === 'tracker') loadTracker(0);
+}}
+/* Arriving from another page with ?open=<drawer> should land on that drawer,
+   so the rail behaves the same wherever you clicked it. */
+(function () {{
+  var m = /[?&]open=([a-z]+)/.exec(location.search);
+  if (m) setTimeout(function () {{ toggleDrawer(m[1]); }}, 60);
+}})();
+function _navNoop() {{
   if (name === 'logs') loadLogs();
   if (name === 'exports') loadExports();
   if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}

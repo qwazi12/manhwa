@@ -30,6 +30,20 @@ a { color:var(--accent); }
 header { display:flex; gap:16px; align-items:center; padding:12px 20px;
   border-bottom:1px solid var(--rule); background:var(--panel); flex-wrap:wrap; }
 header h1 { font-size:15px; margin:0; font-weight:700; letter-spacing:-.01em; }
+.nav { position:fixed; left:0; top:0; bottom:0; width:64px; background:var(--panel);
+  border-right:1px solid var(--rule); display:flex; flex-direction:column; gap:4px;
+  align-items:center; padding:10px 0; z-index:20; }
+.navbtn { width:52px; height:56px; border:0; background:transparent; border-radius:9px;
+  display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center;
+  color:#8b90a0; font-size:10px; cursor:pointer; text-decoration:none; }
+.navbtn .ic { font-size:19px; line-height:1; }
+.navbtn:hover, .navbtn.active { background:#1b1e27; color:var(--accent); }
+.shell { margin-left:64px; }
+@media (max-width:700px) {
+  .nav { position:static; width:auto; flex-direction:row; bottom:auto;
+         border-right:0; border-bottom:1px solid var(--rule); overflow-x:auto; }
+  .shell { margin-left:0; }
+}
 .back { font-size:12.5px; text-decoration:none; font-weight:600; padding:7px 13px;
   border-radius:6px; background:var(--panel2); border:1px solid var(--rule); color:var(--ink);
   white-space:nowrap; }
@@ -73,6 +87,16 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 .actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:11px; }
 .empty { padding:40px 20px; text-align:center; color:var(--ink3); }
 </style></head><body>
+<div class="nav">
+  <a class="navbtn" href="/storyboard" title="Storyboard"><span class="ic">🎬</span>Board</a>
+  <a class="navbtn" href="/storyboard?open=ingest"><span class="ic">🔗</span>Ingest</a>
+  <a class="navbtn" href="/storyboard?open=projects"><span class="ic">📚</span>Projects</a>
+  <a class="navbtn" href="/storyboard?open=tracker"><span class="ic">📡</span>Tracker</a>
+  <a class="navbtn" href="/storyboard?open=logs"><span class="ic">📋</span>Logs</a>
+  <a class="navbtn" href="/storyboard?open=exports"><span class="ic">📤</span>Exports</a>
+  <a class="navbtn active" href="/review"><span class="ic">📺</span>Review</a>
+</div>
+<div class="shell">
 <header>
   <h1>📺 Review</h1>
   <a class="back" href="/storyboard">← Back to the board</a>
@@ -80,6 +104,7 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
   <span id="hdrstate"></span>
 </header>
 <div id="root"><div class="empty">loading…</div></div>
+</div>
 <script>
 var DATA = null;
 var PUB = null;
@@ -408,7 +433,14 @@ function publishNowCard() {
 
   var body = '', actions = '';
 
-  if (st === 'in_progress') {
+  if (st === 'failed' || st === 'cancelled') {
+    body = '<div class="banner b-bad" style="margin:0 0 10px"><b>' +
+      (st === 'failed' ? 'Publishing failed.' : 'Publishing was stopped.') + '</b>' +
+      ((pub || {}).error ? '<br>' + esc(pub.error) : '') +
+      ((pub || {}).stage ? '<div class="hint" style="margin-top:5px">reached: ' +
+        esc(pub.stage) + '</div>' : '') + '</div>' + resultRows;
+    actions = '<button class="ok" onclick="doPublish()">↻ Try again</button>';
+  } else if (st === 'in_progress') {
     body = '<div class="hint">' + esc((pub || {}).stage || 'working…') + '</div>' + resultRows;
     actions = '<button disabled>Publishing…</button>';
     if (!pubPoll) { pubPoll = true; setTimeout(pollPublish, 5000); }
@@ -455,6 +487,8 @@ async function doPublish() {
   if (!confirm('Publish this video to ' + who + ' as ' + priv +
       '? It will be uploaded to Outstand and posted. Confirm you have the right ' +
       'to publish this artwork.')) return;
+  var btn = document.querySelector('.card .ok');
+  if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
   try {
     await api('/api/outstand/publish', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -463,7 +497,18 @@ async function doPublish() {
     pubPoll = true;
     setTimeout(pollPublish, 2000);
     await load(DATA.name, DATA.project);
-  } catch (e) { alert('Could not start publishing: ' + e.message); }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = '▶ Publish now'; }
+    var box = document.getElementById('root');
+    if (box) {
+      var b = document.createElement('div');
+      b.className = 'banner b-bad';
+      b.style.margin = '0 20px 14px';
+      b.textContent = 'Could not start publishing: ' + (e.message || e);
+      box.prepend(b);
+    }
+    alert('Could not start publishing: ' + e.message);
+  }
 }
 
 function historyCard(rv) {

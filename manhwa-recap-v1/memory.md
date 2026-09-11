@@ -3753,3 +3753,35 @@ video description"). Fields that are collected but NOT sent to Outstand
 (playlist, thumbnail) now say so, rather than implying they are published.
 
 Tests: publish_prep 47/47; full suite 17 files, 100%.
+
+### Session 28 (cont.) — /review felt like a different app, and a failed publish said nothing
+Owner: "why is the review page a whole different world from the other tabs?
+there isn't even a side rail to click the tab" — and a publish failed with no
+visible reason.
+
+#### The rail: my mistake, not a trade-off
+I argued /review should be a full page rather than a drawer, which was right —
+a video needs width. But I then shipped it with NO nav rail, so it reads as a
+separate application. The full-page decision never required dropping the rail.
+FIXED: the same rail, same icons, same order, same styling now sits on /review,
+with Review marked active. Its drawer buttons link to /storyboard?open=<drawer>
+and storyboard.py opens that drawer on arrival, so clicking Ingest from Review
+lands where clicking Ingest from the Board lands. Rail collapses to a top strip
+under 700px.
+
+#### Why "Publish failed" told the owner nothing — a real hole
+publishNowCard() branched on in_progress / results.length / !ELIG.ready / ready.
+A job that failed BEFORE creating a post has status 'failed' with an error but
+an EMPTY results array, so it matched none of those branches and the card
+rendered as if nothing had happened. The failure was recorded in publishes.json
+the whole time and simply never displayed.
+FIXED: 'failed' and 'cancelled' are now their own branch, showing the stored
+error, the stage it reached, and a Try again button. The Publish button also
+gives immediate feedback ("Starting…") and a start failure renders a banner
+instead of only an alert().
+
+STILL UNKNOWN: the actual failure reason for the owner's attempt. It is stored
+in publishes.json and now visible in the UI, but was not captured before this
+fix. GET /api/outstand/publish/status returns the record.
+
+Tests: full suite 17 files, 100%.
