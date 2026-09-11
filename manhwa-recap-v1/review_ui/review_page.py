@@ -14,15 +14,13 @@ from /api/review on load.
 import json
 import os
 
+import theme                    # ONE palette + rail + theme switch, shared
+
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <title>Review — Manhwa Recap Studio</title>
 <style>
-:root {
-  --bg:#0e1016; --panel:#161923; --panel2:#1b1f2a; --rule:#272b38;
-  --ink:#e9ebf2; --ink2:#b2b8c8; --ink3:#858ca0;
-  --accent:#5b8cff; --ok:#39c07f; --warn:#e0a33a; --bad:#ef5f6b;
-}
+__TOKENS____CONTROLS__
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--ink);
   font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
@@ -35,26 +33,13 @@ header h1 { font-size:15px; margin:0; font-weight:700; letter-spacing:-.01em; }
   align-items:center; padding:10px 0; z-index:20; }
 .navbtn { width:52px; height:56px; border:0; background:transparent; border-radius:9px;
   display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center;
-  color:#8b90a0; font-size:10px; cursor:pointer; text-decoration:none; }
+  color:var(--ink3); font-size:10px; cursor:pointer; text-decoration:none; box-shadow:none; }
 .navbtn .ic { font-size:19px; line-height:1; }
-.navbtn:hover, .navbtn.active { background:#1b1e27; color:var(--accent); }
+.navbtn:hover, .navbtn.active { background:var(--panel2); color:var(--accent); border-color:transparent; }
 /* Retractable rail — same behaviour and same localStorage key as the board, so
    the sidebar is not a per-page habit. Retracted it is a 14px sliver; hover or
    keyboard focus slides it back over the content rather than reflowing it. */
-@media (min-width:701px) {
-  .nav { transition:width .16s ease; }
-  body.railoff .shell { margin-left:14px; }
-  body.railoff .nav { width:14px; }
-  body.railoff .nav > * { opacity:0; pointer-events:none; transition:opacity .12s ease; }
-  body.railoff .nav::after { content:'›'; position:absolute; top:50%; left:0; width:14px;
-    margin-top:-10px; text-align:center; color:var(--accent); font-size:14px; }
-  body.railoff .nav:hover, body.railoff .nav:focus-within { width:64px; z-index:80;
-    box-shadow:4px 0 18px rgba(0,0,0,.45); }
-  body.railoff .nav:hover > *, body.railoff .nav:focus-within > * { opacity:1; pointer-events:auto; }
-  body.railoff .nav:hover::after, body.railoff .nav:focus-within::after { content:none; }
-}
-#railpin { margin-top:auto; margin-bottom:10px; }
-@media (prefers-reduced-motion: reduce) { .nav, body.railoff .nav > * { transition:none; } }
+__RAIL__
 .shell { margin-left:64px; }
 @media (max-width:700px) {
   .nav { position:static; width:auto; flex-direction:row; bottom:auto;
@@ -79,31 +64,31 @@ video { width:100%; background:#000; border-radius:8px; display:block; }
 .row span:first-child { color:var(--ink3); }
 .pill { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 8px;
   border-radius:99px; letter-spacing:.03em; }
-.p-ok { background:#13291f; color:var(--ok); }
-.p-warn { background:#2d2413; color:var(--warn); }
-.p-bad { background:#2e161a; color:var(--bad); }
-.p-neutral { background:#1e222d; color:var(--ink3); }
-.p-blue { background:#1a2340; color:var(--accent); }
-button { font:inherit; border-radius:6px; cursor:pointer; border:1px solid var(--rule);
+.p-ok { background:var(--okb-bg); color:var(--okb-ink); }
+.p-warn { background:var(--warnb-bg); color:var(--warnb-ink); }
+.p-bad { background:var(--badb-bg); color:var(--badb-ink); }
+.p-neutral { background:var(--gray-bg); color:var(--gray-ink); }
+.p-blue { background:var(--sa-bg); color:var(--sa-ink); }
+button { border-radius:6px;
   background:var(--panel2); color:var(--ink); padding:7px 14px; }
-button:hover:not(:disabled) { border-color:var(--accent); }
-button:disabled { opacity:.5; cursor:not-allowed; }
-button.ok { background:#16351f; border-color:#2c6b45; color:#9be8bd; font-weight:700; }
-button.back-btn { background:#3a2412; border-color:#7a4a1c; color:#ffcf9b; font-weight:700; }
+
+
+button.ok { background:var(--okb-bg); border-color:var(--ok); color:var(--okb-ink); font-weight:700; }
+button.back-btn { background:var(--warnb-bg); border-color:var(--warn); color:var(--warnb-ink); font-weight:700; }
 textarea { width:100%; min-height:80px; background:var(--panel2); color:var(--ink);
   border:1px solid var(--rule); border-radius:6px; padding:9px; font:inherit; resize:vertical; }
 select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule);
   border-radius:6px; padding:6px 9px; font:inherit; max-width:360px; }
 .banner { padding:11px 14px; border-radius:8px; margin-bottom:14px; font-size:13px; }
-.b-warn { background:#2d2413; border-left:3px solid var(--warn); color:#f0d6a2; }
-.b-bad { background:#2e161a; border-left:3px solid var(--bad); color:#ffc4c9; }
-.b-info { background:#141a2c; border-left:3px solid var(--accent); color:#c8d6ff; }
+.b-warn { background:var(--warnb-bg); border-left:3px solid var(--warn); color:var(--warnb-ink); }
+.b-bad { background:var(--badb-bg); border-left:3px solid var(--bad); color:var(--badb-ink); }
+.b-info { background:var(--sa-bg); border-left:3px solid var(--accent); color:var(--sa-ink); }
 .hint { color:var(--ink3); font-size:11.5px; }
 .qc li { margin:3px 0; font-size:12.5px; color:var(--ink2); }
 .qc ul { margin:6px 0 0; padding-left:18px; }
 .actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:11px; }
 .empty { padding:40px 20px; text-align:center; color:var(--ink3); }
-</style></head><body>
+</style>__HEADJS__</head><body>
 <div class="nav">
   <a class="navbtn" href="/storyboard" title="Storyboard"><span class="ic">🎬</span>Board</a>
   <a class="navbtn" href="/storyboard?open=ingest"><span class="ic">🔗</span>Ingest</a>
@@ -112,7 +97,7 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
   <a class="navbtn" href="/storyboard?open=logs"><span class="ic">📋</span>Logs</a>
   <a class="navbtn" href="/storyboard?open=exports"><span class="ic">📤</span>Exports</a>
   <a class="navbtn active" href="/review"><span class="ic">📺</span>Review</a>
-  <button id="railpin" class="navbtn" onclick="toggleRail()"><span class="ic">«</span><span id="railpinlbl">Hide</span></button>
+  __RAILBTNS__
 </div>
 <div class="shell">
 <header>
@@ -124,22 +109,7 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 <div id="root"><div class="empty">loading…</div></div>
 </div>
 <script>
-function applyRail() {
-  const off = localStorage.getItem('railoff') === '1';
-  document.body.classList.toggle('railoff', off);
-  const ic = document.querySelector('#railpin .ic');
-  const lb = document.getElementById('railpinlbl');
-  const p = document.getElementById('railpin');
-  if (ic) ic.textContent = off ? '\u00bb' : '\u00ab';
-  if (lb) lb.textContent = off ? 'Pin' : 'Hide';
-  if (p) p.title = off ? 'Keep the sidebar open' : 'Retract the sidebar to a sliver';
-}
-function toggleRail() {
-  localStorage.setItem('railoff',
-    document.body.classList.contains('railoff') ? '0' : '1');
-  applyRail();
-}
-applyRail();
+__SHAREDJS__
 var DATA = null;
 var PUB = null;
 var ALL = [];
@@ -394,7 +364,7 @@ function thumbPreview() {
   if (!box) return;
   box.innerHTML = (v === '' || v == null) ? '' :
     '<img src="/segimg/' + encodeURIComponent(v) + '?cb=' + Date.now() +
-    '" style="max-width:150px;border-radius:5px;border:1px solid #272b38">';
+    '" style="max-width:150px;border-radius:5px;border:1px solid var(--rule)">';
 }
 
 function collectPublish() {
@@ -462,7 +432,7 @@ function publishNowCard() {
     return '<div class="row"><span>' + esc(x.network || '?') + ' · ' +
       esc(x.username || x.account_id || '') + '</span><span>' +
       pill(x.status || 'pending', cls) + link + '</span></div>' +
-      (x.error ? '<div class="hint" style="color:#ef6470">' + esc(x.error) + '</div>' : '');
+      (x.error ? '<div class="hint" style="color:var(--bad)">' + esc(x.error) + '</div>' : '');
   }).join('');
 
   var body = '', actions = '';
@@ -666,7 +636,7 @@ function qcCard(d, qc) {
   }
   if ((v.errors || []).length) {
     out += '<ul>' + v.errors.slice(0, 5).map(function (e) {
-      return '<li style="color:#ef5f6b">seg ' + e.seg + ' — ' + esc(e.msg) + '</li>';
+      return '<li style="color:var(--bad)">seg ' + e.seg + ' — ' + esc(e.msg) + '</li>';
     }).join('') + '</ul>';
   }
   if (qc.scrape_warning) {
@@ -709,5 +679,15 @@ load(q('name'), q('project'));
 
 
 def build_review_html(pdir=None):
-    """The review page. Static shell — it fetches /api/review itself."""
-    return _PAGE
+    """The review page. Static shell — it fetches /api/review itself.
+
+    The palette, controls, rail and theme switch are substituted from theme.py
+    rather than written here, so this page cannot drift from the board again.
+    """
+    return (_PAGE
+            .replace("__TOKENS__", theme.TOKENS_CSS)
+            .replace("__CONTROLS__", theme.CONTROLS_CSS)
+            .replace("__RAIL__", theme.rail_css(".nav", guard="(min-width:701px)"))
+            .replace("__HEADJS__", theme.HEAD_THEME_JS)
+            .replace("__RAILBTNS__", theme.RAIL_BUTTONS_HTML)
+            .replace("__SHAREDJS__", theme.SHARED_JS))

@@ -3927,3 +3927,61 @@ margin STILL 14px and z-index 80 — it overlays instead of reflowing, which was
 the design claim.
 
 Tests: 17 files, 0 failing.
+
+### Session 28 (cont.) — light/dark switch, controls that read as controls, ONE palette source
+Owner: "can i switch to light if i want so the screen isnt always dark? we need
+better contrast, buttons to pop more because it kind of blinds into each other."
+
+#### The structural fix: review_ui/theme.py
+Both pages carried hand-copied colour values; that duplication IS the
+two-worlds defect, and copying them again more carefully would only delay it.
+New module `theme.py` is the single source for the palette, the control styles,
+the rail retract rules, the rail buttons, and the shared JS. storyboard.py
+interpolates it ({theme.TOKENS_CSS} etc. — and because f-strings insert values
+without re-processing braces, this also removed the double-brace hazard from
+that CSS). review_page.py substitutes the same values via placeholders.
+There is now nowhere for a second copy of a colour to live.
+
+#### Light theme
+`data-theme="light"` on <html> redefines every token; nothing else changes,
+because nothing else names a colour. Dark stays the default. The choice
+persists under localStorage 'theme' and is applied by a tiny <head> script
+BEFORE the body paints — without that, a light-theme user sees a dark frame
+first, which reads as a bug.
+
+#### Why buttons "blinded into each other"
+The first dark pass gave buttons --panel2 (#1b1f2a) sitting on --panel
+(#161923): about 2% apart. A control has to read as a control, so buttons now
+have their OWN surface tokens (--btn/--btn-hover/--btn-edge) deliberately
+lighter than any panel in dark and properly bordered in light, plus a real
+focus-visible outline. Styled on the `button` ELEMENT, so a control added later
+is correct without anyone remembering to style it.
+
+#### Verified in a browser, both themes
+Contrast audit over the real 138-panel board: dark 0 failing AA, light 0
+failing AA (47-48 distinct fg/bg pairs, 3544 text nodes).
+
+The light audit is what proved the conversion had been half-done: 57 colour
+literals in storyboard.py's Python/JS inline styles and 13 in review_page.py
+(status pills, banners) never flipped, so the light page showed dark-theme
+greens and ambers at 1.7-2.3:1. All converted to tokens. Only #000 survives, on
+the video letterbox, where black is right in both themes. Light --ink3 also had
+to darken (#68707f -> #5c6474) to clear AA at 10px on --panel2.
+
+TWO self-inflicted bugs worth recording:
+1. Swapping in the shared JS, my slice ended at the first "applyRail();" — which
+   is the call INSIDE toggleRail() — so that function's closing brace and the
+   real bottom-of-file call were left stranded. Both pages' JS stopped parsing.
+   Caught by the syntax guard, which is the third time that guard has paid for
+   itself.
+2. getComputedStyle again reported pre-transition values (buttons still dark in
+   light mode) because transitions do not advance in an automated tab. Not a
+   bug — same false alarm as the rail. Disable transitions before measuring.
+
+test_review 36 -> 40: both pages must emit theme.py's tokens VERBATIM (not
+merely agree), both ship the theme switch and rail pin, a light theme exists for
+both, the theme is applied before <body>, and controls have their own surface
+token. That guards the single source rather than the current colours.
+
+Tests: 17 files, 0 failing.
+PENDING: drag-and-drop custom thumbnail on /review (next).

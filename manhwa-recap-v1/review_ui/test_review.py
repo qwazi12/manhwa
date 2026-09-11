@@ -146,24 +146,42 @@ def main():
               "match_method" in qc and "validation" in qc and "long_holds" in qc))
     r.append(("...including whether matching was semantic", qc.get("semantic") is True))
 
-    # ---- the rail must stay the SAME control on both pages
+    # ---- both pages must render from ONE palette, not two copies
     # The owner's complaint was that /review felt like a separate application.
-    # A rail that retracts on one page and not the other, or that remembers the
-    # choice under a different key, recreates exactly that split — so pin both
-    # pages to one key and one control here rather than trusting they match.
+    # Hand-copied colour values are how that happened, so the real guard is
+    # that both pages emit theme.py's tokens verbatim — not that two files
+    # happen to agree today.
+    import theme
     rhtml = review_page.build_review_html()
-    sboard = open("storyboard.py", encoding="utf-8").read()
-    r.append(("the review page ships the retract control",
-              'id="railpin"' in rhtml and "toggleRail" in rhtml))
-    r.append(("the board ships the same control",
-              'id="railpin"' in sboard and "toggleRail" in sboard))
-    keys = set(re.findall(r"localStorage\.(?:get|set)Item\('([a-z]+)'", rhtml))
-    bkeys = set(re.findall(r"localStorage\.(?:get|set)Item\('([a-z]+)'", sboard))
-    r.append(("...remembering the choice under one shared key, so the sidebar "
-              "is not a per-page habit",
-              "railoff" in keys and "railoff" in bkeys))
+    proj = [d for d in sorted(os.listdir("projects"))
+            if os.path.isdir(os.path.join("projects", d)) and not d.startswith("_")]
+    bhtml = ""
+    if proj:
+        import storyboard as _sb, matcher as _m
+        bhtml = _sb.build_storyboard_html(os.path.join("projects", proj[0]), _m,
+                                          review={}, usage_summary={}, approved=False)
+    r.append(("the review page renders the shared palette",
+              theme.TOKENS_CSS.strip() in rhtml))
+    r.append(("the board renders the SAME shared palette",
+              bool(bhtml) and theme.TOKENS_CSS.strip() in bhtml))
+    r.append(("both ship the retract control and the theme switch",
+              'id="railpin"' in rhtml and 'id="themebtn"' in rhtml
+              and 'id="railpin"' in bhtml and 'id="themebtn"' in bhtml))
+    r.append(("...backed by one key each, so neither is a per-page habit",
+              "localStorage.getItem('railoff')" in rhtml
+              and "localStorage.getItem('theme')" in rhtml))
+    r.append(("a light theme exists for both, not just dark",
+              '[data-theme="light"]' in rhtml and '[data-theme="light"]' in bhtml))
+    r.append(("the theme is applied before the body paints, so light never "
+              "flashes dark first",
+              rhtml.index("data-theme") < rhtml.index("<body")
+              and bhtml.index("data-theme") < bhtml.index("<body")))
     r.append(("the retracted rail still opens on keyboard focus, not hover only",
-              ":focus-within" in rhtml and ":focus-within" in sboard))
+              ":focus-within" in rhtml and ":focus-within" in bhtml))
+    # Buttons melting into the panel behind them was a real complaint; the
+    # control surface must be its own token, not a reused panel shade.
+    r.append(("controls have their own surface, distinct from any panel",
+              "--btn:" in rhtml and "background:var(--btn)" in rhtml))
 
     # ---- the page's own JavaScript must parse
     html = review_page.build_review_html()

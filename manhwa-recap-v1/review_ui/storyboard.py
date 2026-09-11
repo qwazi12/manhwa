@@ -18,6 +18,7 @@ from datetime import datetime
 _RECAP = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 if _RECAP not in sys.path:
     sys.path.insert(0, _RECAP)
+import theme                    # ONE palette + rail + theme switch, shared
 from shot_planner import (crop_area, crop_status, is_sub_crop,  # SAME contract
                           png_size)                             # as the exporter
 
@@ -125,8 +126,8 @@ def _outdated_stat(n):
     """Header chip: clips built by an older renderer. Non-zero means the
     next APPROVE rebuilds them (visual fixes only reach the video that way)."""
     if not n:
-        return '<div class="stat"><b style="color:#9ad27d">0</b>clips outdated</div>'
-    return (f'<div class="stat"><b style="color:#e5a13a">{n}</b>'
+        return '<div class="stat"><b style="color:var(--ok)">0</b>clips outdated</div>'
+    return (f'<div class="stat"><b style="color:var(--warn)">{n}</b>'
             f'clips outdated<br><span style="font-size:9px;opacity:.75">'
             f'renderer updated — APPROVE rebuilds them</span></div>')
 
@@ -137,7 +138,7 @@ def _coverage_stat(sc):
     if not sc:
         return '<div class="stat"><b>?</b>split coverage</div>'
     bad = sc.get("pages_below_85", 0)
-    color = "#e5a13a" if bad else "#9ad27d"
+    color = "var(--warn)" if bad else "var(--ok)"
     warn = f' ⚠ {bad} page(s) &lt;85% (worst: {html.escape(str(sc.get("worst_page","")))})' if bad else ""
     return (f'<div class="stat"><b style="color:{color}">'
             f'{sc.get("min", 0):.0%} min / {sc.get("mean", 0):.0%} mean</b>'
@@ -243,7 +244,7 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     _mm = _meta.get("match_method") or "unknown"
     _semantic = "gemini-embeddings" in _mm or _mm.startswith("embeddings")
     _match_short = "semantic" if _semantic else ("lexical" if "lexical" in _mm else _mm)
-    _match_col = "#39c07f" if _semantic else "#ef5f6b"
+    _match_col = "var(--ok)" if _semantic else "var(--bad)"
     _match_tip = f"match_method = {_mm}"
     if not _semantic:
         _match_tip += (" — semantic embeddings were NOT used for this chapter, "
@@ -284,7 +285,7 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
                     scene_panel_index[uid] = 1
                 label = f'<b class="ln">¶{uid}</b> ' if uid is not None else ""
                 tot = scene_panels_count.get(uid, 1)
-                group_badge = f' <span class="b group" style="background:#2b3a4a;color:#a5c4e8;padding:1px 5px;border-radius:3px;font-size:10px;">{tot} images in group</span>' if (uid is not None and tot > 1) else ""
+                group_badge = f' <span class="b group" style="background:var(--sa-bg);color:var(--sa-ink);padding:1px 5px;border-radius:3px;font-size:10px;">{tot} images in group</span>' if (uid is not None and tot > 1) else ""
                 script_cell = (label + html.escape(btxt) + ("…" if len(btxt) == 300 else "") + group_badge)
             cls = "sa"
         elif reason:
@@ -422,25 +423,7 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
    tokens; re-theming is editing this block, not hunting 169 literals.
    color-scheme:dark also makes native checkboxes, scrollbars and date pickers
    render dark, which CSS alone cannot do. */
-:root {{
-  color-scheme: dark;
-  --bg:#0e1016; --panel:#161923; --panel2:#1b1f2a; --rule:#272b38;
-  --ink:#e9ebf2; --ink2:#b2b8c8; --ink3:#858ca0;
-  --accent:#5b8cff; --ok:#39c07f; --warn:#e0a33a; --bad:#ef5f6b;
-  /* Tinted rows and badges. The light sheet carried a bg/ink pair per meaning
-     (accepted, folded, omitted, greyed, ...); these are the dark equivalents,
-     kept as pairs so contrast stays deliberate rather than emergent. */
-  --sa-bg:#121c2e;    --sa-ink:#9dc0ff;
-  --fold-bg:#241f10;  --fold-ink:#e6c579;
-  --omit-bg:#2a1518;  --omit-ink:#f09aa2;
-  --gray-bg:#1a1d26;  --gray-ink:#8d94a6;
-  --seg-bg:#131820;   --seg-rule:#242b38;
-  --okb-bg:#12251c;   --okb-ink:#7fd8a6;
-  --warnb-bg:#2a2010; --warnb-ink:#e8c07a;
-  --badb-bg:#2c1519;  --badb-ink:#f3a1a8;
-  --tall-bg:#1f1b33;  --tall-ink:#b9a6ff;
-  --tight-bg:#2e1c10; --tight-ink:#f0a97a;
-}}
+{theme.TOKENS_CSS}{theme.CONTROLS_CSS}
 body {{ font-family: -apple-system, Helvetica, sans-serif; margin: 0 0 0 64px; background:var(--bg); color:var(--ink); }}
 header {{ position: sticky; top:0; z-index:5; background:var(--panel); color:var(--ink); padding:10px 18px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--rule); }}
 header .stat b {{ display:block; font-size:15px; color:var(--ink); }} header .stat {{ font-size:11px; color:var(--ink3); }}
@@ -453,7 +436,7 @@ header .stat b {{ display:block; font-size:15px; color:var(--ink); }} header .st
 #renderprog {{ flex:1; display:flex; align-items:center; gap:10px; }}
 #renderbar {{ height:8px; background:var(--ok); border-radius:4px; width:0%; min-width:2px; transition:width .5s;
   box-shadow:0 0 8px rgba(57,192,127,.6); }}
-#rendertxt {{ color:#9be8c3; white-space:nowrap; }}
+#rendertxt {{ color:var(--ok); white-space:nowrap; }}
 /* ---- left rail (ported from legacy UI) ---- */
 #rail {{ position:fixed; left:0; top:0; bottom:0; width:64px; background:var(--panel); border-right:1px solid var(--rule); display:flex; flex-direction:column; align-items:center; gap:6px; padding-top:12px; z-index:20; }}
 .navbtn {{ width:52px; height:56px; border:0; background:transparent; border-radius:9px; display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center; color:var(--ink3); font-size:10px; cursor:pointer; }}
@@ -464,26 +447,14 @@ header .stat b {{ display:block; font-size:15px; color:var(--ink); }} header .st
    content instead of reflowing the board, so nothing shifts under the pointer
    as it opens. The pin keeps it out, and the choice is stored under the same
    localStorage key /review uses, so the rail behaves the same on both. */
-#rail {{ transition:width .16s ease; }}
-body.railoff {{ margin-left:14px; }}
-body.railoff .drawer {{ left:14px; }}
-body.railoff #rail {{ width:14px; }}
-body.railoff #rail > * {{ opacity:0; pointer-events:none; transition:opacity .12s ease; }}
-body.railoff #rail::after {{ content:'›'; position:absolute; top:50%; left:0; width:14px;
-  margin-top:-10px; text-align:center; color:var(--accent); font-size:14px; }}
-body.railoff #rail:hover, body.railoff #rail:focus-within {{ width:64px; z-index:80;
-  box-shadow:4px 0 18px rgba(0,0,0,.45); }}
-body.railoff #rail:hover > *, body.railoff #rail:focus-within > * {{ opacity:1; pointer-events:auto; }}
-body.railoff #rail:hover::after, body.railoff #rail:focus-within::after {{ content:none; }}
-#railpin {{ margin-top:auto; margin-bottom:10px; }}
-@media (prefers-reduced-motion: reduce) {{ #rail, body.railoff #rail > * {{ transition:none; }} }}
+{theme.rail_css('#rail')}
 /* ---- drawers ---- */
 .drawer {{ position:fixed; left:64px; top:86px; bottom:0; width:360px; background:var(--panel); color:var(--ink); border-right:1px solid var(--rule); z-index:70; padding:16px; overflow-y:auto; display:none; font-size:13px; box-shadow:4px 0 18px rgba(0,0,0,.5); }}
 .drawer h3 {{ font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink3); margin:0 0 10px; }}
 .drawer .hint {{ color:var(--ink3); font-size:11px; }}
 .drawer input.field {{ width:100%; background:var(--panel2); border:1px solid var(--rule); border-radius:7px; color:var(--ink); padding:8px; font:inherit; margin:10px 0; }}
-.drawer button {{ font:inherit; cursor:pointer; color:var(--ink); background:var(--panel2); border:1px solid var(--rule); border-radius:7px; padding:6px 10px; }}
-.drawer button.primary {{ background:var(--accent); border-color:var(--accent); color:#fff; width:100%; }}
+.drawer button {{ border-radius:7px; padding:6px 10px; }}
+.drawer button.primary {{ width:100%; }}
 .drawer .section {{ border-top:1px solid var(--rule); margin-top:12px; padding-top:12px; }}
 .projcard {{ margin-top:8px; background:var(--panel2); border:1px solid var(--rule); border-radius:8px; overflow:hidden; }}
 .projcard .ph {{ font-weight:600; font-size:12px; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--rule); }}
@@ -519,9 +490,9 @@ tr.gray td.script {{ background:var(--gray-bg); color:var(--gray-ink); }}
 .cropb.blocked {{ background:var(--badb-bg); color:var(--badb-ink); font-weight:700; }}
 .cropb.full {{ background:var(--panel2); color:var(--ink3); }}
 .cropact {{ display:block; width:100%; margin-top:3px; font-size:10px; padding:2px 3px;
-  border:1px solid var(--rule); background:var(--panel2); color:var(--ink); border-radius:3px; cursor:pointer; }}
-.cropact:hover {{ background:var(--rule); }}
-.cropact.alt {{ border-color:var(--rule); color:var(--ink3); }}
+  border-radius:3px; }}
+
+.cropact.alt {{ color:var(--ink3); }}
 .segblock.over {{ outline:2px dashed var(--accent); }}
 td.timing.dropok {{ outline:3px dashed var(--ok); outline-offset:-3px; background:var(--okb-bg); }}
 .segblock[draggable] {{ cursor:grab; }}
@@ -533,7 +504,7 @@ td.timing.dropok {{ outline:3px dashed var(--ok); outline-offset:-3px; backgroun
 .draghandle {{ position:absolute; right:6px; top:6px; cursor:grab; color:var(--ink3); }}
 .timectl {{ margin:5px 0; font-size:11px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }}
 .timectl input {{ width:52px; font:inherit; padding:2px 4px; background:var(--panel2); color:var(--ink); border:1px solid var(--rule); border-radius:4px; }}
-.timectl button {{ font-size:10px; padding:2px 6px; border:1px solid var(--rule); background:var(--panel2); color:var(--ink); border-radius:4px; cursor:pointer; }}
+.timectl button {{ font-size:10px; padding:2px 6px; border-radius:4px; }}
 .bctl {{ white-space:nowrap; }}
 .mo {{ color:var(--ink3); font-size:11px; }} .beat {{ margin-top:4px; }} .bt {{ color:var(--sa-ink); font-size:10px; font-weight:600; }}
 .slice {{ color:var(--warn); margin-left:4px; }}
@@ -546,8 +517,8 @@ td.timing.dropok {{ outline:3px dashed var(--ok); outline-offset:-3px; backgroun
 .b.sil {{ background:var(--panel2); color:var(--ink3); }}
 .off {{ color:var(--ink3); }}
 .acts {{ margin-top:6px; display:flex; gap:5px; flex-wrap:wrap; }}
-.acts button {{ font-size:11px; padding:4px 7px; border:1px solid var(--rule); background:var(--panel2); color:var(--ink); border-radius:5px; cursor:pointer; }}
-.acts button:hover {{ background:var(--rule); }}
+.acts button {{ font-size:11px; padding:4px 7px; border-radius:5px; }}
+
 #cands {{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; overflow:auto; padding:30px; z-index:30; }}
 #cands .inner {{ background:var(--panel); color:var(--ink); border-radius:10px; padding:16px; max-width:1100px; margin:0 auto; }}
 #cands img {{ max-width:150px; max-height:240px; margin:6px; cursor:pointer; border:3px solid transparent; border-radius:4px; }}
@@ -558,7 +529,7 @@ textarea, input[type=text], input[type=number], select {{ background:var(--panel
 textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; padding:6px; }}
 a {{ color:var(--accent); }}
 #busy {{ position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--panel2); color:var(--ink); border:1px solid var(--rule); padding:8px 16px; border-radius:8px; display:none; z-index:40; font-size:12px; }}
-</style></head><body>
+</style>{theme.HEAD_THEME_JS}</head><body>
 <div id="rail">
   <button class="navbtn active" title="Storyboard" onclick="location.reload()"><span class="ic">🎬</span>Board</button>
   <button class="navbtn" data-d="ingest" onclick="toggleDrawer('ingest')"><span class="ic">🔗</span>Ingest</button>
@@ -567,7 +538,7 @@ a {{ color:var(--accent); }}
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
   <button class="navbtn" data-d="exports" onclick="toggleDrawer('exports')"><span class="ic">📤</span>Exports</button>
   <a class="navbtn" href="/review" title="watch and rule on a rendered export"><span class="ic">📺</span>Review</a>
-  <button id="railpin" class="navbtn" onclick="toggleRail()"><span class="ic">«</span><span id="railpinlbl">Hide</span></button>
+  {theme.RAIL_BUTTONS_HTML}
 </div>
 <div class="drawer" id="d_ingest">
   <h3>Ingest a chapter</h3>
@@ -639,13 +610,13 @@ a {{ color:var(--accent); }}
     {'✔ APPROVED — click to re-render &amp; re-export' if approved else 'APPROVE PROJECT FOR RENDER'}</button>
 </header>
 <div id="sentback" style="display:none;margin:0 14px 10px;padding:11px 14px;border-radius:8px;
-  background:#3a2412;border-left:3px solid #e0a33a;color:#ffcf9b;font-size:13px"></div>
+  background:var(--warnb-bg);border-left:3px solid var(--warn);color:var(--warnb-ink);font-size:13px"></div>
 <div id="pipebar">
   <span id="st_tick">① ticked <b>{n_included}/{n_segs}</b></span>
   <span id="st_appr">② approved <b>{'✓' if approved else '—'}</b></span>
   <span id="st_clips">③ clips <b id="clipcount">?</b></span>
   <span id="st_exp">④ export <b id="expstate">—</b></span>
-  <span id="st_sil" style="{'color:#e8a13c' if _sil else ''}">🔇 dead air <b>{sil_str}</b></span>
+  <span id="st_sil" style="{'color:var(--warn)' if _sil else ''}">🔇 dead air <b>{sil_str}</b></span>
   <div id="renderprog" style="display:none"><div id="renderbar"></div><span id="rendertxt"></span></div>
 </div>
 <div class="wrap">
@@ -853,7 +824,7 @@ async function pollFinalize(id) {{
     if (s.status === 'done') {{
       clearInterval(finalizeTimer);
       localStorage.removeItem('finalizeJob');
-      txt.innerHTML = `✅ done — <a href="${{s.url}}" style="color:#9be8c3" target="_blank">download ${{s.export}}</a>`;
+      txt.innerHTML = `✅ done — <a href="${{s.url}}" style="color:var(--ok)" target="_blank">download ${{s.export}}</a>`;
       document.getElementById('expstate').textContent = '✅';
       document.getElementById('approveBtn').textContent = '✔ APPROVED — export ready';
       loadExports();
@@ -862,7 +833,7 @@ async function pollFinalize(id) {{
       clearInterval(finalizeTimer);
       localStorage.removeItem('finalizeJob');
       txt.textContent = '❌ ' + (s.error || 'render failed');
-      txt.style.color = '#ef5f6b';
+      txt.style.color = 'var(--bad)';
     }}
   }}, 3000);
 }}
@@ -874,11 +845,11 @@ async function loadExports() {{
       `<div class="hint" style="margin-bottom:6px">Exports are kept ${{days}} days, then deleted automatically. Delete sooner with ✕.</div>` +
       (ex.exports || []).map(e => {{
         const left = e.expires_in_days;
-        const col = left <= 1 ? '#ef5f6b' : left <= 3 ? '#e0a33a' : '#8a93a6';
-        return `<div style="border-bottom:1px solid #282c38;padding:6px 0;font-size:12px">
-        <a href="${{e.url}}" target="_blank" style="color:#5b8cff;font-weight:700">${{e.name}}</a>
+        const col = left <= 1 ? 'var(--bad)' : left <= 3 ? 'var(--warn)' : 'var(--ink3)';
+        return `<div style="border-bottom:1px solid var(--rule);padding:6px 0;font-size:12px">
+        <a href="${{e.url}}" target="_blank" style="color:var(--accent);font-weight:700">${{e.name}}</a>
         <button title="delete this export now" onclick="delExport('${{e.name}}','${{e.project}}')"
-          style="float:right;background:none;border:1px solid #4a3040;color:#ef5f6b;border-radius:3px;cursor:pointer;font-size:11px;padding:1px 6px">✕</button><br>
+          style="float:right;background:none;border:1px solid var(--rule);color:var(--bad);border-radius:3px;cursor:pointer;font-size:11px;padding:1px 6px">✕</button><br>
         <span class="hint">${{e.duration ? (Math.floor(e.duration/60)+':'+String(Math.round(e.duration%60)).padStart(2,'0')) : '?'}} · ${{e.size_mb}} MB · ${{e.created}}</span><br>
         <span class="hint">${{e.project}}${{e.active_project ? ' · open' : ''}}</span>
         <a href="${{e.review_url || ('/review?project=' + e.project + '&name=' + e.name)}}"
@@ -908,11 +879,11 @@ fetch('/api/review').then(r => r.ok ? r.json() : null).then(d => {{
     el.innerHTML = '<b>↩ This render was sent back for revision.</b> ' +
       (d.review.notes ? ('<br>' + d.review.notes.replace(/</g, '&lt;')) : '') +
       '<br><span style="opacity:.85">Fix it below, re-render, then ' +
-      '<a href="/review" style="color:#ffd9a8">review the new export</a>.</span>';
+      '<a href="/review" style="color:var(--warnb-ink)">review the new export</a>.</span>';
   }} else if (d.review.superseded && d.review.status === 'approved') {{
     el.style.display = 'block';
     el.innerHTML = '<b>⚠ The approved export no longer matches this cut.</b> ' +
-      'Re-render and <a href="/review" style="color:#ffd9a8">review the new one</a> ' +
+      'Re-render and <a href="/review" style="color:var(--warnb-ink)">review the new one</a> ' +
       'before publishing.';
   }}
 }}).catch(() => {{}});
@@ -929,22 +900,7 @@ fetch('/api/review').then(r => r.ok ? r.json() : null).then(d => {{
   }}).catch(() => {{}});
 }})();
 /* ---- drawers: ingest / projects / logs (ported from legacy UI) ---- */
-function applyRail() {{
-  const off = localStorage.getItem('railoff') === '1';
-  document.body.classList.toggle('railoff', off);
-  const ic = document.querySelector('#railpin .ic');
-  const lb = document.getElementById('railpinlbl');
-  const p = document.getElementById('railpin');
-  if (ic) ic.textContent = off ? '»' : '«';
-  if (lb) lb.textContent = off ? 'Pin' : 'Hide';
-  if (p) p.title = off ? 'Keep the sidebar open' : 'Retract the sidebar to a sliver';
-}}
-function toggleRail() {{
-  localStorage.setItem('railoff',
-    document.body.classList.contains('railoff') ? '0' : '1');
-  applyRail();
-}}
-applyRail();
+{theme.SHARED_JS}
 
 function toggleDrawer(name) {{
   for (const d of ['ingest','projects','tracker','logs','exports']) {{
@@ -985,10 +941,10 @@ async function runIngest() {{
 function stageBar(cur, pct, msg, err) {{
   return `<div style="font-size:12px">${{ING_STAGES.map(s => {{
     const done = ING_STAGES.indexOf(s) < ING_STAGES.indexOf(cur), on = s === cur;
-    return `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;color:${{done ? '#39c07f' : on ? '#5b8cff' : '#8b90a0'}}">
+    return `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;color:${{done ? 'var(--ok)' : on ? 'var(--accent)' : 'var(--ink3)'}}">
       <span>${{done ? '✓' : on ? '●' : '○'}}</span>${{s}}</div>`; }}).join('')}}</div>
-    <div style="height:6px;background:#282c38;border-radius:3px;margin:8px 0;overflow:hidden">
-      <div style="height:100%;width:${{pct}}%;background:${{err ? '#ef5f6b' : '#5b8cff'}}"></div></div>
+    <div style="height:6px;background:var(--rule);border-radius:3px;margin:8px 0;overflow:hidden">
+      <div style="height:100%;width:${{pct}}%;background:${{err ? 'var(--bad)' : 'var(--accent)'}}"></div></div>
     <div class="hint">${{err ? ('⚠ ' + err) : (msg || '')}}</div>`;
 }}
 function paintIngest() {{
@@ -1050,14 +1006,14 @@ async function loadProjects() {{
         : `<input type="checkbox" class="projsel" value="${{p.id}}" onchange="updateProjSel()" title="select for bulk delete">`;
       htmlOut += `<div class="projrow"><span>${{_sel}} ${{p.active ? '▶ ' : ''}}${{label}} <span class="hint">(${{p.n_segments}} segs${{p.duration ? ' · ' + p.duration + 's' : ''}})</span></span>
         <span>${{p.active ? '<span class="hint">active</span>' : `<button onclick="activateProj('${{p.id}}')">Open</button>`}}
-        ${{p.active || p.id === 'chapter-2 (current)' ? '' : `<button title="delete this project and everything in it" onclick="delProject('${{p.id}}')" style="border:1px solid #4a3040;color:#ef5f6b;background:none;border-radius:3px;cursor:pointer;padding:1px 6px">🗑</button>`}}</span></div>`;
+        ${{p.active || p.id === 'chapter-2 (current)' ? '' : `<button title="delete this project and everything in it" onclick="delProject('${{p.id}}')" style="border:1px solid var(--rule);color:var(--bad);background:none;border-radius:3px;cursor:pointer;padding:1px 6px">🗑</button>`}}</span></div>`;
     }});
     htmlOut += '</div>';
   }}
   const bar = `<div class="projbulk" style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;font-size:12px">
       <label style="cursor:pointer"><input type="checkbox" id="projall" onchange="toggleAllProj(this)"> select all</label>
       <button id="projdelbtn" onclick="delSelectedProjects()" disabled
-        style="border:1px solid #4a3040;color:#ef5f6b;background:none;border-radius:3px;cursor:pointer;padding:2px 8px">
+        style="border:1px solid var(--rule);color:var(--bad);background:none;border-radius:3px;cursor:pointer;padding:2px 8px">
         🗑 delete selected (<span id="projseln">0</span>)</button>
       <span class="hint">the open project cannot be deleted</span>
     </div>`;
@@ -1108,7 +1064,7 @@ async function loadTracker(refresh) {{
     if (!(d.series || []).length) {{ box.innerHTML = 'No trackable series yet — ingest a chapter first.'; return; }}
     box.innerHTML = d.series.map(sx => {{
       const behind = sx.behind || 0;
-      const col = sx.error ? '#ef5f6b' : (behind ? '#e0a33a' : '#39c07f');
+      const col = sx.error ? 'var(--bad)' : (behind ? 'var(--warn)' : 'var(--ok)');
       const status = sx.error
         ? ('⚠ could not check — ' + sx.error + (sx.stale ? ' (showing last known)' : ''))
         : (behind ? (behind + ' new chapter' + (behind === 1 ? '' : 's') + ' available')
@@ -1127,7 +1083,7 @@ async function loadTracker(refresh) {{
              <input type="checkbox" class="trksel" value="${{u.url}}" data-label="${{lbl}} ch ${{u.chapter}}" onchange="updateTrkSel()">${{u.chapter}}</label>`).join('') +
            `</div></details>`
         : '';
-      return `<div style="border-bottom:1px solid #282c38;padding:8px 0">
+      return `<div style="border-bottom:1px solid var(--rule);padding:8px 0">
         <div style="font-weight:700">${{sx.series}}</div>
         <div style="color:${{col}};font-size:12px">${{status}}</div>
         <div class="hint" style="font-size:11px">have ch ${{sx.highest_have || '—'}} · latest ch ${{sx.latest || '?'}} · ${{sx.have_count}} ingested${{sx.backfill_count ? (' · ' + sx.backfill_count + ' earlier chapters skipped') : ''}}</div>
@@ -1185,9 +1141,9 @@ async function loadLogs() {{
   const pill = (txt, bg, fg) => `<span style="background:${{bg}};color:${{fg}};font-size:10px;font-weight:700;
       padding:1px 7px;border-radius:99px;letter-spacing:.03em">${{txt}}</span>`;
   const STAT = {{
-    running:['#16324a','#7fb4ff'], queued:['#2a2a35','#a0a6b8'], paused:['#3a2f12','#e0a33a'],
-    pausing:['#3a2f12','#e0a33a'], done:['#13291f','#54cb8f'], error:['#2e161a','#ef6470'],
-    cancelled:['#2a2a35','#a0a6b8']
+    running:['var(--sa-bg)','var(--sa-ink)'], queued:['var(--gray-bg)','var(--gray-ink)'], paused:['var(--warnb-bg)','var(--warn)'],
+    pausing:['var(--warnb-bg)','var(--warn)'], done:['var(--okb-bg)','var(--okb-ink)'], error:['var(--badb-bg)','var(--bad)'],
+    cancelled:['var(--gray-bg)','var(--gray-ink)']
   }};
   const live = st => ['running','queued','paused','pausing'].includes(st);
 
@@ -1223,15 +1179,15 @@ async function loadLogs() {{
            <button class="mini" title="resume" onclick="jobCtl('${{x.id}}','resume')">▶</button>
            <button class="mini" title="stop this job" onclick="jobCtl('${{x.id}}','stop')">⏹</button>`
         : `<button class="mini" title="remove this record" onclick="jobCtl('${{x.id}}','delete')">🗑</button>`;
-      return `<div style="border-bottom:1px solid #282c38;padding:7px 0;display:flex;gap:8px;align-items:flex-start">
+      return `<div style="border-bottom:1px solid var(--rule);padding:7px 0;display:flex;gap:8px;align-items:flex-start">
         <input type="checkbox" class="jobsel" value="${{x.id}}" data-live="${{live(x.status)?1:0}}" onchange="updateJobSel()" style="margin-top:3px">
         <div style="flex:1;min-width:0">
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            ${{pill(x.kind, '#1b2440', '#7f9dff')}} ${{pill(x.status, bg, fg)}}
+            ${{pill(x.kind, 'var(--sa-bg)', 'var(--sa-ink)')}} ${{pill(x.status, bg, fg)}}
             <span style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis">${{x.title}}</span>
           </div>
           <div class="hint" style="font-size:11px;word-break:break-all">${{x.detail || ''}}</div>
-          ${{x.error ? `<div style="color:#ef6470;font-size:11px">⚠ ${{x.error}}</div>` : ''}}
+          ${{x.error ? `<div style="color:var(--bad);font-size:11px">⚠ ${{x.error}}</div>` : ''}}
         </div>
         <div style="display:flex;gap:3px;flex-shrink:0">${{ctl}}</div>
       </div>`;
@@ -1240,7 +1196,7 @@ async function loadLogs() {{
       document.querySelectorAll('.jobsel').forEach(c => {{ c.checked = keep.has(c.value); }});
     }}
     updateJobSel();
-  }} catch (e) {{ box.innerHTML = `<span style="color:#ef6470">⚠ could not load jobs — ${{e.message || e}}</span>`; }}
+  }} catch (e) {{ box.innerHTML = `<span style="color:var(--bad)">⚠ could not load jobs — ${{e.message || e}}</span>`; }}
 
   try {{
     const uj = await j('/api/logs/usage?limit=60');
@@ -1251,7 +1207,7 @@ async function loadLogs() {{
        all-time: <b>${{(life.gemini_calls || 0) + (su.gemini_calls || 0)}}</b> Gemini ·
        <b>$${{((life.est_cost_usd || 0) + (su.est_cost_usd || 0)).toFixed(2)}}</b></div>` +
       (uj.calls || []).slice(-40).reverse().map(c =>
-        `<div class="hint" style="border-bottom:1px solid #282c38;padding:2px 0">
+        `<div class="hint" style="border-bottom:1px solid var(--rule);padding:2px 0">
          ${{c.kind}} · ${{c.model || ''}} · ${{c.units}} ${{c.unit || ''}} · $${{(c.est_cost_usd || 0).toFixed(4)}}</div>`).join('');
   }} catch (e) {{ document.getElementById('logusage').innerHTML = 'usage unavailable'; }}
 
