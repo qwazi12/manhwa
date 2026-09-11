@@ -3985,3 +3985,58 @@ token. That guards the single source rather than the current colours.
 
 Tests: 17 files, 0 failing.
 PENDING: drag-and-drop custom thumbnail on /review (next).
+
+### Session 28 (cont.) — drag-and-drop custom thumbnail on /review
+Owner asked for a drag-and-drop custom thumbnail before publishing.
+
+#### What it does, and the one thing it deliberately does NOT do
+New `review_ui/thumbnail.py` validates, stores and serves one thumbnail per
+export. It does NOT publish it. Outstand's YouTube config documents exactly six
+fields (isShort, categoryId, privacyStatus, madeForKids, tags, title) — there is
+no thumbnail/cover/poster field, and no documented way to attach one through
+containers[].media either. Their docs quote YouTube's thumbnail RULES (JPEG or
+PNG, up to 2 MB) without saying how to supply the file.
+
+Inventing a field name is exactly what cost the first publish attempt
+("Outstand did not return an upload URL"), and here it would fail WORSE: the
+post would succeed while the thumbnail silently went nowhere. So the UI states
+plainly that the file is held for manual upload in YouTube Studio, and
+`publish_note()` is the single function to change if Outstand ever documents a
+field.
+
+#### Validation happens early and says what would be acceptable
+Bytes are SNIFFED with Pillow, never trusted from the browser's MIME type — a
+renamed .webp would otherwise pass a name check and be rejected by YouTube
+after a publish. Limits are YouTube's own, so anything accepted here is
+accepted there: JPEG/PNG, <=2MB, >=640px wide. Size/ratio that YouTube allows
+but will not flatter (not 1280x720, not 16:9) are ADVISORIES, not refusals —
+that is the operator's call. Refusals return 422 (understood and declined with
+a reason), not 500, and the reason is shown verbatim in the dropzone.
+
+#### Endpoints and the edge allowlist
+POST /api/thumbnail (raw bytes, not multipart — multipart would pull in
+python-multipart for one endpoint), GET /thumbnail, POST /api/thumbnail/delete.
+The thumbnail is part of _publish_payload, the ONE shape the publish form is
+built from, so it cannot disagree with the rest of the form.
+
+test_edge_routes caught a real miss: /thumb/:path* does NOT match /thumbnail,
+and I had added the rewrite to only ONE of the two vercel.json files. Both now
+list it explicitly. That guard has now paid for itself a third time.
+
+#### UI
+The publish card already had a "Thumbnail from segment #" number box (reuse a
+rendered frame). Rather than add a second, competing thumbnail control, the two
+are now one section: the custom file leads, the segment frame sits underneath
+and is labelled "(ignored while a custom thumbnail is set)" so the precedence
+is stated rather than discovered. Drop target accepts drag-and-drop or click;
+shows preview, format, dimensions, KB and any advisories; Replace / Remove /
+Download. Banner severity follows the actual state — amber only when a
+thumbnail exists and will not be sent; "no thumbnail" is b-info, since that is
+information, not a problem.
+
+Storage is atomic (temp + rename), a replacement in a different format deletes
+the old file rather than stranding it, an index entry whose file vanished is
+dropped instead of rendering a broken preview, and a traversing export name
+cannot write outside the project.
+
+New test_thumbnail.py: 35 assertions. Suite now 18 files, 0 failing.

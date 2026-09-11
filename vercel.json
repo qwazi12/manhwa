@@ -34,6 +34,10 @@
       "destination": "https://recap-studio-production.up.railway.app/thumb/:path*"
     },
     {
+      "source": "/thumbnail",
+      "destination": "https://recap-studio-production.up.railway.app/thumbnail"
+    },
+    {
       "source": "/audio/:path*",
       "destination": "https://recap-studio-production.up.railway.app/audio/:path*"
     },

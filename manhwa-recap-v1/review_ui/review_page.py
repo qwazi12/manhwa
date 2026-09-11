@@ -65,6 +65,17 @@ video { width:100%; background:#000; border-radius:8px; display:block; }
 .pill { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 8px;
   border-radius:99px; letter-spacing:.03em; }
 .p-ok { background:var(--okb-bg); color:var(--okb-ink); }
+.dropzone { border:2px dashed var(--btn-edge); border-radius:8px; padding:14px;
+  background:var(--panel2); cursor:pointer; display:flex; gap:12px;
+  align-items:center; justify-content:center; min-height:92px; text-align:center; }
+.dropzone:hover { border-color:var(--accent); }
+.dropzone.over { border-color:var(--accent); background:var(--sa-bg); }
+.dropzone.has { justify-content:flex-start; text-align:left; }
+.thumbimg { width:158px; border-radius:6px; border:1px solid var(--rule); display:block; }
+.thumbmeta { font-size:12px; line-height:1.5; }
+.dzhint { font-size:12px; color:var(--ink2); }
+.hint.bad { color:var(--bad); }
+.dlink { align-self:center; font-size:12px; }
 .p-warn { background:var(--warnb-bg); color:var(--warnb-ink); }
 .p-bad { background:var(--badb-bg); color:var(--badb-ink); }
 .p-neutral { background:var(--gray-bg); color:var(--gray-ink); }
@@ -316,11 +327,7 @@ function publishCard() {
         esc(md.publish_at || '') + '" onchange="savePublish()"' + dis + '>') +
     fld('Playlist — not sent yet, kept for the manual package',
         '<input id="p_play" value="' + esc(md.playlist || '') + '" onchange="savePublish()"' + dis + '>') +
-    fld('Thumbnail from segment # — not sent yet, kept for the manual package',
-        '<input id="p_thumb" type="number" min="0" value="' +
-        (th.seg_index != null ? th.seg_index : '') +
-        '" oninput="thumbPreview()" onchange="savePublish()"' + dis + '>' +
-        '<div id="p_thumbprev" style="margin-top:6px"></div>') +
+    thumbnailSection(th, dis) +
     '<label style="display:block;margin:8px 0"><input type="checkbox" id="p_kids"' +
       (md.made_for_kids ? ' checked' : '') + ' onchange="savePublish()"' + dis +
       '> Made for kids</label>' +
@@ -356,6 +363,113 @@ function targetPicker(md, dis) {
 function fld(label, control) {
   return '<div style="margin:9px 0"><div class="hint" style="margin-bottom:3px">' +
     esc(label) + '</div>' + control + '</div>';
+}
+
+function thumbnailSection(th, dis) {
+  // Two ways to get a thumbnail, and they used to be one unexplained number
+  // box. A custom file is the one YouTube would use, so it leads; the segment
+  // frame stays underneath for when a rendered frame is good enough.
+  var t = PUB.thumbnail || {}, note = PUB.thumbnail_note || {}, has = !!t.file;
+  var url = "/thumbnail?project=" + encodeURIComponent(DATA.project) +
+            "&name=" + encodeURIComponent(DATA.name);
+  var inner;
+  if (has) {
+    inner = '<img class="thumbimg" src="' + url + "&cb=" + Date.now() + '">' +
+      '<div class="thumbmeta"><b>' + esc(t.format || "") + " · " +
+      t.width + "×" + t.height + " · " + Math.round((t.bytes || 0) / 1024) +
+      " KB</b>" +
+      ((t.advisories || []).length
+        ? '<div class="hint">' + t.advisories.map(esc).join("<br>") + "</div>"
+        : "") + "</div>";
+  } else {
+    inner = '<div class="dzhint">Drag an image here, or click to choose' +
+      '<br><span class="hint">JPEG or PNG · up to 2 MB · 1280×720 ideal</span></div>';
+  }
+  var acts = '<div class="actions" style="margin-top:8px">' +
+    '<button onclick="thumbPick()"' + dis + ">" +
+      (has ? "Replace" : "Choose file") + "</button>" +
+    (has ? '<button onclick="removeThumb()"' + dis + ">Remove</button>" +
+           '<a class="dlink" href="' + url + '" download>⬇ Download</a>' : "") +
+    '<span id="t_msg" class="hint"></span></div>';
+  return '<div class="fld"><label>Custom thumbnail</label>' +
+    '<div id="tdz" class="dropzone' + (has ? " has" : "") + '"' +
+      ' ondragover="thumbDrag(event,1)" ondragleave="thumbDrag(event,0)"' +
+      ' ondrop="thumbDrop(event)" onclick="thumbPick()">' + inner + "</div>" +
+    '<input type="file" id="t_file" accept="image/jpeg,image/png"' +
+      ' style="display:none" onchange="thumbChosen(event)">' +
+    acts +
+    // Amber only when there IS something to warn about — a thumbnail that
+    // will not be sent. "No thumbnail" is information, not a problem.
+    '<div class="banner ' + (has ? "b-warn" : "b-info") + '"' +
+      ' style="margin-top:8px">' + esc(note.detail || "") + "</div></div>" +
+    fld("...or a frame from the video — segment #" +
+        (has ? " (ignored while a custom thumbnail is set)" : ""),
+        '<input id="p_thumb" type="number" min="0" value="' +
+        (th.seg_index != null ? th.seg_index : "") +
+        '" oninput="thumbPreview()" onchange="savePublish()"' + dis + ">" +
+        '<div id="p_thumbprev" style="margin-top:6px"></div>');
+}
+
+function thumbDrag(ev, on) {
+  ev.preventDefault();                       // or the browser opens the file
+  var z = document.getElementById("tdz");
+  if (z) z.classList.toggle("over", !!on);
+}
+
+function thumbPick() {
+  var i = document.getElementById("t_file");
+  if (i) i.click();
+}
+
+function thumbChosen(ev) {
+  var f = ev.target.files && ev.target.files[0];
+  if (f) uploadThumb(f);
+}
+
+function thumbDrop(ev) {
+  ev.preventDefault();
+  thumbDrag(ev, 0);
+  var dt = ev.dataTransfer;
+  var f = dt && dt.files && dt.files[0];
+  if (f) uploadThumb(f);
+  else thumbMsg("That drop had no file in it — try dragging the image itself.", true);
+}
+
+function thumbMsg(text, bad) {
+  var m = document.getElementById("t_msg");
+  if (m) { m.textContent = text; m.className = bad ? "hint bad" : "hint"; }
+}
+
+async function uploadThumb(file) {
+  // Raw bytes, no multipart: the server reads the body directly.
+  thumbMsg("uploading " + file.name + "...", false);
+  try {
+    var buf = await file.arrayBuffer();
+    var qs = "?project=" + encodeURIComponent(DATA.project) +
+             "&name=" + encodeURIComponent(DATA.name);
+    var res = await api("/api/thumbnail" + qs, { method: "POST", body: buf });
+    PUB.thumbnail = res.thumbnail;
+    PUB.thumbnail_note = res.note;
+    render();
+  } catch (e) {
+    // The server explains WHY it refused (too big, wrong format, too narrow);
+    // show that rather than a generic failure.
+    thumbMsg(e.message, true);
+  }
+}
+
+async function removeThumb() {
+  try {
+    var res = await api("/api/thumbnail/delete", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project: DATA.project, name: DATA.name })
+    });
+    PUB.thumbnail = null;
+    PUB.thumbnail_note = res.note;
+    render();
+  } catch (e) {
+    thumbMsg("Could not remove: " + e.message, true);
+  }
 }
 
 function thumbPreview() {

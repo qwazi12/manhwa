@@ -874,9 +874,17 @@ def publish_readiness(pdir, name):
 
 def _publish_payload(pdir, pid, name, md):
     """The one response shape the publish form is built from."""
+    import thumbnail as _tb
+    thumb = _tb.get(pdir, name)
     return {"project": pid, "name": name, "metadata": md,
             "problems": validate_publish(md),
             "readiness": publish_readiness(pdir, name),
+            "thumbnail": thumb,
+            "thumbnail_note": _tb.publish_note(bool(thumb)),
+            "thumbnail_limits": {"max_bytes": _tb.MAX_BYTES,
+                                 "formats": list(_tb.ALLOWED),
+                                 "min_width": _tb.MIN_WIDTH,
+                                 "ideal": list(_tb.IDEAL)},
             "categories": YT_CATEGORIES, "privacy_options": list(YT_PRIVACY),
             "limits": {"title": YT_TITLE_MAX, "description": YT_DESC_MAX,
                        "tags_chars": YT_TAGS_CHARS_MAX}}
@@ -894,6 +902,11 @@ def api_publish(project: str = "", name: str = ""):
     store = load_publish(pdir)
     md = {**publish_defaults(pdir), **(store.get(name) or {})}
     return _publish_payload(pdir, pid, name, md)
+
+
+class ThumbIn(BaseModel):
+    project: str = ""
+    name: str
 
 
 class PublishIn(BaseModel):
@@ -993,6 +1006,51 @@ def api_publish_package(project: str = "", name: str = ""):
     fn = name.replace(".mp4", "") + "_upload_package.zip"
     return Response(content=buf.read(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+
+
+# ====================================================================
+#  Custom thumbnails for an export
+#  Stored and served here; NOT published. Outstand documents no thumbnail
+#  field, so the UI says the file is held for manual upload rather than
+#  implying it ships with the post. See thumbnail.py.
+# ====================================================================
+@app.post("/api/thumbnail")
+async def thumbnail_upload(request: Request, project: str = "", name: str = ""):
+    """Raw image bytes in the body.
+
+    Raw rather than multipart on purpose: multipart would pull in
+    python-multipart for one endpoint, and the browser can post the file's
+    bytes directly just as easily.
+    """
+    import thumbnail as _tb
+    if not name:
+        raise HTTPException(400, "which export is this thumbnail for?")
+    pdir = project_dir_for(project)
+    data = await request.body()
+    try:
+        rec = _tb.save(pdir, name, data)
+    except _tb.ThumbnailError as e:
+        # 422, not 500: the upload was understood and refused for a stated
+        # reason the operator can act on.
+        raise HTTPException(422, str(e))
+    return {"ok": True, "thumbnail": rec, "note": _tb.publish_note(True)}
+
+
+@app.get("/thumbnail")
+def thumbnail_get(project: str = "", name: str = ""):
+    import thumbnail as _tb
+    path = _tb.path_for(project_dir_for(project), name)
+    if not path or not os.path.exists(path):
+        raise HTTPException(404, "no thumbnail for that export")
+    return FileResponse(path, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/thumbnail/delete")
+def thumbnail_delete(body: ThumbIn):
+    import thumbnail as _tb
+    pdir = project_dir_for(body.project)
+    removed = _tb.delete(pdir, body.name)
+    return {"ok": True, "removed": removed, "note": _tb.publish_note(False)}
 
 
 # ====================================================================
