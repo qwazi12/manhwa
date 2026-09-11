@@ -85,6 +85,7 @@ var DATA = null;
 var PUB = null;
 var ALL = [];
 var YT = null;
+var OS = null;
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -125,8 +126,9 @@ async function load(name, proj) {
   if (name) u += '&name=' + encodeURIComponent(name);
   try {
     DATA = await api(u);
-    try { YT = await api('/api/youtube/status?cb=' + Date.now()); }
-    catch (e3) { YT = null; }
+    try { OS = await api('/api/outstand/status?cb=' + Date.now()); }
+    catch (e3) { OS = null; }
+    try { YT = null; } catch (e4) { YT = null; }
     try {
       PUB = await api('/api/publish?cb=' + Date.now() +
         (DATA.project ? '&project=' + encodeURIComponent(DATA.project) : '') +
@@ -223,7 +225,7 @@ function render() {
       '</div>' +
       publishCard() +
       historyCard(rv) +
-    '</div><div>' + youtubeCard() + qcCard(d, qc) + '</div></div>';
+    '</div><div>' + outstandCard() + qcCard(d, qc) + '</div></div>';
 }
 
 function publishCard() {
@@ -267,6 +269,7 @@ function publishCard() {
     fld('Schedule (private only)', '<input id="p_at" placeholder="2026-09-20T15:00:00Z" value="' +
         esc(md.publish_at || '') + '"' + dis + '>') +
     fld('Playlist', '<input id="p_play" value="' + esc(md.playlist || '') + '"' + dis + '>') +
+    fld('Publish to', targetPicker(md, dis)) +
     fld('Thumbnail from segment #', '<input id="p_thumb" type="number" min="0" value="' +
         (th.seg_index != null ? th.seg_index : '') + '" oninput="thumbPreview()"' + dis + '>' +
         '<div id="p_thumbprev" style="margin-top:6px"></div>') +
@@ -280,6 +283,20 @@ function publishCard() {
       '<button onclick="downloadPackage()"' + dis + '>⬇ Download upload package</button>' +
       '<span id="p_saved" class="hint"></span>' +
     '</div>' + problems + '</div>';
+}
+
+function targetPicker(md, dis) {
+  var accounts = ((OS || {}).accounts || []).filter(function (a) { return a.active; });
+  if (!accounts.length) {
+    return '<div class="hint">No connected accounts yet — link one above.</div>';
+  }
+  var chosen = md.targets || [];
+  return accounts.map(function (a) {
+    var on = chosen.indexOf(a.account_id) !== -1;
+    return '<label style="display:block;margin:3px 0"><input type="checkbox" class="os_target" value="' +
+      esc(a.account_id) + '"' + (on ? ' checked' : '') + dis + '> ' +
+      esc(a.network || '?') + ' · ' + esc(a.username || a.account_id) + '</label>';
+  }).join('');
 }
 
 function fld(label, control) {
@@ -309,6 +326,9 @@ function collectPublish() {
     playlist: (document.getElementById('p_play') || {}).value || '',
     made_for_kids: !!(document.getElementById('p_kids') || {}).checked,
     synthetic_disclosure: !!(document.getElementById('p_synth') || {}).checked,
+    targets: Array.from(document.querySelectorAll('.os_target'))
+      .filter(function (c) { return c.checked; })
+      .map(function (c) { return c.value; }),
     thumbnail: (t === '' || t == null) ? null
       : { type: 'segment', seg_index: parseInt(t, 10) }
   };
@@ -346,48 +366,67 @@ function historyCard(rv) {
   }).join('') + '</div>';
 }
 
-function youtubeCard() {
-  if (!YT) return '';
-  var st = YT.state, body = '', actions = '';
+function outstandCard() {
+  if (!OS) return '';
+  var accounts = OS.accounts || [];
+  var body = '', actions = '';
 
-  if (st === 'not_configured') {
-    body = '<div class="hint">' + esc(YT.detail) + '</div>' +
+  if (!OS.configured) {
+    body = '<div class="hint">' + esc(OS.detail) + '</div>' +
       '<div class="hint" style="margin-top:7px">Missing: <b>' +
-      esc((YT.missing || []).join(', ')) + '</b></div>';
-    actions = '<button disabled title="set the credentials first">Connect YouTube</button>';
-  } else if (st === 'disconnected') {
-    body = '<div class="hint">' + esc(YT.detail) + '</div>';
-    actions = '<button onclick="connectYT()">Connect YouTube</button>';
+      esc((OS.missing || []).join(', ')) + '</b></div>';
+    actions = '<button disabled title="configure Outstand first">Connect an account</button>';
   } else {
-    body = '<div class="row"><span>channel</span><span>' +
-      esc(YT.channel_title || YT.channel_id || 'unknown') + '</span></div>' +
-      '<div class="row"><span>usable for upload</span><span>' +
-      (YT.can_upload ? pill('yes', 'p-ok') : pill('no', 'p-bad')) + '</span></div>' +
-      (YT.detail ? '<div class="hint" style="margin-top:6px">' + esc(YT.detail) + '</div>' : '');
-    actions =
-      '<button onclick="connectYT()">Reconnect</button>' +
-      '<button onclick="disconnectYT()">Disconnect</button>';
+    body = accounts.length
+      ? accounts.map(function (a) {
+          return '<div class="row"><span>' +
+            (a.active ? pill(a.network || '?', 'p-blue') : pill('inactive', 'p-neutral')) +
+            ' ' + esc(a.username || a.nickname || a.account_id) + '</span>' +
+            '<span><button class="mini" onclick="disconnectAcct(' +
+            JSON.stringify(a.account_id) + ')">remove</button></span></div>';
+        }).join('')
+      : '<div class="hint">' + esc(OS.detail) + '</div>';
+    var nets = (OS.networks || ['youtube']).map(function (n) {
+      return '<option value="' + esc(n) + '"' + (n === 'youtube' ? ' selected' : '') +
+        '>' + esc(n) + '</option>';
+    }).join('');
+    actions = '<select id="os_net" style="max-width:150px">' + nets + '</select>' +
+      '<button onclick="connectOutstand()">Connect</button>' +
+      '<button onclick="refreshOutstand()">Refresh</button>';
   }
 
-  var badge = st === 'connected' ? pill('connected', 'p-ok')
-    : (st === 'not_configured' ? pill('not set up', 'p-neutral')
-    : (st === 'needs_reauth' ? pill('needs reconnect', 'p-warn') : pill('disconnected', 'p-neutral')));
+  var badge = !OS.configured ? pill('not set up', 'p-neutral')
+    : (OS.n_active ? pill(OS.n_active + ' connected', 'p-ok') : pill('no accounts', 'p-warn'));
 
-  return '<div class="card"><h2>YouTube ' + badge + '</h2>' + body +
+  return '<div class="card"><h2>Publishing accounts ' + badge + '</h2>' + body +
     '<div class="actions">' + actions + '</div>' +
-    '<div class="hint" style="margin-top:8px">Direct upload requires a connected ' +
-    'account. Until then, use <b>Download upload package</b> above and upload by hand.</div>' +
+    '<div class="hint" style="margin-top:8px">Accounts are linked through Outstand, ' +
+    'so this tool never stores a YouTube password or token. Direct publishing is ' +
+    'not enabled yet — use <b>Download upload package</b> and upload by hand.</div>' +
     '</div>';
 }
 
-function connectYT() { location.href = '/api/youtube/connect'; }
+function connectOutstand() {
+  var n = (document.getElementById('os_net') || {}).value || 'youtube';
+  location.href = '/api/outstand/connect?network=' + encodeURIComponent(n);
+}
 
-async function disconnectYT() {
-  if (!confirm('Disconnect the YouTube account? The stored token is deleted.')) return;
+async function refreshOutstand() {
   try {
-    await api('/api/youtube/disconnect', { method: 'POST' });
+    OS = await api('/api/outstand/refresh', { method: 'POST' });
+    render();
+  } catch (e) { alert('Could not refresh: ' + e.message); }
+}
+
+async function disconnectAcct(id) {
+  if (!confirm('Remove this account from the tool? It stays linked inside Outstand.')) return;
+  try {
+    await api('/api/outstand/disconnect', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: id })
+    });
     await load(DATA.name, DATA.project);
-  } catch (e) { alert('Could not disconnect: ' + e.message); }
+  } catch (e) { alert('Could not remove: ' + e.message); }
 }
 
 function qcCard(d, qc) {

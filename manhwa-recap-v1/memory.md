@@ -3541,3 +3541,59 @@ Note: an UNVERIFIED OAuth app can only upload PRIVATE videos until Google's
 audit passes — public publishing is not available on day one regardless.
 
 Tests: youtube_connect 39/39 NEW; full suite 15 files 100%.
+
+### Session 28 (cont.) — PHASE C PIVOTED TO OUTSTAND — BLOCKED on credentials
+Owner redirected publishing away from direct Google/YouTube OAuth to Outstand
+as the broker. Read the real docs before writing anything
+(outstand.so/docs/getting-started, /mcp) rather than inventing an API.
+
+#### The API this is built against
+  base    https://api.outstand.so/v1        auth: Authorization: Bearer <key>
+  connect https://www.outstand.so/app/api/socials/{network}/{orgId}
+            ?redirect_uri=<ours>   -> callback returns success|error,
+            account_id, network_unique_id, username
+  list    GET  /social-accounts    -> id, network, username, nickname
+  publish POST /posts/             -> containers[], accounts[], scheduledAt?
+  status  GET  /posts/{id}         -> PER-ACCOUNT status, platformPostId, error
+  media   POST /media/upload -> PUT upload_url -> POST /media/{id}/confirm
+MCP was deliberately NOT used as the backend, per instruction.
+
+#### BLOCKER 1 — no credentials
+Railway has no OUTSTAND_API_KEY / OUTSTAND_ORG_ID / OUTSTAND_REDIRECT_URI, so
+not one call has run against the live service. Phase C is BLOCKED and Phase D
+was NOT started.
+
+#### BLOCKER 2 — visibility cannot be guaranteed (the important one)
+Outstand's documented post body is {containers[], accounts[], scheduledAt} with
+NO visibility/privacy field, and the MCP page documents no per-network settings
+object either. So "upload privately" — the safety default the owner asked for —
+CANNOT be honoured through the documented API. publish_eligibility() therefore
+BLOCKS publishing outright with VISIBILITY_UNCONTROLLED unless
+OUTSTAND_ALLOW_UNCONTROLLED_VISIBILITY=1 is set deliberately. Without that, a
+recap would publish at whatever default the account carries, which on YouTube
+is plausibly public — on the owner's own channel, with scraped artwork.
+Resolving this needs an answer from Outstand about YouTube visibility/title/
+description mapping; their generic content model does not obviously carry a
+video title or description either.
+
+#### Built (all testable without credentials)
+review_ui/outstand.py — config() naming what is missing; connect_url() carrying
+our CSRF state THROUGH Outstand's redirect_uri so the callback can prove
+origin; one _request() chokepoint with an injectable HTTP layer; list_accounts()
+normalised; sync_accounts() treating OUTSTAND as source of truth so an account
+revoked there goes inactive locally rather than silently remaining a publish
+target; create_post/post_status/media helpers; accounts_status() that never
+returns the API key. Multi-account and multi-network by construction — 12
+networks, nothing hardcoded to YouTube.
+server.py — /api/outstand/status, /connect, /callback (state-checked),
+/refresh, /disconnect, /eligibility; publish_eligibility(); publishes.json.
+review_page.py — Publishing accounts card (connect/refresh/remove per account)
+and a per-export target picker feeding publish metadata `targets`.
+
+#### Owner-supplied
+Account ID F473Z — Flamingo Remix, YouTube @flamingoremix. Outstand's docs say
+`accounts` accepts an account id, network name or username, so this can be used
+as a target directly once the API key exists.
+
+Tests: NEW test_outstand_connect.py 50/50; full suite 16 files, 100%.
+NOT live-verified — every Outstand call in tests is an injected fake.

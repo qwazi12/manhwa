@@ -1125,6 +1125,193 @@ def yt_eligibility(project: str = "", name: str = ""):
     return {"project": pid, "name": name, **upload_eligibility(pdir, name)}
 
 
+# ====================================================================
+#  PHASE C — publishing accounts via OUTSTAND (multi-account)
+#  Outstand brokers each network, so the app never holds a YouTube refresh
+#  token and one publish call can target several accounts. The direct-OAuth
+#  module (youtube.py) is superseded by this path.
+# ====================================================================
+def _os_root():
+    import ingest as _ing
+    return _ing.PROJECTS
+
+
+# Outstand's documented post body is {containers[], accounts[], scheduledAt}.
+# It exposes NO visibility/privacy field, so "upload privately" cannot be
+# guaranteed through it. Publishing is therefore refused until either the field
+# is confirmed or an operator deliberately lifts this, rather than letting a
+# recap go public by default on someone's channel.
+VISIBILITY_UNCONTROLLED = (
+    "Outstand's documented publish API has no visibility setting, so this tool "
+    "cannot guarantee a private upload. Publishing is blocked until that is "
+    "resolved — set OUTSTAND_ALLOW_UNCONTROLLED_VISIBILITY=1 to override "
+    "deliberately.")
+
+
+def _visibility_override():
+    return os.environ.get("OUTSTAND_ALLOW_UNCONTROLLED_VISIBILITY") == "1"
+
+
+@app.get("/api/outstand/status")
+def os_status():
+    import outstand as _os
+    return _os.accounts_status(_os_root())
+
+
+@app.get("/api/outstand/connect")
+def os_connect(network: str = "youtube"):
+    import outstand as _os
+    from fastapi.responses import RedirectResponse
+    cfg = _os.config()
+    if not cfg["configured"]:
+        raise HTTPException(503, "Outstand is not configured: missing "
+                                 + ", ".join(cfg["missing"]))
+    try:
+        url = _os.connect_url(network, _os.new_state(_os_root()), cfg)
+    except _os.OutstandError as e:
+        raise HTTPException(400, str(e))
+    return RedirectResponse(url)
+
+
+@app.get("/api/outstand/callback")
+def os_callback(success: str = "", error: str = "", account_id: str = "",
+                network_unique_id: str = "", username: str = "",
+                network: str = "", state: str = ""):
+    """Outstand redirects here after the operator links an account."""
+    import outstand as _os
+    from fastapi.responses import RedirectResponse
+    if error:
+        raise HTTPException(400, f"Outstand could not link the account: {error}")
+    if not _os.check_state(_os_root(), state):
+        raise HTTPException(400, "connection state did not match — start again "
+                                 "from the Connect button")
+    if success and success.lower() not in ("1", "true", "yes"):
+        raise HTTPException(400, "Outstand reported the connection was not successful")
+    try:
+        _os.record_connection(_os_root(), account_id, network=network or None,
+                              username=username or None,
+                              network_unique_id=network_unique_id or None)
+    except _os.OutstandError as e:
+        raise HTTPException(400, str(e))
+    return RedirectResponse("/review?connected=1")
+
+
+@app.post("/api/outstand/refresh")
+def os_refresh():
+    """Reconcile local records with Outstand's own account list."""
+    import outstand as _os
+    cfg = _os.config()
+    if not cfg["configured"]:
+        raise HTTPException(503, "Outstand is not configured: missing "
+                                 + ", ".join(cfg["missing"]))
+    try:
+        _os.sync_accounts(_os_root(), cfg)
+    except _os.OutstandError as e:
+        raise HTTPException(502, str(e))
+    return _os.accounts_status(_os_root(), cfg)
+
+
+class OutstandDelIn(BaseModel):
+    account_id: str
+
+
+@app.post("/api/outstand/disconnect")
+def os_disconnect(body: OutstandDelIn):
+    """Forget an account locally. Does not revoke it inside Outstand."""
+    import outstand as _os
+    removed = _os.remove_account(_os_root(), body.account_id)
+    if not removed:
+        raise HTTPException(404, "no such connected account")
+    return {"ok": True, "removed": body.account_id,
+            "status": _os.accounts_status(_os_root())}
+
+
+def publish_eligibility(pdir, name):
+    """Every condition that must hold before an export may be published.
+
+    Built and tested in Phase C, before the publish it restrains exists.
+    """
+    import outstand as _os
+    blockers = []
+    stat = _export_stat(pdir, name) if name else None
+    if not name or not stat:
+        blockers.append("The export file no longer exists.")
+    rv = review_state(pdir, name) if name else {"status": "review_pending",
+                                                "superseded": False}
+    if rv["status"] != "approved":
+        blockers.append("This export has not been approved in Review.")
+    if rv["superseded"]:
+        blockers.append("The cut changed after approval — re-render and "
+                        "re-review before publishing.")
+    store = load_publish(pdir)
+    md = {**publish_defaults(pdir), **(store.get(name) or {})}
+    problems = validate_publish(md)
+    if problems:
+        blockers.append("Publish metadata is incomplete: " + " ".join(problems))
+
+    acct = _os.accounts_status(_os_root())
+    if not acct.get("configured"):
+        blockers.append(acct.get("detail") or "Outstand is not configured.")
+    elif not acct.get("can_publish"):
+        blockers.append("No Outstand account is connected.")
+
+    active_ids = {a["account_id"] for a in acct.get("accounts", [])
+                  if a.get("active")}
+    targets = [t for t in (md.get("targets") or []) if t]
+    if not targets:
+        blockers.append("Pick at least one connected account to publish to.")
+    else:
+        gone = [t for t in targets if t not in active_ids]
+        if gone:
+            blockers.append("These selected accounts are no longer connected: "
+                            + ", ".join(gone))
+
+    if not _visibility_override():
+        blockers.append(VISIBILITY_UNCONTROLLED)
+
+    pubs = load_publishes(pdir)
+    prior = pubs.get(name) or {}
+    done = [r for r in (prior.get("results") or [])
+            if r.get("status") == "published"]
+    if done:
+        blockers.append("This export was already published to "
+                        + ", ".join(r.get("account_id", "?") for r in done))
+
+    return {"ready": not blockers, "blockers": blockers,
+            "review_status": rv["status"], "superseded": rv["superseded"],
+            "accounts": acct, "targets": targets,
+            "metadata_problems": problems,
+            "visibility_controlled": _visibility_override(),
+            "already_published": prior or None}
+
+
+PUBLISHES_NAME = "publishes.json"
+
+
+def load_publishes(pdir):
+    try:
+        with open(os.path.join(pdir, PUBLISHES_NAME), encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_publishes(pdir, data):
+    tmp = os.path.join(pdir, PUBLISHES_NAME + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, os.path.join(pdir, PUBLISHES_NAME))
+
+
+@app.get("/api/outstand/eligibility")
+def os_eligibility(project: str = "", name: str = ""):
+    pdir = project_dir_for(project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    if not name:
+        name, pid = latest_export(project or pid)
+    return {"project": pid, "name": name, **publish_eligibility(pdir, name)}
+
+
 @app.get("/review")
 def review_page():
     import review_page as _rp
