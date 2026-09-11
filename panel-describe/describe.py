@@ -77,6 +77,23 @@ def _encode_image(path: str):
 
 # ------------------------------------------------------------------ Gemini
 
+LAST_USAGE = {}
+
+
+def _stash_usage(res):
+    try:
+        um = (res or {}).get("usageMetadata") or (res or {}).get("usage") or {}
+        LAST_USAGE.clear()
+        LAST_USAGE.update({
+            "prompt": um.get("promptTokenCount") or um.get("inputTokenCount") or 0,
+            "output": (um.get("candidatesTokenCount")
+                       or um.get("outputTokenCount") or 0),
+            "cached": um.get("cachedContentTokenCount") or 0,
+        })
+    except Exception:
+        LAST_USAGE.clear()
+
+
 def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, certifi_path: str | None = None) -> str:
     """Call the new Interactions API (/v1beta/interactions) with a multimodal input.
     Returns raw response text.
@@ -116,6 +133,10 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
 
     with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
         data = json.loads(resp.read())
+    # This helper returns only the text, so the token counts would be lost.
+    # Stash them for the usage gate — describe sends images, and the flat
+    # per-call estimate was least accurate exactly here.
+    _stash_usage(data)
 
     # Extract text: find model_output step → content[0]["text"]
     for step in data.get("steps", []):
@@ -151,8 +172,11 @@ def describe_with_gemini(path: str, api_key: str, model: str):
             return raw
 
         if usage:
-            with usage.gate("gemini", 1, model=model):
+            with usage.gate("gemini", 1, model=model) as _m:
                 raw = _call()
+                _m.tokens(LAST_USAGE.get("prompt", 0),
+                          LAST_USAGE.get("output", 0),
+                          LAST_USAGE.get("cached", 0))
         else:
             raw = _call()
     else:
@@ -173,8 +197,11 @@ def describe_with_gemini(path: str, api_key: str, model: str):
             )
 
         if usage:
-            with usage.gate("gemini", 1, model=model):
+            with usage.gate("gemini", 1, model=model) as _m:
                 resp = _call()
+                _m.from_response(resp)    # describe sends IMAGES — the flat
+                                          # per-call estimate was worst here
+
         else:
             resp = _call()
         raw = (resp.text or "").strip()

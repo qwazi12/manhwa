@@ -160,6 +160,26 @@ def group_into_scenes(panels, max_group=4, sim_threshold=0.12):
     return groups
 
 
+# The REST helper returns just the text, so usageMetadata would be thrown away.
+# Stash it here (same idiom as matcher.LAST_EMBED_ERROR) for the usage gate to
+# read, rather than changing the return type of a function with many callers.
+LAST_USAGE = {}
+
+
+def _stash_usage(res):
+    try:
+        um = (res or {}).get("usageMetadata") or (res or {}).get("usage") or {}
+        LAST_USAGE.clear()
+        LAST_USAGE.update({
+            "prompt": um.get("promptTokenCount") or um.get("inputTokenCount") or 0,
+            "output": (um.get("candidatesTokenCount")
+                       or um.get("outputTokenCount") or 0),
+            "cached": um.get("cachedContentTokenCount") or 0,
+        })
+    except Exception:
+        LAST_USAGE.clear()
+
+
 def call_gemini_rest(model, prompt, api_key):
     """Call Gemini for text generation. Routes to Interactions API for AQ. auth
     keys (gemini-3.5-flash), falls back to generateContent for legacy AIzaSy keys."""
@@ -188,6 +208,7 @@ def call_gemini_rest(model, prompt, api_key):
             try:
                 with urllib.request.urlopen(req, timeout=300, context=context) as response:
                     res = json.loads(response.read().decode("utf-8"))
+                _stash_usage(res)
                 break
             except urllib.error.HTTPError as e:
                 body = ""
@@ -233,6 +254,7 @@ def call_gemini_rest(model, prompt, api_key):
         )
         with urllib.request.urlopen(req, timeout=120, context=context) as response:
             res = json.loads(response.read().decode("utf-8"))
+        _stash_usage(res)
         try:
             return res["candidates"][0]["content"]["parts"][0]["text"].strip()
         except (KeyError, IndexError) as e:
@@ -365,8 +387,11 @@ Write the story outline and pacing beat sheet now. Plain text only, no formattin
         return call_gemini_rest(model, prompt, api_key)
 
     if usage:
-        with usage.gate("gemini", 1, model=model):
-            return _call()
+        with usage.gate("gemini", 1, model=model) as _m:
+            _out = _call()
+            _m.tokens(LAST_USAGE.get("prompt", 0), LAST_USAGE.get("output", 0),
+                      LAST_USAGE.get("cached", 0))
+            return _out
     else:
         return _call()
 
@@ -380,8 +405,11 @@ def narrate_scene(scene_panels, model="gemini-3.5-flash", global_beatsheet=None)
         return call_gemini_rest(model, build_prompt(scene_panels, global_beatsheet), api_key)
 
     if usage:
-        with usage.gate("gemini", 1, model=model):
-            return _call()
+        with usage.gate("gemini", 1, model=model) as _m:
+            _out = _call()
+            _m.tokens(LAST_USAGE.get("prompt", 0), LAST_USAGE.get("output", 0),
+                      LAST_USAGE.get("cached", 0))
+            return _out
     else:
         return _call()
 
@@ -416,8 +444,10 @@ Output the JSON array only.
 
 {chr(10).join(lines)}"""
     if usage:
-        with usage.gate("gemini", 1, model=model):
+        with usage.gate("gemini", 1, model=model) as _m:
             raw = call_gemini_rest(model, prompt, api_key)
+            _m.tokens(LAST_USAGE.get("prompt", 0), LAST_USAGE.get("output", 0),
+                      LAST_USAGE.get("cached", 0))
     else:
         raw = call_gemini_rest(model, prompt, api_key)
     m = re.search(r"\[.*\]", raw or "", re.S)
@@ -438,8 +468,11 @@ def revise_unit(scene_panels, draft, unit_issues, model, global_beatsheet, api_k
               + f"\n\nEDITOR NOTES on the previous draft (you MUST fix these):\n{notes}"
               + f"\n\nPREVIOUS DRAFT:\n{draft}\n\nRewrite the narration for this scene now:")
     if usage:
-        with usage.gate("gemini", 1, model=model):
-            return call_gemini_rest(model, prompt, api_key)
+        with usage.gate("gemini", 1, model=model) as _m:
+            _out = call_gemini_rest(model, prompt, api_key)
+            _m.tokens(LAST_USAGE.get("prompt", 0), LAST_USAGE.get("output", 0),
+                      LAST_USAGE.get("cached", 0))
+            return _out
     return call_gemini_rest(model, prompt, api_key)
 
 

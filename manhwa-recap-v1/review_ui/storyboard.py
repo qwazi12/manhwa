@@ -600,7 +600,7 @@ a {{ color:var(--accent); }}
   <button onclick="setIncludedAll(false)" class="mini">☐ none</button>
   <div class="stat"><b>{html.escape(mm) or "?"}</b>match method</div>
   {_coverage_stat(meta.get("split_coverage"))}
-  <div class="usage">{_et_label()} — today: {u.get("gemini_calls", 0)} gemini · {u.get("tts_chars", 0)} tts · ~${u.get("est_cost_usd", 0):.2f}<br>
+  <div class="usage" id="usagebox" title="click for the rate card">{_et_label()} — today: {u.get("gemini_calls", 0)} gemini · {u.get("tts_chars", 0)} tts · ~${u.get("est_cost_usd", 0):.2f}<br>
   all-time: {all_g} gemini · {all_t} tts · ~${all_c:.2f}</div>
   {_outdated_stat(n_outdated)}
   <label class="mini" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"
@@ -899,6 +899,36 @@ fetch('/api/review').then(r => r.ok ? r.json() : null).then(d => {{
     }});
   }}).catch(() => {{}});
 }})();
+/* The cost header used to be baked in at render time: its clock was the BUILD
+   time, so it was stale the instant the page loaded and never moved again.
+   Poll the same endpoint the Logs tab uses. Payload is ~1 KB at n=1. */
+function _money(v) {{ return '$' + (Number(v) || 0).toFixed(2); }}
+async function refreshUsage() {{
+  const box = document.getElementById('usagebox');
+  if (!box) return;
+  try {{
+    const d = await j('/api/logs/usage?n=1');
+    const su = d.summary || {{}}, life = su.lifetime || {{}}, rates = su.rates || {{}};
+    const g = (life.gemini_calls || 0) + (su.gemini_calls || 0);
+    const t = (life.tts_chars || 0) + (su.tts_chars || 0);
+    const c = (life.est_cost_usd || 0) + (su.est_cost_usd || 0);
+    const now = new Date().toLocaleString('en-US', {{ timeZone: 'America/New_York',
+      weekday: 'short', month: 'short', day: '2-digit',
+      hour: 'numeric', minute: '2-digit' }});
+    // Say WHICH rates produced the number rather than presenting an
+    // assumption as a bill.
+    const tag = rates.defaults
+      ? '<span title="priced at built-in default rates — set PRICE_* env vars from your Google rate card">≈ at default rates</span>'
+      : '<span title="priced at the PRICE_* rates configured for this deployment">at configured rates</span>';
+    box.innerHTML = now + ' ET — today: ' + (su.gemini_calls || 0) + ' gemini · ' +
+      (su.tts_chars || 0).toLocaleString() + ' tts · ' + _money(su.est_cost_usd) +
+      '<br>all-time: ' + g + ' gemini · ' + t.toLocaleString() + ' tts · ' +
+      _money(c) + ' ' + tag;
+  }} catch (e) {{ /* leave the last good value on screen */ }}
+}}
+refreshUsage();
+setInterval(refreshUsage, 15000);
+
 /* ---- drawers: ingest / projects / logs (ported from legacy UI) ---- */
 {theme.SHARED_JS}
 

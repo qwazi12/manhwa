@@ -246,8 +246,9 @@ Beats list:
         )
 
     if usage:
-        with usage.gate("gemini", 1, model=MODEL_NAME):
+        with usage.gate("gemini", 1, model=MODEL_NAME) as _m:
             resp = _call()
+            _m.from_response(resp)        # real token counts, not a flat guess
     else:
         resp = _call()
 

@@ -4119,3 +4119,36 @@ NOT changed (deliberately): FPS/quality defaults are a picture-quality decision
 for the owner, not mine to make silently.
 
 Tests: 18 files, 0 failing (test_review 40 -> 47).
+
+### Session 28 (cont.) — cost header: live, and priced from ACTUAL tokens
+Owner: "i want actual costs and lifetime cost live."
+
+Two separate defects, both now fixed.
+
+1) NOT LIVE. The header was baked into the server-rendered page, so its clock
+was the BUILD time — it read 6:14 PM while the wall clock said 6:16, and never
+moved again. Now polls /api/logs/usage?n=1 every 15s (~1 KB) and redraws the
+ET clock, today's totals and all-time from the same source the Logs tab uses.
+
+2) NOT ACTUAL. Every Gemini call was priced at a flat per-call rate regardless
+of size — the describe stage sends IMAGES, so it was under-counted worst
+exactly where it mattered. usage.gate() now yields a Meter; call sites report
+the token counts the API itself returned, and those beat the flat estimate.
+Cost = prompt_tokens x input-rate + output_tokens x output-rate, per model.
+Back-compatible: a gate used without `as _m` still bills at the flat rate, so
+an un-updated call site can neither break the pipeline nor stop billing.
+
+Metered: narrate.py (4 sites), shot_planner.py, describe.py (both the SDK and
+the Interactions API paths). The REST helpers return only text, so the token
+counts are stashed on a module-level LAST_USAGE — the same idiom as
+matcher.LAST_EMBED_ERROR — rather than changing return types with many callers.
+STILL UNMETERED: matcher.py embeddings (batch call, cheapest path) — flat rate.
+
+HONESTY: the per-1M-token rates are PLACEHOLDER defaults, not quoted prices.
+They are env-tunable (PRICE_FLASH_IN_PER_1M, PRICE_FLASH_OUT_PER_1M,
+PRICE_PRO_IN_PER_1M, PRICE_PRO_OUT_PER_1M, PRICE_EMBED_IN_PER_1M,
+EST_COST_PER_TTS_1K_CHARS_USD) and usage.rate_card() reports whether any were
+set. The header now SAYS which basis produced the figure — "≈ at default
+rates" vs "at configured rates" — so an assumption is never shown as a bill.
+
+New test_usage_tokens.py: 21 assertions. Suite 19 files, 0 failing.

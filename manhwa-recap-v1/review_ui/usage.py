@@ -189,6 +189,91 @@ def _flock():
         fh.close()
 
 
+# ---------------------------------------------------------------- tokens
+# Per-call pricing is a blunt instrument: a 40-token prompt and an
+# image-bearing describe call both counted the same. These are per-MILLION
+# token rates, applied to the token counts the API actually reports.
+#
+# THE DEFAULTS BELOW ARE PLACEHOLDERS, NOT QUOTED PRICES. Set them from your
+# own Google rate card via env; until then the UI labels the figure as being
+# at "default rates" so nobody mistakes it for a bill.
+def _price(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+GEMINI_TOKEN_PRICES_PER_1M = [
+    # (model prefix, input $/1M tokens, output $/1M tokens)
+    ("gemini-3.1-pro", _price("PRICE_PRO_IN_PER_1M", 1.25),
+                       _price("PRICE_PRO_OUT_PER_1M", 10.0)),
+    ("gemini-3-pro",   _price("PRICE_PRO_IN_PER_1M", 1.25),
+                       _price("PRICE_PRO_OUT_PER_1M", 10.0)),
+    ("gemini-embedding", _price("PRICE_EMBED_IN_PER_1M", 0.15), 0.0),
+    ("gemini-3.5-flash", _price("PRICE_FLASH_IN_PER_1M", 0.30),
+                         _price("PRICE_FLASH_OUT_PER_1M", 2.50)),
+    ("gemini-3.1-flash", _price("PRICE_FLASH_IN_PER_1M", 0.30),
+                         _price("PRICE_FLASH_OUT_PER_1M", 2.50)),
+]
+
+RATES_ARE_DEFAULT = not any(
+    os.environ.get(k) for k in
+    ("PRICE_PRO_IN_PER_1M", "PRICE_PRO_OUT_PER_1M", "PRICE_FLASH_IN_PER_1M",
+     "PRICE_FLASH_OUT_PER_1M", "PRICE_EMBED_IN_PER_1M",
+     "EST_COST_PER_TTS_1K_CHARS_USD"))
+
+
+def _token_rates(model):
+    m = (model or "").lower()
+    for prefix, rin, rout in GEMINI_TOKEN_PRICES_PER_1M:
+        if m.startswith(prefix):
+            return rin, rout
+    return (_price("PRICE_FLASH_IN_PER_1M", 0.30),
+            _price("PRICE_FLASH_OUT_PER_1M", 2.50))
+
+
+def token_cost(model, prompt_tokens, output_tokens):
+    rin, rout = _token_rates(model)
+    return (prompt_tokens / 1e6) * rin + (output_tokens / 1e6) * rout
+
+
+class Meter:
+    """Handed to the caller by gate() so it can report what the API actually
+    charged for. Without a report the old flat per-call estimate stands, so
+    call sites that have not been updated keep working unchanged."""
+
+    __slots__ = ("prompt_tokens", "output_tokens", "cached_tokens", "reported")
+
+    def __init__(self):
+        self.prompt_tokens = 0
+        self.output_tokens = 0
+        self.cached_tokens = 0
+        self.reported = False
+
+    def tokens(self, prompt=0, output=0, cached=0):
+        self.prompt_tokens += int(prompt or 0)
+        self.output_tokens += int(output or 0)
+        self.cached_tokens += int(cached or 0)
+        self.reported = True
+        return self
+
+    def from_response(self, resp):
+        """Read google-genai's usage_metadata if the SDK returned one.
+        Silently does nothing when absent — never break a pipeline over
+        accounting."""
+        try:
+            um = getattr(resp, "usage_metadata", None)
+            if um is None:
+                return self
+            return self.tokens(
+                getattr(um, "prompt_token_count", 0) or 0,
+                getattr(um, "candidates_token_count", 0) or 0,
+                getattr(um, "cached_content_token_count", 0) or 0)
+        except Exception:
+            return self
+
+
 def _est_cost(kind, units, model=""):
     if kind == "gemini":
         return units * _gemini_call_cost(model)
@@ -230,7 +315,13 @@ def gate(kind, units, model=""):
                 f"MAX_DAILY_SPEND_USD=${MAX_DAILY_SPEND_USD} would be exceeded "
                 f"today (${d['est_cost_usd']:.4f} + ${est_cost:.4f} est.)")
 
-    yield  # --- the actual API call happens here, outside the lock ---
+    meter = Meter()
+    yield meter  # --- the actual API call happens here, outside the lock ---
+
+    # Actual tokens beat the flat per-call guess whenever the caller reported
+    # them. TTS is already exact (it is billed per character).
+    if kind == "gemini" and meter.reported:
+        est_cost = token_cost(model, meter.prompt_tokens, meter.output_tokens)
 
     with _flock():
         d = _load_counts()
@@ -250,6 +341,10 @@ def gate(kind, units, model=""):
             "kind": kind, "model": model, "units": units,
             "unit": "call" if kind == "gemini" else "chars",
             "est_cost_usd": round(est_cost, 6),
+            "prompt_tokens": meter.prompt_tokens,
+            "output_tokens": meter.output_tokens,
+            "cached_tokens": meter.cached_tokens,
+            "metered": meter.reported,
             "job_totals": dict(job),
             "daily_totals": {"gemini_calls": d["gemini_calls"],
                               "tts_chars": d["tts_chars"],
@@ -257,6 +352,21 @@ def gate(kind, units, model=""):
         })
 
 
+def rate_card():
+    """What the numbers were priced at, so the UI can show it rather than
+    presenting an assumption as a fact."""
+    return {
+        "defaults": RATES_ARE_DEFAULT,
+        "tts_per_1k_chars": EST_COST_PER_TTS_1K_CHARS_USD,
+        "gemini_per_1m": [
+            {"model": p, "input": rin, "output": rout}
+            for p, rin, rout in GEMINI_TOKEN_PRICES_PER_1M
+        ],
+    }
+
+
 def daily_summary():
     with _flock():
-        return _load_counts()
+        d = _load_counts()
+    d["rates"] = rate_card()
+    return d
