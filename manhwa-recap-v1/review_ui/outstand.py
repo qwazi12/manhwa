@@ -48,6 +48,7 @@ ACCOUNTS_FILE = "_outstand_accounts.json"
 STATE_FILE = "_outstand_state.json"
 STATE_TTL = 600
 TIMEOUT = 30
+MEDIA_TIMEOUT = 900        # a few hundred MB over a slow link
 
 
 class OutstandError(RuntimeError):
@@ -398,6 +399,57 @@ def post_status(post_id, cfg=None, _http=None):
     if not post_id:
         raise OutstandError("no post id")
     return _parse_post(_request("GET", f"/posts/{post_id}", cfg, _http=_http))
+
+
+def put_media_bytes(upload_url, path, content_type, _put=None):
+    """Stream the file to the signed URL Outstand handed back.
+
+    Streamed rather than read into memory: exports run to hundreds of MB and
+    loading one into RAM on a small container is how the process gets killed.
+    """
+    size = os.path.getsize(path)
+    if _put is not None:
+        return _put(upload_url, path, content_type, size)
+    with open(path, "rb") as fh:
+        req = urllib.request.Request(upload_url, data=fh, method="PUT", headers={
+            "Content-Type": content_type,
+            "Content-Length": str(size),
+            "User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=MEDIA_TIMEOUT) as r:
+                return {"status": r.status, "size": size}
+        except urllib.error.HTTPError as e:
+            raise OutstandError(f"media upload failed ({e.code})", e.code)
+        except urllib.error.URLError as e:
+            raise OutstandError(f"media upload could not reach storage: {e.reason}")
+
+
+def upload_media(path, content_type="video/mp4", cfg=None, _http=None,
+                 _put=None, on_step=None):
+    """The documented three-step upload. Returns the public media URL.
+
+    POST /media/upload -> PUT <upload_url> -> POST /media/{id}/confirm
+    """
+    if not os.path.exists(path):
+        raise OutstandError(f"no such file: {path}")
+    filename = os.path.basename(path)
+    if on_step:
+        on_step("requesting an upload slot")
+    started = request_media_upload(filename, content_type, cfg, _http=_http)
+    media_id = started.get("id") or started.get("media_id")
+    upload_url = started.get("upload_url") or started.get("uploadUrl")
+    if not media_id or not upload_url:
+        raise OutstandError("Outstand did not return an upload URL")
+    if on_step:
+        on_step(f"uploading {filename}")
+    put_media_bytes(upload_url, path, content_type, _put=_put)
+    if on_step:
+        on_step("confirming the upload")
+    done = confirm_media(media_id, os.path.getsize(path), cfg, _http=_http)
+    url = done.get("url") or done.get("public_url")
+    if not url:
+        raise OutstandError("Outstand did not return a media URL after confirm")
+    return {"media_id": media_id, "url": url, "filename": filename}
 
 
 def request_media_upload(filename, content_type, cfg=None, _http=None):

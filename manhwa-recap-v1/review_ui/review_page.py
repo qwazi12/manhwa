@@ -86,6 +86,9 @@ var PUB = null;
 var ALL = [];
 var YT = null;
 var OS = null;
+var ELIG = null;
+var PUBST = null;
+var pubPoll = false;
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -128,6 +131,12 @@ async function load(name, proj) {
     DATA = await api(u);
     try { OS = await api('/api/outstand/status?cb=' + Date.now()); }
     catch (e3) { OS = null; }
+    var qs = (DATA.project ? '&project=' + encodeURIComponent(DATA.project) : '') +
+             (DATA.name ? '&name=' + encodeURIComponent(DATA.name) : '');
+    try { ELIG = await api('/api/outstand/eligibility?cb=' + Date.now() + qs); }
+    catch (e5) { ELIG = null; }
+    try { PUBST = await api('/api/outstand/publish/status?cb=' + Date.now() + qs); }
+    catch (e6) { PUBST = null; }
     try { YT = null; } catch (e4) { YT = null; }
     try {
       PUB = await api('/api/publish?cb=' + Date.now() +
@@ -224,6 +233,7 @@ function render() {
         '</div>' +
       '</div>' +
       publishCard() +
+      publishNowCard() +
       historyCard(rv) +
     '</div><div>' + outstandCard() + qcCard(d, qc) + '</div></div>';
 }
@@ -357,6 +367,84 @@ function downloadPackage() {
     '&name=' + encodeURIComponent(DATA.name);
 }
 
+function publishNowCard() {
+  if (!ELIG) return '';
+  var pub = (PUBST || {}).publish || null;
+  var results = (pub || {}).results || [];
+  var st = (pub || {}).status;
+
+  var resultRows = results.map(function (x) {
+    var cls = x.status === 'published' ? 'p-ok'
+            : (x.status === 'failed' ? 'p-bad' : 'p-neutral');
+    var link = x.url
+      ? ' <a href="' + esc(x.url) + '" target="_blank">open</a>'
+      : '';
+    return '<div class="row"><span>' + esc(x.network || '?') + ' · ' +
+      esc(x.username || x.account_id || '') + '</span><span>' +
+      pill(x.status || 'pending', cls) + link + '</span></div>' +
+      (x.error ? '<div class="hint" style="color:#ef6470">' + esc(x.error) + '</div>' : '');
+  }).join('');
+
+  var body = '', actions = '';
+
+  if (st === 'in_progress') {
+    body = '<div class="hint">' + esc((pub || {}).stage || 'working…') + '</div>' + resultRows;
+    actions = '<button disabled>Publishing…</button>';
+    if (!pubPoll) { pubPoll = true; setTimeout(pollPublish, 5000); }
+  } else if (results.length) {
+    body = resultRows +
+      '<div class="hint" style="margin-top:7px">Overall: <b>' + esc(st || '?') + '</b></div>';
+    actions = '<button disabled title="already published from this export">Published</button>';
+  } else if (!ELIG.ready) {
+    body = '<div class="banner b-warn" style="margin:0">' +
+      (ELIG.blockers || []).map(esc).join('<br>') + '</div>';
+    actions = '<button disabled>Publish</button>';
+  } else {
+    body = '<div class="hint">Ready. This will upload the video to Outstand and ' +
+      'post it to the selected account(s) as <b>' + esc(ELIG.effective_privacy || 'private') +
+      '</b>.</div>';
+    actions = '<button class="ok" onclick="doPublish()">▶ Publish now</button>';
+  }
+
+  var badge = st === 'published' ? pill('published', 'p-ok')
+    : (st === 'partial' ? pill('partial', 'p-warn')
+    : (st === 'failed' ? pill('failed', 'p-bad')
+    : (st === 'in_progress' ? pill('publishing', 'p-blue') : pill('not published', 'p-neutral'))));
+
+  return '<div class="card"><h2>Publish ' + badge + '</h2>' + body +
+    '<div class="actions">' + actions + '</div></div>';
+}
+
+async function pollPublish() {
+  try {
+    var qs = '&project=' + encodeURIComponent(DATA.project) +
+             '&name=' + encodeURIComponent(DATA.name);
+    PUBST = await api('/api/outstand/publish/status?cb=' + Date.now() + qs);
+    render();
+    var st = ((PUBST || {}).publish || {}).status;
+    if (st === 'in_progress') { setTimeout(pollPublish, 5000); return; }
+  } catch (e) { /* leave the last state on screen */ }
+  pubPoll = false;
+}
+
+async function doPublish() {
+  var priv = (ELIG || {}).effective_privacy || 'private';
+  var who = ((OS || {}).accounts || []).filter(function (a) { return a.active; })
+    .map(function (a) { return a.username || a.account_id; }).join(', ');
+  if (!confirm('Publish this video to ' + who + ' as ' + priv +
+      '? It will be uploaded to Outstand and posted. Confirm you have the right ' +
+      'to publish this artwork.')) return;
+  try {
+    await api('/api/outstand/publish', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: DATA.project, name: DATA.name })
+    });
+    pubPoll = true;
+    setTimeout(pollPublish, 2000);
+    await load(DATA.name, DATA.project);
+  } catch (e) { alert('Could not start publishing: ' + e.message); }
+}
+
 function historyCard(rv) {
   if (!rv.history || !rv.history.length) return '';
   return '<div class="card"><h2>Earlier decisions</h2>' + rv.history.slice().reverse().map(function (h) {
@@ -402,7 +490,7 @@ function outstandCard() {
     '<div class="actions">' + actions + '</div>' +
     '<div class="hint" style="margin-top:8px">Accounts are linked through Outstand, ' +
     'so this tool never stores a YouTube password or token. Direct publishing is ' +
-    'not enabled yet — use <b>Download upload package</b> and upload by hand.</div>' +
+    'available once an account is connected and an export is approved.</div>' +
     '</div>';
 }
 

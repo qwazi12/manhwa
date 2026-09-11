@@ -1303,6 +1303,145 @@ def save_publishes(pdir, data):
     os.replace(tmp, os.path.join(pdir, PUBLISHES_NAME))
 
 
+# ====================================================================
+#  PHASE D — publish a reviewed export through Outstand
+# ====================================================================
+def _publish_record(pdir, name, **fields):
+    pubs = load_publishes(pdir)
+    rec = pubs.get(name) or {}
+    rec.update(fields)
+    rec["name"] = name
+    pubs[name] = rec
+    save_publishes(pdir, pubs)
+    return rec
+
+
+def _run_publish_job(job_id, pdir, name):
+    """Upload the export to Outstand, create the post, record per-account results."""
+    import outstand as _osd
+    JOBS[job_id]["status"] = "running"
+    _persist_job(job_id)
+
+    def step(msg, done=None):
+        _control_gate(JOBS, job_id, _persist_job)      # pause/stop honoured here
+        JOBS[job_id]["stage"] = msg
+        if done is not None:
+            JOBS[job_id]["done"] = done
+        _persist_job(job_id)
+        _publish_record(pdir, name, status="in_progress", stage=msg,
+                        updated_at=time.time())
+
+    try:
+        # Re-check at the moment of action. The button was drawn from state that
+        # may have changed since — an edit could have superseded the approval
+        # while this sat queued.
+        elig = publish_eligibility(pdir, name)
+        if not elig["ready"]:
+            raise RuntimeError("no longer eligible: " + " ".join(elig["blockers"]))
+
+        store = load_publish(pdir)
+        md = {**publish_defaults(pdir), **(store.get(name) or {})}
+        targets = list(md.get("targets") or [])
+        video = os.path.join(pdir, "exports", os.path.basename(name))
+
+        step("uploading the video to Outstand", 1)
+        media = _osd.upload_media(video, "video/mp4",
+                                  on_step=lambda m: step(m, 1))
+
+        step("creating the post", 2)
+        yt = _osd.build_youtube_config(md, force_private=not _allow_public())
+        containers = [{"content": md.get("description") or md.get("title") or "",
+                       "media": [{"url": media["url"],
+                                  "filename": media["filename"]}]}]
+        created = _osd.create_post(containers, targets,
+                                   scheduled_at=(md.get("publish_at") or None),
+                                   youtube=yt)
+        _publish_record(pdir, name, post_id=created["post_id"],
+                        targets=targets, youtube=yt,
+                        media_url=media["url"], status="in_progress",
+                        results=created["results"], started_at=time.time())
+
+        step("waiting for the networks to confirm", 3)
+        final = created
+        for _ in range(10):
+            _control_gate(JOBS, job_id, _persist_job)
+            time.sleep(6)
+            try:
+                final = _osd.post_status(created["post_id"])
+            except _osd.OutstandError:
+                continue
+            if final["results"] and all(
+                    r.get("status") in ("published", "failed")
+                    for r in final["results"]):
+                break
+
+        published = [r for r in final["results"] if r.get("status") == "published"]
+        failed = [r for r in final["results"] if r.get("status") == "failed"]
+        # Per-account, never one vague flag: some targets can succeed while
+        # others fail, and collapsing that would hide a failure.
+        overall = ("published" if published and not failed else
+                   "partial" if published and failed else
+                   "failed" if failed else "pending")
+        _publish_record(pdir, name, status=overall, results=final["results"],
+                        post_id=final["post_id"], ended_at=time.time(),
+                        stage="done")
+        JOBS[job_id].update(status="done", stage=overall, done=4)
+        _persist_job(job_id)
+    except JobCancelled as e:
+        _publish_record(pdir, name, status="cancelled", stage=str(e),
+                        ended_at=time.time())
+        JOBS[job_id].update(status="cancelled", error=str(e))
+        _persist_job(job_id)
+    except Exception as e:  # noqa
+        _publish_record(pdir, name, status="failed", error=str(e)[:500],
+                        ended_at=time.time(), stage="failed")
+        JOBS[job_id].update(status="error", error=str(e)[:500])
+        _persist_job(job_id)
+
+
+class PublishNowIn(BaseModel):
+    project: str = ""
+    name: str = ""
+
+
+@app.post("/api/outstand/publish")
+def os_publish(body: PublishNowIn):
+    """Start a publish. Refuses unless every eligibility condition holds."""
+    pdir = project_dir_for(body.project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    name = body.name or latest_export(body.project or pid)[0]
+    if not name:
+        raise HTTPException(404, "no export to publish")
+    elig = publish_eligibility(pdir, name)
+    if not elig["ready"]:
+        raise HTTPException(409, "not ready to publish — " + " ".join(elig["blockers"]))
+    pubs = load_publishes(pdir)
+    if (pubs.get(name) or {}).get("status") == "in_progress":
+        raise HTTPException(409, "a publish for this export is already running")
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {"status": "queued", "done": 0, "total": 4, "error": None,
+                    "type": "publish", "stage": "queued", "project": pid,
+                    "export": name, "ts": time.time(), "control": "run"}
+    _persist_job(job_id)
+    _publish_record(pdir, name, status="in_progress", job=job_id,
+                    stage="queued", started_at=time.time(), results=[])
+    threading.Thread(target=_run_publish_job, args=(job_id, pdir, name),
+                     daemon=True).start()
+    return {"ok": True, "job": job_id, "project": pid, "name": name,
+            "privacy": ("private" if not _allow_public()
+                        else (load_publish(pdir).get(name) or {}).get("privacy", "private"))}
+
+
+@app.get("/api/outstand/publish/status")
+def os_publish_status(project: str = "", name: str = ""):
+    pdir = project_dir_for(project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    if not name:
+        name, pid = latest_export(project or pid)
+    rec = (load_publishes(pdir) or {}).get(name) or {}
+    return {"project": pid, "name": name, "publish": rec or None}
+
+
 @app.get("/api/outstand/eligibility")
 def os_eligibility(project: str = "", name: str = ""):
     pdir = project_dir_for(project)

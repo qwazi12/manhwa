@@ -3674,3 +3674,48 @@ Tests: outstand_connect 75/75; full suite 16 files, 100%.
 IF IT PERSISTS after this deploy, the block is Outstand-side configuration and
 they need to allow server-side API clients for this organisation — that is not
 something to work around from here.
+
+### Session 28 (cont.) — PHASE C COMPLETE (live-verified) and PHASE D BUILT
+The User-Agent fix cleared the Cloudflare block. Owner clicked Refresh and the
+card showed "1 connected — youtube @flamingoremix". That is the first real
+end-to-end proof: key authenticated, GET /social-accounts returned, account
+stored locally, UI rendered it. PHASE C IS COMPLETE AND LIVE-VERIFIED.
+
+#### Phase D — publish through Outstand
+outstand.py: upload_media() implements the documented three steps —
+POST /media/upload -> PUT <signed url> -> POST /media/{id}/confirm — STREAMING
+the file rather than reading it into memory, because exports run to hundreds of
+MB and loading one into RAM on a small container is how the process gets killed.
+MEDIA_TIMEOUT 900s.
+server.py: _run_publish_job() runs inside the existing JOBS framework so it
+inherits pause/stop and progress. It RE-CHECKS eligibility at the moment of
+action, not just when the button was drawn — an edit can supersede an approval
+while the job sits queued, and the test proves that aborts the publish.
+Steps: upload -> build youtube config -> create post -> poll status up to 10x.
+Overall status is derived per account: published / partial / failed / pending.
+PARTIAL is its own state — one target succeeding while another fails must not
+read as "published", which is why results are stored per account rather than
+collapsed into a flag.
+POST /api/outstand/publish (409 unless every gate passes, 409 if one is already
+running), GET /api/outstand/publish/status.
+review_page.py: a Publish card showing blockers when not ready, live stage while
+running, and per-account rows with status pill, error and a watch link.
+
+#### Safety carried through
+privacyStatus is ALWAYS explicit and clamped to private unless
+OUTSTAND_ALLOW_PUBLIC=1 — Outstand's default is public. create_post() refuses a
+youtube config that omits it. The confirm dialog names the channel, the
+visibility, and asks the operator to confirm rights before posting.
+
+#### Tests
+NEW test_outstand_publish.py 26/26 — three-step upload order and byte size,
+missing upload_url and missing file refused, publish refused when unreviewed,
+post body targeting/media/content/privacyStatus/title, record fields, per-account
+results, re-publish refused, PARTIAL vs published vs failed, stop cancels
+mid-flight, and a cut edited after queueing aborting the publish.
+Full suite 17 files, 100%.
+
+#### NOT live-verified
+No real publish has run. Every Outstand call in the Phase D tests is replaced.
+A live test would put a real (private) video on Flamingo Remix, consume quota
+and need deleting afterwards — the owner's call, not mine to take.
