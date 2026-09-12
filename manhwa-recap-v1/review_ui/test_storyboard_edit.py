@@ -274,6 +274,40 @@ def main():
 
     shutil.rmtree(pdir)
     fails = [r for r in RESULTS if not r[1]]
+    # ---- beats must never be scheduled outside their own segment
+    # Root cause: delete_segment hands a deleted segment's beats to a
+    # neighbour with their ORIGINAL absolute times. When the host is the LATER
+    # sibling those times predate its window, so narration is scheduled before
+    # its own image. _ripple then preserves relative offsets by design, so the
+    # fault never heals and the pre-render gate blocks the render forever.
+    import storyboard_edit as _se
+    seg = {"seg_index": 9, "start": 100.0, "end": 110.0, "dur": 10.0,
+           "beats": [{"index": 8, "start": 85.3, "end": 92.0, "file": "b8.mp3"},
+                     {"index": 9, "start": 100.0, "end": 104.0, "file": "b9.mp3"}]}
+    moved = _se._reseat_beats(seg)
+    check("a beat starting before its segment is re-seated", moved is True)
+    check("...every beat now sits inside the window",
+              _se._misfit(seg, seg["beats"]) == 0.0)
+    check("...order is preserved (8 before 9)",
+              [b["index"] for b in seg["beats"]] == [8, 9])
+    check("...durations are preserved, so no narration is cut",
+              round(seg["beats"][0]["end"] - seg["beats"][0]["start"], 3) == 6.7
+              and round(seg["beats"][1]["end"] - seg["beats"][1]["start"], 3) == 4.0)
+    check("...and dur grows when the audio needs more room",
+              seg["dur"] >= 10.7)
+
+    clean = {"seg_index": 1, "start": 0.0, "end": 8.0, "dur": 8.0,
+             "beats": [{"index": 1, "start": 0.0, "end": 3.0, "file": "a.mp3"},
+                       {"index": 2, "start": 5.0, "end": 7.0, "file": "b.mp3"}]}
+    snapshot = json.dumps(clean, sort_keys=True)
+    check("a healthy segment is left ALONE (silent gaps are not compacted)",
+              _se._reseat_beats(clean) is False
+              and json.dumps(clean, sort_keys=True) == snapshot)
+
+    empty = {"seg_index": 2, "start": 0.0, "end": 4.0, "dur": 4.0, "beats": []}
+    check("a segment with no beats is a no-op",
+              _se._reseat_beats(empty) is False)
+
     print(f"\n{len(RESULTS) - len(fails)}/{len(RESULTS)} passed")
     sys.exit(1 if fails else 0)
 

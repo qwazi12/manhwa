@@ -617,6 +617,43 @@ def _merge_beats(beats):
     return out
 
 
+def _reseat_beats(seg):
+    """Lay a segment's beats back inside its own window.
+
+    Beats carry ABSOLUTE times. When a segment is deleted its audio is handed
+    to a neighbour, and if that neighbour is the LATER sibling the moved beats
+    keep times that predate the host's window — they end up at a negative
+    offset, i.e. scheduled before the image they belong to ever appears.
+    _ripple() then shifts beats by the same delta as their segment precisely to
+    preserve relative offsets, so a bad offset is preserved forever rather than
+    healing. That is how a beat ends up 14.7s before its own segment.
+
+    Only segments that are ACTUALLY broken are touched: if every beat already
+    sits inside the window this returns False and changes nothing, so legitimate
+    internal gaps (silent holds) are never compacted. When it does act it keeps
+    beat ORDER and each beat's DURATION — narration content and pacing survive,
+    only the placement is corrected — and grows dur if the audio needs more room
+    than the window currently allows.
+    """
+    beats = seg.get("beats") or []
+    if not beats:
+        return False
+    if not _misfit(seg, beats):
+        return False                       # already clean — do not touch
+    t = seg["start"]
+    for b in sorted(beats, key=lambda x: x["start"]):
+        dur = round(b["end"] - b["start"], 3)
+        b["start"] = round(t, 3)
+        b["end"] = round(t + dur, 3)
+        t = b["end"]
+    seg["beats"] = sorted(beats, key=lambda x: x["start"])
+    need = round(t - seg["start"], 3)
+    if seg["dur"] < need:                  # the whole line must still fit
+        seg["dur"] = need
+    seg["end"] = round(seg["start"] + seg["dur"], 3)
+    return True
+
+
 def delete_segment(pdir, si):
     """Delete ONE segment (image slot) from the timeline.
 
@@ -647,6 +684,10 @@ def delete_segment(pdir, si):
         host = segs[host_pos]
         host["beats"] = _merge_beats(sorted(host["beats"] + had_beats,
                                             key=lambda b: b["start"]))
+        # The moved beats still carry the DELETED segment's times. If the host
+        # is the later sibling those times predate its window, which schedules
+        # narration before its own image and blocks rendering. Re-seat them.
+        _reseat_beats(host)
         result["narration"] = "preserved"
         result["audio_moved_to"] = host["seg_index"]
 
@@ -1030,6 +1071,36 @@ def repair_overlapping_slices(pdir, segs=None, dry_run=False):
         save(pdir, segs)
         _stale(pdir, [f["seg"] for f in fixed])
         _log(pdir, "repair_overlapping_slices", n=len(fixed))
+    return fixed
+
+
+def repair_orphaned_beats(pdir, segs=None, dry_run=False):
+    """Fix beats scheduled outside their own segment's window.
+
+    repair_overlapping_slices cannot help here: it only collapses records that
+    share a beat index, have DIFFERENT files, and genuinely overlap. A single
+    beat sitting 14s before its segment is one record, so it is skipped — which
+    is why the pre-render error pointed at a repair that could not fix it.
+    """
+    segs = load(pdir) if segs is None else segs
+    fixed = []
+    for s_ in segs:
+        beats = s_.get("beats") or []
+        before = _misfit(s_, beats)
+        if not before:
+            continue
+        worst = min((b["start"] - s_["start"]) for b in beats)
+        rec = {"seg": s_["seg_index"], "beats": [b.get("index") for b in beats],
+               "misfit_seconds": before, "worst_offset": round(worst, 3)}
+        if not dry_run:
+            _reseat_beats(s_)
+            rec["misfit_after"] = _misfit(s_, s_["beats"])
+        fixed.append(rec)
+    if fixed and not dry_run:
+        _ripple(segs)
+        save(pdir, segs)
+        _stale(pdir, [f["seg"] for f in fixed])
+        _log(pdir, "repair_orphaned_beats", n=len(fixed))
     return fixed
 
 

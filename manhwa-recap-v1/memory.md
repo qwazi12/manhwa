@@ -4477,3 +4477,56 @@ FINAL STEADY STATE (verified live):
   PRODUCER_LOW_MEMORY_MODE=1 kept as image ENV (explicit -w overrides it)
   flags per render: ["-w", "4"]
   25 Railway vars, health 200, 0 active jobs
+
+### Session 28 (cont.) — ROOT CAUSE of the negative beat offsets
+Owner: "why does the dialogue box have -14.7 ... they don't render when
+approved ... arent they all supposed to be at 0?"
+
+#### What the data showed (doctors-rebirth_1, live)
+  seg 15: 106.882->112.676  beats [15]
+  seg 16: 112.676->119.382  beats [16]      dur 6.706  <- the number in the error
+  seg 17: 119.382->126.616  beats [17]
+  seg 18: DOES NOT EXIST
+  seg 19: 126.616->150.194  beats [18 @ -14.690, 19 @ -1.000, 19 @ +0.000]
+  seg 20: 150.194->157.860  beats [20]
+seg 18 was deleted and its beats were re-homed onto seg 19 — but they kept the
+DELETED segment's absolute times, so beat 18 is scheduled 14.69s before the
+image it belongs to. Only 2 offending beats in 59 segments, so it is rare, not
+endemic — but it hard-blocks a render when it happens.
+
+#### The chain
+1. delete_segment() hands a deleted segment's beats to a neighbour with
+   `host["beats"] = _merge_beats(sorted(host["beats"] + had_beats, ...))` and
+   NEVER re-times them. When the host is the LATER sibling (which the code
+   picks whenever there is no earlier sibling in the group) the moved beats
+   are GUARANTEED to start before the host's window. Systematic, not random.
+2. _ripple() shifts beats by the same delta as their segment *specifically to
+   preserve relative offsets*, so a bad offset is preserved forever — the
+   timeline never heals itself.
+3. The pre-render gate then refuses, correctly: rendering would cut narration.
+4. ...and the error told the owner to run repair_slices, WHICH COULD NOT FIX
+   IT. repair_overlapping_slices only collapses records that share a beat
+   index, have DIFFERENT files, and genuinely OVERLAP. Beat 18 is a single
+   record; the two beat-19 records merely touch. Both skipped. That is the
+   owner's "this doesnt work" — the tool pointed at a dead end.
+
+Offsets are supposed to be >= 0 because a beat's offset is
+`beat.start - seg.start`; 0 means the narration starts with its image. Negative
+means it was scheduled before the image exists, which is unplayable.
+
+#### Fix
+- `_reseat_beats(seg)`: lays beats back inside their own window, preserving
+  ORDER and each beat's DURATION (no narration is cut), growing dur if needed.
+  Guarded by _misfit() so a HEALTHY segment is never touched — legitimate
+  silent gaps are not compacted.
+- delete_segment() now calls it on the host after the merge -> no NEW cases.
+- `repair_orphaned_beats()` fixes data already in this state.
+- /api/storyboard/repair_slices now runs all THREE repairs, so the advice in
+  the error message is finally true; both the server and renderer messages were
+  corrected to say what it actually does.
+
+test_storyboard_edit 42 -> 49. Suite 19 files, 0 failing.
+
+#### Screenshots did not attach
+Only a generic PNG icon came through, so the timing-column overlap, the missing
+images and "this doesnt work" could not be seen. Asked the owner to resend.

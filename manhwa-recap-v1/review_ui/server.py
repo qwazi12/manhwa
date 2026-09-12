@@ -3144,13 +3144,24 @@ class RepairIn(BaseModel):
 
 @app.post("/api/storyboard/repair_slices")
 def sb_repair_slices(body: RepairIn):
-    """P1: re-bind sliced beats the old carve bug handed to the wrong segment."""
+    """Repair the timeline faults that block rendering.
+
+    Runs all three, because the pre-render error used to point operators here
+    for a fault this endpoint could not actually fix: a beat scheduled outside
+    its own segment (left behind when a deleted segment handed its audio to a
+    later sibling) is a single record, so the slice repairs skipped it entirely
+    and the render stayed blocked with no way forward.
+    """
     import storyboard_edit
     if not body.dry_run:
         _snapshot()
     try:
-        return storyboard_edit.repair_slice_binding(active_project_dir(),
-                                                    dry_run=body.dry_run)
+        pdir = active_project_dir()
+        bound = storyboard_edit.repair_slice_binding(pdir, dry_run=body.dry_run)
+        overlap = storyboard_edit.repair_overlapping_slices(pdir, dry_run=body.dry_run)
+        orphan = storyboard_edit.repair_orphaned_beats(pdir, dry_run=body.dry_run)
+        return {"rebound": bound, "overlaps": overlap, "orphaned": orphan,
+                "total": len(bound) + len(overlap) + len(orphan)}
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -3185,7 +3196,8 @@ def _gate_timeline(seg_indexes, action):
             f"{detail}"
             + (f" (+{len(errs) - 6} more)" if len(errs) > 6 else "")
             + ". Run POST /api/storyboard/repair_slices — it re-binds swapped "
-              "slices AND collapses overlapping duplicates of one sentence.")
+              "slices, collapses overlapping duplicates of one sentence, AND "
+              "re-seats beats scheduled outside their own segment.")
 
 
 class MoveIn(BaseModel):
