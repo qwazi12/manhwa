@@ -4535,3 +4535,45 @@ Rail now AUTO-HIDES by default (owner request): applyRail() defaults `off` to
 true, so the sliver-plus-hover behaviour is what you get without configuring
 anything. An explicit pin is still stored and still wins — only the absence of
 a stored choice changed meaning.
+
+### Session 28 (cont.) — the REAL fix: negative offsets made unrepresentable
+Owner reframed it correctly: "the point isnt the -14.7, the point is that
+audios and items are GENERATED with negatives which shouldnt even be the case.
+should it be 0 - whatever positive number?" — yes. A beat's offset is
+`beat.start - seg.start` and is only meaningful in [0, dur]. My previous pass
+fixed one writer (delete_segment) and added a repair; that was whack-a-mole.
+
+FOUR operations hand beats from one segment to another and any of them can
+leave a beat carrying its old segment's absolute times:
+  move_boundary's transfer()  (l.413-417)
+  include_panel's split       (l.534)
+  exclude_panel               (l.581)
+  delete_segment              (l.685)
+The next one added would reintroduce the fault. So the invariant is now
+enforced at save() — the single place the timeline is persisted — via
+normalize(). A negative offset is now UNREPRESENTABLE ON DISK regardless of
+which code path produced it. It is logged as `invariant_repair_on_save` with
+the segment indexes, so the cause stays traceable instead of healing silently.
+
+CONFIRMED the owner's point that this is not just Doctors Rebirth. Local scan:
+  swordmasters-youngest-son_1: 4 of 103 segments offending, ALL TICKED
+    seg 17 -3.689s · seg 24 -5.777s · seg 54 -5.849s · seg 92 +5.849s
+seg 54 and seg 92 are EXACTLY equal and opposite — the signature of two
+segments having swapped a beat.
+
+#### An important correction I had to make mid-implementation
+My first version reseated beats AND grew dur at save time. That broke 5
+narration-group tests. It deserved to: in a narration group several images
+SHARE one sentence and rebalance_group owns how the group's total is split, so
+growing dur at the write boundary silently overrode it and broke the group's
+conserved duration. normalize() now corrects ONLY negative starts and NEVER
+touches durations. Overruns (audio past the end) stay with
+repair_orphaned_beats, an explicit operator action that may legitimately grow
+the window.
+
+Two hardening tests also failed, correctly: they hand-build the broken state
+via se.save() to prove the detector and repair work, and the guard healed it
+first. They now write segments.json raw through a test-local _write_raw()
+helper — coverage kept, no backdoor in production code.
+
+test_storyboard_edit 49 -> 55. Suite 19 files, 0 failing.

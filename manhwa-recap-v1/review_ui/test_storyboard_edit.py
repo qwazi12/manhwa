@@ -308,6 +308,48 @@ def main():
     check("a segment with no beats is a no-op",
               _se._reseat_beats(empty) is False)
 
+    # ---- THE invariant: a negative offset must be unrepresentable on disk
+    # The point is not any one bad value — it is that four different operations
+    # move beats between segments (move_boundary's transfer, include_panel's
+    # split, exclude_panel, delete_segment) and any of them can leave a beat
+    # carrying its old segment's times. Guarding each is whack-a-mole, so the
+    # guard lives at save(), the single place the timeline is persisted.
+    import tempfile as _tf
+    _d = _tf.mkdtemp()
+    os.makedirs(os.path.join(_d, "clips"), exist_ok=True)
+    _corrupt = [{"seg_index": 0, "start": 0.0, "end": 10.0, "dur": 10.0,
+                 "beats": [{"index": 0, "start": -9.0, "end": -3.0, "file": "a.mp3"}]}]
+    _se.save(_d, _corrupt)
+    _got = _se.load(_d)[0]
+    _off = _got["beats"][0]["start"] - _got["start"]
+    check("a negative offset CANNOT be persisted", _off >= 0)
+    check("...the beat keeps its full duration (no narration lost)",
+          round(_got["beats"][0]["end"] - _got["beats"][0]["start"], 3) == 6.0)
+    check("...and the segment still fits its own audio",
+          _se._misfit(_got, _got["beats"]) == 0.0)
+
+    # The OTHER direction is deliberately NOT touched on save: in a narration
+    # group several images share one sentence and rebalance_group owns the
+    # duration split, so growing dur here would override it. Overruns are the
+    # explicit repair's job.
+    _over = [{"seg_index": 0, "start": 0.0, "end": 4.0, "dur": 4.0,
+              "beats": [{"index": 0, "start": 0.0, "end": 9.0, "file": "a.mp3"}]}]
+    _se.save(_d, _over)
+    _got2 = _se.load(_d)[0]
+    check("an overrun is left alone by save (group durations are not ours)",
+          _got2["dur"] == 4.0)
+    check("...but the explicit repair does fix it",
+          _se._reseat_beats(_got2) is True and _got2["dur"] >= 9.0)
+
+    # a healthy timeline must round-trip completely untouched
+    _ok = [{"seg_index": 0, "start": 0.0, "end": 8.0, "dur": 8.0,
+            "beats": [{"index": 0, "start": 0.0, "end": 3.0, "file": "a.mp3"},
+                      {"index": 1, "start": 5.0, "end": 7.0, "file": "b.mp3"}]}]
+    _before = json.dumps(_ok, sort_keys=True)
+    _se.save(_d, _ok)
+    check("a healthy timeline round-trips byte-identical",
+          json.dumps(_se.load(_d), sort_keys=True) == _before)
+
     print(f"\n{len(RESULTS) - len(fails)}/{len(RESULTS)} passed")
     sys.exit(1 if fails else 0)
 

@@ -61,6 +61,18 @@ def _project(tmp):
     return segs
 
 
+def _write_raw(pdir, segs):
+    """Write segments.json WITHOUT se.save()'s invariant guard.
+
+    save() now refuses to persist a beat starting before its segment, which is
+    exactly the state these fixtures must construct to prove the detector and
+    the repair still work. Bypassing the writer here keeps that coverage
+    without putting a backdoor in production code.
+    """
+    with open(se._segs_path(pdir), "w", encoding="utf-8") as f:
+        json.dump(segs, f, indent=2)
+
+
 def main():
     r = []
     tmp = tempfile.mkdtemp(prefix="harden_")
@@ -130,7 +142,7 @@ def main():
 
     segs = se.load(tmp); segs[0]["dur"] = 10.0; segs[0]["end"] = 10.0
     segs[0]["beats"][0]["start"] = -3.0; segs[0]["beats"][0]["end"] = 6.0
-    se.save(tmp, segs)
+    _write_raw(tmp, segs)          # save() would heal this; the detector needs it
     v = se.validate_timeline(tmp)
     r.append(("audio starting before its window is REJECTED (G1)",
               any(e["rule"] == "G1-starts-before-window" for e in v["errors"])))
@@ -250,7 +262,7 @@ def main():
     # repair: hand-break a healthy pair, prove it is put back
     segs = se.load(tmp2)
     segs[0]["beats"], segs[1]["beats"] = segs[1]["beats"], segs[0]["beats"]
-    se.save(tmp2, segs)
+    _write_raw(tmp2, segs)         # ditto: prove the repair still re-binds it
     r.append(("a swapped pair is detected as invalid",
               not se.validate_timeline(tmp2)["ok"]))
     rep = se.repair_slice_binding(tmp2)

@@ -49,11 +49,60 @@ def load(pdir):
         return json.load(f)
 
 
+def normalize(segs):
+    """Enforce the one invariant the timeline must never break:
+    NO BEAT MAY START BEFORE ITS OWN SEGMENT.
+
+    A beat's offset is `beat.start - seg.start`, so it is meaningful only in
+    [0, dur]. A negative offset means narration was scheduled before its own
+    image exists, which cannot be rendered at all.
+
+    This is enforced HERE, at the single place the timeline is persisted,
+    rather than in each operation that moves beats. Four different operations
+    hand beats from one segment to another — move_boundary's transfer,
+    include_panel's split, exclude_panel and delete_segment — and any of them
+    can leave a beat carrying its old segment's absolute times. Fixing them one
+    at a time is whack-a-mole; the next operation added would reintroduce it.
+    Guarding the write makes a negative offset unrepresentable on disk.
+
+    Returns the list of segment indexes it had to correct, so callers can log
+    WHERE the fault came from instead of healing it silently.
+    """
+    corrected = []
+    for seg in segs:
+        beats = seg.get("beats") or []
+        # ONLY the negative case is corrected here, and durations are never
+        # touched. An overrun (audio running past the end) is NOT a fault the
+        # write path may "fix": in a narration group several images share one
+        # sentence and rebalance_group owns how the group's total is split, so
+        # growing dur here would silently override that and break the group's
+        # conserved duration. Overruns are left to repair_orphaned_beats, which
+        # is an explicit operator action.
+        early = [b for b in beats if b["start"] < seg["start"] - 0.001]
+        if not early:
+            continue
+        for b in sorted(beats, key=lambda x: x["start"]):
+            if b["start"] < seg["start"] - 0.001:
+                dur = round(b["end"] - b["start"], 3)
+                b["start"] = round(seg["start"], 3)
+                b["end"] = round(seg["start"] + dur, 3)
+        seg["beats"] = sorted(beats, key=lambda x: x["start"])
+        corrected.append(seg.get("seg_index"))
+    return corrected
+
+
 def save(pdir, segs):
+    # Never persist a timeline that cannot be rendered.
+    corrected = normalize(segs)
     tmp = _segs_path(pdir) + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(segs, f, indent=2)
     os.replace(tmp, _segs_path(pdir))
+    if corrected:
+        # Loud in the log, invisible to the operator: the edit still succeeds,
+        # but the offending segments are named so the cause is traceable.
+        _log(pdir, "invariant_repair_on_save", segs=corrected)
+        _stale(pdir, corrected)
 
 
 def _log(pdir, op, **kw):
