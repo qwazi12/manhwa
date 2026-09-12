@@ -4343,3 +4343,51 @@ Frames 1691 and duration 56.39s identical at every worker count.
 32 vCPU limit, so it should scale at least as well there — but that is
 inference, not production evidence, so the default stays 2. RENDER_WORKERS=4
 is a Railway variable away if the owner wants it after a real render.
+
+### Session 28 (cont.) — PRODUCTION validation of the 2-worker profile
+Owner authorised the target: "rerender Doctors Rebirth".
+
+Note: "chapter-2 (current)" in the projects list WAS doctors-rebirth_1 already
+loaded, so activating it was effectively a no-op — nothing was disrupted.
+
+#### Real baseline, same project, same 8 clips (from the job log)
+doctors-rebirth_1 finalize, 8 clips, 09-09 19:30 => **7.03 min** (1-worker era).
+The whole job history is consistent at ~39-53 s/clip on Railway at 1 worker
+(22 clips 18.75 min, 18 clips 15.00, 76 clips 62.58, 64 clips 41.81), so the
+baseline is repeatable, not a one-off.
+
+#### The production rerender (job bd076fbf0997)
+  status done, 8/8 clips rendered then exported, NO errors
+  WALL CLOCK  224.0s = 3.73 min   vs 7.03 min baseline  =  -47%
+  per clip    52.7s -> 28.0s
+  CPU peak    3.0 vCPU of 32 (9%)        idle before: 0.11
+  MEM peak    1.35 GB of 32 GB (4%)      idle before: 206 MB
+  new export  final_Sep11_08.47PM.mp4
+Logs during the render: no errors, warnings, OOM or kill lines.
+Local predicted -27%; production delivered -47%, because the container has
+32 vCPU while my Mac has 10 contended by the IDE and browser.
+
+#### Output correctness — new export vs the 1-worker export of the SAME clips
+ffprobe, final_Sep09_07.37PM.mp4 (1 worker) vs final_Sep11_08.47PM.mp4 (2):
+  duration 61.921 == 61.921  (delta 0.000s)
+  frames   1857   == 1857
+  30/1 fps · 1920x1080 · h264 · aac · 48000 Hz · 2ch — all identical
+  size 29714665 vs 29712619 (2046 bytes, 0.007% — the known byte-level
+  non-determinism; every property that matters matches)
+  audio present and healthy: mean -20.7 dB, max -1.0 dB
+Narration timing therefore unchanged. 8 of 8 clips present afterwards.
+
+#### A QC flag that is NOT ours
+/api/review reports validation ok=false, seg 18, G1-starts-before-window +
+G3-outside-window. Checked before concluding anything: the OLD 1-worker export
+reports the IDENTICAL two errors, and seg 18 is NOT TICKED — it is not in the
+video at all. Pre-existing timeline data defect, unaffected by the worker
+change. Worth noting separately that validate_timeline reports on segments
+excluded from the video; that is arguably noise, but it is out of scope here
+and was NOT touched.
+
+#### Headroom for 4 workers
+At 2 workers the box ran at 9% CPU and 4% memory. Linear extrapolation puts
+4 workers near 6 vCPU (19%) and ~2.5 GB (8%) — far inside limits. Local
+measurement already showed 4 workers at -21% beyond 2 with identical output.
+Recommending the experiment; still NOT adopted by default.
