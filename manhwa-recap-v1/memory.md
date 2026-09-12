@@ -4832,3 +4832,34 @@ thumbnail validator, 16:9, above the 640px minimum.
 New: thumbnail_studio.py, test_thumbnail_studio.py (85 assertions).
 Suite 21 files, 0 failing. test_edge_routes 39 -> 41 (auto-detected the new
 /thumbconcept route; added to both vercel.json allowlists).
+
+### Session 28 (cont.) — thumbnails invisible / undownloadable: STALE VERCEL EDGE
+Owner: "i cant actually see the images/thumbnails is it a loading problem? also
+cant download". Not loading — ROUTING, and my own process failure.
+
+TIMELINE (decisive):
+  last Vercel production deploy   Sep 11 ~12:44
+  /thumbnail added to allowlist   Sep 11  16:12   (commit 99899ed)
+  /thumbconcept added             Sep 12  11:35   (commit f9fc4f4)
+Both routes were added AFTER the last edge deploy. static/vercel.json is an
+ALLOWLIST WITH NO CATCH-ALL, so an unlisted path 404s at the edge. Railway
+auto-deploys from git; VERCEL DOES NOT. I pushed, watched Railway go green, and
+never ran the manual Vercel deploy — twice.
+
+Symptoms map exactly:
+  concept previews  <img src="/thumbconcept?..."> -> 404 -> no images
+  download link     href="/thumbnail?..."         -> 404 -> no download
+
+FIXED: deployed from review_ui/static with `npx vercel@latest --prod`.
+Deployment manhwa-studio-pt4ggy9ms, Ready, Production.
+
+Diagnostic note for next time: curling the public domain CANNOT distinguish
+"route missing" from "auth required" — the edge middleware matches '/:path*'
+and returns 401 BEFORE routing, so every path looks identical from outside.
+The reliable signal is `npx vercel ls` deploy age vs the commit date of the
+vercel.json change.
+
+ROOT PROCESS FIX: test_edge_routes checks the COMMITTED config, not the
+DEPLOYED one, so it passed 41/41 the whole time production was broken. It now
+PRINTS that blind spot and the exact command to run, every run. This is the
+fourth outage of this family (/segimg, /review, /thumbnail, /thumbconcept).

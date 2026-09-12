@@ -46,6 +46,15 @@ def edge_sources(cfg):
 
 def main():
     r = []
+    # LOUD, because this guard has a blind spot that has now cost four
+    # outages. It checks the vercel.json in the REPO, not the one Vercel is
+    # serving. Railway auto-deploys from git; Vercel DOES NOT. So adding a
+    # backend route plus an allowlist entry looks completely green here while
+    # the live edge still 404s it.
+    print("NOTE: this checks the COMMITTED edge config, not the DEPLOYED one.")
+    print("      After adding a route you must also run, from review_ui/static:")
+    print("          npx vercel@latest --prod")
+    print("      Otherwise the path 404s at the edge (no catch-all exists).\n")
     routes = backend_routes()
     r.append(("server.py routes were discovered", len(routes) >= 5))
 
