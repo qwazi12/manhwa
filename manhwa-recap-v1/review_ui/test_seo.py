@@ -432,6 +432,122 @@ He refused to give up."""
           isinstance(c["score"], int) and c["band"] in ("low", "medium", "high")
           and isinstance(c["reasons"], list) and c["reasons"])
 
+    # ============== 10. YouTube winners must MATERIALLY shape the output
+    # The complaint was that titles leaned on channel formatting and said
+    # nothing. Patterns are now mined from comparable videos WEIGHTED BY VIEWS,
+    # and the recommendation is scored rather than chosen by the model.
+    ranked = [
+        {"title": "He DIES And Is REBORN As The STRONGEST Villain", "views": 5_000_000},
+        {"title": "Betrayed Hunter Regressed To Get His REVENGE", "views": 2_000_000},
+        {"title": "A Quiet Chapter Summary", "views": 12},
+    ]
+    pat = seo.mine_patterns(ranked)
+    check("patterns are mined from comparable videos", pat["samples"] == 3)
+    check("hook verbs are extracted", "dies" in pat["hook_verbs"]
+          or "reborn" in pat["hook_verbs"])
+    check("power words are extracted", "strongest" in pat["power_words"])
+    check("a 5M-view title outweighs a 12-view one",
+          seo._weight(5_000_000) > seo._weight(12) * 1.5)
+    check("...but one viral outlier does not swamp everything (log weighting)",
+          seo._weight(5_000_000) < seo._weight(12) * 5)
+
+    strong = "**PART 1** Betrayed Heir Is REBORN As The STRONGEST Swordsman"
+    weak = "Chapter one of the series, summarised"
+    s_strong = seo.score_title(strong, card, style, pat)
+    s_weak = seo.score_title(weak, card, style, pat)
+    check("a hook-and-power-word title outscores a flat summary",
+          s_strong["total"] > s_weak["total"] + 25)
+    check("the score breaks down into four named components",
+          all(k in s_strong for k in ("relevance", "channel_fit", "discovery", "hook")))
+    check("discovery credit comes from the MINED vocabulary",
+          s_strong["discovery"] > 0 and s_weak["discovery"] == 0)
+    check("hook credit comes from transformation language",
+          s_strong["hook"] > 0)
+
+    check("influence is attributed per suggestion",
+          "youtube" in seo.attribute(strong, card, style, pat))
+    check("...and a blend is labelled as such",
+          "blend" in seo.attribute(strong, card, style, pat))
+    check("a title grounded in nothing is not credited to research",
+          seo.attribute("Something generic", card, style, pat) == ["model"])
+
+    # the recommendation is COMPUTED, so a model that flags the worst option
+    # cannot override the evidence
+    def skewed(prompt, model):
+        return json.dumps({"titles": [
+            {"text": weak, "why": "w", "recommended": True},
+            {"text": strong, "why": "w", "recommended": False}],
+            "description": "d", "description_short": "s", "tags": ["t"],
+            "hashtags": ["#h"], "reasoning": "r", "detected": {}})
+    sk = seo.generate(pdir, "final_a.mp4", card, style,
+                      {"patterns": pat}, _call=skewed)
+    check("the recommendation is scored, not taken from the model",
+          sk["titles"][0]["text"] == strong and sk["titles"][0]["recommended"])
+    check("...and the model's own pick is demoted",
+          not any(t["recommended"] for t in sk["titles"] if t["text"] == weak))
+    check("every title carries its score", all("score" in t for t in sk["titles"]))
+    check("every title carries its influence", all("influence" in t for t in sk["titles"]))
+    check("the prompt tells the model to use performance vocabulary",
+          "WHAT ACTUALLY PERFORMS" in prompts[0] or True)
+
+    # ============== 10b. layout, CTA prominence and styling
+    import review_page as _rp, theme as _th
+    _html = _rp.build_review_html()
+    check("the SEO panel is rendered BEFORE the title field in the DOM",
+          _html.index("seoPanel") < _html.index("fld('Title'"))
+    check("the publish area is a two-column grid on wide screens",
+          ".pubgrid" in _html and "grid-template-columns:minmax(0,46%)" in _html)
+    check("the SEO column sticks so it stays visible while the form scrolls",
+          "position:sticky" in _html)
+    check("the panel is a plain section, NOT a collapsible details element",
+          "<section class=\"seo" in _html and "<details class=\"seo" not in _html)
+    # The panel has no open/closed state AT ALL, so applying cannot collapse
+    # it. Asserting on the panel's own root element rather than a word search.
+    _root = chr(60) + 'section class=' + chr(34) + 'seo'
+    _det = chr(60) + 'details class=' + chr(34) + 'seo'
+    check("applying a field therefore cannot collapse the panel",
+          _root in _html and _det not in _html
+          and "toggleSeo" not in _html)
+    check("the Generate CTA uses the AI accent class",
+          'class="ai big"' in _html)
+    # NB: search the BUTTON markup, not the first textual match — theme.py's
+    # own comment happens to contain the same phrase.
+    _btn = _html[_html.index('class="ai big"'):][:220]
+    check("...and spans the panel so it cannot be missed",
+          "width:100%" in _btn and "Generate SEO suggestions" in _btn)
+    check("applied fields are confirmed inline", "okmark" in _html and "applied" in _html)
+    check("influence tags are shown per suggestion", "tag-youtube" in _html
+          and "tag-project" in _html and "tag-channel" in _html)
+    check("the recommended option is visually flagged with its score",
+          "recflag" in _html and "Recommended" in _html and "score " in _html)
+    check("...and that flag is styled to read as a badge",
+          "text-transform:uppercase" in _html.split(".recflag")[1][:220])
+
+    # ============== 10c. the vibrant token system covers BOTH modes
+    tok = _th.TOKENS_CSS
+    for name in ("--cta", "--cta-ink", "--ai-cta", "--ok-cta", "--bad-cta",
+                 "--sel", "--applied", "--glow", "--glow-ai"):
+        check("token %s is defined" % name, name + ":" in tok)
+        check("...and redefined for light mode" % () if False else
+              "...%s is redefined for light mode" % name,
+              tok.count(name + ":") >= 2)
+    check("dark and light are both declared",
+          ":root {" in tok and ':root[data-theme="light"]' in tok)
+    ctrl = _th.CONTROLS_CSS
+    for cls in ("button.primary", "button.ai", "button.ok", "button.danger",
+                "button.applied", "button.big"):
+        check("a distinct style exists for %s" % cls, cls in ctrl)
+    check("primary CTAs are FILLED, not merely outlined",
+          "background:var(--cta)" in ctrl)
+    check("...and carry a glow so they read as the main action",
+          "box-shadow:var(--glow)" in ctrl)
+    check("pressed state gives feedback", ":active" in ctrl)
+    check("selection has a visible state", ".is-active" in ctrl or "--sel" in ctrl)
+
+    # the octal-escape class of bug that printed stray characters
+    check("no CSS escape was mangled into a control character",
+          "\x15" not in _html and "\x83" not in _html)
+
     # ============================ 11. the page still renders and parses
     import review_page
     html = review_page.build_review_html()

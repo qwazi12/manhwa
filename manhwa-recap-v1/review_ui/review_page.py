@@ -65,28 +65,53 @@ video { width:100%; background:#000; border-radius:8px; display:block; }
 .pill { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 8px;
   border-radius:99px; letter-spacing:.03em; }
 .p-ok { background:var(--okb-bg); color:var(--okb-ink); }
-.seo { border:1px solid var(--rule); border-radius:8px; background:var(--panel2);
-  margin-top:10px; overflow:hidden; }
-.seo > summary { cursor:pointer; padding:9px 12px; font-weight:700; font-size:13px;
-  list-style:none; display:flex; gap:8px; align-items:center; }
-.seo > summary::-webkit-details-marker { display:none; }
-.seo > summary::before { content:'\25B8'; color:var(--ink3); }
-.seo[open] > summary::before { content:'\25BE'; }
-.seo .body { padding:0 12px 12px; }
-.seo h5 { margin:12px 0 5px; font-size:11px; text-transform:uppercase;
-  letter-spacing:.6px; color:var(--ink3); font-weight:700; }
-.seo .opt { border:1px solid var(--rule); border-radius:6px; padding:7px 9px;
-  margin-bottom:6px; background:var(--panel); }
-.seo .opt.rec { border-color:var(--ok); }
-.seo .opt .t { font-weight:600; font-size:13px; line-height:1.4; }
-.seo .opt .w { font-size:11px; color:var(--ink2); margin-top:3px; }
-.seo .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px; }
-.seo pre.box { white-space:pre-wrap; font:inherit; font-size:12px; background:var(--panel);
-  border:1px solid var(--rule); border-radius:6px; padding:8px; margin:0;
+.pubgrid { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
+@media (min-width:1100px) { .pubgrid { grid-template-columns:minmax(0,46%) minmax(0,54%); } }
+.pubcol { min-width:0; }
+@media (min-width:1100px) { .seocol { position:sticky; top:12px; align-self:start;
+  max-height:calc(100vh - 24px); overflow:auto; } }
+.colhead { font-size:11px; text-transform:uppercase; letter-spacing:.7px;
+  color:var(--ink3); margin:0 0 8px; font-weight:700; }
+/* The SEO module carries the AI accent throughout so generated material is
+   never mistaken for the operator's own final values. */
+.seo { border:1px solid var(--ai); border-radius:10px; background:var(--panel);
+  box-shadow:var(--glow-ai); overflow:hidden; }
+.seo.stale { border-color:var(--warn); box-shadow:none; }
+.seohead { display:flex; gap:9px; align-items:center; padding:11px 13px;
+  background:linear-gradient(90deg, color-mix(in srgb, var(--ai) 22%, transparent), transparent);
+  border-bottom:1px solid var(--rule); }
+.seotitle { font-weight:800; font-size:14px; letter-spacing:.01em; }
+.seo .body { padding:12px 13px 14px; }
+.seosub { margin:14px 0 6px; font-size:11px; text-transform:uppercase;
+  letter-spacing:.7px; color:var(--ai); font-weight:800;
+  display:flex; align-items:center; gap:8px; }
+.seosub:first-of-type { margin-top:4px; }
+.okmark { color:var(--applied); font-size:10px; font-weight:700;
+  text-transform:none; letter-spacing:0; }
+.seo .opt { border:1px solid var(--rule); border-radius:8px; padding:9px 10px;
+  margin-bottom:8px; background:var(--panel2); }
+.seo .opt.rec { border-color:var(--ok); box-shadow:0 0 0 1px var(--ok) inset; }
+.recflag { font-size:10px; font-weight:800; color:var(--ok);
+  text-transform:uppercase; letter-spacing:.5px; margin-bottom:3px; }
+.seo .opt .t { font-weight:700; font-size:13px; line-height:1.42; }
+.seo .opt .w { font-size:11px; color:var(--ink2); margin-top:4px; }
+.infl { display:flex; gap:5px; align-items:center; flex-wrap:wrap; margin-top:6px; }
+.infl .tag { font-size:9px; font-weight:800; text-transform:uppercase;
+  letter-spacing:.4px; border-radius:4px; padding:1px 5px; }
+.tag-project { background:var(--sa-bg); color:var(--sa-ink); }
+.tag-channel { background:var(--warnb-bg); color:var(--warnb-ink); }
+.tag-youtube { background:var(--badb-bg); color:var(--badb-ink); }
+.tag-blend   { background:var(--okb-bg); color:var(--okb-ink); }
+.tag-model   { background:var(--gray-bg); color:var(--gray-ink); }
+.bars { font-size:10px; color:var(--ink3); margin-left:auto; }
+.seo .row { display:flex; gap:7px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+.seo pre.box { white-space:pre-wrap; font:inherit; font-size:12px; background:var(--panel2);
+  border:1px solid var(--rule); border-radius:7px; padding:9px; margin:0;
   max-height:190px; overflow:auto; }
 .seo .chip { display:inline-block; font-size:11px; background:var(--sa-bg);
-  color:var(--sa-ink); border-radius:10px; padding:1px 8px; margin:2px 3px 0 0; }
-.seo .src { font-size:11px; color:var(--ink2); line-height:1.6; }
+  color:var(--sa-ink); border:1px solid color-mix(in srgb, var(--sa-ink) 30%, transparent);
+  border-radius:11px; padding:1px 9px; margin:2px 3px 0 0; }
+.seo .src { font-size:11px; color:var(--ink2); line-height:1.65; }
 .seo .len { font-size:10px; color:var(--ink3); }
 .dropzone { border:2px dashed var(--btn-edge); border-radius:8px; padding:14px;
   background:var(--panel2); cursor:pointer; display:flex; gap:12px;
@@ -343,6 +368,13 @@ function publishCard() {
       'Changes save as you make them; <b>Download upload package</b> gives you the ' +
       'same details as a file if you would rather upload by hand.' +
     '</div>' +
+    '<div class="pubgrid">' +
+    // SEO first in the DOM: it is the first decision in the workflow, and on
+    // a wide screen it sits BESIDE the fields so applying a suggestion shows
+    // up without scrolling away from it.
+    '<div class="pubcol seocol">' + seoPanel(dis) + '</div>' +
+    '<div class="pubcol fieldcol">' +
+    '<h3 class="colhead">Final metadata \u2014 what actually gets published</h3>' +
     fld('Title', '<input id="p_title" maxlength="' + (PUB.limits || {}).title +
         '" value="' + esc(md.title) + '" onchange="savePublish()"' + dis + '>') +
     fld('Description — becomes the video description',
@@ -365,12 +397,12 @@ function publishCard() {
     '<label style="display:block;margin:8px 0"><input type="checkbox" id="p_synth"' +
       (md.synthetic_disclosure ? ' checked' : '') + ' onchange="savePublish()"' + dis +
       '> Contains AI-generated narration — disclosed on upload</label>' +
-    seoPanel(dis) +
     '<div class="actions">' +
-      '<button onclick="savePublish()"' + dis + '>Save</button>' +
+      '<button class="primary" onclick="savePublish()"' + dis + '>Save</button>' +
       '<button onclick="downloadPackage()"' + dis + '>⬇ Download upload package</button>' +
       '<span id="p_saved" class="hint"></span>' +
-    '</div>' + problems + '</div>';
+    '</div>' + problems +
+    '</div></div></div>';
 }
 
 function targetPicker(md, dis) {
@@ -398,110 +430,135 @@ function fld(label, control) {
 }
 
 function seoPanel(dis) {
-  // Collapsible so it never crowds the publish form. Suggestions are DISPLAY
-  // only — the fields above stay the editable source of truth, and nothing
-  // here writes to them without a click on an Apply button.
+  // Always visible, never collapsed: this is the first step of the workflow,
+  // not an appendix. It previously sat below every field as a <details>, so
+  // the operator had to scroll past the whole form, generate, then scroll back
+  // up to see what changed.
   var d = PUB || {}, seo = d.seo, yt = d.youtube_configured;
-  var head = '<summary>\u2728 SEO Copilot' +
-    (seo ? (seo.stale
-        ? ' <span class="pill p-warn">stale — cut changed</span>'
-        : ' <span class="pill p-ok">' + esc(((seo.confidence || {}).band || '?')) +
-          ' confidence</span>')
-      : ' <span class="pill p-neutral">not generated</span>') + '</summary>';
+  var badge = seo
+    ? (seo.stale ? '<span class="pill p-warn">stale \u2014 cut changed</span>'
+                 : '<span class="pill p-ok">' +
+                   esc(((seo.confidence || {}).band || '?')) + ' confidence</span>')
+    : '<span class="pill p-neutral">not generated</span>';
+  var head = '<div class="seohead"><span class="seotitle">\u2728 SEO Copilot</span>' +
+    badge + '</div>';
+
   if (!seo) {
-    return '<details class="seo">' + head + '<div class="body">' +
-      '<div class="hint">Generates titles, a description, tags and hashtags from ' +
-      'this chapter\u2019s own narration and panels, packaged in the channel\u2019s ' +
-      'measured style.' + (yt ? '' : ' <b>No YouTube API key is configured</b>, so ' +
-      'channel style and competitor research are unavailable and confidence will be lower.') +
-      '</div><div class="row"><button class="primary" onclick="genSeo()"' + dis +
-      '>Generate SEO suggestions</button><span id="seo_msg" class="hint"></span>' +
-      '</div></div></details>';
+    return '<section class="seo">' + head + '<div class="body">' +
+      '<p class="hint" style="margin-top:0">Writes titles, a description, tags and ' +
+      'hashtags from this chapter\u2019s own narration and panels \u2014 shaped like ' +
+      'your channel, worded like what performs in the niche.' +
+      (yt ? '' : ' <b>No YouTube API key is configured</b>, so channel style and ' +
+      'performance research are unavailable and confidence will be lower.') + '</p>' +
+      '<button class="ai big" onclick="genSeo()"' + dis +
+      ' style="width:100%">\u2728 Generate SEO suggestions</button>' +
+      '<div id="seo_msg" class="hint" style="margin-top:8px"></div>' +
+      '</div></section>';
   }
+
   var c = seo.confidence || {}, det = seo.detected_from || {}, src = seo.sources || {};
+  var ap = seo.applied || {};
+  function mark(f) {
+    return ap[f] ? '<span class="okmark">\u2713 applied</span>' : '';
+  }
   var body = '';
   if (seo.stale) {
-    body += '<div class="banner b-warn">These suggestions were generated for an ' +
+    body += '<div class="banner b-warn">These suggestions were written for an ' +
       'earlier cut. Regenerate so the copy matches what the video now shows.</div>';
   }
-  body += '<h5>Detected from the ingest</h5><div class="src">' +
+
+  body += '<div class="seosub">Detected from the ingest</div><div class="src">' +
     '<b>' + esc(det.series || 'unknown series') + '</b>' +
     (det.chapter ? ' \u00b7 chapter ' + esc(det.chapter) : '') +
     (det.source_url ? ' \u00b7 <a href="' + esc(det.source_url) +
       '" target="_blank" rel="noopener">source</a>' : '') +
     ((det.genre || []).length ? '<br>genre: ' + esc(det.genre.join(', ')) : '') +
     ((det.characters || []).length ? '<br>characters: ' + esc(det.characters.join(', ')) : '') +
-    '<br>' + (det.n_segments || 0) + ' segments \u00b7 ' + (det.n_panels || 0) +
-    ' panels \u00b7 ' + (det.narration_chars || 0) + ' chars of narration</div>';
+    '</div>';
   if ((det.gaps || []).length) {
-    body += '<div class="hint" style="margin-top:5px">Missing: ' +
-      esc(det.gaps.join('; ')) + '</div>';
+    body += '<div class="hint" style="margin-top:4px">Missing: ' + esc(det.gaps.join('; ')) + '</div>';
   }
 
-  body += '<h5>Titles</h5>';
+  body += '<div class="seosub">Titles ' + mark('title') + '</div>';
   (seo.titles || []).forEach(function (t, i) {
+    var sc = t.score || {};
     body += '<div class="opt' + (t.recommended ? ' rec' : '') + '">' +
-      '<div class="t">' + (t.recommended ? '\u2b50 ' : '') + esc(t.text) + '</div>' +
+      (t.recommended ? '<div class="recflag">\u2b50 Recommended \u00b7 score ' +
+        (sc.total || 0) + '/100</div>' : '') +
+      '<div class="t">' + esc(t.text) + '</div>' +
       (t.why ? '<div class="w">' + esc(t.why) + '</div>' : '') +
-      '<div class="row"><button onclick="applySeo(&quot;title&quot;, ' + i + ')"' + dis +
+      '<div class="infl">' + (t.influence || []).map(function (x) {
+        return '<span class="tag tag-' + esc(x) + '">' + esc(x) + '</span>'; }).join('') +
+      (sc.total != null ? '<span class="bars" title="relevance ' + sc.relevance +
+        ' / channel ' + sc.channel_fit + ' / discovery ' + sc.discovery +
+        ' / hook ' + sc.hook + '">rel ' + sc.relevance + ' \u00b7 ch ' + sc.channel_fit +
+        ' \u00b7 disc ' + sc.discovery + ' \u00b7 hook ' + sc.hook + '</span>' : '') +
+      '</div>' +
+      '<div class="row"><button class="' + (t.recommended ? 'primary' : '') +
+      '" onclick="applySeo(&quot;title&quot;, ' + i + ')"' + dis +
       '>Use this title</button><span class="len">' + t.text.length + '/100</span></div></div>';
   });
 
-  body += '<h5>Description</h5><pre class="box">' + esc(seo.description || '') + '</pre>' +
-    '<div class="row"><button onclick="applySeo(&quot;description&quot;)"' + dis +
+  body += '<div class="seosub">Description ' + mark('description') + '</div>' +
+    '<pre class="box">' + esc(seo.description || '') + '</pre>' +
+    '<div class="row"><button class="primary" onclick="applySeo(&quot;description&quot;)"' + dis +
     '>Apply description</button>' +
     (seo.description_short ? '<button onclick="applySeo(&quot;description&quot;, null, &quot;short&quot;)"' +
       dis + '>Apply short variant</button>' : '') +
     '<span class="len">' + (seo.description || '').length + '/5000</span></div>';
-  if (seo.description_short) {
-    body += '<div class="hint" style="margin-top:6px">Short variant: ' +
-      esc(seo.description_short.slice(0, 240)) + '</div>';
-  }
 
-  body += '<h5>Tags</h5><div>' +
+  body += '<div class="seosub">Tags ' + mark('tags') + '</div><div>' +
     (seo.tags || []).map(function (t) { return '<span class="chip">' + esc(t) + '</span>'; }).join('') +
-    '</div><div class="row"><button onclick="applySeo(&quot;tags&quot;)"' + dis +
-    '>Apply tags</button><span class="len">' +
-    (seo.tags || []).join(',').length + '/500 chars</span></div>';
+    '</div><div class="row"><button class="primary" onclick="applySeo(&quot;tags&quot;)"' + dis +
+    '>Apply tags</button><span class="len">' + (seo.tags || []).join(',').length +
+    '/500 chars</span></div>';
 
-  body += '<h5>Hashtags</h5><div>' +
+  body += '<div class="seosub">Hashtags ' + mark('hashtags') + '</div><div>' +
     (seo.hashtags || []).map(function (t) { return '<span class="chip">' + esc(t) + '</span>'; }).join('') +
-    '</div><div class="row"><button onclick="applySeo(&quot;hashtags&quot;)"' + dis +
+    '</div><div class="row"><button class="primary" onclick="applySeo(&quot;hashtags&quot;)"' + dis +
     '>Add to description</button></div>';
 
-  body += '<h5>Why these</h5><div class="src">' + esc(seo.reasoning || '') + '</div>';
+  body += '<div class="seosub">Why these</div><div class="src">' +
+    esc(seo.reasoning || '') + '</div>';
 
-  body += '<h5>Confidence</h5><div class="src"><b>' + esc(c.band || '?') + '</b> (' +
-    (c.score || 0) + '/100)<br>' + esc((c.reasons || []).join(' \u00b7 ')) + '</div>';
-
-  body += '<h5>Sources</h5><div class="src">';
+  var pat = (src.research || {}).patterns_used || {};
+  body += '<div class="seosub">Confidence &amp; sources</div><div class="src">' +
+    '<b>' + esc(c.band || '?') + '</b> (' + (c.score || 0) + '/100) \u00b7 ' +
+    esc((c.reasons || []).join(' \u00b7 ')) + '<br>';
   if (src.project) {
-    body += '\u2022 ' + esc(src.project.label) + ' \u2014 ' + esc(src.project.detail) +
+    body += '\u2022 ' + esc(src.project.detail) +
       (src.project.url ? ' <a href="' + esc(src.project.url) +
-        '" target="_blank" rel="noopener">link</a>' : '') + '<br>';
+        '" target="_blank" rel="noopener">source</a>' : '') + '<br>';
   }
   if (src.channel) {
     body += '\u2022 ' + esc(src.channel.label) + ' \u2014 ' + esc(src.channel.detail) +
       (src.channel.error ? ' <span class="hint bad">' + esc(src.channel.error) + '</span>' : '') + '<br>';
   }
   if (src.research) {
-    body += '\u2022 ' + esc(src.research.label) + ' \u2014 ' + esc(src.research.detail) +
+    body += '\u2022 ' + esc(src.research.detail) +
       (src.research.query ? ' (query: ' + esc(src.research.query) + ')' : '') +
       (src.research.error ? ' <span class="hint bad">' + esc(src.research.error) + '</span>' : '');
-    ((src.research.top) || []).slice(0, 4).forEach(function (v) {
+    ((src.research.top) || []).slice(0, 3).forEach(function (v) {
       body += '<br>&nbsp;&nbsp;\u21b3 <a href="' + esc(v.url) + '" target="_blank" ' +
-        'rel="noopener">' + esc(v.title.slice(0, 62)) + '</a> \u00b7 ' +
+        'rel="noopener">' + esc(v.title.slice(0, 54)) + '</a> \u00b7 ' +
         (v.views || 0).toLocaleString() + ' views';
     });
   }
+  if ((seo.sanitized || []).length) {
+    body += '<br><span class="hint">Removed before you saw it: ' +
+      esc(seo.sanitized.join(', ')) + ' \u2014 the copilot cannot know your links ' +
+      'or where anything happens in the video.</span>';
+  }
   body += '</div>';
-  body += '<div class="row" style="margin-top:10px">' +
-    '<button onclick="genSeo()"' + dis + '>\u21bb Regenerate</button>' +
-    '<span class="hint">Regenerating replaces the suggestions above. It never ' +
-    'touches the fields you have already edited.</span>' +
-    '<span id="seo_msg" class="hint"></span></div>';
-  return '<details class="seo"' + (seo.stale ? ' open' : '') + '>' + head +
-    '<div class="body">' + body + '</div></details>';
+
+  body += '<div class="row" style="margin-top:12px">' +
+    '<button class="ai" onclick="genSeo()"' + dis + '>\u21bb Regenerate</button>' +
+    '<span id="seo_msg" class="hint"></span></div>' +
+    '<div class="hint" style="margin-top:5px">Regenerating replaces the ' +
+    'suggestions here. It never touches fields you have already edited.</div>';
+
+  return '<section class="seo' + (seo.stale ? ' stale' : '') + '">' + head +
+    '<div class="body">' + body + '</div></section>';
 }
 
 async function genSeo() {
@@ -751,7 +808,7 @@ function publishNowCard() {
     body = '<div class="hint">Ready. This will upload the video to Outstand and ' +
       'post it to the selected account(s) as <b>' + esc(ELIG.effective_privacy || 'private') +
       '</b>.</div>';
-    actions = '<button class="ok" onclick="doPublish()">▶ Publish now</button>';
+    actions = '<button class="ok big" onclick="doPublish()">▶ Publish now</button>';
   }
 
   var badge = st === 'published' ? pill('published', 'p-ok')

@@ -365,12 +365,168 @@ def research(client, card, max_results=10):
         "ok": True,
         "n": len(ranked),
         "patterns": {**analyze_titles(titles),
+                     **mine_patterns(ranked),
                      "common_phrases": [g for g, c in grams.most_common(12) if c >= 2]},
         "top": [{"title": h["title"], "channel": h["channel"],
                  "views": h.get("views", 0),
                  "url": "https://www.youtube.com/watch?v=" + (h.get("video_id") or "")}
                 for h in ranked[:6]],
     }
+
+
+# =================================================== 3b. WINNER PATTERNS
+# The vocabulary that actually drives recap discovery. Mined FROM results
+# rather than hardcoded as taste — the lexicon below only decides which
+# matches get counted as "hook language", not what the copy says.
+HOOK_VERBS = [
+    "dies", "died", "killed", "reborn", "reincarnat", "regress", "returns",
+    "returned", "betray", "becomes", "became", "awakens", "awakened", "unlocks",
+    "gains", "transform", "rises", "hides", "reveals", "destroys", "defeats",
+    "survives", "escapes", "inherits", "summoned", "trapped", "abandoned",
+    "bullied", "mocked", "underestimated", "humiliated", "sacrific",
+]
+POWER_WORDS = [
+    "strongest", "ultimate", "overpowered", "op", "hidden", "secret", "legendary",
+    "supreme", "greatest", "useless", "weakest", "genius", "god", "max", "sss",
+    "ss-class", "s-class", "cheat", "system", "level", "rank", "forbidden",
+    "ancient", "immortal", "apocalypse", "villain", "revenge",
+]
+
+
+def _weight(views):
+    """A 16M-view video should inform packaging more than a 1k one, but not
+    1,600x more — log keeps one viral outlier from dictating everything."""
+    import math
+    return 1.0 + math.log10(max(views, 1) + 1)
+
+
+def mine_patterns(ranked):
+    """Packaging signals from comparable videos, weighted by real views.
+
+    Returns COUNTS and RANKED VOCABULARY, never titles to reuse. The generator
+    is given this instead of the raw list precisely so it cannot copy: there is
+    nothing here to copy from.
+    """
+    ranked = [r for r in (ranked or []) if r.get("title")]
+    if not ranked:
+        return {"samples": 0}
+    hooks, powers, openers, grams = (collections.Counter() for _ in range(4))
+    lens, caps, nums = [], 0, 0
+    for r in ranked:
+        t = r["title"]
+        w = _weight(r.get("views", 0))
+        low = t.lower()
+        lens.append(len(t))
+        if re.search(r"\b[A-Z]{3,}\b", t):
+            caps += 1
+        if re.search(r"\b(part|pt|ep|episode|chapter)\s*\d", t, re.I):
+            nums += 1
+        for v in HOOK_VERBS:
+            if v in low:
+                hooks[v] += w
+        for v in POWER_WORDS:
+            if re.search(r"\b" + re.escape(v), low):
+                powers[v] += w
+        first = _words(t)[:3]
+        if first:
+            openers[" ".join(x.lower() for x in first[:2])] += w
+        toks = [x.lower() for x in _words(t)]
+        for n in (2, 3):
+            for i in range(len(toks) - n + 1):
+                g = " ".join(toks[i:i + n])
+                if not all(x in _STOP for x in toks[i:i + n]):
+                    grams[g] += w
+    n = len(ranked)
+    return {
+        "samples": n,
+        "avg_length": round(sum(lens) / n),
+        "pct_allcaps": round(100 * caps / n),
+        "pct_part_number": round(100 * nums / n),
+        # ranked by view-weighted frequency, so these ARE the winning words
+        "hook_verbs": [h for h, _ in hooks.most_common(10)],
+        "power_words": [p for p, _ in powers.most_common(12)],
+        "opening_patterns": [o for o, _ in openers.most_common(6)],
+        "discovery_phrases": [g for g, c in grams.most_common(18) if c > 1.5][:14],
+        "median_views": sorted(r.get("views", 0) for r in ranked)[n // 2],
+    }
+
+
+def score_title(text, card, style, patterns):
+    """Rank a candidate on the four things that actually decide a recap title.
+
+    Exposed as components rather than one number so the panel can SHOW why a
+    title was recommended instead of asserting it.
+    """
+    t = (text or "").strip()
+    low = t.lower()
+    if not t:
+        return {"total": 0}
+
+    # 1. Project relevance — is this about OUR video, not a generic recap?
+    terms = [w for w in ((card.get("characters") or []) +
+                         (card.get("key_terms") or [])) if len(w) > 3]
+    hit = sum(1 for w in terms if w.lower() in low)
+    relevance = min(30, hit * 10)
+    if (card.get("series") or "").lower() in low:
+        relevance = min(30, relevance + 6)
+
+    # 2. Channel fit — measured, not assumed
+    st = (style or {}).get("titles", {}) or {}
+    fit = 0
+    if st.get("samples"):
+        if re.match(r"^\s*(\*\*[^*]+\*\*|\*[^*]+\*|\([^)]*\))", t):
+            fit += 10 if st.get("pct_leading_marker", 0) >= 50 else 2
+        if re.search(r"\b[A-Z]{3,}\b", t):
+            fit += 8 if st.get("pct_allcaps_emphasis", 0) >= 50 else 2
+        target = st.get("avg_length") or 70
+        fit += max(0, 7 - abs(len(t) - target) // 8)
+    else:
+        fit = 8                                   # no signal: neutral, not zero
+    fit = min(25, fit)
+
+    # 3. Discovery power — vocabulary that performs in the niche
+    pw = patterns or {}
+    disc = 0
+    for p in (pw.get("power_words") or [])[:12]:
+        if re.search(r"\b" + re.escape(p), low):
+            disc += 4
+    for g in (pw.get("discovery_phrases") or [])[:14]:
+        if g in low:
+            disc += 3
+    discovery = min(25, disc)
+
+    # 4. Hook strength — transformation/stakes language
+    hk = sum(4 for v in (pw.get("hook_verbs") or HOOK_VERBS)[:10] if v in low)
+    if re.search(r"\b(but|until|after|when|because)\b", low):
+        hk += 3                                   # a turn implies a story
+    hook = min(20, hk)
+
+    total = relevance + fit + discovery + hook
+    return {"total": int(total), "relevance": int(relevance), "channel_fit": int(fit),
+            "discovery": int(discovery), "hook": int(hook)}
+
+
+def attribute(text, card, style, patterns):
+    """Where a suggestion's language came from — shown to the operator."""
+    low = (text or "").lower()
+    src = []
+    terms = [w for w in ((card.get("characters") or []) +
+                         (card.get("key_terms") or [])) if len(w) > 3]
+    if any(w.lower() in low for w in terms) or (card.get("series") or "").lower() in low:
+        src.append("project")
+    st = (style or {}).get("titles", {}) or {}
+    if st.get("samples") and (
+            re.match(r"^\s*(\*\*|\*|\()", text or "") or
+            re.search(r"\b[A-Z]{3,}\b", text or "")):
+        src.append("channel")
+    pw = patterns or {}
+    if any(re.search(r"\b" + re.escape(p), low) for p in (pw.get("power_words") or [])[:12]) \
+       or any(g in low for g in (pw.get("discovery_phrases") or [])[:14]) \
+       or any(v in low for v in (pw.get("hook_verbs") or [])[:10]):
+        src.append("youtube")
+    if len(src) >= 2:
+        src.append("blend")
+    return src or ["model"]
 
 
 # ========================================================== 4. CONFIDENCE
@@ -463,16 +619,25 @@ THE CHANNEL'S MEASURED STYLE (counted from this channel's real uploads — match
 this voice, it is the house style):
 {style}
 
-COMPARABLE RECAPS (aggregate patterns only, for discovery vocabulary):
+WHAT ACTUALLY PERFORMS IN THIS NICHE (mined from comparable recaps and
+weighted by real view counts — this is the discovery evidence, use it hard):
 {research}
 
 RULES
 - Ground every claim in THE VIDEO. If something is not in the narration or
   panel data, do not state it. Never invent characters, plot points, or a
   different series.
-- Match the channel's measured title shape: the percentages above are real.
-  If the channel rarely puts the series name in the title, you should not
+- Match the channel's measured title SHAPE (part marker, ALLCAPS emphasis,
+  length). If the channel rarely names the series in the title, you should not
   either — the series name belongs in tags and the description.
+- But the WORDS should come from what performs. Build each title around the
+  hook verbs and power words listed under WHAT ACTUALLY PERFORMS: a concrete
+  transformation or stake (dies / regressed / betrayed / becomes / unlocks /
+  underestimated), not a neutral summary. Channel style is the format;
+  performance vocabulary is the content. Vary the angle across the options —
+  do not submit four rewrites of one sentence.
+- Tags and hashtags must likewise mix project terms, alias forms, AND the
+  discovery phrases listed above — not a generic keyword list.
 - Write ORIGINAL titles. Never reuse a competitor's title or a distinctive
   phrase from one. Learn the shape, not the words.
 - Titles must be <= {tmax} characters.
@@ -592,7 +757,7 @@ def sanitize_description(text, card):
     return re.sub(r"\n{3,}", "\n\n", out).strip(), sorted(set(dropped))
 
 
-def _clamp(out, card):
+def _clamp(out, card, style=None, patterns=None):
     """Enforce the hard limits in code. A model that drifts past YouTube's
     caps would otherwise produce metadata the publish step silently rejects."""
     titles = []
@@ -601,13 +766,17 @@ def _clamp(out, card):
         if txt:
             titles.append({"text": txt, "why": (t.get("why") or "").strip(),
                            "recommended": bool(t.get("recommended"))})
-    if titles and not any(t["recommended"] for t in titles):
-        titles[0]["recommended"] = True
-    seen = False
-    for t in titles:                       # exactly one recommendation
-        if t["recommended"] and seen:
-            t["recommended"] = False
-        seen = seen or t["recommended"]
+    # The RECOMMENDATION is computed, not taken from the model. Its own pick
+    # reflected the prompt's emphasis rather than measurable strength, which is
+    # how the suggestions ended up sounding channel-shaped but generic.
+    for t in titles:
+        t["score"] = score_title(t["text"], card, style, patterns)
+        t["influence"] = attribute(t["text"], card, style, patterns)
+        t["recommended"] = False
+    if titles:
+        best = max(range(len(titles)), key=lambda i: titles[i]["score"]["total"])
+        titles[best]["recommended"] = True
+    titles.sort(key=lambda t: -t["score"]["total"])
 
     tags, total = [], 0
     for tag in (out.get("tags") or []):
@@ -674,4 +843,4 @@ def generate(pdir, name, card, style, res, model=None, _call=None, usage=None):
         else:
             resp = do()
         raw = resp.text or ""
-    return _clamp(_parse(raw), card)
+    return _clamp(_parse(raw), card, style, (res or {}).get("patterns"))

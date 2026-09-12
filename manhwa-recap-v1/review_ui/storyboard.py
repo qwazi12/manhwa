@@ -428,8 +428,12 @@ body {{ font-family: -apple-system, Helvetica, sans-serif; margin: 0 0 0 64px; b
 header {{ position: sticky; top:0; z-index:5; background:var(--panel); color:var(--ink); padding:10px 18px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--rule); }}
 header .stat b {{ display:block; font-size:15px; color:var(--ink); }} header .stat {{ font-size:11px; color:var(--ink3); }}
 .usage {{ font-size:11px; color:var(--ok); line-height:1.5; }}
-#approveBtn {{ margin-left:auto; background:#8d6e63; border:0; color:#fff; padding:10px 16px; border-radius:6px; font-weight:700; cursor:pointer; }}
-#approveBtn.on {{ background:#2e7d32; }}
+#approveBtn {{ margin-left:auto; background:var(--cta); border:1px solid var(--cta);
+  color:var(--cta-ink); padding:11px 18px; border-radius:8px; font-weight:800;
+  font-size:14px; cursor:pointer; box-shadow:var(--glow); letter-spacing:.01em; }}
+#approveBtn:hover {{ background:var(--cta-hover); border-color:var(--cta-hover); }}
+#approveBtn.on {{ background:var(--ok-cta); border-color:var(--ok-cta);
+  color:var(--ok-cta-ink); box-shadow:none; }}
 #pipebar {{ position:sticky; top:52px; z-index:49; background:var(--panel2); color:var(--ink2); font-size:12px;
   display:flex; gap:18px; align-items:center; padding:7px 18px; border-bottom:1px solid var(--rule); }}
 #pipebar b {{ color:var(--ink); }}
@@ -494,10 +498,11 @@ tr.gray td.script {{ background:var(--gray-bg); color:var(--gray-ink); }}
 .cropb.tight {{ background:var(--tight-bg); color:var(--tight-ink); font-weight:600; }}
 .cropb.blocked {{ background:var(--badb-bg); color:var(--badb-ink); font-weight:700; }}
 .cropb.full {{ background:var(--panel2); color:var(--ink3); }}
-.cropact {{ display:block; width:100%; margin-top:3px; font-size:10px; padding:2px 3px;
+.cropact {{ display:block; width:100%; margin-top:3px; font-size:10px; padding:3px 4px;
+  border-color:var(--warn); color:var(--warn); background:transparent; font-weight:700;
   border-radius:3px; }}
 
-.cropact.alt {{ color:var(--ink3); }}
+.cropact.alt {{ color:var(--ink3); border-color:var(--rule); font-weight:600; }}
 .segblock.over {{ outline:2px dashed var(--accent); }}
 td.timing.dropok {{ outline:3px dashed var(--ok); outline-offset:-3px; background:var(--okb-bg); }}
 .segblock[draggable] {{ cursor:grab; }}

@@ -4714,3 +4714,61 @@ RIGHTS NOTE (raised twice, owner proceeded): CLAUDE.md says content is from
 unlicensed aggregators, internal R&D only, with Stage 7 gating required before
 anything public. This feature optimises public discovery. Owner's call; not
 raising it again.
+
+### Session 28 (cont.) — SEO upgrade + Publish Prep rework + vibrant visual pass
+Owner put the rights question on the backburner until they raise it; not
+mentioned again.
+
+Screenshots read from ~/Desktop (attachments still not reaching me). They
+confirmed three things precisely:
+ - SEO Copilot sat BELOW every field in Publish Prep (title, description, tags,
+   category, privacy, publish-to, schedule, playlist, thumbnail, checkboxes,
+   THEN the panel) — so generate meant scrolling down, then back up.
+ - Every button shared one dull slate surface: "Use this title" looked
+   identical to "Choose file".
+ - The panel header rendered as "BE ✨ SEO Copilot" — a bug.
+
+#### The "BE" bug — fifth escaping mistake of the same family
+content:'\25B8' inside a NON-raw Python string: Python read \25 as an OCTAL
+escape (0x15 control char) and left "B8" visible. Same class as the \203A
+chevron. FIXED with the literal characters ▸ ▾. Also re-broke a test file the
+same way mid-session and fixed it by removing the nesting (chr(34)) rather than
+counting backslashes. The standing lesson holds: REMOVE the escape.
+
+#### SEO intelligence — the actual complaint
+Titles leaned on channel FORMAT and said nothing. Now:
+ - mine_patterns() extracts hook verbs, power words, opening patterns and
+   discovery phrases from comparable videos, WEIGHTED BY VIEWS via log10 so a
+   16M-view result informs packaging more than a 1k one without dictating it.
+ - score_title() ranks candidates on four components: project relevance (30),
+   channel fit (25), discovery power (25), hook strength (20).
+ - THE RECOMMENDATION IS NOW COMPUTED, not taken from the model. Its own pick
+   reflected prompt emphasis rather than measurable strength.
+ - attribute() labels each suggestion project / channel / youtube / blend, shown
+   as coloured tags in the panel.
+ - Prompt reworked: channel style is explicitly "the format", performance
+   vocabulary is "the content", and options must vary their angle.
+
+#### Publish Prep layout
+Two-column grid at >=1100px: SEO Copilot LEFT (sticky, scrolls independently),
+final metadata RIGHT. Single column below that, SEO still first. The panel is a
+plain <section>, no longer <details> — it has no open/closed state at all, so
+applying cannot collapse it. Per-field "✓ applied" marks.
+
+#### Vibrant token system (dark + light)
+New tokens: --cta/--cta-ink/--cta-hover, --ai-cta/--ai-ink, --ok-cta, --bad-cta,
+--sel, --applied, --glow, --glow-ai. Control hierarchy: filled+glow = primary,
+bordered = secondary, plain = information. button.ai carries a distinct violet
+so AI-generated material is never mistaken for the operator's final values.
+approveBtn went from a muted brown (#8d6e63) to a glowing cyan CTA; .cropact
+("use full panel") from a hairline ghost to an amber outline that fills on hover.
+
+CONTRAST MEASURED, not eyeballed: first light-mode attempt FAILED 3 checks —
+white on #0a84ff is only 3.65:1 at button size. Computed the passing value
+(#0a66d6 = 5.41 on white, 4.61 on panel2) and applied it. Final audit over 3544
+text nodes: dark 0 failing AA, light 0 failing AA.
+
+Verified in Chrome: two columns render 817px/943px, SEO precedes the fields in
+the DOM, Generate CTA present, applied marks and influence tags render.
+
+test_seo.py 101 -> 159. Suite 20 files, 0 failing.
