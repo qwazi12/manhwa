@@ -4772,3 +4772,63 @@ Verified in Chrome: two columns render 817px/943px, SEO precedes the fields in
 the DOM, Generate CTA present, applied marks and influence tags render.
 
 test_seo.py 101 -> 159. Suite 20 files, 0 failing.
+
+### Session 28 (cont.) — Series Thumbnail Copilot
+Built into the EXISTING Custom thumbnail field in Publish Prep (above the
+manual dropzone), not as a separate page. Applying goes through thumbnail.save()
+— the same store a manual upload uses — so validation, preview, delete, the
+publish note and manual override are all untouched.
+
+#### The design decision that makes it work
+Thumbnails are COMPOSITED with Pillow from the project's OWN ingested assets:
+the panel crops already in the rendered video, plus the source cover page as the
+series anchor, plus a solid badge and short text. Deterministic, free, offline,
+unit-testable, and always matches the chapter. No image model involved.
+
+#### Two persistence lifetimes — this is the whole product
+  STYLE PACK  per SERIES, at projects/_thumbstyles/<series-key>.json
+              palette (derived from the artwork), anchor image, badge style,
+              composition family, typography, approved flag.
+  CONCEPTS    per EXPORT, in the project's thumb_concepts.json, with the
+              cut_signature so staleness derives at read time.
+ensure_style() returns an APPROVED pack untouched — that is the consistency
+rule in one function. Chapter 2 of the same manhwa inherits palette, anchor,
+badge and composition identically; only chapter number, focal panel and hook
+change. force=True deliberately CLEARS approval, because a re-derived look must
+be re-approved rather than inheriting the old one's blessing.
+
+#### Scoring
+Panels are ranked for thumbnail fitness (shape/subject/action/emotion/reveal) —
+a tall scroll-strip scores 6 against 21 for 16:9, because it will not survive
+being shrunk. Concepts are scored on focal clarity, drama, series consistency,
+title alignment, readability, minus a clutter penalty; the recommendation is
+COMPUTED, never taken on trust.
+
+#### Hook text
+Derived deterministically from the chosen publish title (part markers stripped,
+weak words dropped, <=5 words / 28 chars, uppercased). No model call, and it
+cannot promise anything the title does not.
+
+#### Four real bugs found by running it, not by reading it
+1. getcolors() returns (count, palette_index) — I had the tuple BACKWARDS, so
+   the count was used as a palette offset and every palette lookup missed.
+   Every series would have got the same fallback colours.
+2. descriptions.json stores a BARE FILENAME, not a path, so the existence check
+   rejected all 138 panels and zero concepts were produced.
+3. The derived accent was a muted navy (manhwa pages are mostly dark ink), so
+   the chapter badge disappeared. _vivify() lifts saturation/lightness while
+   keeping the series hue.
+4. Overlay text hit the font floor and OVERFLOWED its zone, crossing the split
+   seam. _fit_text now shrinks THEN WRAPS, verified: 2 lines at 79px, widest
+   430px inside a 447px zone.
+
+Plus a fifth escaping bug of the familiar family: 🎨 written as an escaped
+surrogate pair became LONE SURROGATES at import and could not be UTF-8 encoded.
+Fixed with the literal character. That is now five; the lesson stands.
+
+Verified by rendering real output: 1280x720, 111-189KB, passes the existing
+thumbnail validator, 16:9, above the 640px minimum.
+
+New: thumbnail_studio.py, test_thumbnail_studio.py (85 assertions).
+Suite 21 files, 0 failing. test_edge_routes 39 -> 41 (auto-detected the new
+/thumbconcept route; added to both vercel.json allowlists).

@@ -955,6 +955,7 @@ def _publish_payload(pdir, pid, name, md):
                     current_signature=cut_signature(pdir=pdir)) or None),
             "youtube_configured": __import__("yt_api").configured(),
             "thumbnail": thumb,
+            "thumbcopilot": _thumb_state(pdir, name),
             "thumbnail_note": _tb.publish_note(bool(thumb)),
             "thumbnail_limits": {"max_bytes": _tb.MAX_BYTES,
                                  "formats": list(_tb.ALLOWED),
@@ -1081,6 +1082,226 @@ def api_publish_package(project: str = "", name: str = ""):
     fn = name.replace(".mp4", "") + "_upload_package.zip"
     return Response(content=buf.read(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+
+
+# ====================================================================
+#  Series Thumbnail Copilot
+#  Two lifetimes: a STYLE PACK per series (inherited by every later chapter
+#  once approved) and CONCEPTS per export. Applying a concept renders a real
+#  1280x720 file and hands it to the EXISTING thumbnail store, so the publish
+#  workflow and the manual upload path are untouched.
+# ====================================================================
+class ThumbGenIn(BaseModel):
+    project: str = ""
+    name: str
+    new_style: bool = False           # deliberately re-derive the series look
+    composition: str = ""             # override the composition family
+
+
+class ThumbApplyIn(BaseModel):
+    project: str = ""
+    name: str
+    concept_id: str
+    overlay_text: str = None          # operator can rewrite the hook
+    set_series_default: bool = False  # approve this look for the whole series
+
+
+def _thumb_state(pdir, name):
+    """One shape for every thumbnail endpoint, so the panel cannot disagree
+    with itself."""
+    import thumbnail_studio as tstudio
+    import thumbnail as _tb
+    meta = _read_json(os.path.join(pdir, "project.json")) or {}
+    key = tstudio.series_key(meta)
+    style = tstudio.load_style(_yt_root(), key)
+    sig = cut_signature(pdir=pdir)
+    rec = tstudio.get_concepts(pdir, name, current_signature=sig)
+    return {
+        "project": os.path.basename(pdir.rstrip("/")), "name": name,
+        "series_key": key, "series": meta.get("series") or "",
+        "chapter": str(meta.get("chapter") or ""),
+        "style": style or None,
+        "style_approved": bool((style or {}).get("approved")),
+        "concepts": rec or None,
+        "current_signature": sig,
+        "current_thumbnail": _tb.get(pdir, name) or None,
+        "fonts_ok": tstudio.font_available(),
+    }
+
+
+def _read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+@app.get("/api/thumbcopilot")
+def api_thumbcopilot(project: str = "", name: str = ""):
+    pdir = project_dir_for(project)
+    if not name:
+        name, _pid = latest_export(project or os.path.basename(pdir.rstrip("/")))
+    if not name:
+        return {"missing": True, "reason": "no export has been rendered yet"}
+    return _thumb_state(pdir, name)
+
+
+@app.post("/api/thumbcopilot/generate")
+def api_thumbcopilot_generate(body: ThumbGenIn):
+    """Concepts for this chapter, built on the series' approved style.
+
+    Deterministic and local: no model call, no network. The concepts are
+    assembled from panels this project already produced, so generating is free
+    and always matches the chapter.
+    """
+    import thumbnail_studio as tstudio
+    pdir = project_dir_for(body.project)
+    name = os.path.basename(body.name or "")
+    if not name:
+        raise HTTPException(400, "which export are these concepts for?")
+    meta = _read_json(os.path.join(pdir, "project.json"))
+    key, style = tstudio.ensure_style(_yt_root(), pdir, meta, force=body.new_style)
+    if body.composition and body.composition in tstudio.COMPOSITIONS:
+        style = dict(style, composition=body.composition)
+        tstudio.save_style(_yt_root(), key, style)
+
+    # The chosen publish title is the verbal hook; the thumbnail echoes it.
+    store = load_publish(pdir)
+    md = {**publish_defaults(pdir), **(store.get(name) or {})}
+    title = md.get("title") or ""
+
+    concepts = tstudio.rank_concepts(
+        tstudio.build_concepts(pdir, meta, style, title), style, title)
+    if not concepts:
+        raise HTTPException(422, "no usable panels found for this project — "
+                                 "the thumbnail copilot needs extracted panels")
+    prev = tstudio.get_concepts(pdir, name) or {}
+    rec = {
+        "concepts": concepts,
+        "series_key": key,
+        "style_version": style.get("version"),
+        "inherited_series_style": bool(style.get("approved")),
+        "title_used": title,
+        "chapter": str(meta.get("chapter") or ""),
+        "confidence": _thumb_confidence(concepts, style, title),
+        "cut_signature": cut_signature(pdir=pdir),
+        "generated_at": time.time(),
+        "chosen": prev.get("chosen"),          # an applied choice survives
+    }
+    tstudio.put_concepts(pdir, name, rec)
+    return _thumb_state(pdir, name)
+
+
+def _thumb_confidence(concepts, style, title):
+    pts, why = 0, []
+    top = concepts[0]["score"]["total"] if concepts else 0
+    if top >= 70:
+        pts += 35; why.append("a strong focal panel was found")
+    elif top >= 45:
+        pts += 22; why.append("a usable focal panel was found")
+    else:
+        why.append("no panel scores well as a thumbnail (-35)")
+    if (style or {}).get("approved"):
+        pts += 30; why.append("inherits the approved series style")
+    else:
+        pts += 12; why.append("series style is still a draft")
+    if title:
+        pts += 20; why.append("aligned to the chosen title")
+    else:
+        why.append("no publish title chosen yet (-20)")
+    if (style or {}).get("anchor_images"):
+        pts += 15; why.append("series anchor artwork available")
+    else:
+        why.append("no cover/anchor art found (-15)")
+    pts = max(0, min(100, pts))
+    return {"score": pts, "reasons": why,
+            "band": "high" if pts >= 75 else ("medium" if pts >= 50 else "low")}
+
+
+@app.get("/thumbconcept")
+def thumbconcept(project: str = "", name: str = "", concept_id: str = ""):
+    """Render a concept for PREVIEW only — never touches the publish state."""
+    import thumbnail_studio as tstudio
+    pdir = project_dir_for(project)
+    rec = tstudio.get_concepts(pdir, name)
+    c = next((x for x in (rec.get("concepts") or [])
+              if x.get("id") == concept_id), None)
+    if not c:
+        raise HTTPException(404, "no such concept")
+    key = tstudio.series_key(_read_json(os.path.join(pdir, "project.json")))
+    style = tstudio.load_style(_yt_root(), key)
+    out = os.path.join(pdir, "exports", "_thumbs", "preview_%s_%s.jpg"
+                       % (os.path.basename(name), concept_id))
+    tstudio.render_concept(pdir, c, style, out)
+    return FileResponse(out, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/thumbcopilot/apply")
+def api_thumbcopilot_apply(body: ThumbApplyIn):
+    """Render the chosen concept and hand it to the EXISTING thumbnail store.
+
+    This is the only bridge between the copilot and the publish workflow: the
+    file goes through thumbnail.save(), the same path a manual upload takes, so
+    everything downstream — validation, preview, delete, the publish note —
+    keeps working unchanged.
+    """
+    import thumbnail_studio as tstudio
+    import thumbnail as _tb
+    pdir = project_dir_for(body.project)
+    name = os.path.basename(body.name or "")
+    rec = tstudio.get_concepts(pdir, name)
+    c = next((x for x in (rec.get("concepts") or [])
+              if x.get("id") == body.concept_id), None)
+    if not c:
+        raise HTTPException(404, "no such concept — generate first")
+    c = dict(c)
+    if body.overlay_text is not None:
+        v = tstudio.validate_hook(body.overlay_text)
+        c["overlay_text"] = v["text"]
+
+    key = tstudio.series_key(_read_json(os.path.join(pdir, "project.json")))
+    style = tstudio.load_style(_yt_root(), key)
+    tmp = os.path.join(pdir, "exports", "_thumbs", "apply_%s.jpg" % body.concept_id)
+    tstudio.render_concept(pdir, c, style, tmp)
+    with open(tmp, "rb") as f:
+        data = f.read()
+    try:
+        saved = _tb.save(pdir, name, data)      # the existing store, unchanged
+    except _tb.ThumbnailError as e:
+        raise HTTPException(422, str(e))
+
+    if body.set_series_default:
+        tstudio.approve_style(_yt_root(), key, style,
+                              composition=c.get("composition"))
+
+    all_recs = tstudio.load_concepts(pdir)
+    if name in all_recs:
+        all_recs[name]["chosen"] = {
+            "concept_id": c.get("id"), "name": c.get("name"),
+            "overlay_text": c.get("overlay_text"),
+            "composition": c.get("composition"),
+            "focal_panel": c.get("focal_panel"),
+            "used_series_style": bool(c.get("follows_series_style")),
+            "at": time.time()}
+        tstudio.save_concepts(pdir, all_recs)
+    out = _thumb_state(pdir, name)
+    out["applied"] = saved
+    return out
+
+
+@app.post("/api/thumbcopilot/style/approve")
+def api_thumbcopilot_approve(body: ThumbGenIn):
+    """Lock this look in as the series default for every later chapter."""
+    import thumbnail_studio as tstudio
+    pdir = project_dir_for(body.project)
+    meta = _read_json(os.path.join(pdir, "project.json"))
+    key, style = tstudio.ensure_style(_yt_root(), pdir, meta)
+    if body.composition and body.composition in tstudio.COMPOSITIONS:
+        style["composition"] = body.composition
+    tstudio.approve_style(_yt_root(), key, style)
+    return _thumb_state(pdir, os.path.basename(body.name or ""))
 
 
 # ====================================================================

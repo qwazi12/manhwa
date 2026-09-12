@@ -113,6 +113,37 @@ video { width:100%; background:#000; border-radius:8px; display:block; }
   border-radius:11px; padding:1px 9px; margin:2px 3px 0 0; }
 .seo .src { font-size:11px; color:var(--ink2); line-height:1.65; }
 .seo .len { font-size:10px; color:var(--ink3); }
+/* Thumbnail copilot, nested inside the existing Custom thumbnail field. */
+.tcop { border:1px solid var(--ai); border-radius:10px; background:var(--panel);
+  box-shadow:var(--glow-ai); overflow:hidden; margin-bottom:10px; }
+.tcop.stale { border-color:var(--warn); box-shadow:none; }
+.tchead { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 12px;
+  background:linear-gradient(90deg, color-mix(in srgb, var(--ai) 22%, transparent), transparent);
+  border-bottom:1px solid var(--rule); }
+.tctitle { font-weight:800; font-size:13px; }
+.tcop .body { padding:11px 12px 12px; }
+.tcop .src { font-size:11px; color:var(--ink2); line-height:1.6; }
+.tcop .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:7px; }
+.tsub { font-size:11px; text-transform:uppercase; letter-spacing:.6px;
+  color:var(--ink3); font-weight:700; margin:12px 0 5px; }
+.tcgrid { display:grid; gap:10px; margin-top:10px;
+  grid-template-columns:repeat(auto-fill, minmax(215px, 1fr)); }
+.tcard { border:1px solid var(--rule); border-radius:9px; overflow:hidden;
+  background:var(--panel2); display:flex; flex-direction:column; }
+.tcard.rec { border-color:var(--ok); box-shadow:0 0 0 1px var(--ok) inset; }
+.tcard.chosen { border-color:var(--applied); }
+.tcard img { width:100%; aspect-ratio:16/9; object-fit:cover; display:block;
+  background:#000; }
+.tmeta { padding:8px 9px 9px; }
+.tmeta .tn { font-weight:700; font-size:12px; margin-top:2px; }
+.tmeta .tt { display:flex; gap:4px; flex-wrap:wrap; margin:5px 0 4px; }
+.tmeta .w { font-size:10.5px; color:var(--ink2); line-height:1.5; margin-top:2px; }
+.tag-character { background:var(--sa-bg); color:var(--sa-ink); }
+.tag-action { background:var(--badb-bg); color:var(--badb-ink); }
+.tag-mystery { background:var(--tall-bg); color:var(--tall-ink); }
+.tag-transformation { background:var(--okb-bg); color:var(--okb-ink); }
+.tag-emotion { background:var(--warnb-bg); color:var(--warnb-ink); }
+.p-blue { background:var(--sa-bg); color:var(--sa-ink); }
 .dropzone { border:2px dashed var(--btn-edge); border-radius:8px; padding:14px;
   background:var(--panel2); cursor:pointer; display:flex; gap:12px;
   align-items:center; justify-content:center; min-height:92px; text-align:center; }
@@ -626,6 +657,8 @@ function thumbnailSection(th, dis) {
            '<a class="dlink" href="' + url + '" download>⬇ Download</a>' : "") +
     '<span id="t_msg" class="hint"></span></div>';
   return '<div class="fld"><label>Custom thumbnail</label>' +
+    thumbCopilot(dis) +
+    '<div class="tsub">Or upload your own</div>' +
     '<div id="tdz" class="dropzone' + (has ? " has" : "") + '"' +
       ' ondragover="thumbDrag(event,1)" ondragleave="thumbDrag(event,0)"' +
       ' ondrop="thumbDrop(event)" onclick="thumbPick()">' + inner + "</div>" +
@@ -642,6 +675,140 @@ function thumbnailSection(th, dis) {
         (th.seg_index != null ? th.seg_index : "") +
         '" oninput="thumbPreview()" onchange="savePublish()"' + dis + ">" +
         '<div id="p_thumbprev" style="margin-top:6px"></div>');
+}
+
+function thumbCopilot(dis) {
+  // Lives INSIDE the existing Custom thumbnail field, above the manual
+  // dropzone. Applying a concept goes through the same store an upload does,
+  // so nothing downstream changes and manual override is always one drop away.
+  var tc = (PUB || {}).thumbcopilot || {};
+  if (tc.missing) return '';
+  var rec = tc.concepts, style = tc.style || {};
+  var approved = tc.style_approved;
+  var stale = rec && rec.stale;
+  var styleBadge = approved
+    ? '<span class="pill p-ok">series style locked</span>'
+    : '<span class="pill p-neutral">series style: draft</span>';
+  var head = '<div class="tchead"><span class="tctitle">🎨 Series Thumbnail Copilot</span>' +
+    styleBadge +
+    (rec ? (stale ? '<span class="pill p-warn">stale \u2014 cut changed</span>'
+                  : '<span class="pill p-blue">' +
+                    esc(((rec.confidence || {}).band || '?')) + ' confidence</span>') : '') +
+    '</div>';
+
+  if (!tc.fonts_ok) {
+    return '<section class="tcop">' + head + '<div class="body">' +
+      '<div class="banner b-bad">No scalable font is available on this server, ' +
+      'so overlay text cannot be drawn. Upload a thumbnail manually below.</div>' +
+      '</div></section>';
+  }
+
+  var body = '';
+  body += '<div class="src">' +
+    (tc.series ? '<b>' + esc(tc.series) + '</b>' : '<b>unknown series</b>') +
+    (tc.chapter ? ' \u00b7 chapter ' + esc(tc.chapter) : '') +
+    (approved
+      ? ' \u00b7 later chapters inherit this look automatically'
+      : ' \u00b7 approve a concept to lock this look for the series') +
+    '</div>';
+
+  if (!rec) {
+    return '<section class="tcop">' + head + '<div class="body">' + body +
+      '<p class="hint">Builds concepts from this chapter\u2019s own panels and the ' +
+      'series cover \u2014 same visual identity every chapter, only the focal ' +
+      'moment, chapter badge and hook change.</p>' +
+      '<button class="ai big" onclick="genThumbs()"' + dis +
+      ' style="width:100%">🎨 Generate thumbnail concepts</button>' +
+      '<div id="tc_msg" class="hint" style="margin-top:7px"></div>' +
+      '</div></section>';
+  }
+
+  if (stale) {
+    body += '<div class="banner b-warn">These concepts were built for an earlier ' +
+      'cut. Regenerate so the focal panel still matches the video.</div>';
+  }
+  var chosen = (rec.chosen || {}).concept_id;
+  body += '<div class="tcgrid">';
+  (rec.concepts || []).forEach(function (c) {
+    var sc = c.score || {};
+    var url = '/thumbconcept?project=' + encodeURIComponent(DATA.project) +
+      '&name=' + encodeURIComponent(DATA.name) + '&concept_id=' +
+      encodeURIComponent(c.id) + '&cb=' + (rec.generated_at || 0);
+    body += '<div class="tcard' + (c.recommended ? ' rec' : '') +
+      (chosen === c.id ? ' chosen' : '') + '">' +
+      '<img src="' + url + '" loading="lazy" alt="' + esc(c.name) + '">' +
+      '<div class="tmeta">' +
+        (c.recommended ? '<div class="recflag">\u2b50 Recommended \u00b7 ' +
+          (sc.total || 0) + '/100</div>' : '') +
+        (chosen === c.id ? '<div class="okmark">\u2713 applied</div>' : '') +
+        '<div class="tn">' + esc(c.name) + '</div>' +
+        '<div class="tt"><span class="tag tag-' + esc(c.type) + '">' + esc(c.type) +
+          '</span><span class="tag ' + (c.follows_series_style ? 'tag-blend' : 'tag-channel') +
+          '">' + (c.follows_series_style ? 'series style' : 'variation') + '</span></div>' +
+        '<div class="w">' + esc(c.why) + '</div>' +
+        (c.overlay_text ? '<div class="w">text: <b>' + esc(c.overlay_text) + '</b></div>'
+                        : '<div class="w">no overlay text</div>') +
+        '<div class="w">focal: ' + esc((c.focal_panel || '').slice(0, 30)) + '</div>' +
+        '<div class="bars">focal ' + (sc.focal || 0) + ' \u00b7 drama ' + (sc.drama || 0) +
+          ' \u00b7 consistency ' + (sc.consistency || 0) + ' \u00b7 title ' +
+          (sc.title_alignment || 0) + '</div>' +
+        '<div class="row">' +
+          '<button class="' + (c.recommended ? 'primary' : '') +
+          '" onclick="applyThumb(&quot;' + esc(c.id) + '&quot;, false)"' + dis +
+          '>Use this</button>' +
+          '<button class="ai-ghost" onclick="applyThumb(&quot;' + esc(c.id) +
+          '&quot;, true)"' + dis + ' title="use it AND lock this look for every ' +
+          'later chapter of this series">Use + set series default</button>' +
+        '</div>' +
+      '</div></div>';
+  });
+  body += '</div>';
+  var conf = rec.confidence || {};
+  body += '<div class="src" style="margin-top:8px"><b>' + esc(conf.band || '?') +
+    '</b> (' + (conf.score || 0) + '/100) \u00b7 ' +
+    esc((conf.reasons || []).join(' \u00b7 ')) + '</div>';
+  body += '<div class="row" style="margin-top:9px">' +
+    '<button class="ai" onclick="genThumbs()"' + dis + '>\u21bb Regenerate</button>' +
+    '<button onclick="genThumbs(true)"' + dis +
+    ' title="derive a brand new look for this series">New series style</button>' +
+    '<span id="tc_msg" class="hint"></span></div>';
+  return '<section class="tcop' + (stale ? ' stale' : '') + '">' + head +
+    '<div class="body">' + body + '</div></section>';
+}
+
+async function genThumbs(newStyle) {
+  var m = document.getElementById('tc_msg');
+  if (m) m.textContent = 'building concepts\u2026';
+  try {
+    var r = await api('/api/thumbcopilot/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: DATA.project, name: DATA.name,
+                             new_style: !!newStyle })
+    });
+    PUB.thumbcopilot = r;
+    render();
+  } catch (e) {
+    if (m) { m.textContent = e.message; m.className = 'hint bad'; }
+  }
+}
+
+async function applyThumb(id, setDefault) {
+  var m = document.getElementById('tc_msg');
+  if (m) m.textContent = setDefault ? 'applying and locking the series style\u2026'
+                                    : 'applying\u2026';
+  try {
+    var r = await api('/api/thumbcopilot/apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: DATA.project, name: DATA.name,
+                             concept_id: id, set_series_default: !!setDefault })
+    });
+    PUB.thumbcopilot = r;
+    // the applied image is now the export's real custom thumbnail
+    if (r.applied) { PUB.thumbnail = r.applied; }
+    render();
+  } catch (e) {
+    if (m) { m.textContent = e.message; m.className = 'hint bad'; }
+  }
 }
 
 function thumbDrag(ev, on) {
