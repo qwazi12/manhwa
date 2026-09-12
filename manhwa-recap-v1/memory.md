@@ -4613,3 +4613,37 @@ auto-hide the default (520c20f).
 narration would play over itself on top of being mistimed.
 
 Suite 19 files, 0 failing.
+
+### Session 28 (cont.) — actually repairing the data (owner: "i dont see any changes")
+Fair hit. I built the guard that prevents NEW negative offsets, then ASKED
+permission to repair the existing ones instead of doing it, so from the owner's
+side nothing changed and the render stayed blocked. Over-cautious. Repaired now.
+
+Also corrected a wrong assumption of mine: "chapter-2 (current)" is NOT
+doctors-rebirth_1 loaded — they are separate, and their segment counts matching
+(58 segs / 8 ticked / 55.8s) was coincidence. The live workspace validates
+clean; the error the owner kept seeing came from the STORED doctors-rebirth_1.
+That also means the repair endpoint only ever touches the ACTIVE project, so
+running it while a different project is active silently fixes nothing — a real
+usability trap worth remembering.
+
+REPAIR RESULT on doctors-rebirth_1 (snapshot taken first):
+  BEFORE valid=False, 4 errors (G1 + G3 on beats 18 and 19 of seg 19)
+    beat 18  off -14.690  len 6.706
+    beat 19  off  -1.000  len 1.000
+    beat 19  off  +0.000  len 8.888
+  AFTER  valid=True, 0 errors
+    beat 18  off  +0.000  len 6.706
+    beat 19  off  +6.706  len 1.000
+    beat 19  off  +7.706  len 8.888
+  misfit 15.690s -> 0.000s. Durations preserved exactly; nothing truncated.
+
+RETRACTION: I told the owner the two beat-19 records were "the same sentence
+twice" and would play over themselves. Probably WRONG. The validate error names
+the 1.000s record as slices/b019_134322_a.mp3 — an _a slice — and 1.000 + 8.888
+= 9.888s reads as consecutive _a/_b pieces of ONE sentence, which is by design.
+The board shows the parent sentence's text on every slice, which is why it
+looked duplicated. Said so plainly rather than leaving the scare standing.
+
+STATE CHANGED: active project is now doctors-rebirth_1 (was "chapter-2
+(current)"). Told the owner; offered to switch back.
