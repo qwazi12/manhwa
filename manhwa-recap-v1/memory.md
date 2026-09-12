@@ -4423,3 +4423,28 @@ state the same number.
 Headroom remains large (16% CPU, 6% memory), so 8 workers is probably still on
 the table, but returns will bend once Chrome instances contend for I/O and
 memory bandwidth. NOT tested.
+
+### Session 28 (cont.) — render worker default aligned to 4
+Repo now states what production runs. RENDER_WORKERS default 2 -> 4 in
+render_segments.py, with the production evidence written into the comment so
+the number is justified where someone will read it:
+    1 worker 422.0s · 2 workers 224.0s · 4 workers 152.4s (same 8 clips)
+    peak 5.2 vCPU of 32, 1.87 GB of 32 GB, identical output properties.
+
+Nothing else touched: fps default still 30 (no --fps emitted), override
+behaviour unchanged, no other render logic modified.
+
+Fallbacks re-verified after the change:
+  unset/empty/garbage -> 4 (the default)
+  "0" -> 1 (floor, never zero workers)
+  "999" -> 8 (clamped)
+  "1"/"8" -> respected
+The empty-string case matters specifically because that is what a CLEARED
+Railway variable looks like — it must fall back, not render with no workers.
+test_render_epoch 20 -> 22 covering the floor and empty-value cases.
+
+CONFIG RECOMMENDATION: the Railway variable RENDER_WORKERS=4 is now redundant —
+it duplicates the code default. Recommend REMOVING it so there is one source of
+truth, keeping the env var purely as an emergency override. Left set for now
+(harmless: both say 4) because clearing it is a production config change for the
+owner to approve. Suite 19 files, 0 failing.

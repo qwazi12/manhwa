@@ -90,7 +90,9 @@ def main():
     import importlib
     flags = _rs.render_flags()
     _ck("every render passes an explicit worker count", "-w" in flags)
-    _ck("...defaulting to 2", flags[flags.index("-w") + 1] == "2")
+    # 4 is the production-validated default: same project, same 8 clips,
+    # 422s at 1 worker -> 224s at 2 -> 152s at 4, with identical output.
+    _ck("...defaulting to 4", flags[flags.index("-w") + 1] == "4")
     _ck("...and never the string 'auto'", "auto" not in flags)
     _ck("30fps stays the default (no --fps flag emitted)", "--fps" not in flags)
 
@@ -108,15 +110,23 @@ def main():
         importlib.reload(_rs)
         _ck("an absurd worker count is clamped, not obeyed",
             _rs.RENDER_WORKERS <= 8)
+        os.environ["RENDER_WORKERS"] = "0"
+        importlib.reload(_rs)
+        _ck("a worker count below the floor is raised to 1, not 0",
+            _rs.RENDER_WORKERS == 1)
         os.environ["RENDER_WORKERS"] = "nonsense"
         importlib.reload(_rs)
         _ck("garbage in the env falls back to the default rather than crashing",
-            _rs.RENDER_WORKERS == 2)
+            _rs.RENDER_WORKERS == 4)
+        os.environ["RENDER_WORKERS"] = ""
+        importlib.reload(_rs)
+        _ck("an empty value falls back too (a cleared Railway variable)",
+            _rs.RENDER_WORKERS == 4)
     finally:
         os.environ.clear()
         os.environ.update(_old)
         importlib.reload(_rs)
-    _ck("defaults restored after the env test", _rs.render_flags() == ["-w", "2"])
+    _ck("defaults restored after the env test", _rs.render_flags() == ["-w", "4"])
 
     for name, ok in results:
         print(("PASS " if ok else "FAIL ") + name)

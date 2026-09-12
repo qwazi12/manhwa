@@ -78,13 +78,23 @@ USING_NPX = HYPERFRAMES_CMD[0] == "npx"
 # of real use at 243 MB — under 1% — so one worker was leaving the box idle.
 #
 # An EXPLICIT -w beats PRODUCER_LOW_MEMORY_MODE (measured: the banner flips from
-# "auto workers" to "2 workers" and the same 4 clips go 43.4s -> 30.2s), so the
-# env var stays as the safety floor for anything that does not pass -w, and we
-# simply state the count we want. Explicit rather than "auto" on purpose: auto
-# reads the HOST's core count, which is what over-spawned Chrome before.
+# "auto workers" to "2 workers"), so the env var stays as the safety floor for
+# anything that does not pass -w, and we simply state the count we want.
+# Explicit rather than "auto" on purpose: auto reads the HOST's core count,
+# which is what over-spawned Chrome before.
 #
-# Each worker is roughly 256 MB of Chrome. Set RENDER_WORKERS=1 to revert
-# without a deploy.
+# The default is 4, validated in production on one real rerender of the same
+# project and the same 8 clips:
+#     1 worker   422.0s   7.03 min      -
+#     2 workers  224.0s   3.73 min    -47%
+#     4 workers  152.4s   2.54 min    -64%   peak 5.2 vCPU of 32, 1.87 GB of 32
+# Output is unaffected by worker count — a three-way ffprobe across those runs
+# gave identical duration (61.921s), frame count (1857), resolution, codecs and
+# audio; only the byte size moved, by 0.0069%, which is this renderer's known
+# byte-level non-determinism.
+#
+# Each worker is roughly 256 MB of Chrome. Set RENDER_WORKERS=1 (or any value)
+# to override without a deploy.
 def _int_env(name, default, lo, hi):
     try:
         return max(lo, min(hi, int(os.environ.get(name, default))))
@@ -92,7 +102,7 @@ def _int_env(name, default, lo, hi):
         return default
 
 
-RENDER_WORKERS = _int_env("RENDER_WORKERS", 2, 1, 8)
+RENDER_WORKERS = _int_env("RENDER_WORKERS", 4, 1, 8)
 
 # Frame rate. 30 stays the default — 24fps renders ~16% faster on a real export
 # with identical duration and audio, but it is a picture-quality decision, so it
