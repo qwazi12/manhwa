@@ -4647,3 +4647,70 @@ looked duplicated. Said so plainly rather than leaving the scare standing.
 
 STATE CHANGED: active project is now doctors-rebirth_1 (was "chapter-2
 (current)"). Told the owner; offered to switch back.
+
+### Session 28 (cont.) — SEO Copilot built (single batch)
+Owner set YOUTUBE_API_KEY (after initially forgetting Railway's Deploy step).
+Verified it works BEFORE building: channels.list, search.list and
+playlistItems all return 200 from the server.
+
+#### The finding that changed the design
+Flamingo Remix has 63 videos, so channel style is a REAL signal, not the n=1 I
+feared. Measured over 50 uploads:
+  leading part marker   98%   ("**NEW PART 10**", "(1)", "*Pt 2*")
+  ALLCAPS emphasis      86%
+  SERIES NAME IN TITLE   4%   <-- breaks the spec's core assumption
+  avg length            67 chars
+The channel does NOT title videos "<Series> Chapter N Recap". It writes a
+third-person PREMISE HOOK and leaves the series name out. So the resolution of
+"project truth vs packaging" is not a conflict at all: project truth decides
+WHAT the video is (premise, characters, events), channel style decides HOW it
+is packaged, and the series name lives in TAGS and the DESCRIPTION. The style
+analyzer MEASURES this rather than assuming it, so it adapts if the channel
+changes.
+
+#### Architecture (3 stages, deliberately separated)
+  seo.truth_card(pdir)   LOCAL, DETERMINISTIC, no network, no model. Reads the
+                         ingested URL, project.json, narration, OCR, panel
+                         descriptions. Fully unit-testable; cannot hallucinate.
+  seo.channel_style()    MEASURED from the owner's own uploads, cached 24h,
+                         falls back to a stale card rather than failing.
+  seo.research()         ONE search.list (100 units) + one videos.list, ranked
+                         by REAL view counts. Returns PATTERNS, not titles to
+                         copy.
+  seo.generate()         One Gemini call through usage.gate (never bypassed,
+                         token-metered), output clamped in CODE to YouTube's
+                         limits.
+New files: yt_api.py (the only place that talks to YouTube), seo.py, test_seo.py.
+
+#### Two real defects caught by testing against LIVE data, not fixtures
+1. FABRICATION. The model copied the channel's description furniture and
+   invented the contents: a Ko-fi link that was NOT the owner's
+   (ko-fi.com/recapchannel vs the real flamingorecap), a full timecode list for
+   a video it has never seen, and "check our pinned comment". A wrong donation
+   link is worse than no link. Instructions alone did not stop it, so
+   sanitize_description() strips timecodes, any URL that is not the ingested
+   source, and unverifiable references — and REPORTS what it stripped.
+2. Character extraction offered "Yet" and "Shadows" alongside Jin and
+   Runcandel — sentence-initial capitals are just grammar. Now a word must
+   appear MID-SENTENCE to count. Threshold dropped 3 -> 2 to match the stricter
+   measure (the old cutoff would have found nobody in a short recap).
+   Residual noise remains at 2 ("God", "Shadows" on the real project); they are
+   plausible proper nouns and are passed to the model only as hints, so this is
+   logged as a known limitation rather than over-tuned.
+
+#### End-to-end on REAL data (swordmasters, live APIs)
+confidence high 100/100 · 103 quota units of 10,000/day · 14.6s
+Titles came back in the channel's actual voice ("**NEW PART 1** Bullied
+Youngest Son Is Deemed The Clan's GREATEST DISGRACE") and grounded in the real
+plot (Jin Runcandel, zero talent, the clan) — series name correctly absent from
+the title and present in the tags.
+
+The model tried to rename the series in `detected`; the code overwrites it from
+the truth card, so the project always wins. Asserted in the tests.
+
+Tests: test_seo.py 101 assertions. Suite 20 files, 0 failing.
+
+RIGHTS NOTE (raised twice, owner proceeded): CLAUDE.md says content is from
+unlicensed aggregators, internal R&D only, with Stage 7 gating required before
+anything public. This feature optimises public discovery. Owner's call; not
+raising it again.

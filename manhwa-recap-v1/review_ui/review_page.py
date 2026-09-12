@@ -65,6 +65,29 @@ video { width:100%; background:#000; border-radius:8px; display:block; }
 .pill { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 8px;
   border-radius:99px; letter-spacing:.03em; }
 .p-ok { background:var(--okb-bg); color:var(--okb-ink); }
+.seo { border:1px solid var(--rule); border-radius:8px; background:var(--panel2);
+  margin-top:10px; overflow:hidden; }
+.seo > summary { cursor:pointer; padding:9px 12px; font-weight:700; font-size:13px;
+  list-style:none; display:flex; gap:8px; align-items:center; }
+.seo > summary::-webkit-details-marker { display:none; }
+.seo > summary::before { content:'\25B8'; color:var(--ink3); }
+.seo[open] > summary::before { content:'\25BE'; }
+.seo .body { padding:0 12px 12px; }
+.seo h5 { margin:12px 0 5px; font-size:11px; text-transform:uppercase;
+  letter-spacing:.6px; color:var(--ink3); font-weight:700; }
+.seo .opt { border:1px solid var(--rule); border-radius:6px; padding:7px 9px;
+  margin-bottom:6px; background:var(--panel); }
+.seo .opt.rec { border-color:var(--ok); }
+.seo .opt .t { font-weight:600; font-size:13px; line-height:1.4; }
+.seo .opt .w { font-size:11px; color:var(--ink2); margin-top:3px; }
+.seo .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px; }
+.seo pre.box { white-space:pre-wrap; font:inherit; font-size:12px; background:var(--panel);
+  border:1px solid var(--rule); border-radius:6px; padding:8px; margin:0;
+  max-height:190px; overflow:auto; }
+.seo .chip { display:inline-block; font-size:11px; background:var(--sa-bg);
+  color:var(--sa-ink); border-radius:10px; padding:1px 8px; margin:2px 3px 0 0; }
+.seo .src { font-size:11px; color:var(--ink2); line-height:1.6; }
+.seo .len { font-size:10px; color:var(--ink3); }
 .dropzone { border:2px dashed var(--btn-edge); border-radius:8px; padding:14px;
   background:var(--panel2); cursor:pointer; display:flex; gap:12px;
   align-items:center; justify-content:center; min-height:92px; text-align:center; }
@@ -342,6 +365,7 @@ function publishCard() {
     '<label style="display:block;margin:8px 0"><input type="checkbox" id="p_synth"' +
       (md.synthetic_disclosure ? ' checked' : '') + ' onchange="savePublish()"' + dis +
       '> Contains AI-generated narration — disclosed on upload</label>' +
+    seoPanel(dis) +
     '<div class="actions">' +
       '<button onclick="savePublish()"' + dis + '>Save</button>' +
       '<button onclick="downloadPackage()"' + dis + '>⬇ Download upload package</button>' +
@@ -371,6 +395,151 @@ function targetPicker(md, dis) {
 function fld(label, control) {
   return '<div style="margin:9px 0"><div class="hint" style="margin-bottom:3px">' +
     esc(label) + '</div>' + control + '</div>';
+}
+
+function seoPanel(dis) {
+  // Collapsible so it never crowds the publish form. Suggestions are DISPLAY
+  // only — the fields above stay the editable source of truth, and nothing
+  // here writes to them without a click on an Apply button.
+  var d = PUB || {}, seo = d.seo, yt = d.youtube_configured;
+  var head = '<summary>\u2728 SEO Copilot' +
+    (seo ? (seo.stale
+        ? ' <span class="pill p-warn">stale — cut changed</span>'
+        : ' <span class="pill p-ok">' + esc(((seo.confidence || {}).band || '?')) +
+          ' confidence</span>')
+      : ' <span class="pill p-neutral">not generated</span>') + '</summary>';
+  if (!seo) {
+    return '<details class="seo">' + head + '<div class="body">' +
+      '<div class="hint">Generates titles, a description, tags and hashtags from ' +
+      'this chapter\u2019s own narration and panels, packaged in the channel\u2019s ' +
+      'measured style.' + (yt ? '' : ' <b>No YouTube API key is configured</b>, so ' +
+      'channel style and competitor research are unavailable and confidence will be lower.') +
+      '</div><div class="row"><button class="primary" onclick="genSeo()"' + dis +
+      '>Generate SEO suggestions</button><span id="seo_msg" class="hint"></span>' +
+      '</div></div></details>';
+  }
+  var c = seo.confidence || {}, det = seo.detected_from || {}, src = seo.sources || {};
+  var body = '';
+  if (seo.stale) {
+    body += '<div class="banner b-warn">These suggestions were generated for an ' +
+      'earlier cut. Regenerate so the copy matches what the video now shows.</div>';
+  }
+  body += '<h5>Detected from the ingest</h5><div class="src">' +
+    '<b>' + esc(det.series || 'unknown series') + '</b>' +
+    (det.chapter ? ' \u00b7 chapter ' + esc(det.chapter) : '') +
+    (det.source_url ? ' \u00b7 <a href="' + esc(det.source_url) +
+      '" target="_blank" rel="noopener">source</a>' : '') +
+    ((det.genre || []).length ? '<br>genre: ' + esc(det.genre.join(', ')) : '') +
+    ((det.characters || []).length ? '<br>characters: ' + esc(det.characters.join(', ')) : '') +
+    '<br>' + (det.n_segments || 0) + ' segments \u00b7 ' + (det.n_panels || 0) +
+    ' panels \u00b7 ' + (det.narration_chars || 0) + ' chars of narration</div>';
+  if ((det.gaps || []).length) {
+    body += '<div class="hint" style="margin-top:5px">Missing: ' +
+      esc(det.gaps.join('; ')) + '</div>';
+  }
+
+  body += '<h5>Titles</h5>';
+  (seo.titles || []).forEach(function (t, i) {
+    body += '<div class="opt' + (t.recommended ? ' rec' : '') + '">' +
+      '<div class="t">' + (t.recommended ? '\u2b50 ' : '') + esc(t.text) + '</div>' +
+      (t.why ? '<div class="w">' + esc(t.why) + '</div>' : '') +
+      '<div class="row"><button onclick="applySeo(&quot;title&quot;, ' + i + ')"' + dis +
+      '>Use this title</button><span class="len">' + t.text.length + '/100</span></div></div>';
+  });
+
+  body += '<h5>Description</h5><pre class="box">' + esc(seo.description || '') + '</pre>' +
+    '<div class="row"><button onclick="applySeo(&quot;description&quot;)"' + dis +
+    '>Apply description</button>' +
+    (seo.description_short ? '<button onclick="applySeo(&quot;description&quot;, null, &quot;short&quot;)"' +
+      dis + '>Apply short variant</button>' : '') +
+    '<span class="len">' + (seo.description || '').length + '/5000</span></div>';
+  if (seo.description_short) {
+    body += '<div class="hint" style="margin-top:6px">Short variant: ' +
+      esc(seo.description_short.slice(0, 240)) + '</div>';
+  }
+
+  body += '<h5>Tags</h5><div>' +
+    (seo.tags || []).map(function (t) { return '<span class="chip">' + esc(t) + '</span>'; }).join('') +
+    '</div><div class="row"><button onclick="applySeo(&quot;tags&quot;)"' + dis +
+    '>Apply tags</button><span class="len">' +
+    (seo.tags || []).join(',').length + '/500 chars</span></div>';
+
+  body += '<h5>Hashtags</h5><div>' +
+    (seo.hashtags || []).map(function (t) { return '<span class="chip">' + esc(t) + '</span>'; }).join('') +
+    '</div><div class="row"><button onclick="applySeo(&quot;hashtags&quot;)"' + dis +
+    '>Add to description</button></div>';
+
+  body += '<h5>Why these</h5><div class="src">' + esc(seo.reasoning || '') + '</div>';
+
+  body += '<h5>Confidence</h5><div class="src"><b>' + esc(c.band || '?') + '</b> (' +
+    (c.score || 0) + '/100)<br>' + esc((c.reasons || []).join(' \u00b7 ')) + '</div>';
+
+  body += '<h5>Sources</h5><div class="src">';
+  if (src.project) {
+    body += '\u2022 ' + esc(src.project.label) + ' \u2014 ' + esc(src.project.detail) +
+      (src.project.url ? ' <a href="' + esc(src.project.url) +
+        '" target="_blank" rel="noopener">link</a>' : '') + '<br>';
+  }
+  if (src.channel) {
+    body += '\u2022 ' + esc(src.channel.label) + ' \u2014 ' + esc(src.channel.detail) +
+      (src.channel.error ? ' <span class="hint bad">' + esc(src.channel.error) + '</span>' : '') + '<br>';
+  }
+  if (src.research) {
+    body += '\u2022 ' + esc(src.research.label) + ' \u2014 ' + esc(src.research.detail) +
+      (src.research.query ? ' (query: ' + esc(src.research.query) + ')' : '') +
+      (src.research.error ? ' <span class="hint bad">' + esc(src.research.error) + '</span>' : '');
+    ((src.research.top) || []).slice(0, 4).forEach(function (v) {
+      body += '<br>&nbsp;&nbsp;\u21b3 <a href="' + esc(v.url) + '" target="_blank" ' +
+        'rel="noopener">' + esc(v.title.slice(0, 62)) + '</a> \u00b7 ' +
+        (v.views || 0).toLocaleString() + ' views';
+    });
+  }
+  body += '</div>';
+  body += '<div class="row" style="margin-top:10px">' +
+    '<button onclick="genSeo()"' + dis + '>\u21bb Regenerate</button>' +
+    '<span class="hint">Regenerating replaces the suggestions above. It never ' +
+    'touches the fields you have already edited.</span>' +
+    '<span id="seo_msg" class="hint"></span></div>';
+  return '<details class="seo"' + (seo.stale ? ' open' : '') + '>' + head +
+    '<div class="body">' + body + '</div></details>';
+}
+
+async function genSeo() {
+  var m = document.getElementById('seo_msg');
+  if (m) m.textContent = 'researching and generating\u2026';
+  try {
+    var r = await api('/api/seo/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: DATA.project, name: DATA.name })
+    });
+    PUB.seo = r.seo;
+    render();
+  } catch (e) {
+    if (m) { m.textContent = e.message; m.className = 'hint bad'; }
+  }
+}
+
+async function applySeo(field, idx, variant) {
+  // Explicit, per-field, one click at a time — the publish fields above are
+  // the real source of truth and are never written to any other way.
+  var m = document.getElementById('seo_msg');
+  if (m) m.textContent = 'applying\u2026';
+  var value = null;
+  if (field === 'title' && idx != null) {
+    value = ((PUB.seo || {}).titles || [])[idx].text;
+  }
+  try {
+    var r = await api('/api/seo/apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: DATA.project, name: DATA.name,
+                             field: field, value: value, variant: variant || '' })
+    });
+    PUB.metadata = r.metadata;
+    PUB.problems = r.problems;
+    render();
+  } catch (e) {
+    if (m) { m.textContent = e.message; m.className = 'hint bad'; }
+  }
 }
 
 function thumbnailSection(th, dis) {

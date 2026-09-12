@@ -951,6 +951,9 @@ def _publish_payload(pdir, pid, name, md):
     return {"project": pid, "name": name, "metadata": md,
             "problems": validate_publish(md),
             "readiness": publish_readiness(pdir, name),
+            "seo": (__import__("seo").get(pdir, name,
+                    current_signature=cut_signature(pdir=pdir)) or None),
+            "youtube_configured": __import__("yt_api").configured(),
             "thumbnail": thumb,
             "thumbnail_note": _tb.publish_note(bool(thumb)),
             "thumbnail_limits": {"max_bytes": _tb.MAX_BYTES,
@@ -1078,6 +1081,180 @@ def api_publish_package(project: str = "", name: str = ""):
     fn = name.replace(".mp4", "") + "_upload_package.zip"
     return Response(content=buf.read(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+
+
+# ====================================================================
+#  SEO Copilot — YouTube metadata suggestions for one export
+#  Project truth first (seo.truth_card, local + deterministic), then the
+#  channel's MEASURED style, then bounded competitor research, then one gated
+#  model call. Suggestions are stored per export and never written into the
+#  publish metadata unless the operator applies them.
+# ====================================================================
+class SeoGenIn(BaseModel):
+    project: str = ""
+    name: str
+    refresh_style: bool = False       # force a channel re-fetch
+
+
+class SeoApplyIn(BaseModel):
+    project: str = ""
+    name: str
+    field: str                        # title | description | tags | hashtags
+    value: object = None              # explicit value (a chosen title)
+    variant: str = ""                 # "short" for the shorter description
+
+
+def _seo_state(pdir, name):
+    """One shape for GET and POST, so the panel cannot disagree with itself —
+    the same mistake that once left the publish dropdowns empty."""
+    import seo as _seo
+    sig = cut_signature(pdir=pdir)
+    rec = _seo.get(pdir, name, current_signature=sig)
+    return {"project": os.path.basename(pdir.rstrip("/")), "name": name,
+            "seo": rec or None, "current_signature": sig,
+            "youtube_configured": __import__("yt_api").configured()}
+
+
+@app.get("/api/seo")
+def api_seo(project: str = "", name: str = ""):
+    pdir = project_dir_for(project)
+    if not name:
+        name, _pid = latest_export(project or os.path.basename(pdir.rstrip("/")))
+    if not name:
+        return {"missing": True, "reason": "no export has been rendered yet"}
+    return _seo_state(pdir, name)
+
+
+@app.post("/api/seo/generate")
+def api_seo_generate(body: SeoGenIn):
+    """Generate suggestions for one export.
+
+    Runs even when YouTube is unconfigured or failing: the truth card is local,
+    so the copilot degrades to lower confidence rather than refusing. That is
+    the documented behaviour — never invent identity, but never stall either.
+    """
+    import seo as _seo
+    import yt_api
+    pdir = project_dir_for(body.project)
+    name = os.path.basename(body.name or "")
+    if not name:
+        raise HTTPException(400, "which export are these suggestions for?")
+
+    card = _seo.truth_card(pdir)                     # 1. project truth FIRST
+    style, res = {"titles": {"samples": 0}, "descriptions": {"samples": 0,
+                                                             "top_hashtags": []}}, {}
+    quota = 0
+    if yt_api.configured():
+        client = yt_api.Client()
+        style = _seo.channel_style(client, _yt_root(), force=body.refresh_style)
+        res = _seo.research(client, card)             # 3. bounded research
+        quota = client.spent
+    else:
+        res = {"ok": False, "error": "no YouTube API key configured",
+               "n": 0, "patterns": {}, "top": []}
+
+    try:
+        out = _seo.generate(pdir, name, card, style, res, usage=usage)
+    except usage.UsageCapExceeded:
+        raise
+    except Exception as e:
+        raise HTTPException(502, "SEO generation failed: %s" % str(e)[:300])
+
+    conf = _seo.confidence(card, style, res)
+    prev = _seo.get(pdir, name) or {}
+    rec = {
+        **out,
+        "confidence": conf,
+        "detected_from": {
+            "source_url": card.get("source_url"),
+            "series": card.get("series"), "chapter": card.get("chapter"),
+            "aliases": card.get("aliases"), "genre": card.get("genre"),
+            "characters": card.get("characters"),
+            "n_segments": card.get("n_segments"), "n_panels": card.get("n_panels"),
+            "narration_chars": card.get("narration_chars"),
+            "gaps": card.get("gaps"),
+        },
+        "sources": {
+            "project": {"label": "Ingested chapter", "url": card.get("source_url"),
+                        "detail": "project.json + narration + %d panel descriptions"
+                                  % card.get("n_panels", 0)},
+            "channel": {"label": (style.get("channel_title") or "channel style"),
+                        "url": "https://www.youtube.com/" + _seo.CHANNEL_HANDLE,
+                        "detail": "%d uploads measured" % (style.get("titles", {})
+                                                           .get("samples", 0)),
+                        "error": style.get("error")},
+            "research": {"label": "YouTube search", "query": res.get("query"),
+                         "detail": "%d comparable videos" % res.get("n", 0),
+                         "top": res.get("top", []), "error": res.get("error")},
+        },
+        "style_signal": style.get("titles", {}),
+        "cut_signature": cut_signature(pdir=pdir),
+        "generated_at": time.time(),
+        "quota_units": quota,
+        # Applying is the operator's action; regenerating must not forget what
+        # they already accepted.
+        "applied": prev.get("applied", {}),
+    }
+    _seo.put(pdir, name, rec)
+    return _seo_state(pdir, name)
+
+
+@app.post("/api/seo/apply")
+def api_seo_apply(body: SeoApplyIn):
+    """Copy ONE suggestion into the real publish metadata.
+
+    The publish record stays the source of truth: this is the only path by
+    which a suggestion reaches it, and it only ever runs on an explicit click.
+    """
+    import seo as _seo
+    pdir = project_dir_for(body.project)
+    name = os.path.basename(body.name or "")
+    rec = _seo.get(pdir, name)
+    if not rec:
+        raise HTTPException(404, "no SEO suggestions for that export yet")
+
+    store = load_publish(pdir)
+    md = {**publish_defaults(pdir), **(store.get(name) or {})}
+    field = (body.field or "").strip()
+
+    if field == "title":
+        val = body.value or ""
+        if not val:
+            rec_titles = [t["text"] for t in rec.get("titles", []) if t.get("recommended")]
+            val = rec_titles[0] if rec_titles else ""
+        if not val:
+            raise HTTPException(400, "no title to apply")
+        md["title"] = str(val)[:YT_TITLE_MAX]
+    elif field == "description":
+        key = "description_short" if body.variant == "short" else "description"
+        text = rec.get(key) or ""
+        tags = rec.get("hashtags") or []
+        if tags and not any(h in text for h in tags):
+            text = (text + "\n\n" + " ".join(tags)).strip()
+        md["description"] = text[:YT_DESC_MAX]
+    elif field == "tags":
+        md["tags"] = list(rec.get("tags") or [])
+    elif field == "hashtags":
+        # Hashtags live in the description on YouTube; keep them out of tags.
+        text = md.get("description") or ""
+        tags = rec.get("hashtags") or []
+        keep = "\n".join(l for l in text.splitlines()
+                          if not l.strip().startswith("#"))
+        md["description"] = (keep.rstrip() + "\n\n" + " ".join(tags)).strip()[:YT_DESC_MAX]
+    else:
+        raise HTTPException(400, "unknown field %r" % field)
+
+    store[name] = md
+    save_publish(pdir, store)
+    applied = dict(rec.get("applied") or {})
+    applied[field] = {"at": time.time(),
+                      "value": md.get("title") if field == "title" else True}
+    all_recs = _seo.load_all(pdir)
+    if name in all_recs:
+        all_recs[name]["applied"] = applied
+        _seo.save_all(pdir, all_recs)
+    return {"ok": True, "field": field,
+            "metadata": md, "problems": validate_publish(md)}
 
 
 # ====================================================================
