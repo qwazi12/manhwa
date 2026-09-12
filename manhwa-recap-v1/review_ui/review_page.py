@@ -395,7 +395,7 @@ function publishCard() {
     '<div class="hint" style="margin-bottom:10px">' +
       'These details are sent with the video. <b>Publish to</b> chooses which ' +
       'connected accounts receive it, and <b>Privacy</b> decides who can see it — ' +
-      'private is the default and the only option enabled in this pass. ' +
+      'private is the default so visibility is never raised by accident, but public and unlisted are both available. ' +
       'Changes save as you make them; <b>Download upload package</b> gives you the ' +
       'same details as a file if you would rather upload by hand.' +
     '</div>' +

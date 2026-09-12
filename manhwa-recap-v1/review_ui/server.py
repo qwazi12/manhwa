@@ -1618,10 +1618,8 @@ def upload_eligibility(pdir, name):
     acct = _yt.account_status(_yt_root())
     if not acct.get("can_upload"):
         blockers.append(acct.get("detail") or "No usable YouTube connection.")
-    # Phase C/D safety: never escalate visibility silently.
-    if md.get("privacy") != "private":
-        blockers.append("Only private uploads are permitted in this phase; set "
-                        "privacy to private.")
+    # Visibility is the operator's choice; private remains the default so it
+    # is never raised silently.
     uploads = load_uploads(pdir)
     prior = uploads.get(name) or {}
     if prior.get("status") == "uploaded":
@@ -1676,10 +1674,6 @@ def _os_root():
 # publish a scraped-artwork recap publicly on the owner's channel, so the
 # builder always sets it explicitly and this pass clamps to private unless an
 # operator deliberately lifts that.
-def _allow_public():
-    return os.environ.get("OUTSTAND_ALLOW_PUBLIC") == "1"
-
-
 @app.get("/api/outstand/status")
 def os_status():
     import outstand as _os
@@ -1798,9 +1792,10 @@ def publish_eligibility(pdir, name):
     privacy = md.get("privacy") or "private"
     if privacy not in _osd.YT_PRIVACY:
         blockers.append(f"Privacy must be one of {', '.join(_osd.YT_PRIVACY)}.")
-    elif privacy != "private" and not _allow_public():
-        blockers.append(f"This pass publishes privately only; '{privacy}' needs "
-                        f"OUTSTAND_ALLOW_PUBLIC=1 set deliberately.")
+    # Any documented visibility may be chosen. The protection that remains is
+    # the one that matters: private stays the DEFAULT, so visibility is only
+    # ever raised by an explicit pick, never by omission or by a code path
+    # forgetting to set it.
 
     pubs = load_publishes(pdir)
     prior = pubs.get(name) or {}
@@ -1814,9 +1809,8 @@ def publish_eligibility(pdir, name):
             "review_status": rv["status"], "superseded": rv["superseded"],
             "accounts": acct, "targets": targets,
             "metadata_problems": problems,
-            "effective_privacy": ("private" if not _allow_public()
-                                  else (md.get("privacy") or "private")),
-            "allow_public": _allow_public(),
+            "effective_privacy": (md.get("privacy") or "private"),
+            "allow_public": True,   # any documented visibility may be chosen
             "already_published": prior or None}
 
 
@@ -1884,7 +1878,7 @@ def _run_publish_job(job_id, pdir, name):
                                   on_step=lambda m: step(m, 1))
 
         step("creating the post", 2)
-        yt = _osd.build_youtube_config(md, force_private=not _allow_public())
+        yt = _osd.build_youtube_config(md, force_private=False)
         containers = [{"content": md.get("description") or md.get("title") or "",
                        "media": [{"url": media["url"],
                                   "filename": media["filename"]}]}]
@@ -1963,8 +1957,8 @@ def os_publish(body: PublishNowIn):
     threading.Thread(target=_run_publish_job, args=(job_id, pdir, name),
                      daemon=True).start()
     return {"ok": True, "job": job_id, "project": pid, "name": name,
-            "privacy": ("private" if not _allow_public()
-                        else (load_publish(pdir).get(name) or {}).get("privacy", "private"))}
+            # report the visibility this publish will actually use
+            "privacy": (load_publish(pdir).get(name) or {}).get("privacy", "private")}
 
 
 @app.get("/api/outstand/publish/status")

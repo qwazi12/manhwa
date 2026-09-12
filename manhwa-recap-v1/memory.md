@@ -4863,3 +4863,53 @@ ROOT PROCESS FIX: test_edge_routes checks the COMMITTED config, not the
 DEPLOYED one, so it passed 41/41 the whole time production was broken. It now
 PRINTS that blind spot and the exact command to run, every run. This is the
 fourth outage of this family (/segimg, /review, /thumbnail, /thumbconcept).
+
+### Session 28 (cont.) — privacy unlocked + thumbnails simplified to cover art
+Owner: "set up the privacy to be able to post at any picked choice" and "could
+we just use the manhwa cover art and put the chapter number/part number on it?"
+
+#### Privacy: choice honoured, default still private
+Removed the OUTSTAND_ALLOW_PUBLIC env gate and both "only private is permitted"
+blockers (the Outstand path AND the direct-YouTube scaffolding path). The
+force_private=True clamp on build_youtube_config is now force_private=False.
+WHAT REMAINS is the protection that actually matters: build_youtube_config
+still resolves an unset, empty or unrecognised value to "private", and always
+SENDS privacyStatus (YouTube's own default is public, so omitting it publishes
+publicly). Verified: public->public, unlisted->unlisted, private->private,
+''/None/'bogus'->private. So visibility can only ever be raised by an explicit
+pick, never by omission or a forgotten code path.
+Scheduled publishes still require private — that is YouTube's constraint, not
+ours, and was left alone.
+
+#### Thumbnails: the cover art was never actually available
+The ingest scraper DELIBERATELY SKIPS "/covers/", "cover." and "thumbnail" —
+it only downloads chapter pages. So "page 001" was being used as the series
+anchor and it is a STORY page, not a cover. That is why the anchor looked
+arbitrary.
+Added fetch_series_cover(): derives the series page from the chapter URL
+(/comics/<slug>/chapter/N -> /comics/<slug>/), reads og:image (the site's own
+declaration of the canonical artwork), downloads and verifies it once per
+series into pages/_cover.*. Best-effort — a failure just falls back to a
+chapter page, and the pack records anchor_is_real_cover so the UI can be honest.
+Verified live: fetched 895x1280 (a real portrait cover aspect, unlike the
+1200x800 chapter page).
+
+New "cover-badge" composition, now the DEFAULT and the recommended concept:
+the cover full-bleed with only the chapter/part number on it. No overlay text
+competing with it.
+
+part_from_title(): "**NEW PART 10**" -> "10", handles ranges ("1-6"), Pt/Ep/
+Episode forms, and yields "" rather than guessing. The badge shows PART when
+the title carries one, else CH. Serial viewers navigate by part, not chapter.
+
+TWO bugs caught by LOOKING at the render rather than trusting the code:
+1. anchor_image was only set when composition == "anchor-split", so cover-badge
+   silently got None and fell through to rendering a panel instead of the cover.
+2. _cover_crop took from the very top, which framed the scanlation site
+   watermark and cut the character's face. Now biases 22% down — covers put the
+   subject upper-middle, and the watermark sits at the very top.
+
+test_thumbnail_studio 85 -> 103. The three privacy tests that encoded the old
+"private only" gate were REWRITTEN to assert the new contract (explicit pick
+honoured, absent/invalid still private) rather than deleted.
+Suite 20 files, 0 failing.

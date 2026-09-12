@@ -178,9 +178,13 @@ def main():
     srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
                                        metadata={"title": "T", "privacy": "public"}))
     el = srv.upload_eligibility(pd, NAME)
-    r.append(("a non-private privacy is blocked in this phase", el["ready"] is False))
-    r.append(("...saying only private is permitted",
-              any("private" in b for b in el["blockers"])))
+    # The operator may choose any visibility; the guarantee that remains is
+    # that private is the DEFAULT, so it is never raised by omission.
+    r.append(("an explicitly chosen public upload is permitted", el["ready"] is True))
+    srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
+                                       metadata={"title": "T"}))
+    r.append(("...while metadata with no privacy at all defaults to private",
+              (srv.publish_defaults(pd).get("privacy") or "private") == "private"))
     srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
                                        metadata={"title": "T", "privacy": "private"}))
 

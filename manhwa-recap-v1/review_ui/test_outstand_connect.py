@@ -333,13 +333,30 @@ def main():
                                        metadata={"title": "T", "privacy": "public",
                                                  "targets": ["acc_1"]}))
     el = srv.publish_eligibility(pd, NAME)
-    r.append(("asking for public is refused without a deliberate override",
-              el["ready"] is False
-              and any("OUTSTAND_ALLOW_PUBLIC" in b for b in el["blockers"])))
-    os.environ["OUTSTAND_ALLOW_PUBLIC"] = "1"
-    r.append(("...and allowed once that override is set",
-              srv.publish_eligibility(pd, NAME)["ready"] is True))
-    os.environ.pop("OUTSTAND_ALLOW_PUBLIC")
+    # Visibility is the operator's decision. What must NOT happen is silent
+    # escalation, so the contract is: an explicit pick is honoured, and
+    # anything absent or unrecognised still resolves to private.
+    r.append(("an explicitly chosen public export is eligible",
+              el["ready"] is True))
+    r.append(("...and reports public as the effective visibility",
+              el["effective_privacy"] == "public"))
+    srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
+                                       metadata={"title": "T", "privacy": "unlisted",
+                                                 "targets": ["acc_1"]}))
+    r.append(("unlisted is honoured too",
+              srv.publish_eligibility(pd, NAME)["effective_privacy"] == "unlisted"))
+    for bad_val in ("", "bogus"):
+        cfg = osd.build_youtube_config({"privacy": bad_val}, force_private=False)
+        r.append(("a %r privacy still resolves to private, never public"
+                  % bad_val, cfg["privacyStatus"] == "private"))
+    cfg = osd.build_youtube_config({}, force_private=False)
+    r.append(("...and so does omitting it entirely",
+              cfg["privacyStatus"] == "private"))
+    r.append(("privacyStatus is ALWAYS sent, since YouTube defaults to public",
+              "privacyStatus" in cfg))
+    srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
+                                       metadata={"title": "T", "privacy": "private",
+                                                 "targets": ["acc_1"]}))
     srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
                                        metadata={"title": "T", "privacy": "private",
                                                  "targets": ["acc_1"]}))

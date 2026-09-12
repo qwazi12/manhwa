@@ -150,10 +150,15 @@ def cover_candidates(pdir):
     Page 1 of a scanlated chapter is the title/cover page, which is why it is
     preferred — it is the most recognisable single image a series has.
     """
-    pages = sorted(glob.glob(os.path.join(pdir, "pages", "*.webp")) +
+    cover = sorted(glob.glob(os.path.join(pdir, "pages", COVER_NAME + ".*")))
+    pages = sorted(p for p in
+                   glob.glob(os.path.join(pdir, "pages", "*.webp")) +
                    glob.glob(os.path.join(pdir, "pages", "*.jpg")) +
-                   glob.glob(os.path.join(pdir, "pages", "*.png")))
-    return pages[:3]
+                   glob.glob(os.path.join(pdir, "pages", "*.png"))
+                   if COVER_NAME not in os.path.basename(p))
+    # A real cover always wins: page 1 of a chapter is a story page, not the
+    # series' canonical artwork, and using it made the anchor look arbitrary.
+    return (cover + pages)[:3]
 
 
 def panel_paths(pdir):
@@ -271,15 +276,19 @@ def save_style(root, key, pack):
     return pack
 
 
-COMPOSITIONS = ("anchor-split", "hero-focus", "badge-stack")
+COMPOSITIONS = ("cover-badge", "anchor-split", "hero-focus", "badge-stack")
 
 
-def build_style_pack(pdir, meta, composition="anchor-split"):
+def build_style_pack(pdir, meta, composition="cover-badge"):
     """Derive a series identity from the manhwa's OWN artwork.
 
     Proposed, not approved: until the operator approves it this is a draft, so
     a bad auto-derivation never silently becomes a series' permanent look.
     """
+    # Fetch the series cover once, if we do not already have it. Best-effort:
+    # a failure just means the anchor falls back to a chapter page.
+    if not glob.glob(os.path.join(pdir, "pages", COVER_NAME + ".*")):
+        fetch_series_cover(pdir, (meta or {}).get("url") or "")
     covers = cover_candidates(pdir)
     panels = [p["file"] for p in rank_panels(pdir, 4)]
     pal = extract_palette(covers + panels)
@@ -288,6 +297,7 @@ def build_style_pack(pdir, meta, composition="anchor-split"):
         "series": (meta or {}).get("series") or "",
         "aliases": [],
         "anchor_images": [os.path.relpath(c, pdir) for c in covers[:1]],
+        "anchor_is_real_cover": bool(covers and COVER_NAME in os.path.basename(covers[0])),
         "anchor_source_project": os.path.basename(pdir.rstrip("/")),
         "palette": {"bg": list(pal["bg"]), "accent": list(pal["accent"]),
                     "ink": list(readable_ink(pal["bg"])),
@@ -318,7 +328,7 @@ def ensure_style(root, pdir, meta, force=False):
         pack["inherited"] = True
         return key, pack
     fresh = build_style_pack(pdir, meta,
-                            composition=(pack or {}).get("composition", "anchor-split"))
+                            composition=(pack or {}).get("composition", "cover-badge"))
     if pack and not force:
         fresh["approved"] = pack.get("approved", False)
         fresh["approved_at"] = pack.get("approved_at")
@@ -337,6 +347,17 @@ def approve_style(root, key, pack=None, **overrides):
 
 
 # ======================================================= HOOK TEXT
+def part_from_title(title):
+    """The part marker the channel already uses, e.g. '**NEW PART 10**' -> '10'.
+
+    Serial viewers navigate by part, not chapter, so when the title carries one
+    it is the more useful number to put on the cover.
+    """
+    m = re.search(r"\b(?:new\s+)?(?:part|pt|ep|episode)\s*([0-9]+(?:\s*-\s*[0-9]+)?)",
+                  title or "", re.I)
+    return re.sub(r"\s*-\s*", "-", m.group(1)) if m else ""
+
+
 def hook_from_title(title, card=None):
     """A 2-5 word overlay derived from the chosen title.
 
@@ -403,11 +424,17 @@ def build_concepts(pdir, meta, style, title="", n=4):
 
     # Concept 1 — the series anchor beside the chapter's strongest panel.
     # This is the recurring shape that makes uploads recognisable.
-    plans = [
-        ("Series anchor + chapter hook", comp, panels[0], bool(hook),
-         "The series anchor keeps the upload recognisable in a feed; the "
-         "chapter panel supplies what is new."),
-    ]
+    part = part_from_title(title)
+    plans = []
+    if anchors:
+        plans.append(("Cover art + chapter number", "cover-badge", panels[0], False,
+                      "The series cover with just the chapter number on it \u2014 "
+                      "the same image every chapter, so a playlist reads as one "
+                      "series and only the number changes."))
+    plans.append(("Series anchor + chapter hook", comp if comp != "cover-badge"
+                  else "anchor-split", panels[0], bool(hook),
+                  "The series anchor keeps the upload recognisable in a feed; the "
+                  "chapter panel supplies what is new."))
     if len(panels) > 1:
         plans.append(("Full-bleed hook panel", "hero-focus", panels[1], bool(hook),
                       "One focal moment at full bleed reads fastest at sidebar size."))
@@ -434,8 +461,11 @@ def build_concepts(pdir, meta, style, title="", n=4):
             "focal_file": panel["file"],
             "focal_why": panel["why"],
             "panel_score": panel["score"],
-            "anchor_image": anchors[0] if anchors and composition == "anchor-split" else None,
+            # cover-badge needs the anchor too — it IS the anchor, full-bleed.
+            "anchor_image": (anchors[0] if anchors and composition in
+                             ("anchor-split", "cover-badge") else None),
             "chapter": chapter,
+            "part": part,
             "badge": ((style or {}).get("badge") or {}).get("label", "CH"),
             "overlay_text": hook if use_text else "",
             "text_zone": (style or {}).get("text_zone", "lower-left"),
@@ -514,7 +544,12 @@ def _cover_crop(im, box_w, box_h):
     scale = max(box_w / sw, box_h / sh)
     nw, nh = max(1, int(sw * scale)), max(1, int(sh * scale))
     im = im.resize((nw, nh), Image.LANCZOS)
-    left, top = (nw - box_w) // 2, 0        # bias to the TOP: faces sit high
+    # Bias slightly BELOW the top rather than to the very top. Covers put the
+    # subject in the upper-middle, and the very top of a scanlated cover is
+    # where the site watermark sits — starting at 0 framed the watermark and
+    # cut the face.
+    left = (nw - box_w) // 2
+    top = int((nh - box_h) * 0.22)
     return im.crop((left, top, left + box_w, top + box_h))
 
 
@@ -599,7 +634,12 @@ def render_concept(pdir, concept, style, out_path, width=W):
         except Exception:
             return False
 
-    if comp == "anchor-split" and anchor and os.path.exists(anchor):
+    if comp == "cover-badge" and anchor and os.path.exists(anchor):
+        # The cover fills the frame; the number is the only thing added.
+        if not place(anchor, (0, 0, width, height)):
+            place(focal, (0, 0, width, height))
+        _scrim(img, (0, int(height * 0.58), width, height), (0, 0, 0, 150))
+    elif comp == "anchor-split" and anchor and os.path.exists(anchor):
         split = int(width * 0.42)
         place(anchor, (0, 0, split, height))
         if not place(focal, (split, 0, width, height)):
@@ -619,14 +659,15 @@ def render_concept(pdir, concept, style, out_path, width=W):
     pad = int(width * 0.035)
 
     # Chapter badge — the one element that must change every chapter.
-    ch = str(concept.get("chapter") or "").strip()
+    part = str(concept.get("part") or "").strip()
+    ch = part or str(concept.get("chapter") or "").strip()
     if ch:
-        label = "%s %s" % (concept.get("badge") or "CH", ch)
+        label = "%s %s" % ("PART" if part else (concept.get("badge") or "CH"), ch)
         bf = _font(int(height * 0.085))
         tw = draw.textlength(label, font=bf)
         bh = int(height * 0.115)
         bw = int(tw + pad * 1.5)
-        big = comp == "badge-stack"
+        big = comp in ("badge-stack", "cover-badge")
         if big:
             bf = _font(int(height * 0.135))
             tw = draw.textlength(label, font=bf)
@@ -695,3 +736,87 @@ def put_concepts(pdir, name, rec):
     data[os.path.basename(name or "")] = rec
     save_concepts(pdir, data)
     return rec
+
+
+# ======================================================= SERIES COVER ART
+# The ingest scraper deliberately SKIPS "/covers/" and "thumbnail" images — it
+# only wants chapter pages — so a project has no real cover art on disk. Page 1
+# of a chapter is a story page, not a cover, which is why using it as the
+# series anchor looked arbitrary. This fetches the actual cover once per series
+# from the same source the chapter came from.
+COVER_NAME = "_cover"
+
+
+def series_page_url(chapter_url):
+    """The series page that a chapter URL belongs to."""
+    u = (chapter_url or "").strip()
+    if not u:
+        return ""
+    u = re.sub(r"/chapter[s]?/[^/]*/?$", "/", u, flags=re.I)
+    return u if u.endswith("/") else u + "/"
+
+
+def _pick_cover_url(html_text, base):
+    """The series cover from a series page.
+
+    Prefers og:image — the site's own declaration of the canonical artwork for
+    that series — and falls back to an image whose URL says it is a cover.
+    """
+    import urllib.parse
+    m = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)',
+                  html_text, re.I)
+    if not m:
+        m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image',
+                      html_text, re.I)
+    if m:
+        return urllib.parse.urljoin(base, m.group(1))
+    for pat in (r'src=["\']([^"\']*(?:cover|thumbnail)[^"\']*\.(?:jpe?g|png|webp))',
+                r'["\'](https?://[^"\']*/covers?/[^"\']+\.(?:jpe?g|png|webp))'):
+        m2 = re.search(pat, html_text, re.I)
+        if m2:
+            return urllib.parse.urljoin(base, m2.group(1))
+    return ""
+
+
+def fetch_series_cover(pdir, chapter_url, timeout=30, _open=None):
+    """Download the series cover into the project. Returns its path or "".
+
+    Failure is never fatal: a missing cover simply means the copilot falls back
+    to a chapter page, with the style pack recording which it used.
+    """
+    import ssl
+    import urllib.request
+    page = series_page_url(chapter_url)
+    if not page:
+        return ""
+    ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+          "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    opener = _open or (lambda u: urllib.request.urlopen(
+        urllib.request.Request(u, headers={"User-Agent": ua}),
+        timeout=timeout, context=ssl._create_unverified_context()))
+    try:
+        with opener(page) as r:
+            html_text = r.read().decode("utf-8", "replace")
+    except Exception:
+        return ""
+    url = _pick_cover_url(html_text, page)
+    if not url:
+        return ""
+    ext = os.path.splitext(url.split("?")[0])[1].lower()
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        ext = ".jpg"
+    out = os.path.join(pdir, "pages", COVER_NAME + ext)
+    try:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with opener(url) as r:
+            data = r.read()
+        if len(data) < 2048:
+            return ""
+        from PIL import Image
+        import io as _io
+        Image.open(_io.BytesIO(data)).verify()      # refuse anything unreadable
+        with open(out, "wb") as f:
+            f.write(data)
+        return out
+    except Exception:
+        return ""

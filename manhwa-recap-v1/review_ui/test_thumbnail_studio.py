@@ -228,6 +228,57 @@ def main():
     check("an empty palette falls back to a legible default",
           ts.extract_palette([])["bg"] == (14, 16, 22))
 
+    # ============ 8b. cover art + chapter/part number (the owner's ask)
+    check("cover-badge is a supported composition",
+          "cover-badge" in ts.COMPOSITIONS)
+    check("...and is the default for a brand new series",
+          ts.build_style_pack(ch1, meta1)["composition"] == "cover-badge")
+    cb = [c for c in cons if c["composition"] == "cover-badge"]
+    check("a cover-art concept is offered when an anchor exists", bool(cb))
+    if cb:
+        check("...it carries the anchor image, not just a panel",
+              cb[0]["anchor_image"] is not None)
+        check("...and adds no competing overlay text",
+              cb[0]["overlay_text"] == "")
+
+    # the part marker the channel actually uses beats the chapter number
+    check("a part number is parsed from the title",
+          ts.part_from_title("**NEW PART 10** Something") == "10")
+    check("...including a range", ts.part_from_title("**NEW PART 1-6** X") == "1-6")
+    check("...and 'Pt' / 'Episode' forms too",
+          ts.part_from_title("*Pt 2* X") == "2" and
+          ts.part_from_title("Episode 7 X") == "7")
+    check("no part marker yields nothing rather than a guess",
+          ts.part_from_title("Just A Title") == "")
+    withpart = ts.build_concepts(ch1, meta1, style, "**PART 9** A Title")
+    check("concepts carry the parsed part number", withpart[0]["part"] == "9")
+    nopart = ts.build_concepts(ch1, meta1, style, "A Title")
+    check("...and fall back to the chapter when there is none",
+          nopart[0]["part"] == "" and nopart[0]["chapter"] == "1")
+
+    # the series cover is fetched, not assumed to be page 1
+    check("a series page URL is derived from a chapter URL",
+          ts.series_page_url("https://x.com/comics/abc-123/chapter/4")
+          == "https://x.com/comics/abc-123/")
+    check("an empty chapter URL derives nothing", ts.series_page_url("") == "")
+    html = '<meta property="og:image" content="/covers/abc.jpg">'
+    check("the cover is taken from og:image when present",
+          ts._pick_cover_url(html, "https://x.com/comics/abc/")
+          == "https://x.com/covers/abc.jpg")
+    check("...with a fallback for pages that lack it",
+          "cover" in ts._pick_cover_url('<img src="/img/cover-1.png">',
+                                        "https://x.com/"))
+    check("a page with no cover at all yields nothing",
+          ts._pick_cover_url("<html>nothing</html>", "https://x.com/") == "")
+
+    class _Boom:
+        def __call__(self, u): raise OSError("network down")
+    check("a failed cover fetch degrades instead of raising",
+          ts.fetch_series_cover(ch1, "https://x.com/comics/a/chapter/1",
+                                _open=_Boom()) == "")
+    check("...and the style pack still records which anchor it used",
+          "anchor_is_real_cover" in ts.build_style_pack(ch1, meta1))
+
     # ================ 9. endpoints + the existing thumbnail path
     srv.project_dir_for = lambda p="": ch1
     srv.active_project_dir = lambda: ch1
