@@ -4448,3 +4448,32 @@ it duplicates the code default. Recommend REMOVING it so there is one source of
 truth, keeping the env var purely as an emergency override. Left set for now
 (harmless: both say 4) because clearing it is a production config change for the
 owner to approve. Suite 19 files, 0 failing.
+
+### Session 28 (cont.) — steady state applied
+Removed the now-redundant Railway variable RENDER_WORKERS=4. The code default
+(4) is the single source of truth; the env var survives purely as an emergency
+override.
+
+A detail worth remembering: deleting the variable did NOT trigger a rollout.
+The latest deployment stayed b68e54a0 (01:24) while the delete happened ~01:50,
+so the RUNNING container still carried RENDER_WORKERS=4 in its environment.
+Functionally identical — variable and code both said 4 — but it is exactly the
+hidden drift the cleanup was meant to remove, so a `railway redeploy -y` was
+run to make runtime match config. Deployment 90bfff85 SUCCESS, health 200.
+
+Before redeploying I checked for live work and nearly got it wrong: the logs
+showed /api/ingest/status/524efb075565 being polled every couple of seconds,
+which reads exactly like an ingest in flight. It was not — every poll was a
+**404**, and /api/jobs reported 0 running or queued. It is a stale poller in an
+open browser tab: startIngestPoller() loops while activeIngestJob sits in
+localStorage and its catch branch retries forever, so a job that has been
+cleaned up leaves a tab polling indefinitely at 404. Minor UI bug, NOT fixed
+(out of scope) — but the lesson is that a bare log grep cannot distinguish a
+live job from a stuck client; check status codes and /api/jobs.
+
+FINAL STEADY STATE (verified live):
+  RENDER_WORKERS   Railway var UNSET -> code default 4
+  RENDER_FPS       Railway var UNSET -> code default 30 (no --fps emitted)
+  PRODUCER_LOW_MEMORY_MODE=1 kept as image ENV (explicit -w overrides it)
+  flags per render: ["-w", "4"]
+  25 Railway vars, health 200, 0 active jobs
