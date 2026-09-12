@@ -630,7 +630,8 @@ a {{ color:var(--accent); }}
   <span id="st_clips">③ clips <b id="clipcount">?</b></span>
   <span id="st_exp">④ export <b id="expstate">—</b></span>
   <span id="st_sil" style="{'color:var(--warn)' if _sil else ''}">🔇 dead air <b>{sil_str}</b></span>
-  <div id="renderprog" style="display:none"><div id="renderbar"></div><span id="rendertxt"></span></div>
+  <div id="renderprog" style="display:none"><div id="renderbar"></div><span id="rendertxt"></span>
+    <button id="renderstop" class="danger mini" onclick="stopRender()" title="stop after the clip currently rendering">⏹ Stop</button></div>
 </div>
 <div class="wrap">
 <h1>{html.escape(title)} — combined: all {len(descs)} panels · story placement · render timing ({n_included} of {len(segs)} segments in the video, {_mmss(video_total)})</h1>
@@ -816,6 +817,21 @@ async function toggleApproval() {{
 }}
 /* ---- R1/R5/R6: live finalize progress (render -> export -> link) ---- */
 let finalizeTimer = null;
+async function stopRender() {{
+  const id = localStorage.getItem('finalizeJob');
+  if (!id) return;
+  if (!confirm('Stop this render/export? It stops after the clip currently ' +
+               'rendering; clips already built are kept and re-rendering ' +
+               'resumes from there.')) return;
+  try {{
+    await j('/api/jobs/control', {{method:'POST',
+      headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{job_id: id, action: 'stop'}})}});
+    const t = document.getElementById('rendertxt');
+    if (t) t.textContent = 'stopping after this clip…';
+  }} catch (e) {{ alert('Could not stop: ' + (e.message || e)); }}
+}}
+
 async function pollFinalize(id) {{
   clearInterval(finalizeTimer);
   const strip = document.getElementById('renderprog');
@@ -992,10 +1008,36 @@ function paintIngest() {{
   const box = document.getElementById('ingprog'); if (!box || !ingestState) return;
   const s = ingestState;
   box.innerHTML = stageBar(s.stage, s.pct, s.msg, s.status === 'error' ? s.error : null);
+  // Stop is offered only while there is something to stop. It is cooperative:
+  // the worker checks between pipeline stages, so it lands within seconds
+  // rather than instantly — that is the honest trade for not killing a
+  // half-written project.
+  if (s.status === 'running' || s.status === 'queued' || s.status === 'pausing') {{
+    box.innerHTML += `<div style="margin-top:8px;display:flex;gap:6px;align-items:center">
+      <button class="danger" onclick="stopIngest()">⏹ Stop ingest</button>
+      <span class="hint">stops after the current step finishes</span></div>`;
+  }}
+  if (s.status === 'cancelled') {{
+    box.innerHTML += `<div class="hint" style="margin-top:8px">Stopped. Whatever
+      finished is kept; re-run the ingest to continue.</div>`;
+  }}
   if (s.status === 'done' && s.project) {{
     box.innerHTML += `<button class="primary" style="margin-top:8px" onclick="activateProj('${{s.project.id}}')">Open “${{s.project.id}}” (${{s.project.n_segments}} segs)</button>`;
   }}
 }}
+async function stopIngest() {{
+  const id = activeJob();
+  if (!id) return;
+  if (!confirm('Stop this ingest? It stops after the current step; anything ' +
+               'already downloaded or described is kept.')) return;
+  try {{
+    await j('/api/jobs/control', {{method:'POST',
+      headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{job_id: id, action: 'stop'}})}});
+    if (ingestState) {{ ingestState.status = 'pausing'; paintIngest(); }}
+  }} catch (e) {{ alert('Could not stop: ' + (e.message || e)); }}
+}}
+
 async function startIngestPoller() {{
   if (ingestPolling) return; ingestPolling = true;
   try {{
@@ -1102,7 +1144,17 @@ async function loadTracker(refresh) {{
   box.innerHTML = refresh ? 'checking the source…' : 'loading…';
   try {{
     const d = await j('/api/tracker?refresh=' + (refresh ? 1 : 0));
-    if (!(d.series || []).length) {{ box.innerHTML = 'No trackable series yet — ingest a chapter first.'; return; }}
+    const hidden = (d.untracked || []).length
+      ? `<details style="margin-top:10px"><summary class="hint" style="cursor:pointer">
+           ${{d.untracked.length}} series not tracked</summary>` +
+        d.untracked.map(u => `<div style="display:flex;gap:6px;align-items:center;padding:4px 0">
+           <span class="hint" style="flex:1">${{u.series}}</span>
+           <button class="mini" onclick="untrackSeries('${{u.series_url}}','',1)">↩ track again</button>
+         </div>`).join('') + `</details>`
+      : '';
+    if (!(d.series || []).length) {{
+      box.innerHTML = 'No trackable series yet — ingest a chapter first.' + hidden; return;
+    }}
     box.innerHTML = d.series.map(sx => {{
       const behind = sx.behind || 0;
       const col = sx.error ? 'var(--bad)' : (behind ? 'var(--warn)' : 'var(--ok)');
@@ -1125,13 +1177,32 @@ async function loadTracker(refresh) {{
            `</div></details>`
         : '';
       return `<div style="border-bottom:1px solid var(--rule);padding:8px 0">
-        <div style="font-weight:700">${{sx.series}}</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <div style="font-weight:700;flex:1">${{sx.series}}</div>
+          <button class="mini danger" title="stop tracking this series — ingested chapters and exports are NOT deleted"
+            onclick="untrackSeries('${{sx.series_url}}','${{lbl}}')">🗑 remove</button>
+        </div>
         <div style="color:${{col}};font-size:12px">${{status}}</div>
         <div class="hint" style="font-size:11px">have ch ${{sx.highest_have || '—'}} · latest ch ${{sx.latest || '?'}} · ${{sx.have_count}} ingested${{sx.backfill_count ? (' · ' + sx.backfill_count + ' earlier chapters skipped') : ''}}</div>
         ${{next}}${{more}}
       </div>`;
-    }}).join('');
+    }}).join('') + hidden;
   }} catch (e) {{ box.innerHTML = 'Failed to load tracker: ' + (e.message || e); }}
+}}
+
+async function untrackSeries(url, label, restore) {{
+  // Removing a series from the WATCHLIST only. Its ingested chapters, clips and
+  // exports stay exactly where they are — deleting those is the Projects tab's
+  // job, and that one asks before destroying anything.
+  if (!restore && !confirm('Stop tracking ' + (label || 'this series') +
+      '? Its ingested chapters and exports are NOT deleted — this only stops ' +
+      'checking for new chapters, and you can track it again later.')) return;
+  try {{
+    await j('/api/tracker/untrack', {{method:'POST',
+      headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{series_url: url, restore: !!restore}})}});
+    await loadTracker(0);
+  }} catch (e) {{ alert('Could not update the tracker: ' + (e.message || e)); }}
 }}
 function _trkChecked() {{ return Array.from(document.querySelectorAll('.trksel')).filter(c => c.checked); }}
 function updateTrkSel() {{

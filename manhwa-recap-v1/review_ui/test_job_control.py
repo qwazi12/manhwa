@@ -125,6 +125,37 @@ def main():
     r.append(("...in the order they were queued",
               order == ["http://x/chapter/1", "http://x/chapter/2", "http://x/chapter/3"]))
 
+    # ---- the controls must actually EXIST in the UI, not just as endpoints
+    # A stop that is only reachable from the Logs tab is not a stop button on
+    # the thing you are watching, which is what was asked for.
+    import sys as _sys, os as _os
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    _sys.path.insert(0, _os.path.abspath(_os.path.join(
+        _os.path.dirname(_os.path.abspath(__file__)), "..")))
+    import storyboard as _sb, matcher as _m
+    _projs = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "projects")
+    _cand = [d for d in sorted(_os.listdir(_projs))
+             if _os.path.isdir(_os.path.join(_projs, d)) and not d.startswith("_")]
+    if _cand:
+        _html = _sb.build_storyboard_html(_os.path.join(_projs, _cand[0]), _m,
+                                          review={}, usage_summary={}, approved=False)
+        r.append(("the ingest drawer has a Stop control",
+                  "stopIngest" in _html and "Stop ingest" in _html))
+        r.append(("...and it stops the ACTIVE ingest job",
+                  "action: 'stop'" in _html and "activeJob()" in _html))
+        r.append(("the render/export strip has a Stop control",
+                  "stopRender" in _html and 'id="renderstop"' in _html))
+        r.append(("...targeting the finalize job being watched",
+                  "finalizeJob" in _html.split("function stopRender")[1][:400]))
+        r.append(("the tracker has a per-series remove control",
+                  "untrackSeries" in _html and "remove" in _html))
+        r.append(("...that says data is NOT deleted, because it is not",
+                  "NOT deleted" in _html))
+        r.append(("...and offers a way to track it again",
+                  "track again" in _html))
+        r.append(("every stop confirms first rather than acting instantly",
+                  _html.count("confirm(") >= 3))
+
     for name, ok in r:
         print(("PASS " if ok else "FAIL ") + name)
     n = sum(1 for _, ok in r if ok)

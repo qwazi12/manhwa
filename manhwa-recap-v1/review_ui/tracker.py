@@ -20,6 +20,7 @@ import time
 import urllib.request
 
 CACHE_NAME = "_tracker_cache.json"
+IGNORE_NAME = "_tracker_ignored.json"
 TTL_SECONDS = 30 * 60          # re-check a series at most twice an hour
 TIMEOUT = 45
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -84,6 +85,51 @@ def _save_cache(pdir_root, cache):
         pass
 
 
+def _ignore_path(root):
+    return os.path.join(root, IGNORE_NAME)
+
+
+def load_ignored(root):
+    """Series the operator has stopped tracking.
+
+    Kept separate from the projects themselves: removing a series from the
+    tracker must NOT delete its ingested chapters or exports. Deleting a
+    project is the Projects tab's job and is destructive; this is only a
+    watchlist.
+    """
+    try:
+        with open(_ignore_path(root), encoding="utf-8") as f:
+            d = json.load(f)
+        return set(d.get("series_urls") or [])
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return set()
+
+
+def save_ignored(root, urls):
+    p = _ignore_path(root)
+    tmp = p + ".tmp"
+    os.makedirs(root, exist_ok=True)
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"series_urls": sorted(urls)}, f, indent=1)
+    os.replace(tmp, p)
+    return sorted(urls)
+
+
+def untrack(root, series_url):
+    """Stop watching one series. Reversible — nothing is deleted."""
+    ig = load_ignored(root)
+    ig.add(series_url)
+    save_ignored(root, ig)
+    return sorted(ig)
+
+
+def retrack(root, series_url):
+    ig = load_ignored(root)
+    ig.discard(series_url)
+    save_ignored(root, ig)
+    return sorted(ig)
+
+
 def build(projects, projects_root, refresh=False, _fetcher=None, now=None):
     """Group known projects by series and report the gap for each.
 
@@ -108,9 +154,15 @@ def build(projects, projects_root, refresh=False, _fetcher=None, now=None):
         except (TypeError, ValueError):
             pass
 
+    ignored = load_ignored(projects_root)
+    hidden = [{"series": g["series"], "series_url": u}
+              for u, g in sorted(groups.items(), key=lambda kv: kv[1]["series"].lower())
+              if u in ignored]
     out = []
     errors = 0
     for spage, g in sorted(groups.items(), key=lambda kv: kv[1]["series"].lower()):
+        if spage in ignored:
+            continue          # untracked: skip the network check entirely
         have_nums = sorted(n for n, _ in g["have"])
         entry = {
             "series": g["series"],
@@ -165,5 +217,5 @@ def build(projects, projects_root, refresh=False, _fetcher=None, now=None):
         out.append(entry)
 
     _save_cache(projects_root, cache)
-    return {"series": out, "checked_at": now, "errors": errors,
+    return {"series": out, "untracked": hidden, "checked_at": now, "errors": errors,
             "ttl_seconds": TTL_SECONDS}

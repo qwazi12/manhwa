@@ -3276,6 +3276,32 @@ def api_tracker(refresh: int = 0):
     return _trk.build(_ing.list_projects(), _ing.PROJECTS, refresh=bool(refresh))
 
 
+class UntrackIn(BaseModel):
+    series_url: str
+    restore: bool = False
+
+
+@app.post("/api/tracker/untrack")
+def api_tracker_untrack(body: UntrackIn):
+    """Remove a series from the watchlist, or put it back.
+
+    Deliberately NOT destructive: the ingested chapters, clips and exports are
+    untouched. Deleting actual project data is the Projects tab's job, which
+    asks for confirmation; this only stops the tracker checking for new
+    chapters, and is reversible from the same panel.
+    """
+    import ingest as _ing
+    import tracker as _trk
+    url = (body.series_url or "").strip()
+    if not url:
+        raise HTTPException(400, "which series?")
+    if body.restore:
+        _trk.retrack(_ing.PROJECTS, url)
+    else:
+        _trk.untrack(_ing.PROJECTS, url)
+    return _trk.build(_ing.list_projects(), _ing.PROJECTS)
+
+
 @app.post("/api/activate")
 def activate_project(body: ActivateIn):
     """Point the studio at an ingested project: load its segments + audio."""

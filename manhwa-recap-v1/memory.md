@@ -4913,3 +4913,53 @@ test_thumbnail_studio 85 -> 103. The three privacy tests that encoded the old
 "private only" gate were REWRITTEN to assert the new contract (explicit pick
 honoured, absent/invalid still private) rather than deleted.
 Suite 20 files, 0 failing.
+
+### Session 28 (cont.) — tracker delete + ingest stop + export stop
+All three asked for as buttons that "do exactly as the button says".
+
+The job-control machinery already existed (/api/jobs/control with pause/resume/
+stop, _control_gate honoured between pipeline stages and between clips, and it
+already searched BOTH the INGEST and JOBS stores). What was missing was the
+wiring: stop was only reachable from the Logs tab, not from the thing you are
+actually watching.
+
+1) TRACKER DELETE — new, needed persistence.
+   tracker.py gains an ignore list (_tracker_ignored.json) with untrack() /
+   retrack() / load_ignored(). build() skips ignored series ENTIRELY (no
+   network check for them) and reports them under "untracked" so they can be
+   restored. New POST /api/tracker/untrack {series_url, restore}.
+   DELIBERATELY NON-DESTRUCTIVE: removing a series from the watchlist does not
+   touch its ingested chapters, clips or exports — deleting project data is the
+   Projects tab's job and that one already confirms. The confirm text says so.
+
+2) INGEST STOP — button appears in the ingest drawer only while status is
+   running/queued/pausing, calls job control on activeJob(), and the panel then
+   explains that whatever finished is kept.
+
+3) EXPORT/RENDER STOP — button on the #renderprog strip, targets the
+   finalizeJob being watched, and says it stops after the current clip so
+   already-built clips are reused on the next run.
+
+All three confirm before acting. All three are cooperative, so they land within
+seconds rather than instantly — stated in the button titles rather than implied.
+
+ANOTHER escaping bug, same family: "\n\n" inside a confirm() string in
+storyboard.py — the file is an f-string, so the escape collapsed into a real
+newline inside a JS string literal and broke the whole bundle. Flattened to one
+line. The rule keeps proving itself: do not put escapes in these templates.
+
+Tests: test_tracker 23 -> 32 (untrack/retrack, persistence, project data
+survives, no network check for an untracked series), test_job_control 16 -> 24
+(all three controls present in the rendered UI, each confirms, each targets the
+right job). Suite 20 files, 0 failing.
+
+#### HANDBOOK IS STALE — reported, not silently patched
+/private/tmp/.../scratchpad/handbook.html, written Sep 11 13:41. Greps 0 for:
+SEO, Thumbnail Copilot, Outstand, part number, cover art, worker. Its two
+"privacy" mentions describe the private-only rule that no longer applies.
+Missing since it was written: SEO Copilot, Series Thumbnail Copilot, the
+Outstand publish path, selectable privacy, the two-column publish prep, the
+vibrant UI/CTA changes, auto-hiding sidebar, live cost header, 4-worker renders,
+and now these three controls. It also lives only in the scratchpad + Google
+Drive, not in the repo — which is why it drifted. Offered to rewrite it and to
+keep it in-repo so it stops rotting.

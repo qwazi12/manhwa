@@ -126,6 +126,55 @@ def main():
                       tempfile.mkdtemp(prefix="trk6_"), _fetcher=lambda u: _page([1]))
     r.append(("a project with no usable url is skipped", d["series"] == []))
 
+    # ---- removing a series from the WATCHLIST is not deleting its data
+    import shutil as _sh
+    root2 = tempfile.mkdtemp(prefix="trk_untrack_")
+    projs = [{"id": "s_1", "series": "Series A", "chapter": "1",
+              "url": "https://x.com/comics/a/chapter/1"},
+             {"id": "t_1", "series": "Series B", "chapter": "1",
+              "url": "https://x.com/comics/b/chapter/1"}]
+    # a project directory that must survive an untrack
+    os.makedirs(os.path.join(root2, "s_1"), exist_ok=True)
+    open(os.path.join(root2, "s_1", "segments.json"), "w").write("[]")
+
+    def _fake(url):
+        return ["1", "2", "3"]
+
+    d0 = tracker.build(projs, root2, _fetcher=_fake)
+    r.append(("both series are tracked to begin with", len(d0["series"]) == 2))
+    r.append(("...and nothing is listed as untracked", d0["untracked"] == []))
+
+    tracker.untrack(root2, "https://x.com/comics/a/")
+    d1 = tracker.build(projs, root2, _fetcher=_fake)
+    r.append(("an untracked series disappears from the watchlist",
+              len(d1["series"]) == 1 and d1["series"][0]["series"] == "Series B"))
+    r.append(("...and is reported separately so it can be restored",
+              len(d1["untracked"]) == 1
+              and d1["untracked"][0]["series"] == "Series A"))
+    r.append(("...WITHOUT deleting the project's data",
+              os.path.exists(os.path.join(root2, "s_1", "segments.json"))))
+    r.append(("the choice persists across a reload",
+              "https://x.com/comics/a/" in tracker.load_ignored(root2)))
+
+    tracker.retrack(root2, "https://x.com/comics/a/")
+    d2 = tracker.build(projs, root2, _fetcher=_fake)
+    r.append(("re-tracking brings it back", len(d2["series"]) == 2
+              and d2["untracked"] == []))
+    r.append(("untracking an unknown url is harmless",
+              isinstance(tracker.untrack(root2, "https://x.com/comics/zz/"), list)))
+
+    # an untracked series must not cost a network check
+    calls = []
+
+    def _counting(url):
+        calls.append(url)
+        return ["1"]
+
+    tracker.untrack(root2, "https://x.com/comics/a/")
+    tracker.build(projs, root2, refresh=True, _fetcher=_counting)
+    r.append(("an untracked series is not fetched at all",
+              not any("/a/" in c for c in calls)))
+
     for name, ok in r:
         print(("PASS " if ok else "FAIL ") + name)
     n = sum(1 for _, ok in r if ok)
