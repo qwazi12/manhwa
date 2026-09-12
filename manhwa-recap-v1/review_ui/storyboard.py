@@ -476,7 +476,12 @@ tr.sa td.script {{ background:var(--sa-bg); }} .ln {{ color:var(--sa-ink); }}
 tr.fold td.script {{ background:var(--fold-bg); color:var(--fold-ink); }} .unittxt {{ color:var(--fold-ink); font-size:11px; margin-top:4px; }}
 tr.omit td.script {{ background:var(--omit-bg); color:var(--omit-ink); }}
 tr.gray td.script {{ background:var(--gray-bg); color:var(--gray-ink); }}
-.segblock {{ background:var(--seg-bg); border:1px solid var(--seg-rule); border-radius:6px; padding:6px; margin-bottom:6px; position:relative; }}
+/* display:flow-root contains the floated .segprev. Without it a preview
+   taller than the card's text — which happens as soon as it carries badges
+   like "original", "keeps 38%" or "crop 12% - too small" — escapes the card
+   entirely and lands on top of the NEXT segment. flow-root rather than
+   overflow:hidden because hidden would clip those same badges. */
+.segblock {{ background:var(--seg-bg); border:1px solid var(--seg-rule); border-radius:6px; padding:6px; margin-bottom:6px; position:relative; display:flow-root; }}
 .segprev {{ float:right; width:118px; margin:0 0 4px 8px; text-align:center; }}
 .segprev img {{ width:118px; max-height:150px; object-fit:contain; border-radius:4px;
   background:var(--panel2); box-shadow:0 1px 4px rgba(0,0,0,.5); display:block; }}
@@ -516,7 +521,10 @@ td.timing.dropok {{ outline:3px dashed var(--ok); outline-offset:-3px; backgroun
 .mt {{ color:var(--ink3); font-size:10px; }}
 .b.sil {{ background:var(--panel2); color:var(--ink3); }}
 .off {{ color:var(--ink3); }}
-.acts {{ margin-top:6px; display:flex; gap:5px; flex-wrap:wrap; }}
+/* clear:both keeps the action row BELOW the preview. Flowing beside a tall
+   float squeezed it into two ragged rows ("swap / edit narration" then
+   "add line / approve / delete"), which read as the controls colliding. */
+.acts {{ margin-top:6px; display:flex; gap:5px; flex-wrap:wrap; clear:both; }}
 .acts button {{ font-size:11px; padding:4px 7px; border-radius:5px; }}
 
 #cands {{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; overflow:auto; padding:30px; z-index:30; }}

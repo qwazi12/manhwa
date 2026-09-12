@@ -4577,3 +4577,39 @@ first. They now write segments.json raw through a test-local _write_raw()
 helper — coverage kept, no backdoor in production code.
 
 test_storyboard_edit 49 -> 55. Suite 19 files, 0 failing.
+
+### Session 28 (cont.) — the screenshots, finally seen (owner put them on the Desktop)
+Attachments were not reaching me; owner said "search the desktop for that name".
+Read them from ~/Desktop/Screenshot 2026-09-11 at *.png. LESSON: when an image
+will not attach, ask for a path — the Read tool opens local images fine.
+
+#### 1. "items in On-screen timing & motion overlap" — FIXED, root cause found
+.segblock had a float:right .segprev child but NEVER established a block
+formatting context, so any preview taller than the card's text escaped the card
+and landed on the NEXT segment. It gets taller exactly when it carries badges —
+"original ↗", "✂ keeps 38%", "⛔ crop 12% — too small, full panel used". Visible
+in segs #36/#37 and #51/#52: the badge strip is clipped by the following card.
+Second symptom, same cause: .acts flowed BESIDE the tall float, so the buttons
+wrapped into two ragged rows ("swap / edit narration" then "add line / ✅ / 🗑"),
+which reads as controls colliding.
+FIX: .segblock display:flow-root (contains the float; NOT overflow:hidden,
+which would clip those badges) + .acts clear:both.
+VERIFIED objectively in Chrome over 103 cards: 0 children escaping their card,
+0 adjacent-card collisions (both were non-zero before).
+
+#### 2. "why arent all images showing up" — NOT a data bug
+Tested every panel image the production board requests: 98 of 98 return 200.
+Nothing is missing. The screenshot is stamped 9:59 PM ET = 01:59 UTC and I
+redeployed at 01:56 UTC — the container was restarting, so those requests
+failed in flight. The real gap: a loading="lazy" <img> that fails NEVER RETRIES,
+so one restart leaves permanently broken icons until the page is reloaded.
+Not fixed (would need an onerror retry) — flagged to the owner.
+
+#### 3. "this doesnt work" = the rail's Hide button. Already addressed by making
+auto-hide the default (520c20f).
+
+#### 4/5. The -14.7 screenshot also showed something my data dump missed: the
+[-1.0s] and [0.0s] entries on seg 19 are the SAME SENTENCE twice, so that
+narration would play over itself on top of being mistimed.
+
+Suite 19 files, 0 failing.
