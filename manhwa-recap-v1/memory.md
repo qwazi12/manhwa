@@ -4391,3 +4391,35 @@ At 2 workers the box ran at 9% CPU and 4% memory. Linear extrapolation puts
 4 workers near 6 vCPU (19%) and ~2.5 GB (8%) — far inside limits. Local
 measurement already showed 4 workers at -21% beyond 2 with identical output.
 Recommending the experiment; still NOT adopted by default.
+
+### Session 28 (cont.) — 4-worker production test (same rerender)
+RENDER_WORKERS=4 set as a Railway variable (no code change, no deploy of new
+code — the variable itself triggered redeploy d01ed4c9, health 200). Nothing
+was running. Same project, same 8 clips, same method as the 2-worker run.
+
+Job db9c7905f866, status done, 8/8, NO errors.
+  1 worker  (09-09 baseline)   422.0s   7.03 min      -
+  2 workers (Sep11 08.47PM)    224.0s   3.73 min    -47% vs 1
+  4 workers (Sep11 09.17PM)    152.4s   2.54 min    -64% vs 1, -32% vs 2
+  CPU peak  5.2 vCPU of 32 (16%)     MEM peak 1.87 GB of 32 GB (6%)
+4 beat the local prediction too (local said -21% beyond 2; production gave -32%).
+
+CORRECTNESS — three-way ffprobe, 1 vs 2 vs 4 workers, same source clips:
+  duration 61.921 / 61.921 / 61.921   spread 0.000s
+  frames   1857   / 1857   / 1857
+  30/1 fps · 1920x1080 · h264 · aac · 48000 Hz · 2ch — identical in all three
+  size 29714665 / 29712619 / 29712852 — spread 2046 bytes (0.0069%), the known
+  byte-level non-determinism
+  4-worker audio: mean -20.7 dB, max -1.0 dB (same as the other two)
+So worker count does not affect output at all, only wall clock.
+
+STATE LEFT LIVE: RENDER_WORKERS=4 is set on Railway and is what production now
+runs. The CODE default in render_segments.py is still 2 — deliberate, it is the
+conservative fallback if the variable is ever cleared, but it does mean the
+effective production value lives in config rather than in the repo. Promoting
+the code default to 4 is a one-line change if the owner wants repo and prod to
+state the same number.
+
+Headroom remains large (16% CPU, 6% memory), so 8 workers is probably still on
+the table, but returns will bend once Chrome instances contend for I/O and
+memory bandwidth. NOT tested.
