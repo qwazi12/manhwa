@@ -165,8 +165,14 @@ function toggleTheme() {
   applyTheme();
 }
 function applyRail() {
-  let off = false;
-  try { off = localStorage.getItem('railoff') === '1'; } catch (e) {}
+  // Auto-hide is the DEFAULT: the rail sits as a sliver and opens on hover or
+  // keyboard focus, rather than needing to be retracted by hand. Pinning it
+  // open is still one click, and that choice is remembered.
+  let off = true;
+  try {
+    const v = localStorage.getItem('railoff');
+    if (v !== null) off = v === '1';
+  } catch (e) {}
   document.body.classList.toggle('railoff', off);
   const ic = document.querySelector('#railpin .ic');
   const lb = document.getElementById('railpinlbl');

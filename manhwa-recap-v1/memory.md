@@ -4530,3 +4530,8 @@ test_storyboard_edit 42 -> 49. Suite 19 files, 0 failing.
 #### Screenshots did not attach
 Only a generic PNG icon came through, so the timing-column overlap, the missing
 images and "this doesnt work" could not be seen. Asked the owner to resend.
+
+Rail now AUTO-HIDES by default (owner request): applyRail() defaults `off` to
+true, so the sliver-plus-hover behaviour is what you get without configuring
+anything. An explicit pin is still stored and still wins — only the absence of
+a stored choice changed meaning.
