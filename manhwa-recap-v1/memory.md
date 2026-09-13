@@ -5187,3 +5187,27 @@ test_validator 50 -> 54. Suite 20 files, 0 failing.
 So the Claude passes should work on Railway as-is, with no new env var. Still
 never exercised against the live API from this machine (no key here) — first
 real run should be 'text' mode on one chapter with the cost header watched.
+
+### Session 29 (cont.) — validator documented IN THE REPO
+Owner asked for the complete logic, rationale, tab decision, improvements and
+tradeoffs. Written to review_ui/VALIDATOR.md and committed — deliberately in
+the repo, because the Session 28 finding still stands: the handbook rotted
+precisely because it lived only in a scratchpad and Google Drive. Global rule
+33 wants docs that match the code; this one sits next to the code it describes.
+Also published as a readable artifact for reference.
+
+The honest parts worth keeping visible, since they are easy to lose:
+- STRUCTURAL BLIND SPOT: pass 2 trusts the description; pass 3 only opens
+  images for rows pass 2 already flagged. A description that is wrong AND
+  plausible therefore produces a wrong match that nothing flags and no image
+  ever checks. The chain cannot currently see into this. The cheap mitigation
+  is a random vision spot-check of UNFLAGGED rows each run, which would also
+  give the first real estimate of what is being missed.
+- BATCH-BOUNDARY BLINDNESS: pass 2 sees 25 rows; if the panel a line belongs to
+  is in the next batch, the mismatch is invisible. Overlapping windows would fix
+  it.
+- NO FEEDBACK LOOP: nothing learns from the corrections the owner actually
+  makes. Logging acted-on vs dismissed findings and feeding confirmed ones back
+  as few-shot examples is the single biggest accuracy lever available.
+- Claude-pass precision is UNMEASURED. Only the rule pass has been verified by
+  hand (5/5 true positives on swordmasters ch.1).
