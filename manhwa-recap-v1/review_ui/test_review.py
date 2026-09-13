@@ -164,24 +164,43 @@ def main():
               theme.TOKENS_CSS.strip() in rhtml))
     r.append(("the board renders the SAME shared palette",
               bool(bhtml) and theme.TOKENS_CSS.strip() in bhtml))
-    r.append(("both ship the retract control and the theme switch",
-              'id="railpin"' in rhtml and 'id="themebtn"' in rhtml
-              and 'id="railpin"' in bhtml and 'id="themebtn"' in bhtml))
-    r.append(("...backed by one key each, so neither is a per-page habit",
-              "localStorage.getItem('railoff')" in rhtml
-              and "localStorage.getItem('theme')" in rhtml))
+    r.append(("both ship the theme switch",
+              'id="themebtn"' in rhtml and 'id="themebtn"' in bhtml))
+    r.append(("...backed by one key, so the theme is not a per-page habit",
+              "localStorage.getItem('theme')" in rhtml))
+    # The rail used to auto-hide to a sliver and slide back out on hover. The
+    # owner asked for that gone (2026-09-13): it kept reappearing during work
+    # that had nothing to do with it. These assert the REMOVAL, so nobody
+    # reintroduces auto-hide by restoring a "helpful" retract.
+    r.append(("the rail does not retract — no pin control on either page",
+              'id="railpin"' not in rhtml and 'id="railpin"' not in bhtml))
+    r.append(("...and no stored retract state to bring it back",
+              "railoff" not in rhtml and "railoff" not in bhtml))
+    r.append(("...and no hover/focus rule that could reopen it",
+              ":focus-within" not in rhtml and ":focus-within" not in bhtml))
     r.append(("a light theme exists for both, not just dark",
               '[data-theme="light"]' in rhtml and '[data-theme="light"]' in bhtml))
     r.append(("the theme is applied before the body paints, so light never "
               "flashes dark first",
               rhtml.index("data-theme") < rhtml.index("<body")
               and bhtml.index("data-theme") < bhtml.index("<body")))
-    r.append(("the retracted rail still opens on keyboard focus, not hover only",
-              ":focus-within" in rhtml and ":focus-within" in bhtml))
     # Buttons melting into the panel behind them was a real complaint; the
     # control surface must be its own token, not a reused panel shade.
     r.append(("controls have their own surface, distinct from any panel",
               "--btn:" in rhtml and "background:var(--btn)" in rhtml))
+
+    # ---- ?open= is a one-time instruction, not a sticky mode
+    # Reported 2026-09-13: "it pops out and shows me the detals of the last tab
+    # clicked every single time". /review links to /storyboard?open=logs; the
+    # param stayed in the URL, and because most board actions end in
+    # location.reload() (which preserves the query string), the drawer reopened
+    # on every single action for the rest of the session.
+    r.append(("arriving with ?open= still opens that drawer",
+              "open=([a-z]+)" in bhtml and "toggleDrawer(m[1])" in bhtml))
+    r.append(("...but the param is consumed, so a reload cannot reopen it",
+              "history.replaceState" in bhtml))
+    r.append(("/review still links in with ?open=, so the entry path survives",
+              "/storyboard?open=logs" in rhtml))
 
     # ---- every drawer must actually load when its tab is clicked
     # Session 28 regression: inserting the ?open= handler closed toggleDrawer

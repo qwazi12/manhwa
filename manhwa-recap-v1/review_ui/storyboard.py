@@ -446,11 +446,10 @@ header .stat b {{ display:block; font-size:15px; color:var(--ink); }} header .st
 .navbtn {{ width:52px; height:56px; border:0; background:transparent; border-radius:9px; display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center; color:var(--ink3); font-size:10px; cursor:pointer; }}
 .navbtn .ic {{ font-size:19px; line-height:1; }}
 .navbtn:hover, .navbtn.active {{ background:var(--panel2); color:var(--accent); }}
-/* Retractable rail. Retracted it is a 14px sliver; hovering it — or tabbing
-   into it, so this is not mouse-only — slides it back to full width OVER the
-   content instead of reflowing the board, so nothing shifts under the pointer
-   as it opens. The pin keeps it out, and the choice is stored under the same
-   localStorage key /review uses, so the rail behaves the same on both. */
+/* The rail does not retract. It used to auto-hide to a sliver and slide back
+   out on hover; that was removed at the owner's request (2026-09-13). It is
+   simply always here, at a fixed 64px, which is why body keeps a matching
+   64px left margin. */
 {theme.rail_css('#rail')}
 /* ---- validation badges + findings ---- */
 .vbadge {{ display:inline-block; margin-top:4px; padding:1px 6px; border-radius:9px;
@@ -1024,10 +1023,23 @@ function toggleDrawer(name) {{
   if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
 }}
 /* Arriving from another page with ?open=<drawer> should land on that drawer,
-   so the rail behaves the same wherever you clicked it. */
+   so the rail behaves the same wherever you clicked it.
+
+   The param is CONSUMED — stripped from the URL as soon as it is read. It used
+   to be left in place, and because most board actions end in location.reload()
+   (which preserves the query string), the drawer reopened on EVERY action for
+   the rest of the session: click anything, and the last tab you came in on
+   popped back out with its details showing. Arriving from /review is a
+   one-time instruction, not a sticky mode. */
 (function () {{
   var m = /[?&]open=([a-z]+)/.exec(location.search);
-  if (m) setTimeout(function () {{ toggleDrawer(m[1]); }}, 60);
+  if (!m) return;
+  try {{
+    var clean = location.pathname +
+      location.search.replace(/([?&])open=[a-z]+&?/, '$1').replace(/[?&]$/, '');
+    history.replaceState(null, '', clean + location.hash);
+  }} catch (e) {{ /* a stale URL is survivable; a stuck drawer is not */ }}
+  setTimeout(function () {{ toggleDrawer(m[1]); }}, 60);
 }})();
 /* ---- pre-review check (rules -> Claude text -> Claude vision) --------
    Findings are painted from /api/validation AFTER load rather than baked into

@@ -5130,3 +5130,60 @@ is why the refusal-fallback beta was NOT used). FIRST REAL RUN SHOULD BE
 'text' MODE ON ONE CHAPTER, with the cost header watched.
 TO ENABLE: set ANTHROPIC_API_KEY in the Railway environment (never in code).
 Until it is set, 'rules' mode works and the Claude modes fail loudly by name.
+
+### Session 29 (cont.) — sidebar: I MISDIAGNOSED IT. The real bug was the DRAWER.
+Owner, after the first fix: "the sidebar isnt fixed… it pops out as if i clicked
+in the logs tab. it pops out and shows me the detals of the last tab clicked
+every single time."
+
+That sentence is the whole diagnosis, and it is not the rail. "Shows me the
+details of the last tab clicked" is a DRAWER (d_logs/d_ingest/…), not a 64px
+nav strip.
+
+ROOT CAUSE — ?open= was a STICKY MODE instead of a one-time instruction:
+  /review's rail links go to /storyboard?open=logs
+  the board's handler opens that drawer — correct, once
+  BUT the param stayed in the URL, and location.reload() PRESERVES the query
+  string. Most board actions end in a reload. So from then on, every single
+  action re-fired the handler and the last tab you entered on popped back out.
+
+REPRODUCED IN A BROWSER BEFORE TOUCHING ANYTHING (having already guessed wrong
+once): loaded /storyboard?open=logs -> d_logs display:block; called
+location.reload() -> URL still "?open=logs", d_logs display:block again.
+
+FIX: consume the param. history.replaceState strips it the moment it is read,
+so arriving from /review still lands on the drawer and a reload cannot reopen
+it. Verified after: arrive -> drawer open, URL already clean; reload -> URL
+clean, drawer CLOSED.
+
+SECOND, SEPARATE REQUEST — "can you just revert it to how it was previously
+when it just stayed out all the time?" The rail auto-hide is now GONE, not
+defaulted-open: retract CSS, the #railpin button, applyRail/toggleRail, the
+railoff localStorage key and the data-rail attribute are all deleted. The rail
+is always 64px, which is what it was before auto-hide existed. body's matching
+64px left margin was already correct for that.
+
+This also retires my earlier fix this session (the head-time data-rail guard) —
+correctly. A rail with exactly ONE state cannot paint in the wrong one, cannot
+flash open while a 400KB board parses, and cannot reopen under the pointer. The
+earlier fix was real (the flash was measurable) but it was not what the owner
+was seeing, and the auto-hide it was propping up is gone now.
+
+Tests REWRITTEN to the new contract rather than deleted, same discipline as the
+Session 28 privacy tests: "no pin control on either page", "no stored retract
+state to bring it back", "no hover/focus rule that could reopen it", plus the
+drawer regression the owner actually reported — ?open= still opens, and is
+consumed. test_review 41 -> 52.
+
+### Session 29 (cont.) — the key is CLAUDE_API_KEY, not ANTHROPIC_API_KEY
+Owner: "Claude_API_KEY is already in railway it was set a long time ago".
+The anthropic SDK's own env lookup ONLY knows ANTHROPIC_API_KEY, so leaning on
+anthropic.Anthropic() with no argument would have failed on the one deployment
+that matters. validator.api_key() now checks CLAUDE_API_KEY FIRST, falls back
+to ANTHROPIC_API_KEY, treats a whitespace-only value as missing, and the key is
+passed EXPLICITLY to the client. Error text names CLAUDE_API_KEY.
+test_validator 50 -> 54. Suite 20 files, 0 failing.
+
+So the Claude passes should work on Railway as-is, with no new env var. Still
+never exercised against the live API from this machine (no key here) — first
+real run should be 'text' mode on one chapter with the cost header watched.

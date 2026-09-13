@@ -39,8 +39,9 @@ cost header on the site. There is no path in this file that reaches the API
 without passing that gate.
 
 Pass 1 needs no credentials and always runs. Passes 2 and 3 raise a clear
-error naming ANTHROPIC_API_KEY when it is missing, rather than degrading into
-a validation that silently checked less than it claimed to.
+error naming the key they need (CLAUDE_API_KEY, or ANTHROPIC_API_KEY as a
+fallback) when it is missing, rather than degrading into a validation that
+silently checked less than it claimed to.
 """
 
 import base64
@@ -305,21 +306,39 @@ def rule_findings(rows):
 
 
 # --------------------------------------------------------------- Claude
+# This deployment's key has lived in Railway as CLAUDE_API_KEY since long
+# before this module existed, so that name is checked FIRST and the SDK's own
+# ANTHROPIC_API_KEY is the fallback. The key is passed explicitly rather than
+# left to the SDK's env lookup, because the SDK only knows the second name —
+# relying on it would have failed on the one deployment that matters.
+API_KEY_VARS = ("CLAUDE_API_KEY", "ANTHROPIC_API_KEY")
+
+
+def api_key():
+    for name in API_KEY_VARS:
+        v = (os.environ.get(name) or "").strip()
+        if v:
+            return v
+    return ""
+
+
 def _client():
     """Fail fast and by name. A validator that quietly skipped its Claude
     passes would report 'no problems found' on an unvalidated board, which is
     worse than reporting nothing."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    key = api_key()
+    if not key:
         raise ValidatorError(
-            "ANTHROPIC_API_KEY is not set — the Claude review passes cannot "
-            "run. Set it in the Railway environment (never in code), or run "
-            "the validator in rules-only mode.")
+            "No Claude API key found — set CLAUDE_API_KEY (or "
+            "ANTHROPIC_API_KEY) in the Railway environment, never in code. "
+            "The Claude review passes cannot run without it; rules-only mode "
+            "still works.")
     try:
         import anthropic
     except ImportError as e:
         raise ValidatorError(
             "The 'anthropic' package is not installed on this server.") from e
-    return anthropic.Anthropic()
+    return anthropic.Anthropic(api_key=key)
 
 
 SYSTEM_TEXT = """\

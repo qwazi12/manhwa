@@ -213,14 +213,34 @@ def main():
           not validator.rule_findings(validator.build_rows(ok_credit)))
 
     # ================================================== fail fast, by name
-    saved_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+    # This deployment's key has been in Railway as CLAUDE_API_KEY for a long
+    # time. The SDK only looks for ANTHROPIC_API_KEY, so relying on the SDK's
+    # own env lookup would have failed on the one deployment that matters.
+    saved = {k: os.environ.pop(k, None) for k in validator.API_KEY_VARS}
     try:
         validator._client()
         check("a missing key raises rather than silently skipping", False)
     except validator.ValidatorError as e:
         check("a missing key raises rather than silently skipping",
-              "ANTHROPIC_API_KEY" in str(e))
-    os.environ["ANTHROPIC_API_KEY"] = saved_key or "test-key-not-real"
+              "CLAUDE_API_KEY" in str(e))
+
+    os.environ["CLAUDE_API_KEY"] = "from-claude-var"
+    check("CLAUDE_API_KEY is accepted", validator.api_key() == "from-claude-var")
+    os.environ["ANTHROPIC_API_KEY"] = "from-anthropic-var"
+    check("...and wins over ANTHROPIC_API_KEY when both are set",
+          validator.api_key() == "from-claude-var")
+    del os.environ["CLAUDE_API_KEY"]
+    check("ANTHROPIC_API_KEY still works as the fallback",
+          validator.api_key() == "from-anthropic-var")
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+    os.environ["   CLAUDE_API_KEY".strip()] = "   "
+    check("a blank key counts as missing, not as configured",
+          validator.api_key() == "")
+    for k, v in saved.items():
+        os.environ.pop(k, None)
+        if v:
+            os.environ[k] = v
+    os.environ.setdefault("CLAUDE_API_KEY", "test-key-not-real")
 
     # ================================================== Claude text pass
     validator.BATCH_ROWS = 2
