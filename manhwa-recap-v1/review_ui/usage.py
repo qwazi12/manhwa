@@ -1,6 +1,11 @@
 """
 Cost & abuse guardrails — shared usage tracker for every external API call the
-pipeline makes (Gemini vision/text/embeddings, Google TTS).
+pipeline makes (Gemini vision/text/embeddings, Google TTS, Claude validation).
+
+Three `kind`s, three units: 'gemini' and 'claude' count CALLS, 'tts' counts
+CHARACTERS. Every one of them is gated, metered and logged the same way, so a
+new provider can never spend money outside the daily cap or outside the cost
+figure the storyboard header shows.
 
 Design:
   - `gate(kind, units, model=...)` is a context manager. On ENTER it checks
@@ -62,6 +67,12 @@ def _envf(name, default):
 # ~530 calls; 2000 leaves headroom for the biggest chapters while still
 # catching an infinite loop. The DAILY SPEND cap ($5) is the real wallet guard.
 MAX_GEMINI_CALLS_PER_JOB = int(_envf("MAX_GEMINI_CALLS_PER_JOB", 2000))
+# Claude does board VALIDATION, not generation: one call per batch of rows plus
+# a vision call per flagged panel. A 138-panel chapter is ~6 batch calls + at
+# most a few dozen vision calls, so 400/job catches a loop without ever tripping
+# on real work. The daily SPEND cap below is still the real wallet guard.
+MAX_CLAUDE_CALLS_PER_JOB = int(_envf("MAX_CLAUDE_CALLS_PER_JOB", 400))
+MAX_DAILY_CLAUDE_CALLS = int(_envf("MAX_DAILY_CLAUDE_CALLS", 1200))
 MAX_TTS_CHARS_PER_JOB = int(_envf("MAX_TTS_CHARS_PER_JOB", 120000))
 MAX_DAILY_GEMINI_CALLS = int(_envf("MAX_DAILY_GEMINI_CALLS", 6000))
 MAX_DAILY_TTS_CHARS = int(_envf("MAX_DAILY_TTS_CHARS", 400000))
@@ -73,6 +84,11 @@ MAX_DAILY_SPEND_USD = _envf("MAX_DAILY_SPEND_USD", 5.0)
 # for flash-tier describe calls, the historical default).
 EST_COST_PER_GEMINI_CALL_USD = _envf("EST_COST_PER_GEMINI_CALL_USD", 0.001)
 EST_COST_PER_TTS_1K_CHARS_USD = _envf("EST_COST_PER_TTS_1K_CHARS_USD", 0.016)
+# Pre-flight guess for a Claude call, used ONLY by the cap check that runs
+# BEFORE the call. Real token counts replace it on the way out. Sized for a
+# validator batch (a couple of dozen rows in, a findings list out) and rounded
+# UP, so the daily cap errs toward stopping early rather than overspending.
+EST_COST_PER_CLAUDE_CALL_USD = _envf("EST_COST_PER_CLAUDE_CALL_USD", 0.05)
 
 # Per-model per-call estimates. Matched by PREFIX (first hit wins), so version
 # suffixes like "-preview" still resolve. Deliberately conservative (high) so
@@ -121,6 +137,26 @@ def _today():
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+# Every counter bucket, in one place. Adding a provider means adding it here
+# and nowhere else — the day bucket, each job bucket and the lifetime bucket
+# are all filled through this, so they cannot drift apart again.
+_CALL_COUNTERS = ("gemini_calls", "claude_calls", "tts_chars")
+
+
+def _zero_counts():
+    return {k: 0 for k in _CALL_COUNTERS}
+
+
+def _job_slot(d, job_id):
+    """The job's counter dict, with any counter added after it was first
+    written backfilled to 0. Counter files predating a new provider are the
+    normal case, not an edge case."""
+    job = d["jobs"].setdefault(job_id, _zero_counts())
+    for k in _CALL_COUNTERS:
+        job.setdefault(k, 0)
+    return job
+
+
 def _load_counts():
     try:
         with open(COUNTS_PATH, encoding="utf-8") as f:
@@ -130,19 +166,22 @@ def _load_counts():
     if d.get("date") != _today():
         # Day rollover: fold the finished day into the lifetime totals so
         # all-time spend survives every reset (and restarts — it's on disk).
-        life = d.get("lifetime", {"gemini_calls": 0, "tts_chars": 0,
-                                  "est_cost_usd": 0.0})
-        life["gemini_calls"] += d.get("gemini_calls", 0)
-        life["tts_chars"] += d.get("tts_chars", 0)
-        life["est_cost_usd"] = round(life["est_cost_usd"] + d.get("est_cost_usd", 0.0), 6)
-        d = {"date": _today(), "gemini_calls": 0, "tts_chars": 0,
-             "est_cost_usd": 0.0, "jobs": {}, "lifetime": life}
+        life = d.get("lifetime", dict(_zero_counts(), est_cost_usd=0.0))
+        for k in _CALL_COUNTERS:
+            life[k] = life.get(k, 0) + d.get(k, 0)
+        life["est_cost_usd"] = round(life.get("est_cost_usd", 0.0) + d.get("est_cost_usd", 0.0), 6)
+        d = dict(_zero_counts(), date=_today(), est_cost_usd=0.0,
+                 jobs={}, lifetime=life)
     d.setdefault("jobs", {})
+    # A counters.json written before a provider existed has no key for it.
+    for k in _CALL_COUNTERS:
+        d.setdefault(k, 0)
     if "lifetime" not in d:
         # First run after the lifetime feature landed: reconstruct history
         # from the append-only call log so no past spend is dropped, then
         # subtract today's (still-active) counters which are tracked live.
-        life = {"gemini_calls": 0, "tts_chars": 0, "est_cost_usd": 0.0}
+        life = dict(_zero_counts(), est_cost_usd=0.0)
+        _bucket = {"gemini": "gemini_calls", "claude": "claude_calls"}
         try:
             with open(LOG_PATH, encoding="utf-8") as f:
                 for line in f:
@@ -150,15 +189,12 @@ def _load_counts():
                         e = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    if e.get("kind") == "gemini":
-                        life["gemini_calls"] += e.get("units", 0)
-                    else:
-                        life["tts_chars"] += e.get("units", 0)
+                    life[_bucket.get(e.get("kind"), "tts_chars")] += e.get("units", 0)
                     life["est_cost_usd"] += e.get("est_cost_usd", 0.0)
         except FileNotFoundError:
             pass
-        life["gemini_calls"] -= d.get("gemini_calls", 0)
-        life["tts_chars"] -= d.get("tts_chars", 0)
+        for k in _CALL_COUNTERS:
+            life[k] -= d.get(k, 0)
         life["est_cost_usd"] = round(max(0.0, life["est_cost_usd"] - d.get("est_cost_usd", 0.0)), 6)
         d["lifetime"] = life
     return d
@@ -217,6 +253,27 @@ GEMINI_TOKEN_PRICES_PER_1M = [
                          _price("PRICE_FLASH_OUT_PER_1M", 2.50)),
 ]
 
+# Claude rates, unlike the Gemini block above, are Anthropic's PUBLISHED list
+# prices per million tokens (Opus 5 $5/$25, Sonnet 5 $3/$15, Haiku 4.5 $1/$5),
+# not placeholders — rate_card() reports that difference so the UI can stop
+# calling the Claude figure an assumption. Still env-overridable for when
+# pricing moves. Matched by PREFIX, first hit wins; the fallback is the
+# Opus (most expensive) rate so an unrecognised model is never under-billed.
+CLAUDE_TOKEN_PRICES_PER_1M = [
+    ("claude-opus",   _price("PRICE_CLAUDE_OPUS_IN_PER_1M", 5.0),
+                      _price("PRICE_CLAUDE_OPUS_OUT_PER_1M", 25.0)),
+    ("claude-sonnet", _price("PRICE_CLAUDE_SONNET_IN_PER_1M", 3.0),
+                      _price("PRICE_CLAUDE_SONNET_OUT_PER_1M", 15.0)),
+    ("claude-haiku",  _price("PRICE_CLAUDE_HAIKU_IN_PER_1M", 1.0),
+                      _price("PRICE_CLAUDE_HAIKU_OUT_PER_1M", 5.0)),
+]
+
+CLAUDE_RATES_ARE_DEFAULT = not any(
+    os.environ.get(k) for k in
+    ("PRICE_CLAUDE_OPUS_IN_PER_1M", "PRICE_CLAUDE_OPUS_OUT_PER_1M",
+     "PRICE_CLAUDE_SONNET_IN_PER_1M", "PRICE_CLAUDE_SONNET_OUT_PER_1M",
+     "PRICE_CLAUDE_HAIKU_IN_PER_1M", "PRICE_CLAUDE_HAIKU_OUT_PER_1M"))
+
 RATES_ARE_DEFAULT = not any(
     os.environ.get(k) for k in
     ("PRICE_PRO_IN_PER_1M", "PRICE_PRO_OUT_PER_1M", "PRICE_FLASH_IN_PER_1M",
@@ -226,6 +283,14 @@ RATES_ARE_DEFAULT = not any(
 
 def _token_rates(model):
     m = (model or "").lower()
+    if m.startswith("claude"):
+        for prefix, rin, rout in CLAUDE_TOKEN_PRICES_PER_1M:
+            if m.startswith(prefix):
+                return rin, rout
+        # Unknown Claude model: bill it at the Opus rate rather than guessing
+        # low. Overstating spend fails safe; understating it does not.
+        return (_price("PRICE_CLAUDE_OPUS_IN_PER_1M", 5.0),
+                _price("PRICE_CLAUDE_OPUS_OUT_PER_1M", 25.0))
     for prefix, rin, rout in GEMINI_TOKEN_PRICES_PER_1M:
         if m.startswith(prefix):
             return rin, rout
@@ -258,6 +323,29 @@ class Meter:
         self.reported = True
         return self
 
+    def from_anthropic(self, resp):
+        """Read the anthropic SDK's usage block. Different field names from
+        google-genai's, hence a separate reader rather than one that guesses:
+        input_tokens / output_tokens, and cache_read_input_tokens for the part
+        served from the prompt cache.
+
+        Cache READS are counted as cached (they are billed at a tenth of the
+        input rate, so folding them into prompt_tokens would overstate spend);
+        cache WRITES are billed above the input rate and ARE part of
+        input_tokens, so they are left there. Same contract as from_response:
+        never break a pipeline over accounting."""
+        try:
+            u = getattr(resp, "usage", None)
+            if u is None:
+                return self
+            cached = getattr(u, "cache_read_input_tokens", 0) or 0
+            return self.tokens(
+                getattr(u, "input_tokens", 0) or 0,
+                getattr(u, "output_tokens", 0) or 0,
+                cached)
+        except Exception:
+            return self
+
     def from_response(self, resp):
         """Read google-genai's usage_metadata if the SDK returned one.
         Silently does nothing when absent — never break a pipeline over
@@ -277,13 +365,15 @@ class Meter:
 def _est_cost(kind, units, model=""):
     if kind == "gemini":
         return units * _gemini_call_cost(model)
+    if kind == "claude":
+        return units * EST_COST_PER_CLAUDE_CALL_USD
     return units / 1000.0 * EST_COST_PER_TTS_1K_CHARS_USD
 
 
 @contextlib.contextmanager
 def gate(kind, units, model=""):
-    """kind: 'gemini' (units = number of calls, usually 1) or 'tts'
-    (units = character count). Raises UsageCapExceeded BEFORE the wrapped
+    """kind: 'gemini' or 'claude' (units = number of calls, usually 1), or
+    'tts' (units = character count). Raises UsageCapExceeded BEFORE the wrapped
     call if it would breach a per-job or daily cap; commits usage + logs
     only if the wrapped call completes without raising."""
     job_id = get_job_id()
@@ -291,8 +381,17 @@ def gate(kind, units, model=""):
 
     with _flock():
         d = _load_counts()
-        job = d["jobs"].setdefault(job_id, {"gemini_calls": 0, "tts_chars": 0})
-        if kind == "gemini":
+        job = _job_slot(d, job_id)
+        if kind == "claude":
+            if job["claude_calls"] + units > MAX_CLAUDE_CALLS_PER_JOB:
+                raise UsageCapExceeded(
+                    f"MAX_CLAUDE_CALLS_PER_JOB={MAX_CLAUDE_CALLS_PER_JOB} would be "
+                    f"exceeded for job '{job_id}' ({job['claude_calls']} + {units})")
+            if d["claude_calls"] + units > MAX_DAILY_CLAUDE_CALLS:
+                raise UsageCapExceeded(
+                    f"MAX_DAILY_CLAUDE_CALLS={MAX_DAILY_CLAUDE_CALLS} would be "
+                    f"exceeded today ({d['claude_calls']} + {units})")
+        elif kind == "gemini":
             if job["gemini_calls"] + units > MAX_GEMINI_CALLS_PER_JOB:
                 raise UsageCapExceeded(
                     f"MAX_GEMINI_CALLS_PER_JOB={MAX_GEMINI_CALLS_PER_JOB} would be "
@@ -320,13 +419,16 @@ def gate(kind, units, model=""):
 
     # Actual tokens beat the flat per-call guess whenever the caller reported
     # them. TTS is already exact (it is billed per character).
-    if kind == "gemini" and meter.reported:
+    if kind in ("gemini", "claude") and meter.reported:
         est_cost = token_cost(model, meter.prompt_tokens, meter.output_tokens)
 
     with _flock():
         d = _load_counts()
-        job = d["jobs"].setdefault(job_id, {"gemini_calls": 0, "tts_chars": 0})
-        if kind == "gemini":
+        job = _job_slot(d, job_id)
+        if kind == "claude":
+            job["claude_calls"] += units
+            d["claude_calls"] += units
+        elif kind == "gemini":
             job["gemini_calls"] += units
             d["gemini_calls"] += units
         else:
@@ -337,9 +439,10 @@ def gate(kind, units, model=""):
         _append_log({
             "ts": datetime.now(timezone.utc).isoformat(),
             "job_id": job_id,
-            "provider": "gemini" if kind == "gemini" else "google-tts",
+            "provider": {"gemini": "gemini", "claude": "anthropic"}.get(
+                kind, "google-tts"),
             "kind": kind, "model": model, "units": units,
-            "unit": "call" if kind == "gemini" else "chars",
+            "unit": "chars" if kind == "tts" else "call",
             "est_cost_usd": round(est_cost, 6),
             "prompt_tokens": meter.prompt_tokens,
             "output_tokens": meter.output_tokens,
@@ -347,6 +450,7 @@ def gate(kind, units, model=""):
             "metered": meter.reported,
             "job_totals": dict(job),
             "daily_totals": {"gemini_calls": d["gemini_calls"],
+                              "claude_calls": d["claude_calls"],
                               "tts_chars": d["tts_chars"],
                               "est_cost_usd": d["est_cost_usd"]},
         })
@@ -362,6 +466,15 @@ def rate_card():
             {"model": p, "input": rin, "output": rout}
             for p, rin, rout in GEMINI_TOKEN_PRICES_PER_1M
         ],
+        "claude_per_1m": [
+            {"model": p, "input": rin, "output": rout}
+            for p, rin, rout in CLAUDE_TOKEN_PRICES_PER_1M
+        ],
+        # The Gemini numbers are placeholders until someone sets them from a
+        # real rate card; the Claude numbers are published list prices. The UI
+        # needs to be able to say which is which instead of labelling both
+        # "estimated".
+        "claude_rates_published": CLAUDE_RATES_ARE_DEFAULT,
     }
 
 

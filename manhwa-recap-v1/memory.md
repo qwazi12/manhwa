@@ -5013,3 +5013,71 @@ OBSERVED, NOT CHANGED (surgical rule): startFinalizePoller() calls
 toggleDrawer('exports') when a render finishes, which pops the exports drawer
 open unprompted. Different trigger from the bug above; left alone pending a
 decision on whether that auto-open is wanted.
+
+### Session 29 (cont.) — Claude board validator: a review chain before the owner
+Owner: "i have been making alot of adjustments and fixes since the system cant
+be 100% accurate so it would be nice for things to go though a 2 or 3rd chain
+of review and validations before it comes to me… also ensure to include the
+cost and track it on the site as always."
+
+New chain, all five board columns:
+  splitter/OCR/vision/matcher -> RULES -> CLAUDE text -> CLAUDE vision -> owner
+
+PASS 1 — rules (validator.rule_findings). Free, deterministic, no credentials.
+Catches: flash panels (<1s on screen), long silent holds, story-order
+inversions, scanlation credit pages carrying narration, missing/failed
+descriptions, narration units with no panel in the final video.
+
+PASS 2 — Claude text, batched 25 rows/call. The semantic question rules cannot
+answer: does the line assigned to this panel actually belong to it? Batched
+rather than per-row precisely so Claude can see that the panel the line
+belongs to is two rows away. Structured output (json_schema), instructions
+sent as a cacheable prefix.
+
+PASS 3 — Claude vision, ONLY on rows passes 1-2 flagged, capped at 24.
+Passes 1 and 2 both reason from the automated DESCRIPTION; if that description
+is wrong they reason from a bad premise. Pass 3 opens the actual crop and
+confirms or CLEARS. A cleared finding is demoted to low and annotated, never
+deleted — otherwise the pass is invisible exactly when it does its best work.
+
+THE BUG I SHIPPED AND CAUGHT BY LOOKING AT REAL OUTPUT: the first rule pass
+checked words-per-second and raised 29 findings on a clean chapter. Cause:
+FOLDED panels each carry a COPY of their shared beat's FULL text, so six
+panels sharing one 24-word beat each looked like they had to speak 24 words in
+their own 0.76s slice. Worse, the check was meaningless in principle — the
+timeline is DERIVED from the TTS audio, so words always fit by construction.
+Deleted it, replaced with the failures that CAN happen. 29 -> 5 findings, and
+all 5 verified by hand against the JSON as true positives:
+  rows 5,6,7  panels on screen 0.76s/0.76s/0.69s  (real flashes)
+  row 134     visual_description is literally ""  (ok:true, so only the empty
+              check caught it — the ok flag lied)
+  row 136     unit 13's only panel has user_included=False, so that narration
+              line has no panel in the video at all
+The regression is frozen as a test.
+
+COST — nothing reaches Anthropic without usage.gate('claude', 1, model=...):
+- usage.py gains a third kind, 'claude', alongside 'gemini'/'tts': per-job and
+  daily call caps, Meter.from_anthropic() (input/output/cache_read field names
+  differ from google-genai's, so a separate reader rather than one that
+  guesses), published Claude list rates ($5/$25 opus, $3/$15 sonnet, $1/$5
+  haiku) and an unknown-model fallback at the OPUS rate so spend is never
+  understated.
+- counters.json gained claude_calls. All three buckets now go through
+  _CALL_COUNTERS/_job_slot, so a counter file written before a provider existed
+  backfills instead of KeyError-ing, and day/job/lifetime can't drift apart.
+- rate_card() reports claude_rates_published separately, because the Gemini
+  numbers are placeholders and the Claude ones are real list prices — the UI
+  should not label both "estimated".
+
+Model default claude-opus-5 (VALIDATOR_MODEL), effort medium
+(VALIDATOR_EFFORT). Opus is the default deliberately: this pass IS the accuracy
+backstop, so downgrading it defeats the point — but it is one env var.
+
+NOT used: the server-side refusal-fallback beta. It needs client.beta.messages
+and a beta flag I cannot verify against the live API from here (no key in this
+environment), and a 400 there would break the whole feature. Refusals are
+handled explicitly instead — stop_reason is checked BEFORE content is read, and
+a refused batch is reported as unvalidated, never as clean.
+
+Tests: test_validator.py, 50 assertions, network-free via a stub client.
+Suite 20 files, 0 failing. anthropic>=0.40 added to deploy/Dockerfile.
