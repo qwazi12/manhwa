@@ -5081,3 +5081,52 @@ a refused batch is reported as unvalidated, never as clean.
 
 Tests: test_validator.py, 50 assertions, network-free via a stub client.
 Suite 20 files, 0 failing. anthropic>=0.40 added to deploy/Dockerfile.
+
+### Session 29 (cont.) — validator wired into the board + Claude in the cost header
+Routes: POST /api/validate {mode: rules|text|full} and GET /api/validation.
+The run uses the EXISTING background-job machinery (JOBS + _persist_job), so it
+survives a closed tab and shows up in the Logs drawer — a validation is never
+silent work (rule 35). A report whose own status is 'error' marks the JOB as
+error too: a half-finished validation must never render as a green tick.
+
+EDGE ROUTING — the trap from Session 28 did NOT apply this time, and I checked
+rather than assumed: both vercel.json copies already carry "/api/:path*", so
+/api/validate and /api/validation are covered by the existing wildcard. No new
+allowlist entry, and NO Vercel deploy needed — this change is Railway-only
+(Railway auto-deploys from git). test_edge_routes still 41/41.
+
+BOARD UI: new rail button "🛡 Check" and a drawer with three modes (Rules free /
++ Claude text / + vision full), a run button that confirms before spending, a
+live status line, and the findings list — each finding links to its row, names
+the column, states the fix, and says WHICH pass produced it.
+Flagged rows get a coloured badge in the # cell and a spine on the row.
+Findings are painted from /api/validation AFTER load, not baked in at render
+time, so running a check updates the board IN PLACE — deliberately no reload,
+since a reload is what made the rail flash open (fix earlier this session).
+Every findings node is built with DOM calls and textContent, never HTML
+strings: the text is model-written, and this file has a long history of
+escaping bugs.
+
+COST ON THE SITE: the header now reads "N gemini · N claude · N tts · $X" for
+both today and all-time, and the rate tooltip distinguishes the Gemini
+placeholder rates from Claude's published list rates instead of calling both
+"default". After a run finishes the poller calls refreshUsage() immediately
+rather than waiting out the 15s tick, so the spend appears at once.
+
+VERIFIED LIVE (local uvicorn + real browser, not by reading the diff):
+  POST /api/validate {"mode":"rules"} -> job done, 5 findings, $0.0000, 138 rows
+  board painted 5 badges on 5 flagged rows
+  header rendered "0 gemini · 0 claude · 0 tts · $0.00"
+  rail stayed 14px with data-rail=off — the sidebar fix holds on the real page
+Suite 20 files 0 failing; test_storyboard_js_syntax confirms the new JS parses.
+
+NOT VERIFIED — stated plainly: the Claude passes have never run against the
+live Anthropic API from here, because this environment has no
+ANTHROPIC_API_KEY. They are covered by 50 stub-driven assertions (batching,
+gating, cost metering, refusal, bad JSON, vision cap, cleared-demotion), and
+the request shape was written from the current SDK docs and checked against the
+installed SDK signature (output_config is accepted; betas is beta-only, which
+is why the refusal-fallback beta was NOT used). FIRST REAL RUN SHOULD BE
+'text' MODE ON ONE CHAPTER, with the cost header watched.
+TO ENABLE: set ANTHROPIC_API_KEY in the Railway environment (never in code).
+Until it is set, 'rules' mode works and the Claude modes fail loudly by name.

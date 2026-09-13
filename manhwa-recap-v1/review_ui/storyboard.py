@@ -452,6 +452,29 @@ header .stat b {{ display:block; font-size:15px; color:var(--ink); }} header .st
    as it opens. The pin keeps it out, and the choice is stored under the same
    localStorage key /review uses, so the rail behaves the same on both. */
 {theme.rail_css('#rail')}
+/* ---- validation badges + findings ---- */
+.vbadge {{ display:inline-block; margin-top:4px; padding:1px 6px; border-radius:9px;
+  font-size:10px; font-weight:700; cursor:pointer; border:1px solid transparent; }}
+.vbadge.high {{ background:var(--bad); color:#fff; }}
+.vbadge.medium {{ background:var(--warn); color:#1a1205; }}
+.vbadge.low {{ background:var(--panel2); color:var(--ink3); border-color:var(--rule); }}
+tr.vflag td.n {{ box-shadow:inset 3px 0 0 var(--bad); }}
+tr.vflag-medium td.n {{ box-shadow:inset 3px 0 0 var(--warn); }}
+tr.vflag-low td.n {{ box-shadow:inset 3px 0 0 var(--rule); }}
+.vfind {{ border:1px solid var(--rule); border-left-width:3px; border-radius:7px;
+  padding:7px 9px; margin-bottom:7px; background:var(--panel2); font-size:12px; }}
+.vfind.high {{ border-left-color:var(--bad); }}
+.vfind.medium {{ border-left-color:var(--warn); }}
+.vfind.low {{ border-left-color:var(--rule); opacity:.8; }}
+.vfind .vh {{ display:flex; gap:6px; align-items:baseline; margin-bottom:3px; }}
+.vfind .vcol {{ color:var(--ink3); font-size:10px; text-transform:uppercase;
+  letter-spacing:.5px; }}
+.vfind a.vrow {{ font-weight:700; text-decoration:none; }}
+.vfind .vfix {{ color:var(--ok); margin-top:3px; }}
+.vfind .vsrc {{ color:var(--ink3); font-size:10px; margin-top:3px; }}
+.vmode {{ display:flex; gap:5px; margin:8px 0; }}
+.vmode button {{ flex:1; font-size:11px; padding:6px 4px; }}
+.vmode button.on {{ background:var(--accent); color:var(--cta-ink); border-color:var(--accent); }}
 /* ---- drawers ---- */
 .drawer {{ position:fixed; left:64px; top:86px; bottom:0; width:360px; background:var(--panel); color:var(--ink); border-right:1px solid var(--rule); z-index:70; padding:16px; overflow-y:auto; display:none; font-size:13px; box-shadow:4px 0 18px rgba(0,0,0,.5); }}
 .drawer h3 {{ font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink3); margin:0 0 10px; }}
@@ -548,6 +571,7 @@ a {{ color:var(--accent); }}
   <button class="navbtn" data-d="ingest" onclick="toggleDrawer('ingest')"><span class="ic">🔗</span>Ingest</button>
   <button class="navbtn" data-d="projects" onclick="toggleDrawer('projects')"><span class="ic">📚</span>Projects</button>
   <button class="navbtn" data-d="tracker" onclick="toggleDrawer('tracker')"><span class="ic">📡</span>Tracker</button>
+  <button class="navbtn" data-d="validate" onclick="toggleDrawer('validate')"><span class="ic">🛡</span>Check</button>
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
   <button class="navbtn" data-d="exports" onclick="toggleDrawer('exports')"><span class="ic">📤</span>Exports</button>
   <a class="navbtn" href="/review" title="watch and rule on a rendered export"><span class="ic">📺</span>Review</a>
@@ -564,6 +588,24 @@ a {{ color:var(--accent); }}
     audio &amp; timeline — for re-running a chapter after a pipeline fix)</label>
   <button class="primary" onclick="runIngest()">▶ Run ingest</button>
   <div id="ingprog" style="margin-top:12px"></div>
+</div>
+<div class="drawer" id="d_validate">
+  <h3>Pre-review check</h3>
+  <div class="hint">Runs the board past two more sets of eyes before yours.
+    <b>Rules</b> is free and instant (flash panels, dead air, story-order jumps,
+    credit pages, missing descriptions, narration with no panel).
+    <b>+ Claude</b> reads every row and flags lines placed on the wrong panel.
+    <b>+ vision</b> then opens the actual panel image for the flagged rows only
+    and either confirms or clears each one. Flagged rows get a badge on the
+    board.</div>
+  <div class="vmode">
+    <button id="vm_rules" onclick="setVMode('rules')">Rules<br>free</button>
+    <button id="vm_text" onclick="setVMode('text')">+ Claude<br>text</button>
+    <button id="vm_full" onclick="setVMode('full')">+ vision<br>full</button>
+  </div>
+  <button class="primary" onclick="runValidation()">Run check</button>
+  <div id="vstatus" class="hint" style="margin-top:10px">loading…</div>
+  <div id="vfindings" style="margin-top:10px"></div>
 </div>
 <div class="drawer" id="d_projects">
   <h3>Projects</h3>
@@ -940,19 +982,24 @@ async function refreshUsage() {{
     const su = d.summary || {{}}, life = su.lifetime || {{}}, rates = su.rates || {{}};
     const g = (life.gemini_calls || 0) + (su.gemini_calls || 0);
     const t = (life.tts_chars || 0) + (su.tts_chars || 0);
+    const cl = (life.claude_calls || 0) + (su.claude_calls || 0);
     const c = (life.est_cost_usd || 0) + (su.est_cost_usd || 0);
     const now = new Date().toLocaleString('en-US', {{ timeZone: 'America/New_York',
       weekday: 'short', month: 'short', day: '2-digit',
       hour: 'numeric', minute: '2-digit' }});
     // Say WHICH rates produced the number rather than presenting an
     // assumption as a bill.
+    const claudeNote = rates.claude_rates_published
+      ? ' Claude is priced at published Anthropic list rates.'
+      : ' Claude is priced at the PRICE_CLAUDE_* rates set here.';
     const tag = rates.defaults
-      ? '<span title="priced at built-in default rates — set PRICE_* env vars from your Google rate card">≈ at default rates</span>'
-      : '<span title="priced at the PRICE_* rates configured for this deployment">at configured rates</span>';
+      ? '<span title="Gemini/TTS are priced at built-in default rates — set PRICE_* env vars from your Google rate card.' + claudeNote + '">≈ at default rates</span>'
+      : '<span title="priced at the PRICE_* rates configured for this deployment.' + claudeNote + '">at configured rates</span>';
     box.innerHTML = now + ' ET — today: ' + (su.gemini_calls || 0) + ' gemini · ' +
+      (su.claude_calls || 0) + ' claude · ' +
       (su.tts_chars || 0).toLocaleString() + ' tts · ' + _money(su.est_cost_usd) +
-      '<br>all-time: ' + g + ' gemini · ' + t.toLocaleString() + ' tts · ' +
-      _money(c) + ' ' + tag;
+      '<br>all-time: ' + g + ' gemini · ' + cl + ' claude · ' +
+      t.toLocaleString() + ' tts · ' + _money(c) + ' ' + tag;
   }} catch (e) {{ /* leave the last good value on screen */ }}
 }}
 refreshUsage();
@@ -962,7 +1009,7 @@ setInterval(refreshUsage, 15000);
 {theme.SHARED_JS}
 
 function toggleDrawer(name) {{
-  for (const d of ['ingest','projects','tracker','logs','exports']) {{
+  for (const d of ['ingest','projects','tracker','validate','logs','exports']) {{
     const el = document.getElementById('d_' + d);
     const btn = document.querySelector(`.navbtn[data-d="${{d}}"]`);
     const show = d === name && el.style.display !== 'block';
@@ -973,6 +1020,7 @@ function toggleDrawer(name) {{
   if (name === 'tracker') loadTracker(0);
   if (name === 'logs') loadLogs();
   if (name === 'exports') loadExports();
+  if (name === 'validate') loadValidation();
   if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
 }}
 /* Arriving from another page with ?open=<drawer> should land on that drawer,
@@ -981,6 +1029,224 @@ function toggleDrawer(name) {{
   var m = /[?&]open=([a-z]+)/.exec(location.search);
   if (m) setTimeout(function () {{ toggleDrawer(m[1]); }}, 60);
 }})();
+/* ---- pre-review check (rules -> Claude text -> Claude vision) --------
+   Findings are painted from /api/validation AFTER load rather than baked into
+   the page, so running a check updates the board in place. Nothing here
+   reloads the page — a reload is what used to make the rail flash open.
+   Every node is built with DOM calls rather than HTML strings: findings carry
+   model-written text, and this file has a long history of escaping bugs. */
+let vMode = 'full', vPoll = null;
+
+function setVMode(m) {{
+  vMode = m;
+  for (const k of ['rules','text','full']) {{
+    const b = document.getElementById('vm_' + k);
+    if (b) b.classList.toggle('on', k === m);
+  }}
+}}
+
+function vClearBadges() {{
+  document.querySelectorAll('tr.vflag,tr.vflag-medium,tr.vflag-low')
+    .forEach(function (tr) {{
+      tr.classList.remove('vflag', 'vflag-medium', 'vflag-low');
+    }});
+  document.querySelectorAll('.vbadge').forEach(function (b) {{ b.remove(); }});
+}}
+
+const V_RANK = {{ high: 0, medium: 1, low: 2 }};
+
+function vJumpTo(pid) {{
+  const tr = document.getElementById('row_' + pid);
+  if (!tr) return;
+  tr.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+}}
+
+function paintValidation(rep) {{
+  const st = document.getElementById('vstatus');
+  const box = document.getElementById('vfindings');
+  if (!st || !box) return;
+  vClearBadges();
+  box.textContent = '';
+  if (!rep) {{
+    st.textContent = 'Never checked. Pick a mode and run.';
+    return;
+  }}
+
+  const fs = rep.findings || [];
+  const c = rep.counts || {{}};
+  const when = rep.ts ? new Date(rep.ts).toLocaleString('en-US',
+    {{ timeZone: 'America/New_York', month: 'short', day: '2-digit',
+       hour: 'numeric', minute: '2-digit' }}) + ' ET' : 'unknown time';
+  const bits = [when, rep.mode + ' mode',
+                fs.length + ' finding' + (fs.length === 1 ? '' : 's'),
+                (c.high || 0) + ' high / ' + (c.medium || 0) + ' medium / ' +
+                  (c.low || 0) + ' low',
+                (rep.clean_rows || 0) + ' of ' + (rep.rows || 0) + ' rows clean'];
+  if (rep.calls) {{
+    bits.push(rep.calls + ' Claude call' + (rep.calls === 1 ? '' : 's') +
+              ' · $' + (rep.cost_usd || 0).toFixed(4) + ' · ' + rep.model);
+  }} else {{
+    bits.push('no Claude calls — rules only, $0.00');
+  }}
+  st.textContent = bits.join(' · ');
+  st.style.color = rep.status === 'ok' ? 'var(--ink3)' : 'var(--bad)';
+  if (rep.status !== 'ok' && rep.error) {{
+    const e = document.createElement('div');
+    e.style.color = 'var(--bad)';
+    e.style.marginTop = '5px';
+    // An errored run checked LESS than it claims to. Say so loudly rather
+    // than letting a short findings list read as a clean board.
+    e.textContent = 'This run did not finish: ' + rep.error +
+      ' — the rows it never reached are unchecked, not clean.';
+    st.appendChild(e);
+  }}
+  (rep.vision_skipped || []).forEach(function (sk) {{
+    const d = document.createElement('div');
+    d.className = 'hint';
+    d.textContent = 'row ' + sk.row + ': image check skipped (' + sk.why + ')';
+    box.appendChild(d);
+  }});
+
+  if (!fs.length) {{
+    const ok = document.createElement('div');
+    ok.className = 'hint';
+    ok.style.color = 'var(--ok)';
+    ok.textContent = rep.status === 'ok'
+      ? 'Nothing flagged. The board is clean by these checks.'
+      : 'Nothing flagged in the part that ran.';
+    box.appendChild(ok);
+    return;
+  }}
+
+  const worst = {{}};
+  fs.forEach(function (f) {{
+    const r = V_RANK[f.severity] === undefined ? 2 : V_RANK[f.severity];
+    if (worst[f.panel_id] === undefined || r < worst[f.panel_id]) {{
+      worst[f.panel_id] = r;
+    }}
+  }});
+  const counts = {{}};
+  fs.forEach(function (f) {{
+    counts[f.panel_id] = (counts[f.panel_id] || 0) + 1;
+  }});
+
+  Object.keys(worst).forEach(function (pid) {{
+    const tr = document.getElementById('row_' + pid);
+    if (!tr) return;
+    const sev = ['high', 'medium', 'low'][worst[pid]];
+    tr.classList.add(sev === 'high' ? 'vflag' : 'vflag-' + sev);
+    const cell = tr.querySelector('td.n');
+    if (!cell) return;
+    const b = document.createElement('span');
+    b.className = 'vbadge ' + sev;
+    b.textContent = (sev === 'high' ? 'FIX ' : 'check ') + counts[pid];
+    b.title = fs.filter(function (f) {{ return f.panel_id === pid; }})
+                .map(function (f) {{ return f.column + ': ' + f.issue; }})
+                .join(' | ');
+    b.onclick = function () {{ toggleDrawer('validate'); }};
+    cell.appendChild(b);
+  }});
+
+  fs.forEach(function (f) {{
+    const d = document.createElement('div');
+    d.className = 'vfind ' + f.severity;
+
+    const h = document.createElement('div');
+    h.className = 'vh';
+    const a = document.createElement('a');
+    a.className = 'vrow';
+    a.href = 'javascript:void(0)';
+    a.textContent = 'row ' + f.row;
+    a.onclick = function () {{ vJumpTo(f.panel_id); }};
+    const col = document.createElement('span');
+    col.className = 'vcol';
+    col.textContent = f.column;
+    h.appendChild(a);
+    h.appendChild(col);
+    d.appendChild(h);
+
+    const issue = document.createElement('div');
+    issue.textContent = f.issue;
+    d.appendChild(issue);
+
+    if (f.suggestion) {{
+      const fix = document.createElement('div');
+      fix.className = 'vfix';
+      fix.textContent = 'Fix: ' + f.suggestion;
+      d.appendChild(fix);
+    }}
+
+    const src = document.createElement('div');
+    src.className = 'vsrc';
+    let who = f.source === 'rules' ? 'rule check' : 'Claude (text)';
+    if (f.vision && f.vision.verdict) {{
+      who += ' + image check: ' + f.vision.verdict;
+      if (f.vision.reason) who += ' — ' + f.vision.reason;
+    }}
+    if (f.cleared) who += ' (cleared by the image — kept so you can see it ran)';
+    src.textContent = who;
+    d.appendChild(src);
+
+    if (f.vision && f.vision.corrected_description) {{
+      const cd = document.createElement('div');
+      cd.className = 'vsrc';
+      cd.style.color = 'var(--warn)';
+      cd.textContent = 'The panel actually shows: ' +
+        f.vision.corrected_description;
+      d.appendChild(cd);
+    }}
+    box.appendChild(d);
+  }});
+}}
+
+async function loadValidation() {{
+  try {{
+    const d = await j('/api/validation');
+    setVMode(vMode);
+    paintValidation(d.report);
+  }} catch (e) {{
+    const st = document.getElementById('vstatus');
+    if (st) st.textContent = 'Could not load the last check: ' + e.message;
+  }}
+}}
+
+async function runValidation() {{
+  const st = document.getElementById('vstatus');
+  if (vMode !== 'rules' &&
+      !confirm('The Claude passes spend credit (they are metered and capped ' +
+               'like every other call, and the cost shows here and in the ' +
+               'header when the run finishes). Continue?')) return;
+  try {{
+    const r = await j('/api/validate', {{
+      method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ mode: vMode }})
+    }});
+    if (st) st.textContent = 'Checking ' + r.rows + ' rows…';
+    if (vPoll) clearInterval(vPoll);
+    vPoll = setInterval(async function () {{
+      try {{
+        const s = await j('/api/jobs/' + r.job);
+        if (st && s.stage) {{
+          st.textContent = s.stage +
+            (s.total ? ' (' + s.done + '/' + s.total + ')' : '');
+        }}
+        if (s.status === 'done' || s.status === 'error') {{
+          clearInterval(vPoll);
+          vPoll = null;
+          await loadValidation();
+          refreshUsage();   // the spend just changed; do not wait 15s to say so
+        }}
+      }} catch (e) {{ clearInterval(vPoll); vPoll = null; }}
+    }}, 2000);
+  }} catch (e) {{
+    if (st) st.textContent = 'Could not start: ' + e.message;
+  }}
+}}
+
+/* Badges are useful without opening the drawer, so the last report is painted
+   on every load. Costs one small request and no API spend. */
+loadValidation();
+
 const ING_STAGES = ['scrape','split','describe','narrate','voice','match','segment'];
 let ingestState = null, ingestPolling = false;
 function activeJob() {{ return localStorage.getItem('activeIngestJob'); }}

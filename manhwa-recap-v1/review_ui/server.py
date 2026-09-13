@@ -3390,6 +3390,86 @@ def storyboard_page():
         usage.daily_summary(), storyboard_approved()))
 
 
+# ---- Claude validation chain (pre-owner review gate) --------------------
+import validator as _validator
+
+
+def _run_validate_job(job_id, pdir, mode):
+    """The validator can take a minute on a long chapter, so it runs in the
+    same background-job machinery renders use — the board polls /api/jobs/{id}
+    and the run survives the tab being closed. It is also registered in the
+    Logs drawer, so a validation is never silent work."""
+    j = JOBS[job_id]
+    j["status"] = "running"
+    _persist_job(job_id)
+
+    def progress(msg):
+        j["stage"] = msg
+        j["done"] = min(j.get("done", 0) + 1, j["total"])
+        _persist_job(job_id)
+
+    try:
+        rep = _validator.validate(pdir, review=load_review(), mode=mode,
+                                  progress=progress)
+        # A report whose own status is 'error' (a refused batch, a missing key,
+        # a cap hit) must NOT show as a green job — that is exactly how a
+        # half-run validation gets mistaken for a clean board.
+        j["status"] = "done" if rep.get("status") == "ok" else "error"
+        j["error"] = rep.get("error")
+        j["stage"] = ("%d finding(s) · $%.4f" %
+                      (len(rep.get("findings", [])), rep.get("cost_usd", 0.0)))
+        j["report"] = {k: rep.get(k) for k in
+                       ("status", "counts", "cost_usd", "calls", "rows",
+                        "model", "mode", "elapsed_sec")}
+        j["done"] = j["total"]
+    except Exception as e:                       # never leave a job "running"
+        j["status"] = "error"
+        j["error"] = str(e)[:500]
+    _persist_job(job_id)
+
+
+@app.post("/api/validate")
+async def start_validation(request: Request):
+    """Run the review chain over the active project's board.
+
+    mode: 'rules' (free, no credentials), 'text' (rules + Claude text), or
+    'full' (adds the Claude vision pass on flagged rows only).
+    """
+    body = await request.json() if await request.body() else {}
+    mode = (body or {}).get("mode", "full")
+    if mode not in ("rules", "text", "full"):
+        raise HTTPException(400, "mode must be rules, text or full")
+
+    pdir = active_project_dir()
+    job_id = uuid.uuid4().hex[:12]
+    # 'total' is a progress denominator, not a promise: batches + a capped
+    # vision pass + the rule pass. The bar is approximate and the stage text
+    # carries the truth.
+    n_rows = len(_validator.build_rows(pdir))
+    steps = 1 + (0 if mode == "rules"
+                 else -(-n_rows // _validator.BATCH_ROWS))
+    if mode == "full":
+        steps += 4
+    JOBS[job_id] = {"status": "queued", "done": 0, "total": max(1, steps),
+                    "kind": "validate", "mode": mode, "error": None,
+                    "stage": "queued"}
+    threading.Thread(target=_run_validate_job,
+                     args=(job_id, pdir, mode), daemon=True).start()
+    return {"job": job_id, "mode": mode, "rows": n_rows}
+
+
+@app.get("/api/validation")
+def get_validation():
+    """The last saved report for the active project, or a null report so the
+    board can say 'never validated' rather than showing nothing."""
+    rep = _validator.load_report(active_project_dir())
+    if rep is None:
+        return {"report": None,
+                "model": _validator.MODEL, "effort": _validator.EFFORT}
+    return {"report": rep, "model": _validator.MODEL,
+            "effort": _validator.EFFORT}
+
+
 @app.get("/")
 def root_redirect():
     """Storyboard is the main page (v2); the legacy UI lives at /legacy/."""
