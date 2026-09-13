@@ -4963,3 +4963,53 @@ vibrant UI/CTA changes, auto-hiding sidebar, live cost header, 4-worker renders,
 and now these three controls. It also lives only in the scratchpad + Google
 Drive, not in the repo — which is why it drifted. Offered to rewrite it and to
 keep it in-repo so it stops rotting.
+
+### Session 29 — sidebar "pops out on every click": FLASH OF UNRETRACTED RAIL
+Owner: "theres a bug with the side pannel/bar, when im in board and i click
+anyting the side bar pops out."
+
+NOT a click handler. It is a FIRST-PAINT FLASH, and the trigger is that nearly
+every board action ends in location.reload() (the Board button, activateProj,
+approve, …), so it fires on "anything I click".
+
+MEASURED on a real rendered board (swordmasters-youngest-son_1, 445KB):
+  <div id="rail">   byte  18,109
+  applyRail()       byte 421,850   <- 404KB later, at the END of <body>
+The retract was keyed off a CLASS ON <body> (body.railoff), which only exists
+once SHARED_JS runs at the bottom of the document. So the rail painted at its
+full 64px for the entire load — parse + layout of a 138-row table with images —
+and only then snapped to a 14px sliver. Content never moves (body keeps
+margin-left:64px), so what you see is purely the rail flying out and back.
+
+This is the SAME failure the dark-theme flash had, and it already had the fix
+pattern sitting next to it: HEAD_THEME_JS runs in <head> precisely because "the
+page renders dark for a frame and then snaps to light, which reads as a bug".
+The rail simply never got the same guard.
+
+FIX (theme.py only — railoff was entirely contained there):
+- retract now keyed off html[data-rail="off"] instead of body.railoff. <html>
+  exists before <body> paints, so it can be set in <head>.
+- HEAD_THEME_JS -> HEAD_RAIL_THEME_JS, now settles BOTH toggles before paint.
+  Old name aliased so nothing that imports it breaks.
+- applyRail()/toggleRail() drive the attribute; new railOff() reads it. The
+  localStorage key ('railoff') is UNCHANGED, so the stored preference and
+  test_review's assertion both survive.
+- applyRail() still re-derives from localStorage rather than trusting the
+  attribute, so it is correct even if the head script is skipped.
+
+VERIFIED IN A REAL BROWSER, not by reading the diff. Rendered the board to a
+file, served it, reloaded in each state and measured on first paint:
+  railoff='1' -> data-rail=off, width 14px, children opacity 0, pin label "Pin"
+  railoff='0' -> data-rail=on,  width 64px, children opacity 1, pin label "Hide"
+Head script now lands at byte 18,035 — 74 bytes BEFORE the rail markup.
+Both pages are covered: /storyboard and /review share these four theme.py APIs.
+
+Tests: 19/19 test_*.py pass (run as plain scripts with SYSTEM python3).
+NOTE FOR NEXT SESSION: manhwa-recap-v1/venv has only certifi/numpy/pillow/pip —
+no fastapi, no pytest. Twelve tests "fail" under that venv purely on the import.
+Run them with system python3, or install fastapi into the venv.
+
+OBSERVED, NOT CHANGED (surgical rule): startFinalizePoller() calls
+toggleDrawer('exports') when a render finishes, which pops the exports drawer
+open unprompted. Different trigger from the bug above; left alone pending a
+decision on whether that auto-open is wanted.

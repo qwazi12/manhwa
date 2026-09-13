@@ -170,18 +170,27 @@ def rail_css(sel, guard=None):
     rail into a horizontal strip on narrow screens, where there is nothing to
     retract and no hover to do it with. The reduced-motion query is emitted
     outside that wrapper, because @media cannot be nested in plain CSS.
+
+    The retract is keyed off html[data-rail="off"], NOT a class on <body>.
+    <html> exists before <body> paints, so HEAD_RAIL_THEME_JS can set it in
+    <head> and the rail is a sliver on the very first frame. Keyed off <body>
+    it could only be set once the shared script ran at the END of the document
+    — 400KB past the rail on the storyboard — so the rail painted FULL WIDTH
+    for the whole load and then snapped shut, which reads as "the sidebar pops
+    out every time I click something" (every board action reloads the page).
+    Same failure, same fix, as the dark-theme flash below.
     """
     rules = """
 %(s)s { transition:width .16s ease; }
-body.railoff %(s)s { width:14px; }
-body.railoff %(s)s > * { opacity:0; pointer-events:none; transition:opacity .12s ease; }
-body.railoff %(s)s::after { content:'›'; position:absolute; top:50%%; left:0;
+html[data-rail="off"] %(s)s { width:14px; }
+html[data-rail="off"] %(s)s > * { opacity:0; pointer-events:none; transition:opacity .12s ease; }
+html[data-rail="off"] %(s)s::after { content:'›'; position:absolute; top:50%%; left:0;
   width:14px; margin-top:-10px; text-align:center; color:var(--accent); font-size:14px; }
-body.railoff %(s)s:hover, body.railoff %(s)s:focus-within { width:64px; z-index:80;
+html[data-rail="off"] %(s)s:hover, html[data-rail="off"] %(s)s:focus-within { width:64px; z-index:80;
   box-shadow:4px 0 18px var(--shadow); }
-body.railoff %(s)s:hover > *, body.railoff %(s)s:focus-within > * {
+html[data-rail="off"] %(s)s:hover > *, html[data-rail="off"] %(s)s:focus-within > * {
   opacity:1; pointer-events:auto; }
-body.railoff %(s)s:hover::after, body.railoff %(s)s:focus-within::after { content:none; }
+html[data-rail="off"] %(s)s:hover::after, html[data-rail="off"] %(s)s:focus-within::after { content:none; }
 """ % {"s": sel}
     if guard:
         rules = "@media %s {%s}\n" % (guard, rules)
@@ -189,7 +198,7 @@ body.railoff %(s)s:hover::after, body.railoff %(s)s:focus-within::after { conten
 #railpin, #themebtn { margin-bottom:6px; }
 #railpin { margin-top:auto; }
 @media (prefers-reduced-motion: reduce) {
-  %(s)s, body.railoff %(s)s > * { transition:none; }
+  %(s)s, html[data-rail="off"] %(s)s > * { transition:none; }
 }
 """ % {"s": sel}
 
@@ -202,13 +211,22 @@ RAIL_BUTTONS_HTML = (
     '<span class="ic">«</span><span id="railpinlbl">Hide</span></button>'
 )
 
-# Runs in <head> BEFORE the body paints. Without it the page renders dark for a
-# frame and then snaps to light, which reads as a bug.
-HEAD_THEME_JS = (
-    '<script>(function(){try{var t=localStorage.getItem("theme");'
-    'if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();'
+# Runs in <head> BEFORE the body paints, and settles BOTH toggles there.
+# Without it the page renders dark for a frame and then snaps to light, and the
+# rail renders open for the whole load and then snaps to a sliver — both read as
+# bugs. Defaults must match applyTheme()/applyRail() exactly: theme "dark",
+# rail retracted.
+HEAD_RAIL_THEME_JS = (
+    '<script>(function(){var d=document.documentElement;'
+    'try{var t=localStorage.getItem("theme");if(t)d.setAttribute("data-theme",t);}catch(e){}'
+    'var off=true;try{var v=localStorage.getItem("railoff");'
+    'if(v!==null)off=v==="1";}catch(e){}'
+    'd.setAttribute("data-rail",off?"off":"on");})();'
     '</script>'
 )
+
+# Old name kept so nothing that still imports it breaks.
+HEAD_THEME_JS = HEAD_RAIL_THEME_JS
 
 # Shared behaviour. Both toggles persist under one key each, read by every page,
 # so the rail and the theme are single habits rather than per-page settings.
@@ -233,16 +251,22 @@ function toggleTheme() {
   catch (e) {}
   applyTheme();
 }
+function railOff() {
+  return document.documentElement.getAttribute('data-rail') !== 'on';
+}
 function applyRail() {
   // Auto-hide is the DEFAULT: the rail sits as a sliver and opens on hover or
   // keyboard focus, rather than needing to be retracted by hand. Pinning it
   // open is still one click, and that choice is remembered.
+  // The attribute is normally ALREADY set by the head script; re-deriving it
+  // from the same key here keeps this correct if that script was skipped, and
+  // keeps the two in lockstep rather than letting them drift.
   let off = true;
   try {
     const v = localStorage.getItem('railoff');
     if (v !== null) off = v === '1';
   } catch (e) {}
-  document.body.classList.toggle('railoff', off);
+  document.documentElement.setAttribute('data-rail', off ? 'off' : 'on');
   const ic = document.querySelector('#railpin .ic');
   const lb = document.getElementById('railpinlbl');
   const p = document.getElementById('railpin');
@@ -252,10 +276,7 @@ function applyRail() {
                        : 'Retract the sidebar to a sliver';
 }
 function toggleRail() {
-  try {
-    localStorage.setItem('railoff',
-      document.body.classList.contains('railoff') ? '0' : '1');
-  } catch (e) {}
+  try { localStorage.setItem('railoff', railOff() ? '0' : '1'); } catch (e) {}
   applyRail();
 }
 applyTheme();
