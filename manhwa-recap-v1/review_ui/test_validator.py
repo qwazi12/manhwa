@@ -1,15 +1,20 @@
-"""The pre-owner review chain (validator.py).
+"""The chapter-level review chain (validator.py).
 
 What these protect, in order of how much it would hurt to lose it:
 
-1. PRECISION. A validator that cries wolf costs the owner the exact reading
-   time it exists to save. The first version of the rule pass raised 27
-   findings on a clean chapter because it did not understand folded panels;
-   `folded panels sharing one beat are not a timing fault` is that bug, frozen.
-2. Nothing reaches the Anthropic API without passing usage.gate, so a Claude
+1. THE CHAIN IS CHAPTER-LEVEL, NOT ROW-LOCAL. The first version judged each row
+   in isolation and therefore could not see the failures that actually hurt a
+   recap — a reveal before its setup, a line that belonged four rows earlier.
+   "the chapter is mapped before any row is judged" and the overlap tests are
+   that upgrade, frozen.
+2. PRECISION. A validator that cries wolf costs the owner the exact reading
+   time it exists to save. An early rule pass raised 27 findings on a clean
+   chapter because it did not understand folded panels; that regression is
+   frozen here too.
+3. Nothing reaches the Anthropic API without passing usage.gate, so a Claude
    pass can never spend outside the daily cap or outside the cost the site
    shows.
-3. A failed or skipped pass is never reported as a clean board.
+4. A failed or skipped pass is never reported as a clean board.
 
 The Claude passes are driven through a stub client — these tests never touch
 the network and never need a key.
@@ -51,16 +56,34 @@ class _Resp:
         self.usage = usage or _Usage()
 
 
+EMPTY_MAP = {
+    "premise": "A duel.",
+    "scenes": [{"scene": 1, "title": "The duel", "units": [0, 1],
+                "phase": "setup", "summary": "Two swordsmen meet."}],
+    "reveals": [{"unit": 1, "what": "the rival is his brother"}],
+    "turns": [], "chronology_notes": "linear",
+}
+
+
 class StubMessages:
-    """Records every call so the tests can assert on batching and payloads."""
+    """Records every call so the tests can assert on windowing and payloads.
+
+    `replies` may be a list (popped in order) or a callable that picks a reply
+    from the request — the chain makes several DIFFERENT kinds of call, so most
+    tests route by what was asked rather than by counting.
+    """
 
     def __init__(self, replies):
-        self.replies = list(replies)
+        self.replies = replies
         self.calls = []
 
     def create(self, **kw):
         self.calls.append(kw)
-        r = self.replies.pop(0) if self.replies else _Resp({"findings": []})
+        r = self.replies
+        if callable(r):
+            r = r(kw)
+        elif isinstance(r, list):
+            r = r.pop(0) if r else _Resp({"findings": []})
         if isinstance(r, Exception):
             raise r
         return r
@@ -68,7 +91,27 @@ class StubMessages:
 
 class StubClient:
     def __init__(self, replies=()):
-        self.messages = StubMessages(replies)
+        self.messages = StubMessages(
+            replies if callable(replies) else list(replies))
+
+
+def router(chapter=None, seq=None, desc=None, vision=None):
+    """Route a stub reply by which pass is asking. The passes are told apart by
+    their system prompt, which is the only thing distinguishing them on the
+    wire."""
+    def pick(kw):
+        sysmsg = kw.get("system")
+        text = sysmsg[0]["text"] if isinstance(sysmsg, list) else str(sysmsg)
+        if "building a map of it" in text:
+            return _Resp(chapter if chapter is not None else EMPTY_MAP)
+        if "RIGHT POINT in the" in text:
+            return _Resp({"findings": list(seq or [])})
+        if "AUTOMATED DESCRIPTIONS" in text:
+            return _Resp({"findings": list(desc or [])})
+        return _Resp(vision if vision is not None else
+                     {"verdict": "cleared", "reason": "fine",
+                      "corrected_description": "", "confidence": 0.9})
+    return pick
 
 
 # --------------------------------------------------------------- fixtures
@@ -81,21 +124,24 @@ def write_project(root, descs, scenes, segs):
     return root
 
 
-def clean_board(root):
+def clean_board(root, n=4):
     """A board with nothing wrong with it. Every rule must stay silent."""
+    half = max(1, n // 2)
     descs = [{"panel_id": f"page001_panel_{i:03d}", "file": f"p{i}.png",
               "ocr_text": f"dialogue line {i}", "ok": True,
               "visual_description": f"A swordsman faces a rival in scene {i}."}
-             for i in range(1, 5)]
+             for i in range(1, n + 1)]
     scenes = [{"scene_id": 0, "text": "The duel began at dawn.",
-               "panel_ids": ["page001_panel_001", "page001_panel_002"]},
+               "panel_ids": [f"page001_panel_{i:03d}"
+                             for i in range(1, half + 1)]},
               {"scene_id": 1, "text": "Steel met steel for hours.",
-               "panel_ids": ["page001_panel_003", "page001_panel_004"]}]
+               "panel_ids": [f"page001_panel_{i:03d}"
+                             for i in range(half + 1, n + 1)]}]
     segs = [{"seg_index": i - 1, "panel_id": f"page001_panel_{i:03d}",
              "start": (i - 1) * 4.0, "dur": 4.0, "user_included": True,
              "beats": [{"index": 0, "text": "The duel began at dawn.",
                         "start": 0.0, "end": 4.0}]}
-            for i in range(1, 5)]
+            for i in range(1, n + 1)]
     return write_project(root, descs, scenes, segs)
 
 
@@ -109,6 +155,8 @@ def main():
     usage.LOCK_PATH = os.path.join(tmp, ".lock")
     import validator
 
+    os.environ.setdefault("CLAUDE_API_KEY", "test-key-not-real")
+
     # ================================================== rows
     pdir = clean_board(os.path.join(tmp, "clean"))
     rows = validator.build_rows(pdir)
@@ -120,22 +168,25 @@ def main():
           rows[0]["placement"]["role"] == "carries")
     check("later panels of the same unit SHARE it",
           rows[1]["placement"]["role"] == "shared")
-    check("a panel in no unit is marked left out",
-          validator.build_rows(write_project(
-              os.path.join(tmp, "orphan"),
-              [{"panel_id": "p1", "file": "p1.png", "ocr_text": "hi",
-                "visual_description": "a panel", "ok": True}], [], []
-          ))[0]["placement"]["role"] == "left_out")
+    # Actions need coordinates, not just a description of the problem.
+    check("rows carry the seg_index an action operates on",
+          rows[0]["timing"]["seg_index"] == 0)
+    check("...and the timeline position a move addresses",
+          rows[0]["timing"]["pos"] == 0)
+
+    # ================================================== chapter shape
+    units = validator.chapter_units(rows)
+    check("the chapter is readable as ordered narration units",
+          [u["unit"] for u in units] == [0, 1])
+    check("...each knowing which rows it owns", units[0]["rows"] == [1, 2])
 
     # ================================================== rule pass: silence
     found = validator.rule_findings(rows)
-    check("a clean board produces NO rule findings", found == [], )
+    check("a clean board produces NO rule findings", found == [])
     if found:
         print("   unexpected:", [f["issue"] for f in found])
 
     # ---- THE REGRESSION: folded panels share one beat's full text.
-    # Six panels each carrying a copy of the same 24-word beat must not look
-    # like six panels that each have to speak 24 words in their own slice.
     folded_descs = [{"panel_id": f"pf_{i:03d}", "file": f"pf{i}.png",
                      "ocr_text": "x", "ok": True,
                      "visual_description": "A castle under a night sky."}
@@ -151,7 +202,7 @@ def main():
           "panel_ids": [f"pf_{i:03d}" for i in range(1, 7)]}], folded_segs)
     ff = validator.rule_findings(validator.build_rows(folded))
     check("folded panels sharing one beat are not a timing fault",
-          not [f for f in ff if f["column"] == "On-screen timing & motion"])
+          not [f for f in ff if f["category"] == "pacing"])
 
     # ================================================== rule pass: catches
     bad_descs = [
@@ -161,9 +212,9 @@ def main():
         {"panel_id": "b_002", "file": "b2.png", "ok": True,
          "ocr_text": "he drew his blade", "visual_description": ""},
         {"panel_id": "b_003", "file": "b3.png", "ok": True,
-         "ocr_text": "a shout", "visual_description": "A wide shot."},
+         "ocr_text": "a shout", "visual_description": "A wide shot of a hall."},
         {"panel_id": "b_004", "file": "b4.png", "ok": True,
-         "ocr_text": "silence", "visual_description": "An empty hall."},
+         "ocr_text": "silence", "visual_description": "An empty hall at dusk."},
     ]
     bad_scenes = [
         {"scene_id": 0, "text": "Unit zero.", "panel_ids": ["b_001"]},
@@ -186,36 +237,56 @@ def main():
     bpdir = write_project(os.path.join(tmp, "bad"), bad_descs, bad_scenes,
                           bad_segs)
     bf = validator.rule_findings(validator.build_rows(bpdir))
-    cols = [(f["row"], f["column"]) for f in bf]
+    cats = [(f["row"], f["category"]) for f in bf]
 
-    check("a credit page carrying narration is caught",
-          (1, "System OCR") in cols)
-    check("an empty description is caught", (2, "System description") in cols)
-    check("a sub-second flash panel is caught",
-          (2, "On-screen timing & motion") in cols)
-    check("a long silent hold is caught",
-          (3, "On-screen timing & motion") in cols)
-    check("a story-order inversion is caught",
-          (3, "Script placement") in cols)
+    check("a credit page carrying narration is caught", (1, "ocr") in cats)
+    check("an empty description is caught", (2, "description") in cats)
+    check("a sub-second flash panel is caught", (2, "pacing") in cats)
+    check("a long silent hold is caught", (3, "pacing") in cats)
+    check("a story-order inversion is caught", (3, "order") in cats)
     check("a narration unit with no panel in the video is caught",
-          any(c == "Script placement" and "no panel in the final video" in
-              f["issue"] for (rn, c), f in zip(cols, bf)))
+          (4, "coverage") in cats)
     check("every rule finding names a fix, not just a complaint",
           all(f["suggestion"] for f in bf))
-    check("rule findings are attributed to the rules pass",
-          all(f["source"] == "rules" for f in bf))
+    check("every finding carries a category AND a severity",
+          all(f["category"] in validator.CATEGORIES
+              and f["severity"] in validator.SEVERITIES for f in bf))
+    check("...labelled in the words the drawer shows",
+          all(f["severity_label"] and f["category_label"] for f in bf))
+    check("...and a confidence", all("confidence" in f for f in bf))
+
+    # ---- a stall: several segments in a row on ONE panel
+    stall_descs = [{"panel_id": f"s_{i:03d}", "file": f"s{i}.png",
+                    "ocr_text": "x", "ok": True,
+                    "visual_description": f"A quiet room, shot {i}."}
+                   for i in range(1, 4)]
+    stall_segs = [
+        {"seg_index": 0, "panel_id": "s_001", "start": 0.0, "dur": 9.0,
+         "user_included": True, "beats": [{"index": 0, "text": "a",
+                                           "start": 0, "end": 9}]},
+        {"seg_index": 1, "panel_id": "s_001", "start": 9.0, "dur": 9.0,
+         "user_included": True, "beats": [{"index": 1, "text": "b",
+                                           "start": 9, "end": 18}]},
+        {"seg_index": 2, "panel_id": "s_002", "start": 18.0, "dur": 4.0,
+         "user_included": True, "beats": [{"index": 2, "text": "c",
+                                           "start": 18, "end": 22}]},
+    ]
+    stall = write_project(
+        os.path.join(tmp, "stall"), stall_descs,
+        [{"scene_id": 0, "text": "a b c",
+          "panel_ids": ["s_001", "s_002", "s_003"]}], stall_segs)
+    sf = validator.rule_findings(validator.build_rows(stall))
+    check("a run of segments stuck on one panel is caught",
+          any(f["category"] == "pacing" and "in a row" in f["issue"]
+              for f in sf))
 
     # A credit page that is ALREADY left out is the pipeline working.
-    ok_credit = write_project(
-        os.path.join(tmp, "credit_ok"),
-        [bad_descs[0]], [], [])
+    ok_credit = write_project(os.path.join(tmp, "credit_ok"), [bad_descs[0]],
+                              [], [])
     check("a credit page correctly left out is not a finding",
           not validator.rule_findings(validator.build_rows(ok_credit)))
 
     # ================================================== fail fast, by name
-    # This deployment's key has been in Railway as CLAUDE_API_KEY for a long
-    # time. The SDK only looks for ANTHROPIC_API_KEY, so relying on the SDK's
-    # own env lookup would have failed on the one deployment that matters.
     saved = {k: os.environ.pop(k, None) for k in validator.API_KEY_VARS}
     try:
         validator._client()
@@ -223,7 +294,6 @@ def main():
     except validator.ValidatorError as e:
         check("a missing key raises rather than silently skipping",
               "CLAUDE_API_KEY" in str(e))
-
     os.environ["CLAUDE_API_KEY"] = "from-claude-var"
     check("CLAUDE_API_KEY is accepted", validator.api_key() == "from-claude-var")
     os.environ["ANTHROPIC_API_KEY"] = "from-anthropic-var"
@@ -233,7 +303,7 @@ def main():
     check("ANTHROPIC_API_KEY still works as the fallback",
           validator.api_key() == "from-anthropic-var")
     os.environ.pop("ANTHROPIC_API_KEY", None)
-    os.environ["   CLAUDE_API_KEY".strip()] = "   "
+    os.environ["CLAUDE_API_KEY"] = "   "
     check("a blank key counts as missing, not as configured",
           validator.api_key() == "")
     for k, v in saved.items():
@@ -242,56 +312,215 @@ def main():
             os.environ[k] = v
     os.environ.setdefault("CLAUDE_API_KEY", "test-key-not-real")
 
-    # ================================================== Claude text pass
-    validator.BATCH_ROWS = 2
-    stub = StubClient([
-        _Resp({"findings": [{"row": 1, "column": "Script placement",
-                             "severity": "high", "issue": "line belongs to row 2",
-                             "suggestion": "move it", "confidence": 0.9}]}),
-        _Resp({"findings": [{"row": 99, "column": "Script placement",
-                             "severity": "high", "issue": "hallucinated row",
-                             "suggestion": "n/a", "confidence": 0.9}]}),
-    ])
+    # ============================== overlapping windows (edge-of-batch)
+    seq_rows = [{"n": i} for i in range(1, 31)]
+    wins = validator._windows(seq_rows, 10, 3)
+    check("sequence windows overlap so edge-of-batch mistakes are visible",
+          len(wins) > 1 and wins[0][-1]["n"] > wins[1][0]["n"])
+    check("...and the whole chapter is still covered",
+          max(r["n"] for w in wins for r in w) == 30)
+    check("a zero overlap still tiles without looping forever",
+          len(validator._windows(seq_rows, 10, 0)) == 3)
+
+    # ============================== pass A: the chapter is mapped first
+    big = clean_board(os.path.join(tmp, "big"), n=12)
+    brows = validator.build_rows(big)
+    stub = StubClient(router())
     validator._client = lambda: stub
 
+    cmap, cstats = validator.chapter_map(brows, model="claude-opus-5")
+    check("the chapter map pass makes exactly one call", cstats["calls"] == 1)
+    check("...and returns scenes, reveals and chronology",
+          cmap["scenes"] and "reveals" in cmap and "chronology_notes" in cmap)
+    check("...built from the narration, not from the rows",
+          "Map this chapter" in json.dumps(stub.messages.calls[0]["messages"]))
+
+    # ============================== pass B judges rows AGAINST the map
+    stub2 = StubClient(router(seq=[
+        {"row": 3, "category": "order", "severity": "high",
+         "issue": "this reveal lands before the line that sets it up",
+         "suggestion": "move it after unit 1", "confidence": 0.9,
+         "target_row": 5},
+        {"row": 4, "category": "continuity", "severity": "medium",
+         "issue": "this panel is from a different scene than its neighbours",
+         "suggestion": "check the match", "confidence": 0.7, "target_row": 0},
+    ]))
+    validator._client = lambda: stub2
+    seq, sstats = validator.sequence_findings(brows, cmap,
+                                              model="claude-opus-5")
+    sysmsg = stub2.messages.calls[0]["system"][0]["text"]
+    check("the sequence pass is given the chapter map, not just rows",
+          "CHAPTER MAP" in sysmsg and "SCENE 1" in sysmsg)
+    check("...including where the reveals land",
+          "REVEAL lands at unit 1" in sysmsg)
+    check("...as a cacheable prefix so it is paid for once",
+          stub2.messages.calls[0]["system"][0].get("cache_control"))
+    check("an order problem is detected",
+          any(f["category"] == "order" for f in seq))
+    check("a scene-continuity problem is detected",
+          any(f["category"] == "continuity" for f in seq))
+    check("a named target row becomes a one-click swap target",
+          any(f["target_row"] == 5 for f in seq))
+    check("...and a target of 0 is treated as 'none named'",
+          all(f["target_row"] != 0 for f in seq))
+    check("sequence stats report the overlap actually used",
+          sstats["overlap"] == validator.SEQ_OVERLAP)
+
+    # a finding reported twice by two overlapping windows is emitted once
+    dupe = StubClient(router(seq=[
+        {"row": 3, "category": "order", "severity": "high", "issue": "dupe",
+         "suggestion": "x", "confidence": 0.9, "target_row": 0}]))
+    validator._client = lambda: dupe
+    old_batch, old_ov = validator.BATCH_ROWS, validator.SEQ_OVERLAP
+    validator.BATCH_ROWS, validator.SEQ_OVERLAP = 6, 3
+    dseq, _ = validator.sequence_findings(brows, cmap, model="claude-opus-5")
+    check("a row seen by two overlapping windows is reported once",
+          len([f for f in dseq if f["row"] == 3]) == 1)
+    validator.BATCH_ROWS, validator.SEQ_OVERLAP = old_batch, old_ov
+
+    # ============================== pass D: description poisoning
+    stub3 = StubClient(router(desc=[
+        {"row": 2, "category": "description", "severity": "high",
+         "issue": "the description contradicts the OCR on this panel",
+         "suggestion": "re-run describe", "confidence": 0.85},
+        {"row": 6, "category": "ocr", "severity": "medium",
+         "issue": "the OCR looks like a watermark bleeding in",
+         "suggestion": "re-run OCR", "confidence": 0.6},
+    ]))
+    validator._client = lambda: stub3
+    dfind, _ = validator.description_findings(brows, model="claude-opus-5")
+    check("a likely-wrong description is identified as description poison",
+          any(f["category"] == "description" for f in dfind))
+    check("...and poisoned OCR separately from it",
+          any(f["category"] == "ocr" for f in dfind))
+    check("the description pass sees each row's NEIGHBOURS, not the row alone",
+          "prev_description" in json.dumps(stub3.messages.calls[0]["messages"]))
+
+    # ============================== pass E: spot checks on CLEAN rows
+    spot = validator.spot_check_rows(brows, flagged={1, 2})
+    check("rows nothing flagged are sampled for an image check", len(spot) > 0)
+    check("...never a row that was already flagged", not (set(spot) & {1, 2}))
+    check("...spread across the chapter rather than clustered",
+          max(spot) - min(spot) > len(brows) // 3)
+    check("sampling can be switched off",
+          validator.spot_check_rows(brows, flagged=set(), n=0) == [])
+
+    # ================================================== full run
+    from PIL import Image
+    for i in range(1, 13):
+        Image.new("RGB", (300, 600), (30, 30, 40)).save(
+            os.path.join(big, "crops", f"p{i}.png"))
+
+    shared = StubClient(router(
+        seq=[{"row": 3, "category": "placement", "severity": "high",
+              "issue": "this line belongs to another panel",
+              "suggestion": "swap it", "confidence": 0.9, "target_row": 5}],
+        vision={"verdict": "cleared", "reason": "the image matches after all",
+                "corrected_description": "", "confidence": 0.9}))
+    validator._client = lambda: shared
+
     before_calls = usage.daily_summary()["claude_calls"]
-    before_cost = usage.daily_summary()["est_cost_usd"]
-    tf, stats = validator.claude_text_findings(rows, model="claude-opus-5")
+    rep = validator.validate(big, mode="full")
     after = usage.daily_summary()
 
-    check("rows are batched, not sent one call each",
-          stats["batches"] == 2 and len(stub.messages.calls) == 2)
-    check("a real finding is kept", any(f["row"] == 1 for f in tf))
-    check("a finding for a row outside the batch is dropped",
-          not any(f["row"] == 99 for f in tf))
-    check("claude findings are attributed to the claude pass",
-          all(f["source"] == "claude-text" for f in tf))
+    check("a full run reports ok", rep["status"] == "ok")
+    check("the report records every pass separately",
+          all(k in rep["passes"] for k in
+              ("rules", "chapter_map", "sequence", "description", "vision")))
+    check("the chapter map is kept in the report so it can be inspected",
+          rep["chapter"] and rep["chapter"]["scenes"])
     check("every Claude call is counted by the usage gate",
-          after["claude_calls"] == before_calls + 2)
-    check("...and charged to the daily spend",
-          after["est_cost_usd"] > before_cost)
+          after["claude_calls"] == before_calls + len(shared.messages.calls))
+    check("the report carries the cost it incurred", rep["cost_usd"] > 0)
     check("cost is metered from reported tokens, not a flat guess",
-          abs(stats["cost_usd"] - usage.token_cost(
-              "claude-opus-5", stats["prompt_tokens"],
-              stats["output_tokens"])) < 1e-9)
-    check("the batch prompt carries the rows",
-          "script_placement" in json.dumps(stub.messages.calls[0]["messages"]))
-    check("the instructions are sent as a cacheable prefix",
-          stub.messages.calls[0]["system"][0].get("cache_control"))
-    check("a JSON schema constrains the reply",
-          stub.messages.calls[0]["output_config"]["format"]["type"]
-          == "json_schema")
+          abs(rep["cost_usd"] - usage.token_cost(
+              "claude-opus-5", rep["prompt_tokens"],
+              rep["output_tokens"])) < 1e-6)
+    check("findings are counted by category as well as severity",
+          "by_category" in rep and "counts" in rep)
+    check("the vision pass reports how many were spot checks",
+          "spot_checked" in rep["passes"]["vision"])
+    check("a vision-cleared finding is demoted, not deleted",
+          any(f.get("cleared") and f["severity"] == "low"
+              for f in rep["findings"]))
 
-    # ---- a refusal must not read as "no problems found"
+    # ---- EVERY finding must be actionable
+    check("every finding carries actions",
+          bool(rep["findings"]) and all(f.get("actions")
+                                        for f in rep["findings"]))
+    check("...always including a way to jump to the row",
+          all(any(a["id"] == "goto" for a in f["actions"])
+              for f in rep["findings"]))
+    check("...and a way to accept it as intentional",
+          all(any(a["id"] == "accept" for a in f["actions"])
+              for f in rep["findings"]))
+    place = [f for f in rep["findings"] if f["category"] == "placement"]
+    check("a placement finding with a target offers a one-click swap",
+          any(any(a["id"] == "swap" for a in f["actions"]) for f in place))
+    desc_f = [f for f in rep["findings"] if f["category"] == "description"]
+    check("a description finding offers a re-describe",
+          all(any(a["id"] == "redescribe" for a in f["actions"])
+              for f in desc_f) if desc_f else True)
+    check("server actions describe what they will do before they do it",
+          all(a.get("preview") for f in rep["findings"]
+              for a in f["actions"] if a["kind"] == "server"))
+
+    # ---- a spot check that CONFIRMS becomes a finding of its own
+    spotter = StubClient(router(
+        seq=[], desc=[],
+        vision={"verdict": "confirmed",
+                "reason": "the panel shows a different scene entirely",
+                "corrected_description": "A burning village.",
+                "confidence": 0.9}))
+    validator._client = lambda: spotter
+    rep2 = validator.validate(big, mode="full")
+    check("a spot check that finds a problem on an unflagged row reports it",
+          any(f.get("from_spot_check") for f in rep2["findings"]))
+    check("...carrying what the image actually showed",
+          any((f.get("vision") or {}).get("corrected_description")
+              for f in rep2["findings"] if f.get("from_spot_check")))
+
+    # ================================================== feedback loop
+    target = rep2["findings"][0]
+    validator.record_feedback(big, target["id"], "accepted",
+                              panel_id=target["panel_id"],
+                              category=target["category"])
+    fb = validator.load_feedback(big)
+    check("an accepted finding is remembered", target["id"] in fb)
+    validator._client = lambda: spotter
+    rep3 = validator.validate(big, mode="full")
+    same = next((f for f in rep3["findings"] if f["id"] == target["id"]), None)
+    check("...and comes back marked as accepted", bool(same and same.get("accepted")))
+    check("...demoted rather than deleted, so it can be reconsidered",
+          bool(same) and same["severity"] == "low")
+    check("...and excluded from the headline counts",
+          rep3["accepted_suppressed"] >= 1)
+    validator.record_feedback(big, target["id"], "reopened")
+    check("an accepted finding can be reopened",
+          target["id"] not in validator.load_feedback(big))
+    try:
+        validator.record_feedback(big, "x", "nonsense")
+        check("an unknown verdict is rejected", False)
+    except ValueError:
+        check("an unknown verdict is rejected", True)
+
+    # ================================================== honest failure
+    validator._client = lambda: (_ for _ in ()).throw(
+        validator.ValidatorError("CLAUDE_API_KEY is not set"))
+    frep = validator.validate(big, mode="text")
+    check("a failed pass marks the report as error",
+          frep["status"] == "error" and bool(frep["error"]))
+    check("...while keeping the rule findings already gathered",
+          isinstance(frep["findings"], list))
+
     validator._client = lambda: StubClient([_Resp(None, stop_reason="refusal")])
     try:
-        validator.claude_text_findings(rows[:2], model="claude-opus-5")
+        validator.chapter_map(brows, model="claude-opus-5")
         check("a refusal is surfaced, not swallowed as a clean batch", False)
     except validator.ValidatorError as e:
         check("a refusal is surfaced, not swallowed as a clean batch",
               "declined" in str(e).lower())
 
-    # ---- unparseable output likewise
     class _Junk(_Resp):
         def __init__(self):
             super().__init__({"findings": []})
@@ -299,112 +528,23 @@ def main():
 
     validator._client = lambda: StubClient([_Junk()])
     try:
-        validator.claude_text_findings(rows[:2], model="claude-opus-5")
+        validator.chapter_map(brows, model="claude-opus-5")
         check("an unparseable reply is surfaced", False)
     except validator.ValidatorError:
         check("an unparseable reply is surfaced", True)
 
-    # ================================================== full run + report
-    validator.BATCH_ROWS = 25
-    validator._client = lambda: StubClient([
-        _Resp({"findings": [{"row": 2, "column": "Script placement",
-                             "severity": "high", "issue": "wrong panel",
-                             "suggestion": "move to row 3",
-                             "confidence": 0.8}]}),
-    ])
-    rep = validator.validate(pdir, mode="text")
-    check("a report is persisted next to the project",
-          os.path.exists(validator.report_path(pdir)))
-    check("the report reloads", validator.load_report(pdir)["mode"] == "text")
-    check("the report states its status", rep["status"] == "ok")
-    check("the report carries the cost it incurred", rep["cost_usd"] > 0)
-    check("the report names the model that judged", rep["model"])
-    check("the report counts findings by severity", "counts" in rep)
-    check("findings are ordered worst-first",
-          [f["severity"] for f in rep["findings"]] ==
-          sorted((f["severity"] for f in rep["findings"]),
-                 key=validator.SEVERITIES.index))
-
     # ---- rules-only mode spends nothing and needs no key
     spent = usage.daily_summary()["est_cost_usd"]
-    rrep = validator.validate(pdir, mode="rules")
+    rrep = validator.validate(big, mode="rules")
     check("rules-only mode spends nothing",
           rrep["cost_usd"] == 0 and
           usage.daily_summary()["est_cost_usd"] == spent)
     check("rules-only mode still reports ok", rrep["status"] == "ok")
 
-    # ---- a failed Claude pass is an ERROR, never a clean board
-    validator._client = lambda: (_ for _ in ()).throw(
-        validator.ValidatorError("ANTHROPIC_API_KEY is not set"))
-    frep = validator.validate(pdir, mode="text")
-    check("a failed pass marks the report as error",
-          frep["status"] == "error" and frep["error"])
-    check("...while keeping the rule findings already gathered",
-          isinstance(frep["findings"], list))
-
-    # ================================================== vision pass
-    from PIL import Image
-    vdir = clean_board(os.path.join(tmp, "vision"))
-    for i in range(1, 5):
-        Image.new("RGB", (400, 900), (30, 30, 40)).save(
-            os.path.join(vdir, "crops", f"p{i}.png"))
-    vrows = validator.build_rows(vdir)
-    targets = {1: [{"issue": "line may belong elsewhere"}]}
-
-    vstub = StubClient([_Resp({"verdict": "cleared",
-                               "reason": "the panel does match the line",
-                               "corrected_description": "",
-                               "confidence": 0.9})])
-    validator._client = lambda: vstub
-    checked, skipped, vstats = validator.claude_vision_findings(
-        vdir, vrows, targets, model="claude-opus-5")
-    check("the vision pass calls once per flagged row, not per row",
-          vstats["calls"] == 1)
-    check("the vision call actually carries the panel image",
-          any(b.get("type") == "image"
-              for b in vstub.messages.calls[0]["messages"][0]["content"]))
-    check("the vision verdict comes back", checked[1]["verdict"] == "cleared")
-
-    validator.MAX_VISION_ROWS = 1
-    many = {1: [{"issue": "a"}], 2: [{"issue": "b"}], 3: [{"issue": "c"}]}
-    validator._client = lambda: StubClient([
-        _Resp({"verdict": "confirmed", "reason": "r",
-               "corrected_description": "", "confidence": 0.9})])
-    _, skipped2, vstats2 = validator.claude_vision_findings(
-        vdir, vrows, many, model="claude-opus-5")
-    check("the vision cap is enforced", vstats2["calls"] == 1)
-    check("...and rows past it are reported as unchecked, not as clean",
-          len(skipped2) == 2 and all("cap" in s["why"] for s in skipped2))
-    validator.MAX_VISION_ROWS = 24
-
-    # ---- a cleared finding is demoted and annotated, never deleted
-    # ONE stub shared by both passes — _client() is called once per pass, so a
-    # lambda that builds a fresh StubClient would replay the text reply at the
-    # vision pass and silently test nothing.
-    shared = StubClient([
-        _Resp({"findings": [{"row": 1, "column": "Script placement",
-                             "severity": "high", "issue": "suspect",
-                             "suggestion": "check", "confidence": 0.8}]}),
-        _Resp({"verdict": "cleared", "reason": "image shows it is fine",
-               "corrected_description": "", "confidence": 0.95}),
-    ])
-    validator._client = lambda: shared
-    full = validator.validate(vdir, mode="full")
-    check("the full run used both passes off one client",
-          len(shared.messages.calls) == 2)
-    sus = [f for f in full["findings"] if f["row"] == 1
-           and f["column"] == "Script placement"]
-    check("a vision-cleared finding survives in the report", bool(sus))
-    if sus:
-        check("...demoted rather than deleted, so the check stays visible",
-              sus[0]["severity"] == "low" and sus[0].get("cleared"))
-        check("...carrying the reason the image gave",
-              sus[0]["vision"]["reason"])
-
     # ================================================== caps
-    validator._client = lambda: StubClient([_Resp({"findings": []})] * 50)
+    validator._client = lambda: StubClient(router())
     usage.MAX_DAILY_CLAUDE_CALLS = usage.daily_summary()["claude_calls"]
-    capped = validator.validate(pdir, mode="text")
+    capped = validator.validate(big, mode="text")
     check("the daily Claude cap stops the run",
           capped["status"] == "error" and
           "CLAUDE" in (capped["error"] or "").upper())

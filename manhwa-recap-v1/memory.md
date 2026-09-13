@@ -5211,3 +5211,83 @@ The honest parts worth keeping visible, since they are easy to lose:
   as few-shot examples is the single biggest accuracy lever available.
 - Claude-pass precision is UNMEASURED. Only the rule pass has been verified by
   hand (5/5 true positives on swordmasters ch.1).
+
+### Session 29 (cont.) — Check upgraded to a CHAPTER-LEVEL validator + actions
+Owner, single batch: make Check a true chapter-level story-order validator,
+make its findings actionable against real board state, and reorder the sidebar.
+
+WHY THE OLD ONE WAS WRONG: it judged each row in isolation ("does this line fit
+this panel?"). That question cannot see the failures that actually hurt a recap
+— reveal-before-setup, reaction-before-cause, a line that fits the panel it
+landed on but belonged four rows earlier. A row-local checker reads all of
+those as fine.
+
+NEW CHAIN (validator.py):
+  rules -> A chapter map -> B sequence -> D description/OCR -> E vision
+  A  ONE call reads the narration in order, returns scenes + arc phase +
+     reveals + turns + chronology. Everything downstream is judged against it;
+     sent as a cacheable prefix so it is paid for once. Stored in the report and
+     SHOWN in the drawer — if the map is wrong every sequence finding is
+     suspect, and that was otherwise invisible.
+  B  OVERLAPPING windows (25 rows, 5 shared). Not redundancy: a mismatch is
+     recognised by seeing the row the line belongs to, so a mismatch straddling
+     a window edge is invisible without overlap. Stable finding ids dedupe.
+     Categories: placement / order / continuity / pacing, and it can NAME the
+     row a line belongs to, which is what makes a one-click swap possible.
+  D  Description/OCR poisoning, each row shown with its NEIGHBOURS. This is the
+     premise every other pass stands on.
+  E  Vision on flagged rows AND a stratified sample of rows NOTHING flagged.
+     The spot-check budget is reserved BEFORE flagged rows queue, so a noisy
+     chapter cannot crowd out the only check on the blind spot. A spot check
+     that CONFIRMS becomes a finding in its own right.
+
+Severity (how sure the row is wrong: Definitely/Likely/Worth review) is now
+separate from CATEGORY (what kind), plus numeric confidence.
+
+BUG FOUND AND FIXED BY A FAILING TEST, not by reading: the new "stall" rule
+walked for CONSECUTIVE ROWS sharing a panel. build_rows emits exactly one row
+PER PANEL, so that can never happen and the rule silently never fired. Rewritten
+to use the row's segment count + summed duration. Same family as the earlier
+words-per-second bug: a check that looks reasonable and cannot ever fire.
+
+ACTIONS (validator_actions.py — NEW): every finding carries actions chosen for
+its category, executed through the SAME storyboard_edit functions the board's
+own controls use, inside the same undo snapshot. swap / move earlier / move
+later / leave out / put back / use full panel / re-run description / re-run OCR
+/ send to review / accept / dismiss / reopen / goto / open image.
+Deliberate choices: swap does NOT re-sequence the story (separate decision);
+leave-out unticks rather than deletes (one click back); send-to-review marks
+PENDING not rejected (raise the question, don't answer it); re-OCR keeps the
+description. A mutating action stamps the report STALE so the drawer stops
+presenting pre-fix findings as current.
+
+FEEDBACK LOOP: validation_feedback.json, keyed on panel_id+category (NOT on the
+model-written wording, which changes every run). accepted/fixed come back
+DEMOTED and marked, never dropped, and those rows are named to the sequence
+pass so it stops raising them. dismissed is kept distinct from fixed.
+
+SIDEBAR reordered on BOTH pages to the chapter workflow:
+Ingest -> Board -> Check -> Exports -> Review -> Projects -> Tracker -> Logs.
+/review also gained a Check link (it previously had no way back to the checker).
+Asserted as a SEQUENCE in test_review — a presence check passes on any shuffle.
+
+TESTS: 21 files, 0 failing. test_validator 79, test_validator_actions 46 (NEW —
+every assertion reads the change back OFF DISK, so a handler that returned ok
+without writing would fail), test_review 52 -> 58. Baseline untouched and
+verified green: test_seo 159, test_thumbnail_studio 103, test_thumbnail 35,
+test_publish_prep 47, test_outstand_* 112, test_storyboard_edit 55.
+
+LIVE VERIFIED before shipping (local uvicorn + real browser):
+  rail order on BOTH pages = the exact requested sequence
+  rules run: 6 findings, $0.0000, 138 rows; 6 badges on 6 flagged rows
+  drawer groups "Definitely wrong (2)" / "Likely wrong (4)", 34 action buttons
+  ACTION ROUND-TRIP over HTTP on the real project: leave_out -> user_included
+  False on disk -> put_back -> True again. State restored exactly. Bad action
+  -> HTTP 400.
+No active render/ingest/export jobs at any point (checked the jobs store first).
+Edge: /api/:path* already covers /api/validate/action — no vercel.json change,
+no Vercel deploy needed. test_edge_routes still 41/41.
+
+STILL NOT EXERCISED AGAINST THE LIVE ANTHROPIC API from this machine (no key
+here). All Claude passes are stub-driven. First real run: 'text' mode on ONE
+chapter with the cost header watched.

@@ -3392,6 +3392,7 @@ def storyboard_page():
 
 # ---- Claude validation chain (pre-owner review gate) --------------------
 import validator as _validator
+from datetime import datetime, timezone
 
 
 def _run_validate_job(job_id, pdir, mode):
@@ -3456,6 +3457,40 @@ async def start_validation(request: Request):
     threading.Thread(target=_run_validate_job,
                      args=(job_id, pdir, mode), daemon=True).start()
     return {"job": job_id, "mode": mode, "rows": n_rows}
+
+
+class ValidateActionIn(BaseModel):
+    action: str
+    params: dict = {}
+
+
+@app.post("/api/validate/action")
+def validate_action(body: ValidateActionIn):
+    """Apply one Check finding action to the REAL project.
+
+    Wrapped in the same undo snapshot the board's own editor ops use, so a fix
+    applied from Check lands in one undo step and is indistinguishable from the
+    same fix made by hand on the board.
+    """
+    import validator_actions
+    pdir = active_project_dir()
+    if body.action in validator_actions.MUTATING:
+        _snapshot()
+    try:
+        out = validator_actions.apply_action(pdir, body.action, body.params)
+    except validator_actions.ActionError as e:
+        raise HTTPException(400, str(e))
+
+    # A board change invalidates the findings that described the old board.
+    # Stamp the stored report so the drawer can say "these findings predate
+    # your last fix" instead of presenting them as current.
+    if out.get("report_stale"):
+        rep = _validator.load_report(pdir)
+        if rep:
+            rep["stale"] = True
+            rep["stale_since"] = datetime.now(timezone.utc).isoformat()
+            _validator.save_report(pdir, rep)
+    return out
 
 
 @app.get("/api/validation")

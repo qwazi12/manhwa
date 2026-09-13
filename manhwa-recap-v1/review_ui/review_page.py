@@ -180,13 +180,14 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 .empty { padding:40px 20px; text-align:center; color:var(--ink3); }
 </style>__HEADJS__</head><body>
 <div class="nav">
-  <a class="navbtn" href="/storyboard" title="Storyboard"><span class="ic">🎬</span>Board</a>
   <a class="navbtn" href="/storyboard?open=ingest"><span class="ic">🔗</span>Ingest</a>
+  <a class="navbtn" href="/storyboard" title="Storyboard"><span class="ic">🎬</span>Board</a>
+  <a class="navbtn" href="/storyboard?open=validate"><span class="ic">🛡</span>Check</a>
+  <a class="navbtn" href="/storyboard?open=exports"><span class="ic">📤</span>Exports</a>
+  <a class="navbtn active" href="/review"><span class="ic">📺</span>Review</a>
   <a class="navbtn" href="/storyboard?open=projects"><span class="ic">📚</span>Projects</a>
   <a class="navbtn" href="/storyboard?open=tracker"><span class="ic">📡</span>Tracker</a>
   <a class="navbtn" href="/storyboard?open=logs"><span class="ic">📋</span>Logs</a>
-  <a class="navbtn" href="/storyboard?open=exports"><span class="ic">📤</span>Exports</a>
-  <a class="navbtn active" href="/review"><span class="ic">📺</span>Review</a>
   __RAILBTNS__
 </div>
 <div class="shell">

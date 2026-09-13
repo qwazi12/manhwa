@@ -189,6 +189,44 @@ def main():
     r.append(("controls have their own surface, distinct from any panel",
               "--btn:" in rhtml and "background:var(--btn)" in rhtml))
 
+    # ---- the rail is ordered by the CHAPTER WORKFLOW, not by build order
+    # Requested 2026-09-13. The order encodes how a chapter actually moves:
+    # ingest it, build it on the board, check it, export it, review it — then
+    # the standing tools. Asserted as a SEQUENCE, because "all eight are
+    # present" would pass on any shuffle of them.
+    WORKFLOW = ["Ingest", "Board", "Check", "Exports", "Review",
+                "Projects", "Tracker", "Logs"]
+
+    def rail_order(html):
+        import re as _r
+        # The rail is the first .nav / #rail block; a label can sit on a
+        # <button> or an <a>, so match the label text rather than the tag.
+        start = html.find('id="rail"')
+        if start < 0:
+            start = html.find('class="nav"')
+        block = html[start:start + 3000]
+        return [m for m in _r.findall(
+            r'</span>([A-Za-z]+)</(?:button|a)>', block) if m in WORKFLOW]
+
+    r.append(("the board's rail is in workflow order",
+              rail_order(bhtml) == WORKFLOW))
+    r.append(("the review page's rail is in the SAME workflow order",
+              rail_order(rhtml) == WORKFLOW))
+    if rail_order(bhtml) != WORKFLOW:
+        print("   board rail:", rail_order(bhtml))
+    if rail_order(rhtml) != WORKFLOW:
+        print("   review rail:", rail_order(rhtml))
+
+    # ---- Check is its own tab, on both pages
+    r.append(("Check is a rail tab on the board, not buried in another drawer",
+              'data-d="validate"' in bhtml and 'id="d_validate"' in bhtml))
+    r.append(("...reachable from the review page too",
+              "/storyboard?open=validate" in rhtml))
+    r.append(("...and its findings can act on the board",
+              "/api/validate/action" in bhtml))
+    r.append(("...jumping to a row focuses it, not just scrolls near it",
+              "vfocus" in bhtml))
+
     # ---- ?open= is a one-time instruction, not a sticky mode
     # Reported 2026-09-13: "it pops out and shows me the detals of the last tab
     # clicked every single time". /review links to /storyboard?open=logs; the
