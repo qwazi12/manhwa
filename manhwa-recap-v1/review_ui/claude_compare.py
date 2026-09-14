@@ -405,3 +405,171 @@ def compare(pdir, review=None):
             "verdict. Read the rows, especially the disagreement shortlist.",
         ],
     }
+
+
+# =================================================== Claude+ operational report
+# The metric table above compares two chapters' OUTPUT. This reports on the RUN
+# itself: what the pipeline measured about its own work, which is the part that
+# tells you where to go next rather than merely who won.
+#
+# Nothing here invents a directional verdict. A rate is a rate; whether 12%
+# full-frame is good depends on the chapter, and the report says so rather than
+# scoring it.
+
+def _rate(n, d):
+    return round(100.0 * n / d, 1) if d else 0.0
+
+
+def lab_report(pdir):
+    """Operational metrics for one Claude+ lab run, from its own diagnostics."""
+    import claude_lab
+    import validator
+
+    man = claude_lab.manifest(pdir) or {}
+    passes = man.get("passes", {})
+    diag = man.get("diagnostics", {})
+    descs = []
+    try:
+        with open(os.path.join(pdir, "descriptions.json"), encoding="utf-8") as f:
+            descs = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    n = len(descs) or 1
+
+    # ---- reading quality -------------------------------------------------
+    missing_ocr = sum(1 for d in descs if not (d.get("ocr_text") or "").strip()
+                      and not d.get("is_credits"))
+    low_conf_ocr = sum(1 for d in descs
+                       if (d.get("ocr_confidence") is not None
+                           and d["ocr_confidence"] < 0.45))
+    generic = sum(1 for d in descs
+                  if validator._GENERIC_DESC.match(
+                      (d.get("visual_description") or "").strip() or "x"))
+    needs_review = sum(1 for d in descs if d.get("needs_review"))
+    violations = sum(1 for d in descs if d.get("contract_violations"))
+
+    # ---- framing ---------------------------------------------------------
+    crop_stats = passes.get("crop", {})
+    planned = crop_stats.get("planned", 0) or 0
+    full_frame = crop_stats.get("full_frame", 0) or 0
+    rejected = len(diag.get("crop_rejected", []) or [])
+
+    # ---- placement -------------------------------------------------------
+    place = diag.get("placement", {}) or {}
+    escapes = place.get("provenance_escapes", []) or []
+    repairs = place.get("order_repairs", []) or []
+    overholds = place.get("hold_cap_breaches", []) or []
+    ambiguous = place.get("ambiguous", []) or []
+    uncertain = place.get("uncertain_placements", []) or []
+
+    # ---- the checker, as an audit layer ---------------------------------
+    findings = []
+    try:
+        findings = validator.rule_findings(validator.build_rows(pdir))
+    except Exception:
+        pass
+    by_sev = {s: sum(1 for f in findings if f["severity"] == s)
+              for s in validator.SEVERITIES}
+    by_cat = {c: sum(1 for f in findings if f["category"] == c)
+              for c in validator.CATEGORIES}
+    flagged_rows = len({f["row"] for f in findings})
+
+    return {
+        "project": os.path.basename(pdir.rstrip("/")),
+        "pipeline": man.get("pipeline", "claude"),
+        "splitter": man.get("splitter"),
+        "status": man.get("status"),
+        "cost_usd": man.get("cost_usd"),
+        "calls": man.get("calls"),
+        "elapsed_sec": man.get("elapsed_sec"),
+
+        # Which stages a MODEL decided, and which were computed. The whole point
+        # of Claude+ is that these are different lists.
+        "model_driven_stages": ["split (claude mode)", "read", "chapter map",
+                                "script", "critique/revise", "crop framing"],
+        "deterministic_stages": ["beat segmentation", "placement (DP)",
+                                 "order enforcement", "exact tiling",
+                                 "segment building"],
+        "shared_with_production": ["page download", "beat segmentation",
+                                   "TTS voicing", "segment building"],
+
+        "reading": {
+            "panels": len(descs),
+            "missing_ocr": missing_ocr, "missing_ocr_pct": _rate(missing_ocr, n),
+            "low_confidence_ocr": low_conf_ocr,
+            "low_confidence_ocr_pct": _rate(low_conf_ocr, n),
+            "generic_descriptions": generic,
+            "generic_pct": _rate(generic, n),
+            "needs_review": needs_review,
+            "contract_violations": violations,
+            "over_word_cap": passes.get("read", {}).get("over_cap"),
+            "banned_openers": passes.get("read", {}).get("banned_openers"),
+        },
+        "splitting": {
+            "coverage_mean": passes.get("split", {}).get("coverage_mean"),
+            "coverage_min": passes.get("split", {}).get("coverage_min"),
+            "pages_below_target": passes.get("split", {}).get("pages_below_target"),
+            "retried_pages": passes.get("split", {}).get("retried_pages"),
+            "recovered_pages": passes.get("split", {}).get("recovered_pages"),
+            "blanks_dropped": passes.get("split", {}).get("blanks_dropped"),
+            "fell_back_to_yolo": bool(diag.get("split_fallback")),
+        },
+        "script": {
+            "scenes": passes.get("script", {}).get("scenes"),
+            "dense_allowances": diag.get("dense_allowances", []),
+            "over_budget_units": passes.get("script", {}).get("over_budget"),
+            "critique_issues": len(diag.get("critique_issues", []) or []),
+            "critique_by_type": _count_types(diag.get("critique_issues", [])),
+            "units_revised": passes.get("revise", {}).get("revised"),
+        },
+        "placement": {
+            "distinct_panels": place.get("distinct_panels"),
+            "junk_panels_avoided": place.get("junk_panels"),
+            "provenance_escapes": len(escapes),
+            "provenance_escape_detail": escapes[:10],
+            "order_inversions_repaired": len(repairs),
+            "over_holds": len(overholds),
+            "ambiguous_pairs": len(ambiguous),
+            "uncertain_placements": len(uncertain),
+        },
+        "framing": {
+            "panels_framed": planned,
+            "full_frame": full_frame, "full_frame_pct": _rate(full_frame, planned or 1),
+            "cropped": crop_stats.get("cropped"),
+            "rejected_to_full_frame": rejected,
+        },
+        "checker": {
+            "findings": len(findings), "by_severity": by_sev,
+            "by_category": {k: v for k, v in by_cat.items() if v},
+            "rows_flagged": flagged_rows,
+            "rows_clean_pct": _rate(n - flagged_rows, n),
+        },
+        "timing": {
+            # Said explicitly so nobody reads a lab number as production truth.
+            "source": "measured (real TTS audio)" if man.get("segments")
+                      else "not built",
+            "proposed_timing_used": False,
+            "note": "Lab timing comes from the same TTS path production uses, "
+                    "so it is measured, not proposed. Any figure labelled "
+                    "'proposed' elsewhere comes from the older sidecar flow and "
+                    "is not comparable to this.",
+        },
+        "promotion_ready": bool(man.get("segments")) and man.get("status") == "ok",
+        "caveats": [
+            "Rates are reported, not scored. Whether a given full-frame rate or "
+            "escape count is good depends on the chapter.",
+            "Provenance escapes are not errors — they are the solver reporting "
+            "that the scene grouping disagreed with the evidence. Read them.",
+            "Checker findings are an audit of this run, not proof of "
+            "correctness.",
+        ],
+    }
+
+
+def _count_types(issues):
+    out = {}
+    for i in issues or []:
+        t = i.get("type")
+        if t:
+            out[t] = out.get(t, 0) + 1
+    return out

@@ -55,6 +55,8 @@ from datetime import datetime, timezone
 import usage
 import validator
 import claude_pipeline as CP
+import claude_plus as PLUS
+import claude_place as PLACE
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RECAP = os.path.dirname(HERE)
@@ -62,7 +64,8 @@ ROOT = os.path.abspath(os.path.join(RECAP, ".."))
 PROJECTS = os.path.join(HERE, "projects")
 PY = sys.executable
 
-STAGES = ["scrape", "split", "read", "script", "place", "voice", "segment"]
+STAGES = ["scrape", "split", "read", "map", "script", "critique", "beats",
+          "voice", "place", "crop", "segment"]
 SPLITTERS = ("claude", "yolo")
 
 # Pages are downscaled before Claude looks at them. A manhwa page can be
@@ -73,6 +76,23 @@ PAGE_MAX_PX = int(os.environ.get("LAB_PAGE_MAX_PX", 1400))
 # A page that yields more than this many panels is almost certainly a
 # mis-parse, not a real page.
 MAX_PANELS_PER_PAGE = int(os.environ.get("LAB_MAX_PANELS_PER_PAGE", 14))
+
+# COVERAGE VALIDATION — the single most important safeguard on Claude cutting.
+# Production gates its splitter on how much of the page's INK ends up inside a
+# panel box, because a splitter that silently drops art produces a chapter with
+# holes nobody notices. Claude was previously trusted with no such check: if it
+# missed half a page, nothing said so. Same target as production.
+COVERAGE_TARGET = float(os.environ.get("LAB_COVERAGE_TARGET", 0.85))
+# A band of missed ink must be at least this tall to be worth recovering.
+GAP_MIN_H = int(os.environ.get("LAB_GAP_MIN_H", 120))
+
+# TALL-PANEL HANDLING. A webtoon strip returned as one box is not wrong, but it
+# is unusable: it becomes one enormous on-screen image carrying several beats.
+# Production has a four-level ladder for this; the lab needs at least the first
+# two rungs or it silently under-splits every vertical chapter.
+TALL_RATIO = float(os.environ.get("LAB_TALL_RATIO", 1.8))
+TALL_TARGET_AR = float(os.environ.get("LAB_TALL_TARGET_AR", 1.4))
+MIN_PANEL_PX = int(os.environ.get("LAB_MIN_PANEL_PX", 80))
 
 
 class LabError(RuntimeError):
@@ -116,6 +136,18 @@ and those boxes should be x0 near 0.0 and x1 near 1.0.
 
 Set kind to "art" for a story panel, "text" for a narration/title card, and \
 "credits" for a scanlation credits or watermark block."""
+
+# Used only on the retry, after a measured coverage miss. It names the failure
+# instead of repeating the original instruction and hoping for a better roll.
+SPLIT_RETRY_SUFFIX = """
+
+YOUR PREVIOUS ANSWER MISSED ART. Measured against the page's own ink, {pct}% of \
+the drawn content fell OUTSIDE the boxes you returned{bands}.
+
+Go again and account for the WHOLE page top to bottom. Every region containing \
+drawn art or readable text must sit inside some box. Panels in a vertical strip \
+usually run the full width — those boxes should start near x=0.0 and end near \
+x=1.0. It is far better to return one box too many than to leave art out."""
 
 SPLIT_SCHEMA = {
     "type": "object",
@@ -171,9 +203,119 @@ def _sane_box(box):
     return [x0, y0, x1, y1]
 
 
+def _prod_split():
+    """Production's splitter helpers, imported READ-ONLY.
+
+    The coverage maths, the background estimate and the blank test are already
+    correct and already battle-tested; re-deriving them in the lab would just be
+    a second implementation to keep in sync. Nothing here calls into the
+    production pipeline — only these pure functions are used.
+    """
+    pth = os.path.join(ROOT, "panel-split")
+    if pth not in sys.path:
+        sys.path.insert(0, pth)
+    import split_panels as SP
+    return SP
+
+
+def _measure_coverage(gray, bg, boxes_px):
+    """What fraction of the page's INK sits inside some box, plus the bands of
+    missed content tall enough to be worth recovering."""
+    SP = _prod_split()
+    import numpy as np
+    H = gray.shape[0]
+    content = SP._content_rows(gray, bg)
+    total = int(content.sum())
+    if not total:
+        return 1.0, []
+    cov = SP._row_coverage(H, boxes_px)
+    missed = content & ~cov
+    coverage = float((content & cov).sum() / total)
+
+    bands, run_start = [], None
+    for y in range(H):
+        if missed[y] and run_start is None:
+            run_start = y
+        elif not missed[y] and run_start is not None:
+            if y - run_start >= GAP_MIN_H:
+                bands.append([run_start, y])
+            run_start = None
+    if run_start is not None and H - run_start >= GAP_MIN_H:
+        bands.append([run_start, H])
+    return coverage, bands
+
+
+def _recover_bands(gray, bg, bands, W):
+    """Geometric gutter split over the bands Claude missed.
+
+    This is production's pass 2, reused verbatim in spirit: whatever the primary
+    detector left uncovered gets cut on its own gutters rather than being lost.
+    """
+    SP = _prod_split()
+    out = []
+    for y0, y1 in bands:
+        region = gray[y0:y1, :]
+        try:
+            pieces = SP._split_axis(region, axis=0, bg_color=bg)
+        except Exception:
+            pieces = []
+        if not pieces:
+            pieces = [(0, y1 - y0)]
+        for a, b in pieces:
+            if b - a >= MIN_PANEL_PX:
+                out.append([0, y0 + a, W, y0 + b])
+    return out
+
+
+def _split_tall(gray, bg, box, W):
+    """Cut a too-tall box down to usable pieces.
+
+    Rung 1: split on the box's own internal gutters (production's T1 fix, the
+    one that stopped 7:1 strips reaching the board whole). Rung 2: if it is
+    gutterless and still extreme, cut it into even pieces near a readable
+    aspect ratio rather than shipping one enormous image carrying five beats.
+    """
+    SP = _prod_split()
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h / max(w, 1) < TALL_RATIO:
+        return [box]
+
+    region = gray[y0:y1, x0:x1]
+    try:
+        internal = SP._split_axis(region, axis=0, bg_color=bg)
+    except Exception:
+        internal = []
+    if len(internal) > 1:
+        out = []
+        for a, b in internal:
+            if b - a >= MIN_PANEL_PX:
+                out.extend(_split_tall(gray, bg, [x0, y0 + a, x1, y0 + b], W))
+        if out:
+            return out
+
+    target_h = max(MIN_PANEL_PX, int(w * TALL_TARGET_AR))
+    n = max(1, int(round(h / float(target_h))))
+    if n <= 1:
+        return [box]
+    step = h / float(n)
+    return [[x0, int(y0 + i * step), x1,
+             int(y0 + (i + 1) * step) if i < n - 1 else y1] for i in range(n)]
+
+
 def split_with_claude(pages_dir, crops_dir, model=None, progress=None):
-    """Claude decides where the panels are, replacing the YOLO detector."""
+    """Claude decides where the panels are — then the result is MEASURED.
+
+    The first version trusted Claude's boxes outright. If it missed half a page
+    nothing said so, and the chapter simply came out short. Now every page is
+    scored against its own ink, a miss gets one stricter retry that names what
+    was missed, and anything still uncovered is recovered geometrically. Tall
+    boxes are cut down, blanks are dropped, and the per-page numbers are kept so
+    the run can be audited instead of trusted.
+    """
     from PIL import Image
+    import numpy as np
+    SP = _prod_split()
     model = model or CP.MODEL
     client = validator._client()
     pages = sorted(f for f in os.listdir(pages_dir)
@@ -183,6 +325,8 @@ def split_with_claude(pages_dir, crops_dir, model=None, progress=None):
         raise LabError("no downloaded pages to split")
 
     made, tally = [], CP._Tally()
+    page_stats, blanks = [], 0
+
     for pi, fname in enumerate(pages, start=1):
         if progress:
             progress("split", f"Claude cutting page {pi}/{len(pages)}")
@@ -191,44 +335,113 @@ def split_with_claude(pages_dir, crops_dir, model=None, progress=None):
             block, W, H = _page_image_block(path)
         except OSError:
             continue
-        resp, meter, cost = validator._call_claude(
-            client, model=model, max_tokens=8000,
-            system=[{"type": "text", "text": SPLIT_SYSTEM,
-                     "cache_control": {"type": "ephemeral"}}],
-            output_config={"effort": CP.EFFORT,
-                           "format": {"type": "json_schema",
-                                      "schema": SPLIT_SCHEMA}},
-            messages=[{"role": "user", "content": [
-                block, {"type": "text",
-                        "text": "Return the panels on this page, in reading "
-                                "order."}]}])
-        tally.add(meter, cost)
+        with Image.open(path) as _im:
+            gray = np.array(_im.convert("L"))
+        bg = SP._estimate_background_color(gray)
 
-        boxes = []
-        for item in validator._parse_json_reply(resp).get("panels", []):
-            b = _sane_box(item.get("box"))
-            if b:
-                boxes.append((b, item.get("kind", "art")))
-        if len(boxes) > MAX_PANELS_PER_PAGE:
-            boxes = boxes[:MAX_PANELS_PER_PAGE]
-        # Reading order: top to bottom, then left to right.
-        boxes.sort(key=lambda t: (round(t[0][1], 3), t[0][0]))
+        def _ask(extra=""):
+            resp, meter, cost = validator._call_claude(
+                client, model=model, max_tokens=8000,
+                system=[{"type": "text", "text": SPLIT_SYSTEM + extra,
+                         "cache_control": {"type": "ephemeral"}}],
+                output_config={"effort": CP.EFFORT,
+                               "format": {"type": "json_schema",
+                                          "schema": SPLIT_SCHEMA}},
+                messages=[{"role": "user", "content": [
+                    block, {"type": "text",
+                            "text": "Return the panels on this page, in "
+                                    "reading order."}]}])
+            tally.add(meter, cost)
+            got = []
+            for item in validator._parse_json_reply(resp).get("panels", []):
+                b = _sane_box(item.get("box"))
+                if b:
+                    got.append((b, item.get("kind", "art")))
+            return got[:MAX_PANELS_PER_PAGE]
+
+        boxes = _ask()
+        px = [[int(b[0] * W), int(b[1] * H), int(b[2] * W), int(b[3] * H)]
+              for b, _ in boxes]
+        cov, bands = _measure_coverage(gray, bg, px)
+        retried = False
+
+        # ---- one stricter retry, naming the actual miss ------------------
+        if cov < COVERAGE_TARGET:
+            retried = True
+            where = ""
+            if bands:
+                where = (" — the largest gap runs from "
+                         f"{bands[0][0] / H:.0%} to {bands[0][1] / H:.0%} "
+                         "down the page")
+            if progress:
+                progress("split", f"page {pi}: {cov:.0%} coverage — retrying")
+            boxes2 = _ask(SPLIT_RETRY_SUFFIX.format(
+                pct=int(round((1 - cov) * 100)), bands=where))
+            px2 = [[int(b[0] * W), int(b[1] * H), int(b[2] * W), int(b[3] * H)]
+                   for b, _ in boxes2]
+            cov2, bands2 = _measure_coverage(gray, bg, px2)
+            if cov2 > cov:
+                boxes, px, cov, bands = boxes2, px2, cov2, bands2
+
+        # ---- geometric recovery of whatever is still missed --------------
+        recovered = 0
+        if cov < COVERAGE_TARGET and bands:
+            extra = _recover_bands(gray, bg, bands, W)
+            recovered = len(extra)
+            px.extend(extra)
+            boxes.extend(([x0 / W, y0 / H, x1 / W, y1 / H], "art")
+                         for x0, y0, x1, y1 in extra)
+            cov, _ = _measure_coverage(gray, bg, px)
+            if progress and recovered:
+                progress("split", f"page {pi}: recovered {recovered} missed "
+                                  f"band(s), now {cov:.0%}")
+
+        # ---- tall handling, then write --------------------------------
+        order = sorted(zip(px, [k for _, k in boxes]),
+                       key=lambda t: (t[0][1], t[0][0]))
+        final = []
+        for bx, kind in order:
+            for piece in _split_tall(gray, bg, bx, W):
+                final.append((piece, kind))
 
         stem = f"page{pi:03d}"
         with Image.open(path) as im:
             im = im.convert("RGB")
-            for bi, (b, kind) in enumerate(boxes, start=1):
-                x0, y0, x1, y1 = b
-                px = (int(x0 * W), int(y0 * H), int(x1 * W), int(y1 * H))
-                if px[2] - px[0] < 8 or px[3] - px[1] < 8:
+            idx = 0
+            for bx, kind in final:
+                x0, y0, x1, y1 = [int(v) for v in bx]
+                if x1 - x0 < MIN_PANEL_PX or y1 - y0 < MIN_PANEL_PX:
                     continue
-                out = f"{stem}_panel_{bi:03d}.png"
-                im.crop(px).save(os.path.join(crops_dir, out))
+                crop_gray = gray[y0:y1, x0:x1]
+                # A blank or near-blank crop is a gutter sliver, not a panel.
+                try:
+                    if SP._is_blank_crop(crop_gray, bg):
+                        blanks += 1
+                        continue
+                except Exception:
+                    pass
+                idx += 1
+                out = f"{stem}_panel_{idx:03d}.png"
+                im.crop((x0, y0, x1, y1)).save(os.path.join(crops_dir, out))
                 made.append({"file": out, "kind": kind, "page": stem,
-                             "box": b})
+                             "box": [x0 / W, y0 / H, x1 / W, y1 / H]})
+
+        page_stats.append({"page": stem, "coverage": round(cov, 3),
+                           "panels": idx, "retried": retried,
+                           "recovered_bands": recovered})
+
     if not made:
-        raise LabError("Claude found no panels on any page")
-    return made, tally.stats(pages=len(pages), panels=len(made))
+        raise LabError("Claude found no usable panels on any page")
+
+    covs = [p["coverage"] for p in page_stats] or [1.0]
+    return made, tally.stats(
+        pages=len(pages), panels=len(made), blanks_dropped=blanks,
+        coverage_min=round(min(covs), 3),
+        coverage_mean=round(sum(covs) / len(covs), 3),
+        pages_below_target=sum(1 for c in covs if c < COVERAGE_TARGET),
+        retried_pages=sum(1 for p in page_stats if p["retried"]),
+        recovered_pages=sum(1 for p in page_stats if p["recovered_bands"]),
+        per_page=page_stats)
 
 
 def split_with_yolo(pages_dir, crops_dir, job_id="lab", progress=None):
@@ -271,7 +484,16 @@ def _save_manifest(pdir, man):
 
 def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
             voice=True, fresh=False):
-    """Build a whole chapter, independently, with Claude making the calls."""
+    """Build a whole chapter, independently, with Claude making the judgement
+    calls and deterministic code making the decisions that have exact answers.
+
+    STAGE ORDER MATTERS AND CHANGED. The crop is now chosen LAST, after the
+    script exists and after every line has been placed, because a crop is a
+    decision about what the viewer must see for a particular line to land — and
+    that is unanswerable before the line has been written. The first version
+    chose crops during the read pass, which made it structurally impossible for
+    the framing to serve the narration.
+    """
     if splitter not in SPLITTERS:
         raise LabError(f"splitter must be one of {SPLITTERS}")
     sys.path.insert(0, RECAP)
@@ -295,11 +517,12 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
     man = manifest(pdir) or {}
     man.update({"url": url, "splitter": splitter, "model": model,
                 "ts": datetime.now(timezone.utc).isoformat(),
-                "status": "running", "error": None,
-                "lab": True,
+                "status": "running", "error": None, "lab": True,
+                "pipeline": "claude+",
                 "cost_usd": man.get("cost_usd", 0.0),
                 "calls": man.get("calls", 0),
-                "passes": man.get("passes", {})})
+                "passes": man.get("passes", {}),
+                "diagnostics": man.get("diagnostics", {})})
     _save_manifest(pdir, man)
 
     def _prog(stage, msg):
@@ -325,29 +548,45 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
         else:
             _prog("scrape", f"{len(have)} pages already downloaded — reusing")
 
-        # ---- 2. split (SWITCHABLE) -------------------------------------
+        # ---- 2. split (SWITCHABLE, coverage-validated) -----------------
         if fresh or not os.listdir(crops):
             shutil.rmtree(crops, ignore_errors=True)
             os.makedirs(crops, exist_ok=True)
             if splitter == "claude":
                 made, st = split_with_claude(pages, crops, model=model,
-                                             progress=lambda s, m: _prog(s, m))
+                                             progress=_prog)
+                # If Claude cutting is still short of target after its retry
+                # AND its geometric recovery, the honest move is to fall back
+                # to the trained detector rather than build a chapter with
+                # holes in it. The fallback is recorded, never silent.
+                if st.get("coverage_mean", 1.0) < COVERAGE_TARGET:
+                    _prog("split", f"Claude coverage {st['coverage_mean']:.0%} "
+                                   f"below target — falling back to YOLO")
+                    man["diagnostics"]["split_fallback"] = {
+                        "from": "claude", "to": "yolo",
+                        "claude_coverage_mean": st.get("coverage_mean"),
+                        "target": COVERAGE_TARGET}
+                    _absorb("split_claude_attempt", st)
+                    shutil.rmtree(crops, ignore_errors=True)
+                    os.makedirs(crops, exist_ok=True)
+                    made, st = split_with_yolo(pages, crops, job_id=job_id,
+                                               progress=_prog)
             else:
                 made, st = split_with_yolo(pages, crops, job_id=job_id,
-                                           progress=lambda s, m: _prog(s, m))
+                                           progress=_prog)
             _absorb("split", st)
             with open(os.path.join(pdir, "panels.json"), "w",
                       encoding="utf-8") as f:
                 json.dump(made, f, indent=2)
             _prog("split", f"{len(made)} panels")
 
-        # ---- 3. read: OCR + description + crop framing (Claude) --------
+        # ---- 3. read (Claude+ contract) --------------------------------
         panel_files = sorted(f for f in os.listdir(crops) if f.endswith(".png"))
         if not panel_files:
             raise LabError("no panel crops to read")
         from PIL import Image
         panels = []
-        for i, f in enumerate(panel_files, start=1):
+        for f in panel_files:
             try:
                 with Image.open(os.path.join(crops, f)) as im:
                     w, h = im.size
@@ -366,48 +605,57 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
             CP._write(pdir, "descriptions.json", merged)
 
         _prog("read", f"Claude reading {len(panels) - len(done)} panels")
-        fresh_descs, st = CP.describe(
-            pdir, panels, model=model,
-            progress=lambda m: _prog("read", m),
+        fresh_descs, st = PLUS.describe_plus(
+            pdir, panels, model=model, progress=lambda m: _prog("read", m),
             on_batch=_ckpt, skip=done)
         _ckpt(fresh_descs)
         _absorb("read", st)
         descs = CP.read(pdir, "descriptions.json", [])
         if not descs:
             raise LabError("Claude produced no panel readings")
-
-        # The lab's own descriptions.json IS the project's descriptions.json —
-        # there is no sidecar here, because this project is Claude's from the
-        # start rather than a variant of someone else's.
         shutil.copyfile(os.path.join(CP.out_dir(pdir), "descriptions.json"),
                         os.path.join(pdir, "descriptions.json"))
 
-        # ---- 4. script (Claude) ----------------------------------------
-        _prog("script", "Claude writing the narration")
-        units, st = CP.script(pdir, descs, model=model,
-                              progress=lambda m: _prog("script", m))
+        # ---- 4. chapter map --------------------------------------------
+        _prog("map", "Claude mapping the chapter")
+        cmap, st = PLUS.chapter_map(descs, model=model,
+                                    progress=lambda m: _prog("map", m))
+        _absorb("map", st)
+        CP._write(pdir, "chapter_map.json", cmap)
+
+        # ---- 5. script (budgeted, scene-aware) -------------------------
+        units, st = PLUS.script_plus(descs, cmap, model=model,
+                                     progress=lambda m: _prog("script", m))
         _absorb("script", st)
         if not units:
             raise LabError("Claude wrote no narration")
+        man["diagnostics"]["dense_allowances"] = st.get("allowances", [])
 
-        # ---- 5. place & sequence (Claude) ------------------------------
-        _prog("place", f"Claude placing {len(units)} lines on {len(descs)} panels")
-        scenes, st = CP.place(pdir, descs, units, model=model,
-                              progress=lambda m: _prog("place", m))
-        _absorb("place", st)
+        # ---- 6. critique + revise --------------------------------------
+        issues, st = PLUS.critique(units, descs, model=model,
+                                   progress=lambda m: _prog("critique", m))
+        _absorb("critique", st)
+        units, st = PLUS.revise(units, issues, descs, cmap, model=model,
+                                progress=lambda m: _prog("critique", m))
+        _absorb("revise", st)
+        man["diagnostics"]["critique_issues"] = issues
+
         with open(os.path.join(pdir, "script.json"), "w", encoding="utf-8") as f:
-            json.dump([{"scene_id": s["scene_id"], "text": s["text"],
-                        "panel_ids": s.get("panel_ids", [])} for s in scenes],
+            json.dump([{"scene_id": u["scene_id"], "text": u["text"],
+                        "panel_ids": u.get("panel_ids", [])} for u in units],
                       f, indent=2)
         with open(os.path.join(pdir, "script.txt"), "w", encoding="utf-8") as f:
-            f.write("\n\n".join(s["text"] for s in scenes))
+            f.write("\n\n".join(u["text"] for u in units))
 
-        # ---- 6. voice (SHARED, unchanged) ------------------------------
+        # ---- 7. beats (SHARED deterministic segmenter) -----------------
         beats = beat_segmenter.segment_beats_scenes(
-            [{"scene_id": s["scene_id"], "text": s["text"],
-              "panel_ids": s.get("panel_ids", [])} for s in scenes])
+            [{"scene_id": u["scene_id"], "text": u["text"],
+              "panel_ids": u.get("panel_ids", [])} for u in units])
         if not beats:
             raise LabError("the script produced no beats")
+        _prog("beats", f"{len(beats)} narration beats")
+
+        # ---- 8. voice (SHARED, unchanged) ------------------------------
         t = 0.0
         if voice:
             import server as srv
@@ -431,9 +679,55 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
                 b["start"], b["end"] = round(t, 3), round(t + d, 3)
                 t += d + 0.3
 
-        # ---- 7. segments ------------------------------------------------
+        # ---- 9. place (DETERMINISTIC, monotonic) -----------------------
+        _prog("place", f"placing {len(beats)} beats on {len(descs)} panels")
+        idx_of = {d["panel_id"]: i for i, d in enumerate(descs)}
+        allowed = {}
+        for i, b in enumerate(beats):
+            ok = {idx_of[p] for p in (b.get("panel_ids") or []) if p in idx_of}
+            if ok:
+                allowed[i] = ok
+        assigns, diag = PLACE.place(beats, descs, allowed=allowed,
+                                    progress=lambda m: _prog("place", m))
+        if not assigns:
+            raise LabError("placement produced no assignments")
+        assigns, repairs = PLACE.enforce_monotonic(assigns)
+        diag["order_repairs"] = repairs
+        diag["hold_cap_breaches"] = PLACE.cap_holds(assigns, beats)
+        diag["ambiguous"] = PLACE.ambiguous_pairs(beats, descs, assigns)
+        man["diagnostics"]["placement"] = diag
+        _absorb("place", {"calls": 0, "cost_usd": 0.0, "prompt_tokens": 0,
+                          "output_tokens": 0,
+                          "distinct_panels": diag.get("distinct_panels"),
+                          "provenance_escapes": len(diag.get("provenance_escapes", [])),
+                          "order_repairs": len(repairs)})
+
+        # ---- 10. crop (AFTER the script and the placement) -------------
+        first_line = {}
+        for k, a in enumerate(assigns):
+            pid = descs[a["panel_index"]]["panel_id"]
+            if pid not in first_line:
+                first_line[pid] = k
+        placements = []
+        for pid, k in sorted(first_line.items(), key=lambda kv: kv[1]):
+            d = descs[idx_of[pid]]
+            placements.append({
+                "panel": d,
+                "line": beats[assigns[k]["beat_index"]]["text"],
+                "prev": beats[assigns[k - 1]["beat_index"]]["text"][:160]
+                        if k > 0 else "",
+                "next": beats[assigns[k + 1]["beat_index"]]["text"][:160]
+                        if k + 1 < len(assigns) else "",
+            })
+        crops_by_pid, st = PLUS.plan_crops(
+            pdir, placements, model=model, progress=lambda m: _prog("crop", m))
+        _absorb("crop", st)
+        man["diagnostics"]["crop_rejected"] = st.get("rejected", [])
+
+        # ---- 11. segments ----------------------------------------------
         _prog("segment", "building render segments")
-        segs = _build(pdir, crops, descs, scenes, beats, build_segments)
+        segs = _build_shots(crops, descs, beats, assigns, crops_by_pid,
+                            build_segments)
         with open(os.path.join(pdir, "segments.json"), "w",
                   encoding="utf-8") as f:
             json.dump(segs, f, indent=2)
@@ -447,71 +741,63 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
             "duration": round(segs[-1]["end"], 1) if segs else 0,
             "series": ingest.to_title_case(ingest.clean_series_slug(series)),
             "chapter": ingest.to_title_case(chapter),
-            "match_method": f"claude-lab ({splitter} split)",
-            # Stamped so this can never be mistaken for a normal chapter.
-            "lab": True, "splitter": splitter,
-            "lab_note": ("Independent experiment: panels, descriptions, crops, "
-                         "script and placement by Claude. Panel cutting by "
-                         + ("Claude" if splitter == "claude" else "YOLO")
-                         + ". Audio by the standard TTS path."),
+            "match_method": f"claude+ lab ({splitter} split, DP placement)",
+            "lab": True, "splitter": splitter, "pipeline": "claude+",
+            "lab_note": ("Independent experiment. Panels, descriptions, script "
+                         "and framing by Claude; placement by deterministic DP; "
+                         "audio by the standard TTS path. Panel cutting by "
+                         + ("Claude with coverage validation"
+                            if splitter == "claude" else "YOLO") + "."),
         }
         with open(os.path.join(pdir, "project.json"), "w",
                   encoding="utf-8") as f:
             json.dump(meta, f, indent=2)
 
         man.update({"status": "ok", "project": meta["id"],
-                    "panels": len(descs), "units": len(scenes),
-                    "segments": len(segs), "duration": meta["duration"],
+                    "panels": len(descs), "units": len(units),
+                    "beats": len(beats), "segments": len(segs),
+                    "duration": meta["duration"],
                     "elapsed_sec": round(time.time() - started, 1)})
         _save_manifest(pdir, man)
         return man
 
-    except (LabError, CP.PipelineError, validator.ValidatorError,
-            usage.UsageCapExceeded) as e:
+    except (LabError, CP.PipelineError, PLUS.PlusError,
+            validator.ValidatorError, usage.UsageCapExceeded) as e:
         man.update({"status": "error", "error": str(e),
                     "elapsed_sec": round(time.time() - started, 1)})
         _save_manifest(pdir, man)
         return man
 
 
-def _build(pdir, crops, descs, scenes, beats, build_segments):
-    """Lay Claude's placement onto the narration timeline, folding a unit's
-    panels across its own window — the same shape the production board uses."""
-    by_pid = {d["panel_id"]: d for d in descs}
-    by_scene = {}
-    for b in beats:
-        by_scene.setdefault(b.get("scene_id"), []).append(b)
+def _build_shots(crops, descs, beats, assigns, crops_by_pid, build_segments):
+    """One shot per beat, carrying the crop chosen for its panel.
 
+    Unlike the first version there is no folding maths here: the DP already
+    decided which panel each beat plays over, so a shot is simply that pairing.
+    Ends are snapped to the next shot's start — the same exact-tiling rule
+    production uses, without which the pauses the TTS rhythm inserts between
+    scenes render as black frames.
+    """
     shots = []
-    for sc in scenes:
-        sb = sorted(by_scene.get(sc["scene_id"], []), key=lambda x: x["start"])
-        pids = [p for p in (sc.get("panel_ids") or []) if p in by_pid]
-        if not sb or not pids:
-            continue
-        w0, w1 = sb[0]["start"], sb[-1]["end"]
-        step = max(0.001, w1 - w0) / len(pids)
-        for i, pid in enumerate(pids):
-            s0 = w0 + i * step
-            s1 = w1 if i == len(pids) - 1 else s0 + step
-            mid = (s0 + s1) / 2.0
-            b = next((x for x in sb if x["start"] <= mid <= x["end"]), None) \
-                or min(sb, key=lambda x: abs((x["start"] + x["end"]) / 2 - mid))
-            d = by_pid[pid]
-            shots.append({
-                "index": b["index"], "start": round(s0, 3), "end": round(s1, 3),
-                "beat_text": b["text"], "panel_id": pid,
-                "panel_file": os.path.join(crops, d.get("file") or f"{pid}.png"),
-                "width": d.get("width"), "height": d.get("height"),
-                "crop_bbox_norm": d.get("crop_bbox_norm") or [0.0, 0.0, 1.0, 1.0],
-                "focus_source": "claude",
-                "focus_reason": "crop framing chosen by Claude",
-                "focus_confidence": 1.0,
-            })
+    for a in assigns:
+        b = beats[a["beat_index"]]
+        d = descs[a["panel_index"]]
+        pid = d["panel_id"]
+        cr = crops_by_pid.get(pid) or {}
+        shots.append({
+            "index": b["index"], "start": float(b["start"]),
+            "end": float(b["end"]), "beat_text": b["text"],
+            "panel_id": pid,
+            "panel_file": os.path.join(crops, d.get("file") or f"{pid}.png"),
+            "width": d.get("width"), "height": d.get("height"),
+            "crop_bbox_norm": cr.get("crop_bbox_norm") or [0.0, 0.0, 1.0, 1.0],
+            "focus_source": "claude+",
+            "focus_reason": cr.get("focus_reason", "full panel"),
+            "focus_confidence": cr.get("focus_confidence", 1.0),
+        })
     if not shots:
-        raise LabError("Claude placed no line on any panel — nothing to render")
+        raise LabError("no shots to build")
     shots.sort(key=lambda s: s["start"])
-    # Exact tiling, as matcher.build_timeline does: without this the pauses the
-    # TTS rhythm inserts between scenes render as black frames.
     for i in range(len(shots) - 1):
         shots[i]["end"] = shots[i + 1]["start"]
     for sh in shots:

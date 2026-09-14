@@ -507,6 +507,9 @@ tr.vflag-low td.n {{ box-shadow:inset 3px 0 0 var(--rule); }}
 .vchapter summary {{ cursor:pointer; color:var(--ink2); font-weight:600; }}
 .vscenerow {{ color:var(--ink3); margin-top:4px; }}
 .vscenerow.vreveal {{ color:var(--ai); }}
+.labdiag {{ margin-top:8px; padding:8px 10px; border-radius:7px;
+  background:var(--panel2); border:1px solid var(--rule); }}
+.labdiag .tl {{ margin-top:8px; }}
 .vrecheck {{ display:flex; gap:6px; align-items:center; font-size:11px;
   color:var(--ink3); margin-top:8px; }}
 /* ---- the running indicator ----
@@ -1774,6 +1777,109 @@ async function openLab(pid) {{
   }} catch (e) {{ alert('Could not open: ' + e.message); }}
 }}
 
+/* Per-stage diagnostics: what the pipeline measured about its own run.
+   Deliberately reports rates rather than scoring them — whether a given
+   full-frame rate is good depends on the chapter, and pretending otherwise
+   would be the fabricated-win problem in a new costume. */
+function _row(box, label, value, tone) {{
+  const d = vEl('div', 'expmeta');
+  const b = vEl('b', null, label + ': ');
+  d.appendChild(b);
+  d.appendChild(document.createTextNode(String(value)));
+  if (tone) d.style.color = tone;
+  box.appendChild(d);
+}}
+
+async function showLabReport(pid, host) {{
+  let box = host.querySelector('.labdiag');
+  if (box) {{ box.remove(); return; }}
+  box = vEl('div', 'labdiag');
+  host.appendChild(box);
+  box.appendChild(vEl('div', 'expmeta', 'loading diagnostics…'));
+  try {{
+    const r = await j('/api/lab/report?project=' + encodeURIComponent(pid));
+    box.textContent = '';
+
+    box.appendChild(vEl('div', 'tl', 'who decided what'));
+    _row(box, 'model-driven', (r.model_driven_stages || []).join(', '));
+    _row(box, 'deterministic', (r.deterministic_stages || []).join(', '));
+
+    const sp = r.splitting || {{}};
+    box.appendChild(vEl('div', 'tl', 'panel cutting'));
+    _row(box, 'ink coverage (mean/min)',
+         (sp.coverage_mean === null || sp.coverage_mean === undefined)
+           ? 'n/a (YOLO)' : (sp.coverage_mean + ' / ' + sp.coverage_min));
+    if (sp.pages_below_target) {{
+      _row(box, 'pages under target', sp.pages_below_target, 'var(--warn)');
+    }}
+    if (sp.retried_pages) _row(box, 'pages retried', sp.retried_pages);
+    if (sp.recovered_pages) _row(box, 'pages geometrically recovered', sp.recovered_pages);
+    if (sp.blanks_dropped) _row(box, 'blank crops dropped', sp.blanks_dropped);
+    if (sp.fell_back_to_yolo) {{
+      _row(box, 'fell back to YOLO', 'yes — Claude coverage was short', 'var(--warn)');
+    }}
+
+    const rd = r.reading || {{}};
+    box.appendChild(vEl('div', 'tl', 'reading'));
+    _row(box, 'panels', rd.panels);
+    _row(box, 'missing OCR', rd.missing_ocr + ' (' + rd.missing_ocr_pct + '%)');
+    _row(box, 'low-confidence OCR',
+         rd.low_confidence_ocr + ' (' + rd.low_confidence_ocr_pct + '%)',
+         rd.low_confidence_ocr ? 'var(--warn)' : null);
+    _row(box, 'generic descriptions', rd.generic_descriptions + ' (' + rd.generic_pct + '%)');
+    _row(box, 'needs review', rd.needs_review);
+    _row(box, 'contract violations', rd.contract_violations);
+
+    const sc = r.script || {{}};
+    box.appendChild(vEl('div', 'tl', 'script'));
+    _row(box, 'scenes', sc.scenes);
+    _row(box, 'critique issues', sc.critique_issues + ' ' +
+         JSON.stringify(sc.critique_by_type || {{}}));
+    _row(box, 'units revised', sc.units_revised);
+    (sc.dense_allowances || []).forEach(function (a) {{
+      _row(box, 'dense allowance · scene ' + a.scene,
+           a.base + ' -> ' + a.granted + ' words (' + (a.reasons || []).join('; ') + ')',
+           'var(--ai)');
+    }});
+
+    const pl = r.placement || {{}};
+    box.appendChild(vEl('div', 'tl', 'placement (deterministic)'));
+    _row(box, 'distinct panels used', pl.distinct_panels);
+    _row(box, 'junk panels avoided', pl.junk_panels_avoided);
+    _row(box, 'order inversions repaired', pl.order_inversions_repaired);
+    _row(box, 'over-holds', pl.over_holds);
+    _row(box, 'ambiguous pairs', pl.ambiguous_pairs);
+    _row(box, 'provenance escapes', pl.provenance_escapes,
+         pl.provenance_escapes ? 'var(--ai)' : null);
+    (pl.provenance_escape_detail || []).slice(0, 5).forEach(function (e) {{
+      _row(box, '  beat ' + e.beat, 'left scene ' + e.scene +
+           ' for ' + e.panel_id + ' (margin ' + e.margin + ')');
+    }});
+
+    const fr = r.framing || {{}};
+    box.appendChild(vEl('div', 'tl', 'framing (after placement)'));
+    _row(box, 'panels framed', fr.panels_framed);
+    _row(box, 'full frame', fr.full_frame + ' (' + fr.full_frame_pct + '%)');
+    _row(box, 'cropped in', fr.cropped);
+    _row(box, 'refused to full frame', fr.rejected_to_full_frame);
+
+    const ck = r.checker || {{}};
+    box.appendChild(vEl('div', 'tl', 'checker audit'));
+    _row(box, 'findings', ck.findings + ' ' + JSON.stringify(ck.by_severity || {{}}));
+    _row(box, 'rows clean', ck.rows_clean_pct + '%');
+
+    box.appendChild(vEl('div', 'tl', 'timing'));
+    _row(box, 'source', (r.timing || {{}}).source);
+
+    (r.caveats || []).forEach(function (c) {{
+      box.appendChild(vEl('div', 'cmpcaveat', '• ' + c));
+    }});
+  }} catch (e) {{
+    box.textContent = '';
+    box.appendChild(vEl('div', 'expmeta', 'no diagnostics: ' + e.message));
+  }}
+}}
+
 async function loadLab() {{
   const info = document.getElementById('testinfo');
   const box = document.getElementById('testbody');
@@ -1826,6 +1932,11 @@ async function loadLab() {{
         acts.appendChild(b);
       }} else {{
         acts.appendChild(vEl('div', 'expmeta', 'not finished — nothing to open yet'));
+      }}
+      if (p.ready) {{
+        const dg = vEl('button', 'vact ghost', 'Diagnostics');
+        dg.onclick = function () {{ showLabReport(p.project, w); }};
+        acts.appendChild(dg);
       }}
       if (p.url) {{
         const rr = vEl('button', 'vact ghost', 'Rebuild');

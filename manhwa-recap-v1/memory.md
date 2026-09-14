@@ -5423,3 +5423,63 @@ NOTE: Railway has ANTHROPIC_API_KEY set, NOT CLAUDE_API_KEY. The fallback in
 validator.api_key() is what makes the Claude passes work there.
 
 Tests: 22 files, 0 failing.
+
+### Session 29 (cont.) — CLAUDE+ : production's discipline ported into the lab
+Owner's port order, implemented as one batch. Gemini production untouched.
+
+NEW MODULES
+- claude_place.py — placement as a SOLVER, not a prompt. Same DP class as the
+  production matcher (forward-only, hold penalty 0.06, MAX_HOLD 5, finite
+  over-hold 0.5, junk filter, importance bonus), rebuilt in the lab so it can
+  be improved without touching production.
+- claude_plus.py — the upgraded stage contracts (read / chapter map / script /
+  critique+revise / crop).
+
+INHERITED FROM PRODUCTION (ported, because production is right)
+- 50-word description cap, forced action-verb opening, banned generic openers —
+  and they are CHECKED IN CODE (audit_description), not merely asked for. An
+  instruction nothing verifies is a wish.
+- Computed word budget, verbatim: 12/panel + 7/dialogue, floor 40, cap 220.
+- The 9-rule style contract: density is editorial, dialogue fidelity, reported
+  speech with no quotation marks, no panel/camera/frame language.
+- critique -> revise: typed issues, only flagged units regenerated.
+- Crop chosen AFTER the script and the placement, driven by the line.
+
+IMPROVED BEYOND PRODUCTION (its known weak points)
+- OCR POISONING: production fixes OCR weight at 0.55 for every panel, which is
+  right on average and catastrophic exactly where the OCR is wrong. The reader
+  now returns ocr_confidence/desc_confidence and panel_weights() moves the
+  weight per panel. Verified: a 0.1-confidence panel drops OCR weight 0.55 ->
+  0.11 and scores on its description instead.
+- PROVENANCE LOCK-IN: production's -1e6 constraint is a wall, so a wrong
+  upstream grouping is inherited forever. Now SOFT and CALIBRATED, not guessed —
+  swept on a deliberately-wrong fixture: cost 0.9 = 0 escapes (wall), 0.5 = 1,
+  0.3 = full recovery, <0.3 = plateau. Default 0.3 sits on the knee. Every
+  escape reports its MARGIN so the bad grouping gets fixed rather than hidden.
+- OVER-COMPRESSION: the flat cap is what flattens a dense scene. scene_budget()
+  grants up to 1.5x (hard cap 320) but ONLY to a scene actually pressed against
+  the cap AND with a named reason (compression risk / climax / reveal / >=6
+  exchanges). Every grant is logged. Verified withheld when there is no reason.
+- CROP TRIGGER: no keyword list. Claude is given the line and asked what the
+  viewer must see, so an emotional beat with no keyword still earns its
+  close-up. Production's CROP_MIN_AREA 0.12 floor is ported, plus a confidence
+  floor; anything failing either falls back to full frame AND is reported.
+- SPLIT COVERAGE: Claude cutting is now MEASURED against the page's own ink
+  (production's own helpers, imported read-only). Under 0.85 it gets one
+  stricter retry that NAMES the miss, then geometric band recovery, then a
+  logged fallback to YOLO. Plus tall-panel splitting and blank-crop dropping.
+
+STAGE ORDER CHANGED — this was the structural defect:
+  scrape -> split -> read -> map -> script -> critique -> beats -> voice
+  -> PLACE (DP) -> CROP -> segment
+Crop was previously chosen during the read pass, before any narration existed,
+so it was structurally incapable of framing for the line.
+
+BUG THE TESTS CAUGHT: plan_crops measured the crop area AFTER _clean_crop had
+already normalised a sliver to full-frame, so the rejection was applied but
+never attributable — the silent failure this module exists to prevent. Now the
+RAW box is measured first.
+
+Tests: 23 files, 0 failing. test_claude_plus.py NEW (67). Baseline untouched and
+green: seo 159, thumbnail_studio 103, publish_prep 47, outstand 112,
+storyboard_edit 55, review 79.

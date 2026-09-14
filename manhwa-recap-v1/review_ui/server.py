@@ -3661,6 +3661,21 @@ def lab_projects():
             "key_configured": bool(_validator.api_key())}
 
 
+@app.get("/api/lab/report")
+def lab_report(project: str | None = None):
+    """Operational diagnostics for one lab run — what the pipeline measured
+    about its OWN work, which is what says where to go next."""
+    import claude_compare
+    pdir = (os.path.join(_lab.PROJECTS, os.path.basename(project))
+            if project else active_project_dir())
+    if not os.path.isdir(pdir):
+        raise HTTPException(404, "no such project")
+    try:
+        return claude_compare.lab_report(pdir)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
 @app.get("/api/test/status")
 def claude_test_status():
     """What the TEST tab needs to decide what it can offer: does this project
