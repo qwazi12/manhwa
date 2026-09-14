@@ -5634,3 +5634,64 @@ a shared tally and the lab banks the read cost after every batch. Frozen as a
 test.
 
 Tests 23 files, 0 failing (test_claude_plus 75).
+
+### Session 29 (cont.) — folding, crops and narration under-spend: the fix batch
+All three diagnoses VERIFIED against source before implementing.
+
+RC1 CONFIRMED (storyboard.py:271-301). The branch order is on_screen ->
+reason -> `pid in unit_of` -> "folded". So "folded" means the script unit
+claimed the panel but the matcher had no beat for it. NOT segment merging, NOT
+a UI artefact. With 164 panels / 14 units most panels were folded by
+construction. The cure is script granularity.
+
+RC2 CONFIRMED (shot_planner.py). _DETAIL_KEYWORDS:26 literally contains
+"bubble", "caption", "text". Validation was geometry only. No composition
+scoring existed anywhere. shot_planner.py:64 already documents that
+focus_confidence is unusable as a gate (the two worst audited boxes both
+carried 1.0).
+
+RC3 CONFIRMED by earlier measurement (21-36% spend, 12.49 -> 3.98 words/panel).
+
+WHAT WAS BUILT
+- crop_score.py (NEW, SHARED): composition scoring + a real full-frame
+  comparison. Measures ink efficiency, bubble coverage, blank coverage, edge
+  hugging, aspect, and subject-cutting. A crop is used ONLY if it beats the
+  full-frame baseline by CROP_MARGIN and passes linting; otherwise full frame
+  wins. Wired into BOTH shot_planner (production) and claude_plus (lab), and it
+  only ever downgrades — it never invents a crop.
+- Trigger: "bubble"/"caption"/"text" removed; negative gate added so a beat
+  that merely reports speech does not ask for a crop.
+- Script granularity: chapter map now asks for 4-6 panel scenes and to split at
+  sub-beats. Budget is a TARGET RANGE (50-90%), not a ceiling; a content-rich
+  scene under 50% is flagged in code and sent back for rewrite.
+- World-building rules added to the script prompt, plus critique types
+  missing_worldbuilding and over_compression.
+- claude_place.expand_units: a unit spanning distinct panels now yields several
+  visual slots instead of one held frame, with a no-flicker floor and a
+  distinctness filter so near-duplicates do not strobe.
+- Board chips: folded / not-on-timeline / wide-units, with explanations.
+
+THREE BUGS FOUND WHILE BUILDING, all by testing rather than reading:
+1. My first subject metric was "fraction of all panel ink kept", which on
+   densely drawn art refuses almost every crop — it would have disabled
+   cropping on exactly the pages that want one. Replaced with ink EFFICIENCY
+   (density relative to the panel's own average).
+2. My background estimate was the pixel mode, which picks the FIGURE as
+   background on a textured page with a flat subject, inverting every
+   measurement. Replaced with production's _estimate_background_color, which is
+   explicitly robust to flat fills.
+3. _clean_crop normalised a sliver to full frame BEFORE the gate saw it, so the
+   refusal was applied but unattributable — the same silent-downgrade bug this
+   module had already fixed once. The RAW box now reaches the gate.
+Also: capacity limiting in expand_units was only reported in the expansion
+branch, so the worst squeeze (window forces one panel) was silent.
+
+scipy pinned in the Dockerfile — _detect_bubbles calls it directly and it was
+arriving only as a transitive dependency of ultralytics.
+
+Tests 24 files, 0 failing. test_crop_score.py NEW (34), test_claude_plus 99,
+test_validator 87. Production suites untouched and green (crop_preview 16,
+seo 159, thumbnail_studio 103, publish_prep 47, outstand 112).
+
+NOT VERIFIED ON OUTPUT: no paid chapter was re-run. Whether folding actually
+drops and crops actually improve on a real chapter needs one run to confirm.

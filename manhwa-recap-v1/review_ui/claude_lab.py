@@ -669,6 +669,9 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
         issues, st = PLUS.critique(units, descs, model=model,
                                    progress=lambda m: _prog("critique", m))
         _absorb("critique", st)
+        # Under-spend is arithmetic the pipeline already has, so it is raised
+        # in code rather than asked of the reviewer.
+        issues = issues + PLUS.underspend_issues(units)
         units, st = PLUS.revise(units, issues, descs, cmap, model=model,
                                 progress=lambda m: _prog("critique", m))
         _absorb("revise", st)
@@ -726,6 +729,19 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
         if not assigns:
             raise LabError("placement produced no assignments")
         assigns, repairs = PLACE.enforce_monotonic(assigns)
+
+        # VISUAL PROGRESSION. A unit that legitimately spans several distinct
+        # panels must still move through them instead of holding one frame for
+        # the whole line — which is what "folded" on the board means.
+        # The units the script stage produced — each already carries the
+        # panel_ids its scene owns, which is exactly the set a beat may show.
+        unit_panels = {}
+        for u in units:
+            unit_panels[u["scene_id"]] = [
+                idx_of[pid] for pid in (u.get("panel_ids") or [])
+                if pid in idx_of]
+        slots, prog = PLACE.expand_units(assigns, beats, descs, unit_panels)
+        man["diagnostics"]["progression"] = prog
         diag["order_repairs"] = repairs
         diag["hold_cap_breaches"] = PLACE.cap_holds(assigns, beats)
         diag["ambiguous"] = PLACE.ambiguous_pairs(beats, descs, assigns)
@@ -737,21 +753,24 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
                           "order_repairs": len(repairs)})
 
         # ---- 10. crop (AFTER the script and the placement) -------------
-        first_line = {}
-        for k, a in enumerate(assigns):
-            pid = descs[a["panel_index"]]["panel_id"]
-            if pid not in first_line:
-                first_line[pid] = k
+        # Every panel that actually gets screen time is framed — including the
+        # ones recovered by the progression pass, which would otherwise show at
+        # full frame purely because nothing asked about them.
+        first_slot = {}
+        for k, sl in enumerate(slots):
+            pid = descs[sl["panel_index"]]["panel_id"]
+            if pid not in first_slot:
+                first_slot[pid] = k
         placements = []
-        for pid, k in sorted(first_line.items(), key=lambda kv: kv[1]):
+        for pid, k in sorted(first_slot.items(), key=lambda kv: kv[1]):
             d = descs[idx_of[pid]]
             placements.append({
                 "panel": d,
-                "line": beats[assigns[k]["beat_index"]]["text"],
-                "prev": beats[assigns[k - 1]["beat_index"]]["text"][:160]
+                "line": beats[slots[k]["beat_index"]]["text"],
+                "prev": beats[slots[k - 1]["beat_index"]]["text"][:160]
                         if k > 0 else "",
-                "next": beats[assigns[k + 1]["beat_index"]]["text"][:160]
-                        if k + 1 < len(assigns) else "",
+                "next": beats[slots[k + 1]["beat_index"]]["text"][:160]
+                        if k + 1 < len(slots) else "",
             })
         crops_by_pid, st = PLUS.plan_crops(
             pdir, placements, model=model, progress=lambda m: _prog("crop", m))
@@ -760,7 +779,7 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
 
         # ---- 11. segments ----------------------------------------------
         _prog("segment", "building render segments")
-        segs = _build_shots(crops, descs, beats, assigns, crops_by_pid,
+        segs = _build_shots(crops, descs, beats, slots, crops_by_pid,
                             build_segments)
         with open(os.path.join(pdir, "segments.json"), "w",
                   encoding="utf-8") as f:
@@ -803,7 +822,7 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
         return man
 
 
-def _build_shots(crops, descs, beats, assigns, crops_by_pid, build_segments):
+def _build_shots(crops, descs, beats, slots, crops_by_pid, build_segments):
     """One shot per beat, carrying the crop chosen for its panel.
 
     Unlike the first version there is no folding maths here: the DP already
@@ -813,14 +832,16 @@ def _build_shots(crops, descs, beats, assigns, crops_by_pid, build_segments):
     scenes render as black frames.
     """
     shots = []
-    for a in assigns:
+    for a in slots:
         b = beats[a["beat_index"]]
         d = descs[a["panel_index"]]
         pid = d["panel_id"]
         cr = crops_by_pid.get(pid) or {}
         shots.append({
-            "index": b["index"], "start": float(b["start"]),
-            "end": float(b["end"]), "beat_text": b["text"],
+            # The SLOT's window, not the beat's: a unit spanning several panels
+            # gives each one a slice of the shared narration window.
+            "index": b["index"], "start": float(a["start"]),
+            "end": float(a["end"]), "beat_text": b["text"],
             "panel_id": pid,
             "panel_file": os.path.join(crops, d.get("file") or f"{pid}.png"),
             "width": d.get("width"), "height": d.get("height"),

@@ -225,6 +225,11 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     n_approved = sum(1 for s in segs
                      if review.get(str(s["seg_index"]), {}).get("status") == "approved")
 
+    # FOLDING DIAGNOSTICS. A "folded" row is one the script claimed but the
+    # matcher never gave a beat — the panel is in the chapter and in a narration
+    # unit, but never reaches the timeline. Counting it makes a starved script
+    # visible instead of looking like a rendering choice.
+    folded_rows, unplaced_rows = [], []
     rendered_scenes = set()
     scene_panels_count = {}
     scene_panel_index = {}
@@ -292,12 +297,14 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
             script_cell = f"<i>LEFT OUT — {html.escape(reason)}</i>"
             cls = "omit"
         elif pid in unit_of:
+            folded_rows.append(pid)
             uid, utxt = unit_of[pid]
             script_cell = (f'<i>→ folded into <b class="ln">¶{uid}</b></i>'
                            f'<div class="unittxt">{html.escape(utxt[:220])}'
                            f'{"…" if len(utxt) > 220 else ""}</div>')
             cls = "fold"
         else:
+            unplaced_rows.append(pid)
             script_cell = "<i>unplaced (no provenance, no segment)</i>"
             cls = "gray"
 
@@ -403,6 +410,10 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
 <td class="script">{script_cell}</td>
 <td class="timing" data-pid="{pid}" ondragover="rowOver(event,this)"
   ondragleave="this.classList.remove('dropok')" ondrop="dropRow(event,this)">{timing_cell}</td></tr>""")
+
+    # Units stretched over many panels: one line holding several images is
+    # exactly where a recap stalls, and it is the same root cause as folding.
+    wide_units = [uid for uid, n in scene_panels_count.items() if n > 3]
 
     title = f"{meta.get('series','?')} Ch.{meta.get('chapter','?')}"
     u = usage_summary or {}
@@ -861,6 +872,12 @@ a {{ color:var(--accent); }}
   <span id="st_clips">③ clips <b id="clipcount">?</b></span>
   <span id="st_exp">④ export <b id="expstate">—</b></span>
   <span id="st_sil" style="{'color:var(--warn)' if _sil else ''}">🔇 dead air <b>{sil_str}</b></span>
+  <span id="st_fold" style="{'color:var(--warn)' if folded_rows else 'color:var(--ink3)'}"
+    title="Panels a narration unit claimed but that never received a beat, so they never reach the timeline. A high count means the script is too coarse for the number of panels — the fix is finer narration units, not the matcher.">📎 folded <b>{len(folded_rows)}</b></span>
+  <span id="st_unpl" style="{'color:var(--bad)' if unplaced_rows else 'color:var(--ink3)'}"
+    title="Panels with no narration provenance and no segment — not on the video timeline at all.">🚫 not on timeline <b>{len(unplaced_rows)}</b></span>
+  <span id="st_wide" style="{'color:var(--warn)' if wide_units else 'color:var(--ink3)'}"
+    title="Narration units covering more than three panels. One line held over many images is where a recap stalls.">🧵 wide units <b>{len(wide_units)}</b></span>
   <div id="renderprog" style="display:none"><div id="renderbar"></div><span id="rendertxt"></span>
     <button id="renderstop" class="danger mini" onclick="stopRender()" title="stop after the clip currently rendering">⏹ Stop</button></div>
 </div>

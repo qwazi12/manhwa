@@ -534,6 +534,11 @@ def lab_report(pdir):
             "scenes": passes.get("script", {}).get("scenes"),
             "dense_allowances": diag.get("dense_allowances", []),
             "over_budget_units": passes.get("script", {}).get("over_budget"),
+            # The budget is a RANGE now. Spending far under it on a
+            # content-rich scene is a failure state, not economy.
+            "target_range": passes.get("script", {}).get("target_range"),
+            "mean_spend_pct": passes.get("script", {}).get("mean_spend_pct"),
+            "under_spent": passes.get("script", {}).get("under_spent", []),
             "critique_issues": len(diag.get("critique_issues", []) or []),
             "critique_by_type": _count_types(diag.get("critique_issues", [])),
             "units_revised": passes.get("revise", {}).get("revised"),
@@ -548,11 +553,16 @@ def lab_report(pdir):
             "ambiguous_pairs": len(ambiguous),
             "uncertain_placements": len(uncertain),
         },
+        # Folding is the symptom of a script too coarse for the panel count.
+        # These say how much of it the progression pass recovered.
+        "progression": diag.get("progression", {}),
         "framing": {
             "panels_framed": planned,
             "full_frame": full_frame, "full_frame_pct": _rate(full_frame, planned or 1),
             "cropped": crop_stats.get("cropped"),
             "rejected_to_full_frame": rejected,
+            "downgrade_reasons": [r.get("why") for r in
+                                  (diag.get("crop_rejected") or [])][:12],
         },
         "checker": {
             "findings": len(findings), "by_severity": by_sev,

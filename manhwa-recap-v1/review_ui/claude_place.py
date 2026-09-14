@@ -421,3 +421,149 @@ def ambiguous_pairs(beats, panels, assignments, limit=12):
                         "margin": round(abs(scored[0][0] - scored[1][0]), 4)})
     out.sort(key=lambda r: r["margin"])
     return out[:limit]
+
+
+# ------------------------------------------------- visual progression
+# THE FOLDING FIX (second half; the first is finer scenes upstream).
+#
+# "Folded" on the board does not mean segments were merged and it is not a UI
+# artefact. storyboard.py reaches that branch when a panel HAS script
+# provenance but never received a segment — the narration unit claimed it and
+# the matcher had no beat to put on it. So on a chapter with 164 panels and 14
+# units, most panels were folded by construction: there simply were not enough
+# beats to go round, and the viewer sat on one frame while three sentences
+# played.
+#
+# The cure is narration granularity upstream. But even with well-sized scenes a
+# unit legitimately spans several distinct panels, and the timeline must still
+# MOVE through them rather than holding one image for the whole line. That is
+# what this does: it gives every distinct panel a slice of its unit's own
+# window.
+#
+# Two things it must not do: create flicker (so every slice has a floor), and
+# explode a run of near-identical panels into a strobe (so panels are selected
+# for distinctness, not just taken in order).
+
+MIN_VISUAL_SEC = float(os.environ.get("PLUS_MIN_VISUAL_SEC", 1.4))
+
+
+def _distinct(a, b):
+    """Are these two panels different enough to be worth a separate slice?
+
+    Cheap and deliberately conservative — a page change or a real change of
+    content. Near-duplicates (the same shot redrawn, a reaction beat on the
+    same framing) collapse, which is what stops a strobe.
+    """
+    if a is None:
+        return True
+    pa = (a.get("panel_id") or "").split("_")[0]
+    pb = (b.get("panel_id") or "").split("_")[0]
+    if pa != pb:
+        return True                       # different source page
+    if (a.get("subject_type") or "") != (b.get("subject_type") or ""):
+        return True
+    ta = set(_tokens(a.get("visual_description", "")))
+    tb = set(_tokens(b.get("visual_description", "")))
+    if not ta or not tb:
+        return True
+    overlap = len(ta & tb) / float(len(ta | tb))
+    return overlap < 0.55
+
+
+def select_progression(panels, capacity):
+    """Pick which of a unit's panels actually earn screen time."""
+    if capacity <= 0 or not panels:
+        return []
+    kept, last = [], None
+    for p in panels:
+        if is_junk(p):
+            continue
+        if _distinct(last, p):
+            kept.append(p)
+            last = p
+    if not kept:
+        kept = [p for p in panels if not is_junk(p)][:1]
+    if len(kept) <= capacity:
+        return kept
+    # Too many for the window: keep the most important, but preserve reading
+    # order so the story still runs forwards.
+    ranked = sorted(kept, key=lambda p: -importance(p))[:capacity]
+    order = {id(p): i for i, p in enumerate(kept)}
+    return sorted(ranked, key=lambda p: order[id(p)])
+
+
+def expand_units(assigns, beats, descs, unit_panels, min_sec=None):
+    """Turn beat->panel assignments into VISUAL SLOTS that progress.
+
+    `unit_panels` maps scene_id -> ordered list of panel indexes that unit owns.
+    Returns (slots, diagnostics) where a slot is
+    {panel_index, start, end, beat_index}.
+    """
+    min_sec = MIN_VISUAL_SEC if min_sec is None else min_sec
+    by_scene = {}
+    for a in assigns:
+        sid = beats[a["beat_index"]].get("scene_id")
+        by_scene.setdefault(sid, []).append(a)
+
+    slots, diag = [], {"units_expanded": 0, "panels_recovered": 0,
+                       "wide_units": [], "capacity_limited": []}
+
+    for sid, group in sorted(by_scene.items(), key=lambda kv: (kv[1][0]["beat_index"])):
+        group.sort(key=lambda a: a["beat_index"])
+        w0 = float(beats[group[0]["beat_index"]]["start"])
+        w1 = float(beats[group[-1]["beat_index"]]["end"])
+        span = max(0.001, w1 - w0)
+
+        owned = [descs[i] for i in unit_panels.get(sid, [])]
+        used_idx = [a["panel_index"] for a in group]
+        if not owned:
+            owned = [descs[i] for i in used_idx]
+
+        capacity = max(1, int(span // min_sec))
+        wanted = select_progression(owned, 10 ** 6)
+        chosen = select_progression(owned, capacity)
+
+        # Reported BEFORE the early return. The worst capacity squeeze — a
+        # window so short it forces the unit back down to one panel — lands in
+        # the no-expansion branch, so checking only inside the expansion branch
+        # stays silent exactly when the limit bites hardest.
+        if len(wanted) > capacity:
+            diag["capacity_limited"].append(
+                {"unit": sid, "wanted": len(wanted), "fitted": capacity,
+                 "seconds": round(span, 1)})
+
+        if len(chosen) <= len(group):
+            # Nothing to recover — one slot per beat, as before.
+            for a in group:
+                b = beats[a["beat_index"]]
+                slots.append({"panel_index": a["panel_index"],
+                              "start": float(b["start"]), "end": float(b["end"]),
+                              "beat_index": a["beat_index"]})
+            continue
+
+        idx_of = {d["panel_id"]: i for i, d in enumerate(descs)}
+        step = span / len(chosen)
+        for i, p in enumerate(chosen):
+            s0 = w0 + i * step
+            s1 = w1 if i == len(chosen) - 1 else s0 + step
+            mid = (s0 + s1) / 2.0
+            bi = next((a["beat_index"] for a in group
+                       if beats[a["beat_index"]]["start"] <= mid
+                       <= beats[a["beat_index"]]["end"]), None)
+            if bi is None:
+                bi = min(group, key=lambda a: abs(
+                    (beats[a["beat_index"]]["start"]
+                     + beats[a["beat_index"]]["end"]) / 2 - mid))["beat_index"]
+            slots.append({"panel_index": idx_of.get(p["panel_id"],
+                                                    used_idx[0]),
+                          "start": round(s0, 3), "end": round(s1, 3),
+                          "beat_index": bi})
+        diag["units_expanded"] += 1
+        diag["panels_recovered"] += len(chosen) - len(group)
+        if len(chosen) > 3:
+            diag["wide_units"].append({"unit": sid, "panels": len(chosen),
+                                       "seconds": round(span, 1)})
+
+
+    slots.sort(key=lambda s: s["start"])
+    return slots, diag

@@ -394,8 +394,13 @@ def main():
 
     # ---- the script contract reached the model
     sp = state.get("script_prompts", [])
-    check("the script prompt carries a computed word budget",
-          any("STRICT LENGTH BUDGET" in p for p in sp))
+    # The budget is now a RANGE, not a ceiling: measured spend was 21-36% on
+    # large scenes because "compress ruthlessly" drives to the floor while a
+    # ceiling only caps the top. A floor is what was missing.
+    check("the script prompt carries a computed budget as a TARGET RANGE",
+          any("TARGET RANGE" in p for p in sp))
+    check("...and says that coming in under it is a failure, not economy",
+          any("failure, not economy" in p for p in sp))
     check("...and the density rule", "DENSITY IS EDITORIAL" in PLUS.SCRIPT_SYSTEM)
     check("...and the ban on camera/panel language",
           "never the word \\\"camera\\\"" in PLUS.SCRIPT_SYSTEM
@@ -491,6 +496,106 @@ def main():
 
     check("a panel nothing plays over costs no crop call",
           PLUS.plan_crops(proj, [])[1]["calls"] == 0)
+
+    # ================= script granularity, budget range, world-building
+    check("the chapter map asks for scenes of four to six panels",
+          "FOUR TO SIX PANELS" in PLUS.CHAPTER_SYSTEM)
+    check("...and to split at sub-beats rather than by location",
+          "sub-beat" in PLUS.CHAPTER_SYSTEM
+          and "two or three scenes" in PLUS.CHAPTER_SYSTEM)
+    check("the script prompt carries world-building rules",
+          "WORLD-BUILDING" in PLUS.SCRIPT_SYSTEM)
+    check("...naming factions, ranks, power-system and stakes",
+          all(w in PLUS.SCRIPT_SYSTEM for w in
+              ("factions", "power system", "stakes")))
+    check("...and forbidding invention of what the panels do not show",
+          "never invent a rank" in PLUS.SCRIPT_SYSTEM)
+    check("...and forbidding an exposition dump",
+          "exposition dump" in PLUS.SCRIPT_SYSTEM)
+    check("critique can raise missing world-building",
+          "missing_worldbuilding" in PLUS.CRITIQUE_SYSTEM)
+    check("...only when the panel facts carry it, never speculatively",
+          "never because the narration" in PLUS.CRITIQUE_SYSTEM)
+    check("critique can raise over-compression",
+          "over_compression" in PLUS.CRITIQUE_SYSTEM)
+
+    # ---- under-spend is a FAILURE state, raised in code
+    rich = {"scene_id": 0, "panel_numbers": [1, 2, 3, 4, 5, 6],
+            "panel_ids": [], "budget": 200, "words": 40, "spend_frac": 0.2,
+            "dialogue_lines": 4, "under_spent": True, "scene": 1}
+    thin = {"scene_id": 1, "panel_numbers": [1], "panel_ids": [],
+            "budget": 40, "words": 18, "spend_frac": 0.45,
+            "dialogue_lines": 0, "under_spent": False, "scene": 2}
+    iss = PLUS.underspend_issues([rich, thin])
+    check("a content-rich scene written far under its range is flagged",
+          len(iss) == 1 and iss[0]["unit"] == 0)
+    check("...as over-compression, so it goes back for a rewrite",
+          iss[0]["type"] == "over_compression")
+    check("...telling the writer the range to hit",
+          "-" in iss[0]["fix"] and "words" in iss[0]["fix"])
+    check("a genuinely thin scene is NOT flagged",
+          all(i["unit"] != 1 for i in iss))
+    check("the target range is a floor as well as a ceiling",
+          0 < PLUS.TARGET_MIN_FRAC < PLUS.TARGET_MAX_FRAC <= 1.0)
+
+    # ================= visual progression (the folding fix)
+    import claude_place as PL
+
+    def _p(pid, page, desc, subj="character"):
+        return {"panel_id": pid, "page": page, "visual_description": desc,
+                "subject_type": subj, "ocr_text": "x", "width": 400,
+                "height": 600}
+
+    descs_v = [
+        _p("page001_panel_001", "page001", "Raising his blade, the swordsman lunges."),
+        _p("page002_panel_001", "page002", "Recoiling, the rival stumbles back bleeding."),
+        _p("page003_panel_001", "page003", "Burning, the castle collapses behind them."),
+        _p("page004_panel_001", "page004", "Kneeling in ash, the survivor weeps."),
+    ]
+    beats_v = [{"index": 0, "text": "The duel ended badly.", "start": 0.0,
+                "end": 12.0, "scene_id": 0}]
+    assigns_v = [{"beat_index": 0, "panel_index": 0}]
+    unit_panels = {0: [0, 1, 2, 3]}
+
+    slots, prog = PL.expand_units(assigns_v, beats_v, descs_v, unit_panels)
+    check("one line over four distinct panels yields several visual segments",
+          len(slots) > 1)
+    check("...recovering panels that would otherwise be folded away",
+          prog["panels_recovered"] >= 1)
+    check("...and each slot clears the no-flicker floor",
+          all(sl["end"] - sl["start"] >= PL.MIN_VISUAL_SEC - 0.01
+              for sl in slots))
+    check("...tiling the unit's own window without gaps",
+          abs(slots[0]["start"] - 0.0) < 0.01
+          and abs(slots[-1]["end"] - 12.0) < 0.01)
+    check("...in reading order, so the story still runs forwards",
+          [sl["panel_index"] for sl in slots]
+          == sorted(sl["panel_index"] for sl in slots))
+    check("a wide unit is reported for the board",
+          prog["wide_units"])
+
+    # Near-duplicates must NOT be exploded into a strobe.
+    dupes = [_p(f"page001_panel_{i:03d}", "page001",
+                "Raising his blade, the swordsman lunges forward.")
+             for i in range(1, 6)]
+    slots_d, prog_d = PL.expand_units(
+        [{"beat_index": 0, "panel_index": 0}],
+        [{"index": 0, "text": "He lunged.", "start": 0.0, "end": 12.0,
+          "scene_id": 0}], dupes, {0: [0, 1, 2, 3, 4]})
+    check("near-identical panels are not exploded into a strobe",
+          len(slots_d) < 5)
+
+    # A short window cannot fit many panels — capacity is respected, not
+    # silently exceeded.
+    slots_s, prog_s = PL.expand_units(
+        [{"beat_index": 0, "panel_index": 0}],
+        [{"index": 0, "text": "Fast.", "start": 0.0, "end": 2.0,
+          "scene_id": 0}], descs_v, unit_panels)
+    check("a short narration window does not manufacture flicker",
+          all(sl["end"] - sl["start"] >= PL.MIN_VISUAL_SEC - 0.01
+              for sl in slots_s))
+    check("...and says it could not fit them all",
+          prog_s["capacity_limited"])
 
     # =============================== a dying stage still reports its spend
     # The estate-developer run's card read "19 Claude calls · $0.1432" while its

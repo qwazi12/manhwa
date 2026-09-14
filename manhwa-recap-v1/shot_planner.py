@@ -202,8 +202,55 @@ def get_crop_layout(crop_bbox_norm, image_w, image_h):
     }
 
 def should_crop_close(text):
-    text_lower = (text or "").lower()
-    return any(w in text_lower for w in _DETAIL_KEYWORDS)
+    """Does this beat call for a detail crop?
+
+    Delegates to crop_score, which drops the text keywords this list used to
+    carry. "bubble", "caption" and "text" were in _DETAIL_KEYWORDS, so a beat
+    about someone SPEAKING invited a crop onto the word balloon — exactly
+    backwards, since the line is already in the narration audio and the picture
+    should be showing who said it. crop_score also adds a negative gate for
+    beats that only report speech.
+
+    _DETAIL_KEYWORDS is kept below as the documented fallback for when the
+    shared module cannot be imported.
+    """
+    try:
+        import crop_score
+        return crop_score.should_crop_close(text)
+    except ImportError:
+        return any(w in (text or "").lower() for w in _DETAIL_KEYWORDS)
+
+
+def gate_crop(shot, img_path):
+    """Apply the composition gate to a model-proposed crop, in place.
+
+    THE MISSING HALF. Until now a crop was validated on geometry alone, and any
+    box above the area floor shipped — nothing asked whether it held the
+    subject, sat on a speech bubble, or was mostly background, and nothing ever
+    compared it against simply using the whole panel.
+
+    This only ever DOWNGRADES to full frame; it never invents or widens a crop.
+    A downgrade is recorded on the shot so a reviewer can see why, rather than
+    it happening silently.
+    """
+    try:
+        import crop_score
+    except ImportError:
+        return shot
+    box = shot.get("crop_bbox_norm")
+    if not box or is_full_frame_crop(box):
+        return shot
+    final, decision = crop_score.choose_crop(
+        box, img_path, shot.get("beat_text", ""))
+    shot["crop_score"] = decision.get("crop_score")
+    shot["full_frame_score"] = decision.get("full_score")
+    if decision.get("used") == "full":
+        shot["crop_bbox_norm"] = [0.0, 0.0, 1.0, 1.0]
+        shot["crop_downgraded"] = True
+        shot["crop_downgrade_reason"] = decision.get("why", "")
+        shot["focus_source"] = "composition_full"
+        shot["focus_reason"] = "full panel — " + decision.get("why", "")
+    return shot
 
 def _encode_image(path: str):
     mime = mimetypes.guess_type(path)[0] or "image/png"
@@ -332,6 +379,9 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
                         s["focus_source"] = cdata.get("focus_source", "vision")
                         s["focus_reason"] = cdata.get("focus_reason", "cached crop")
                         s["focus_confidence"] = cdata.get("focus_confidence", 1.0)
+                        # A cached box predates the gate, so it is re-judged
+                        # rather than trusted for being on disk.
+                        gate_crop(s, img_path)
                 continue
             query_list.append((pid, img_path, pshots))
 
@@ -352,7 +402,11 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
                             s["crop_bbox_norm"] = r["crop_bbox_norm"]
                             s["focus_source"] = "vision"
                             s["focus_reason"] = r.get("focus_reason", "AI planned")
+                            # Stored for humans; NEVER used as the gate — the
+                            # two worst boxes in the Martial Genius audit both
+                            # carried 1.0.
                             s["focus_confidence"] = r.get("focus_confidence", 0.9)
+                            gate_crop(s, img_path)
                         else:
                             # fallback within query
                             s["crop_bbox_norm"] = [0.0, 0.0, 1.0, 1.0]

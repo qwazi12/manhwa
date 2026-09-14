@@ -57,6 +57,19 @@ BUDGET_CAP = int(os.environ.get("PLUS_BUDGET_CAP", 220))
 DENSE_MULTIPLIER = float(os.environ.get("PLUS_DENSE_MULTIPLIER", 1.5))
 DENSE_HARD_CAP = int(os.environ.get("PLUS_DENSE_HARD_CAP", 320))
 
+# THE BUDGET IS A RANGE, NOT A CEILING. Measured on the Overgeared run: large
+# scenes spent 21-36% of their budget and narration was flat at ~40 words per
+# unit regardless of scene size, because "compress ruthlessly" drives to the
+# floor while the budget only caps the top. Density fell 12.49 -> 3.98 words
+# per panel. Raising the ceiling therefore does nothing — the ceiling was never
+# approached. A floor is what was missing.
+TARGET_MIN_FRAC = float(os.environ.get("PLUS_TARGET_MIN", 0.50))
+TARGET_MAX_FRAC = float(os.environ.get("PLUS_TARGET_MAX", 0.90))
+# A scene only counts as content-rich — and so only earns an under-spend flag —
+# if it actually has something to say.
+RICH_MIN_PANELS = int(os.environ.get("PLUS_RICH_MIN_PANELS", 4))
+RICH_MIN_DIALOGUE = int(os.environ.get("PLUS_RICH_MIN_DIALOGUE", 2))
+
 MAX_REVISIONS = int(os.environ.get("PLUS_MAX_REVISIONS", 12))
 
 
@@ -319,9 +332,14 @@ building the map every later stage will be judged against.
 
 Return:
 - `premise`: one or two sentences on what this chapter is about.
-- `scenes`: consecutive runs of panels that happen in one place and time, or \
-form one continuous story movement. For each, give the panel range, a short \
-title, its phase in the chapter arc, and a one-line summary.
+- `scenes`: consecutive runs of panels forming ONE story movement. Aim for \
+FOUR TO SIX PANELS per scene. A scene is not "everything that happens in this \
+location" — start a new one at any clear sub-beat: an action shift, a turn in \
+the dialogue, a reveal, the aftermath of a reveal, a change of setting, or a \
+change of who is present. A ten-panel stretch is almost always two or three \
+scenes, not one. Cover every panel; scenes must not overlap. For each, give \
+the panel range, a short title, its phase in the chapter arc, and a one-line \
+summary.
 - `reveals`: points where the audience learns something they did not know — an \
 identity, a betrayal, a death, a power. Give the panel where it LANDS. A recap \
 that shows a reveal before the line setting it up spoils itself.
@@ -496,6 +514,19 @@ backstory or events the panels do not support.
 run of panels showing one continuous action gets ONE sentence. A filler or \
 transition panel earns ZERO. Only a true story peak earns two or three. Never \
 average sentences per panel.
+10. WORLD-BUILDING, WHERE THE CHAPTER BUILDS IT. A recap of a fantasy or \
+progression story is not just who did what — it is the world those events \
+happen in. When the panels establish any of the following, carry it in the \
+narration: the setting and its atmosphere; factions, ranks, titles and who \
+outranks whom; how the power system works and what it costs; the stakes and \
+the rules the world runs on; recurring objects, systems or terms; and the \
+social dynamics between the people on screen.
+11. HOW to carry it: woven into the action in the same sentence, never as an \
+exposition dump and never as a lore paragraph. "He drew the blade his brother \
+had been denied" carries a rank, a rivalry and a stake inside one action. \
+Carry world detail ONLY where the chapter supports it — never invent a rank, a \
+system, a place name or a rule the panels do not show, and never import \
+knowledge from elsewhere in the series.
 
 VOICE — match this cadence: sentences that move, reported speech, no scenery \
 padding. Short declaratives for impact; a longer sentence to carry a turn.
@@ -524,11 +555,18 @@ def build_scene_prompt(scene, panels, cmap, budget, running_summary, tail):
             f"[{scene.get('phase','')}]\n{scene.get('summary','')}\n"
             + ctx
             + "\nPANELS IN ORDER:\n" + "\n".join(lines)
-            + f"\n\nSTRICT LENGTH BUDGET: write AT MOST {budget} words for this "
-              "ENTIRE scene — count them. Compress ruthlessly: keep only the "
-              "events that move the story, fold the rest into them or drop "
-              "them.\n\nWrite the narration for this scene now, at story "
-              "density (far fewer sentences than panels):")
+            + f"\n\nLENGTH — THIS IS A TARGET RANGE, NOT JUST A CEILING.\n"
+              f"Write between {int(budget * TARGET_MIN_FRAC)} and "
+              f"{int(budget * TARGET_MAX_FRAC)} words for this scene. "
+              f"{budget} is the hard maximum.\n"
+              "Coming in far UNDER the range is a failure, not economy: it "
+              "means the scene's events, exchanges and world detail were "
+              "flattened into a summary. Use the range. Do not pad it with "
+              "scenery or repetition to reach it — if the scene genuinely has "
+              "little in it, say so by writing less, but a scene with several "
+              "panels and real dialogue almost never does.\n\n"
+              "Write the narration for this scene now, at story density (fewer "
+              "sentences than panels, but every real beat present):")
 
 
 def script_plus(descs, cmap, model=None, progress=None):
@@ -566,17 +604,35 @@ def script_plus(descs, cmap, model=None, progress=None):
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
         if not text:
             continue
+        words = len(text.split())
+        n_d = dialogue_lines(panels)
+        rich = len(panels) >= RICH_MIN_PANELS or n_d >= RICH_MIN_DIALOGUE
+        spend = words / float(budget) if budget else 1.0
         units.append({"scene_id": len(units), "text": text,
                       "panel_ids": [p["panel_id"] for p in panels],
                       "panel_numbers": [p["n"] for p in panels],
                       "scene": scene.get("scene"), "phase": scene.get("phase"),
                       "budget": budget, "base_budget": base,
-                      "words": len(text.split())})
+                      "words": words, "spend_frac": round(spend, 3),
+                      "dialogue_lines": n_d,
+                      # A content-rich scene written far under its range has
+                      # been flattened, not economised. It is a failure state
+                      # and is sent back for regeneration.
+                      "under_spent": bool(rich and spend < TARGET_MIN_FRAC)})
         tail = text[-400:]
         running = (running + " " + (scene.get("summary") or ""))[-1200:]
 
+    under = [{"unit": u["scene_id"], "scene": u["scene"],
+              "panels": len(u["panel_numbers"]), "dialogue": u["dialogue_lines"],
+              "budget": u["budget"], "words": u["words"],
+              "spend_pct": round(u["spend_frac"] * 100, 1)}
+             for u in units if u["under_spent"]]
     return units, tally.stats(
         scenes=len(units), allowances=allowances,
+        target_range=[TARGET_MIN_FRAC, TARGET_MAX_FRAC],
+        mean_spend_pct=round(100 * sum(u["spend_frac"] for u in units)
+                             / max(1, len(units)), 1),
+        under_spent=under,
         over_budget=sum(1 for u in units if u["words"] > u["budget"]))
 
 
@@ -596,6 +652,10 @@ camera / panel / image / frame
 flattened into a single summary line, losing story the panels clearly carry
 - weak_dialogue_coverage: meaningful dialogue in the panels that the draft does \
 not report at all
+- missing_worldbuilding: the panels establish setting, a faction or rank, a \
+power-system rule, a stake, or a named object/system that matters, and the \
+draft drops it entirely. Report this ONLY when the panel facts actually carry \
+the detail — never because the narration "could say more".
 
 An empty list is a normal and frequent result. Do not invent problems to look \
 thorough, and do not report style preferences."""
@@ -612,7 +672,7 @@ CRITIQUE_SCHEMA = {
                     "type": {"type": "string", "enum": [
                         "hallucination", "misorder", "missed_beat",
                         "style_violation", "redundancy", "over_compression",
-                        "weak_dialogue_coverage"]},
+                        "weak_dialogue_coverage", "missing_worldbuilding"]},
                     "problem": {"type": "string"},
                     "fix": {"type": "string"},
                 },
@@ -624,6 +684,31 @@ CRITIQUE_SCHEMA = {
     "required": ["issues"],
     "additionalProperties": False,
 }
+
+
+def underspend_issues(units):
+    """Under-spend is measured, not judged — so it is raised in code rather
+    than asked of the reviewer, which would just be a second opinion on
+    arithmetic the pipeline already has."""
+    out = []
+    for u in units:
+        if not u.get("under_spent"):
+            continue
+        out.append({
+            "unit": u["scene_id"], "type": "over_compression",
+            "problem": (f"this scene used {u['words']} words of a "
+                        f"{u['budget']}-word budget "
+                        f"({u['spend_frac']:.0%}) across "
+                        f"{len(u['panel_numbers'])} panels and "
+                        f"{u['dialogue_lines']} exchanges — its events have "
+                        "been flattened into a summary"),
+            "fix": (f"rewrite at "
+                    f"{int(u['budget'] * TARGET_MIN_FRAC)}-"
+                    f"{int(u['budget'] * TARGET_MAX_FRAC)} words, giving each "
+                    "real exchange its own reported-speech sentence and "
+                    "carrying the world detail the panels establish"),
+        })
+    return out
 
 
 def critique(units, descs, model=None, progress=None):
@@ -837,6 +922,9 @@ def plan_crops(pdir, placements, model=None, progress=None):
         tally.add(meter, cost)
 
         known = {item["panel"]["n"]: item["panel"] for item in batch}
+        # The line each panel carries, so the gate can judge the crop against
+        # what the beat is actually about.
+        item_line = {item["panel"]["n"]: item.get("line", "") for item in batch}
         for c in validator._parse_json_reply(resp).get("crops", []):
             p = known.get(c.get("n"))
             if p is None:
@@ -846,25 +934,45 @@ def plan_crops(pdir, placements, model=None, progress=None):
             # the area afterwards can only ever see 1.0 — the rejection would
             # be applied but never attributable, which is the silent failure
             # this whole module exists to avoid.
+            # The RAW box goes to the gate. Running _clean_crop first would
+            # normalise a sliver to full-frame before the gate ever saw it, so
+            # the refusal would be applied but never attributable — the same
+            # silent-downgrade bug this module already fixed once.
             raw = c.get("crop")
-            raw_area = _crop_area(raw)
-            box = _clean_crop(raw)
             conf = _clamp01(c.get("confidence"), 0.5)
-            why = None
-            if raw_area < CROP_MIN_AREA:
-                why = f"below the {CROP_MIN_AREA:.0%} area floor"
-            elif conf < CROP_CONF_FLOOR:
-                why = f"confidence {conf:.2f} under the floor"
-            if why:
-                rejected.append({"panel_id": p["panel_id"], "why": why,
-                                 "area": round(raw_area, 4),
+            # THE COMPOSITION GATE, shared with production. Measures the box
+            # against the panel's own pixels and against the full-frame
+            # baseline; a crop is kept only if it wins by a real margin and
+            # passes linting.
+            #
+            # `confidence` is recorded but is NOT the gate and must never
+            # become one: the two worst boxes in the Martial Genius audit both
+            # carried 1.0 (shot_planner.py:64).
+            decision = {"used": "crop", "why": "", "crop_score": None,
+                        "full_score": None}
+            box = _clean_crop(raw)
+            path = os.path.join(pdir, "crops",
+                                p.get("file") or f"{p['panel_id']}.png")
+            try:
+                import crop_score
+                box, decision = crop_score.choose_crop(
+                    raw, path, item_line.get(p["n"], ""))
+            except ImportError:
+                box = _clean_crop(raw)
+            if decision.get("used") == "full" and decision.get("downgraded"):
+                rejected.append({"panel_id": p["panel_id"],
+                                 "why": decision.get("why", ""),
+                                 "crop_score": decision.get("crop_score"),
+                                 "full_score": decision.get("full_score"),
                                  "confidence": conf})
-                box = [0.0, 0.0, 1.0, 1.0]
             out[p["panel_id"]] = {
                 "crop_bbox_norm": box,
                 "framing_mode": c.get("framing", "full"),
-                "focus_reason": c.get("reason", ""),
+                "focus_reason": (decision.get("why") or c.get("reason", "")),
                 "focus_confidence": conf,
+                "crop_score": decision.get("crop_score"),
+                "full_frame_score": decision.get("full_score"),
+                "crop_downgraded": bool(decision.get("downgraded")),
             }
 
     full = sum(1 for v in out.values()
