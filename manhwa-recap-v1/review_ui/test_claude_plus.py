@@ -492,6 +492,40 @@ def main():
     check("a panel nothing plays over costs no crop call",
           PLUS.plan_crops(proj, [])[1]["calls"] == 0)
 
+    # =============================== a dying stage still reports its spend
+    # The estate-developer run's card read "19 Claude calls · $0.1432" while its
+    # read stage had actually completed ~206 panels. The manifest is only
+    # updated when a stage FINISHES, so a stage cut short by a cap reported
+    # none of what it spent. The usage ledger was right the whole time; the
+    # run's own card understated it by an order of magnitude.
+    seen = {"cost": []}
+
+    def _watch(partial):
+        seen["cost"].append(shared_tally.cost)
+
+    shared_tally = CP._Tally()
+    # Real crop filenames — a name that is not on disk makes _image_block
+    # return None, the batch is skipped, and on_batch never fires.
+    _crops = sorted(f for f in os.listdir(os.path.join(proj, "crops"))
+                    if f.endswith(".png"))
+    panels_in2 = [{"panel_id": os.path.splitext(f)[0], "file": f,
+                   "width": 400, "height": 500, "_n": i}
+                  for i, f in enumerate(_crops, start=1)]
+    state3 = {"describe": good_panel, "crop": good_crop,
+              "chapter_map": CHAPTER_MAP, "issues": []}
+    validator._client = lambda: StubClient(make_router(state3))
+    _ppc = PLUS.PANELS_PER_CALL
+    PLUS.PANELS_PER_CALL = 2          # force several batches from the fixture
+    try:
+        PLUS.describe_plus(proj, panels_in2, on_batch=_watch,
+                           tally=shared_tally)
+    finally:
+        PLUS.PANELS_PER_CALL = _ppc
+    check("the caller can read the running cost while a read is still going",
+          len(seen["cost"]) > 1 and seen["cost"][0] > 0)
+    check("...and it rises batch by batch, so a stage cut short still reports",
+          seen["cost"][-1] > seen["cost"][0])
+
     # =============================== fresh must mean fresh
     # Clearing only pages/crops left descriptions.json in place, and the read
     # stage resumes from it — so a re-run after the contract changed would skip

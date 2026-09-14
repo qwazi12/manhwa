@@ -215,15 +215,23 @@ def audit_description(text, subject_type=None, is_credits=False):
 
 
 def describe_plus(pdir, panels, model=None, progress=None, on_batch=None,
-                  skip=frozenset()):
+                  skip=frozenset(), tally=None):
     """Read every panel under the ported contract, with confidence reporting.
 
     Checkpointed per batch and resumable, exactly as before — a restart skips
     panels already read rather than paying for them twice.
+
+    `tally` may be supplied by the caller so it can read the running cost while
+    this is still going. Without that, a stage that dies part-way reports NONE
+    of what it spent: the estate-developer run's card read "19 Claude calls ·
+    $0.1432" when the read stage had in fact completed ~206 panels, because the
+    manifest is only updated when a stage finishes. The usage ledger was right
+    the whole time — it gates every call — but the run's own card understated
+    its spend by an order of magnitude.
     """
     model = model or MODEL
     client = validator._client()
-    tally = _Tally()
+    tally = tally if tally is not None else _Tally()
     out = []
     todo = [p for p in panels if p["panel_id"] not in skip]
     if progress and skip:

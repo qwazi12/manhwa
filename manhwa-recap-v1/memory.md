@@ -5599,3 +5599,38 @@ and/or smaller scenes from the chapter map.
 
 Tests 23 files, 0 failing. Four checker defects fixed this pass, all frozen as
 regression tests (three coverage branches, as-built evaluation, merged hold).
+
+### Session 29 (cont.) — rescued a capped run; both systems finished
+Owner: the-greatest-estate-developer ch.1 lab run showed "failed — 19 Claude
+calls · $0.1432 — MAX_DAILY_SPEND_USD=$5.0 would be exceeded".
+
+BOTH systems were blocked by the same wall, not by a bug:
+  spend today $4.9988 of the $5.00 cap, headroom $0.0012
+  lab   : died in split/early read
+  PROD  : died at the VOICE stage needing $0.0027 — scrape/split/describe/
+          narrate/match had all completed, so nearly all its money was spent
+MAX_DAILY_SPEND_USD was never set in Railway; it was falling back to the 5.0
+default in code.
+
+ACTION: set MAX_DAILY_SPEND_USD=12 on Railway (deliberate, bounded — the guard
+was raised, not removed) and restarted, because usage.py reads it at import.
+Revert with: railway variables --set "MAX_DAILY_SPEND_USD=5"
+
+RESULT — both complete, nothing re-paid for:
+  PROD  the-greatest-estate-developer_1              73 segments, 674.3s
+  LAB   the-greatest-estate-developer_1-lab-claude  218 panels, 93 segments,
+                                                    756.6s, $1.6234, ready
+Spend after: $6.90 of the $12 cap, $5.10 headroom.
+The resume had only TWO read batches left — ~206 panels were already
+checkpointed and were not read again. The per-batch checkpointing added earlier
+is what made the rescue nearly free.
+
+ACCOUNTING BUG THIS EXPOSED (fixed): the run card said "19 calls · $0.1432"
+while the read stage had in fact completed ~206 panels. _absorb only runs when
+a stage COMPLETES, so a stage cut short reported NONE of its spend. The usage
+ledger was correct throughout (it gates every call) — only the lab's own
+manifest lied, understating by an order of magnitude. describe_plus now accepts
+a shared tally and the lab banks the read cost after every batch. Frozen as a
+test.
+
+Tests 23 files, 0 failing (test_claude_plus 75).

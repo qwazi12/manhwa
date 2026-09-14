@@ -620,15 +620,28 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
         prior = [d for d in prior if d.get("visual_description")]
         done = {d["panel_id"] for d in prior}
 
+        # The read stage is the long one and the one most likely to be cut
+        # short by a cap or a restart. Its cost is banked after every batch, so
+        # a run that dies half way still reports what it actually spent.
+        read_tally = CP._Tally()
+        banked = {"cost": 0.0, "calls": 0}
+
         def _ckpt(partial):
             merged = prior + [d for d in partial if d["panel_id"] not in done]
             merged.sort(key=lambda r: r.get("n", 0))
             CP._write(pdir, "descriptions.json", merged)
+            man["cost_usd"] = round(
+                man["cost_usd"] - banked["cost"] + read_tally.cost, 6)
+            man["calls"] += read_tally.calls - banked["calls"]
+            banked["cost"], banked["calls"] = read_tally.cost, read_tally.calls
+            _save_manifest(pdir, man)
 
         _prog("read", f"Claude reading {len(panels) - len(done)} panels")
         fresh_descs, st = PLUS.describe_plus(
             pdir, panels, model=model, progress=lambda m: _prog("read", m),
-            on_batch=_ckpt, skip=done)
+            on_batch=_ckpt, skip=done, tally=read_tally)
+        # Already banked incrementally above; do not count it twice.
+        st = dict(st, cost_usd=0.0, calls=0, banked_incrementally=True)
         _ckpt(fresh_descs)
         _absorb("read", st)
         descs = CP.read(pdir, "descriptions.json", [])
