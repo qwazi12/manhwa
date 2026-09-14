@@ -682,3 +682,214 @@ def run(pdir, stages=STAGES, model=None, progress=None):
     man["elapsed_sec"] = round(time.time() - started, 1)
     _write(pdir, "manifest.json", man)
     return man
+
+
+# ---------------------------------------------------------------- promote
+# Turning the experiment into something you can actually WATCH.
+#
+# The comparison above answers "did Claude decide better?". It cannot answer
+# "is the result any good to watch", because a sidecar has no audio and no
+# render segments. So promote() builds a REAL, SEPARATE project out of the
+# Claude variant — one the board, approve, export and Review pages already
+# understand, because it is the same shape every other project is.
+#
+# WHAT IS REUSED UNCHANGED (the owner's constraint: do not replace the audio
+# path): beat segmentation, the existing REST TTS with its hash-keyed cache,
+# and build_segments. The narration AUDIO is produced by exactly the code that
+# produces it for every other chapter.
+#
+# WHAT IS CLAUDE'S INSTEAD OF GEMINI'S: the panel readings, the descriptions,
+# the crop boxes, the script text, and which panel each line plays over. The
+# Gemini matcher and the Gemini shot planner are NOT run — Claude already made
+# those calls, and re-running them would overwrite the very decisions the
+# experiment exists to evaluate.
+#
+# The baseline project is never opened for writing. The promoted project is a
+# sibling directory; deleting it removes the experiment entirely.
+
+def promoted_id(pdir):
+    return os.path.basename(pdir.rstrip("/")) + "-claude"
+
+
+def promote(pdir, progress=None, tts=True):
+    """Build a playable sibling project from the Claude variant."""
+    import shutil
+    HERE_ = os.path.dirname(os.path.abspath(__file__))
+    RECAP = os.path.dirname(HERE_)
+    for p in (RECAP, os.path.join(RECAP, "hyperframes")):
+        if p not in os.sys.path:
+            os.sys.path.insert(0, p)
+    import beat_segmenter
+    from segments import build_segments
+
+    descs = read(pdir, "descriptions.json", []) or []
+    scenes = read(pdir, "script.json", []) or []
+    if not descs or not scenes:
+        raise PipelineError(
+            "Run the Claude pipeline first — there is no experiment output to "
+            "promote yet.")
+
+    dest = os.path.join(os.path.dirname(pdir.rstrip("/")), promoted_id(pdir))
+    os.makedirs(dest, exist_ok=True)
+    audio_dir = os.path.join(dest, "audio")
+    os.makedirs(audio_dir, exist_ok=True)
+    os.makedirs(os.path.join(dest, "clips"), exist_ok=True)
+
+    # The SAME crops as the baseline — that is what keeps the comparison fair
+    # and what stops a second copy of a chapter's art existing on disk.
+    src_crops = os.path.join(pdir, "crops")
+    dst_crops = os.path.join(dest, "crops")
+    if not os.path.exists(dst_crops):
+        try:
+            os.symlink(src_crops, dst_crops)
+        except (OSError, NotImplementedError):
+            shutil.copytree(src_crops, dst_crops)
+
+    by_pid = {d["panel_id"]: d for d in descs}
+
+    # ---- beats: the shared segmenter, not a Claude-specific one -------
+    if progress:
+        progress("Segmenting Claude's script into beats")
+    beats = beat_segmenter.segment_beats_scenes(
+        [{"scene_id": s["scene_id"], "text": s["text"],
+          "panel_ids": s.get("panel_ids", [])} for s in scenes])
+    if not beats:
+        raise PipelineError("Claude's script produced no beats.")
+
+    # ---- audio: the EXISTING TTS path, untouched ----------------------
+    t = 0.0
+    if tts:
+        import server as srv
+        for i, b in enumerate(beats):
+            out = os.path.join(audio_dir, f"beat_{b['index']:03d}.mp3")
+            if not os.path.exists(out):
+                srv._synth_rest(b["text"], out)
+            d = _audio_len(out)
+            b["start"], b["end"] = round(t, 3), round(t + d, 3)
+            nxt = beats[i + 1] if i + 1 < len(beats) else None
+            # Same scene-aware rhythm the production pipeline uses.
+            if nxt is not None and "scene_id" in b and "scene_id" in nxt:
+                t += d + (0.6 if nxt["scene_id"] != b["scene_id"] else 0.25)
+            else:
+                t += d + 0.35
+            if progress and i % 10 == 0:
+                progress(f"Voicing beat {i + 1}/{len(beats)} · {t:.0f}s")
+    else:
+        # No-TTS mode exists for tests only: it fabricates a plausible
+        # timeline so the segment shapes can be exercised without spending
+        # TTS characters. Never used by the route.
+        for b in beats:
+            d = max(1.2, len(b["text"].split()) / 2.6)
+            b["start"], b["end"] = round(t, 3), round(t + d, 3)
+            t += d + 0.3
+
+    # ---- shots: Claude's placement, folded like the production board ---
+    if progress:
+        progress("Laying Claude's panels onto the narration timeline")
+    beats_by_scene = {}
+    for b in beats:
+        beats_by_scene.setdefault(b.get("scene_id"), []).append(b)
+
+    shots = []
+    for sc in scenes:
+        sb = sorted(beats_by_scene.get(sc["scene_id"], []),
+                    key=lambda x: x["start"])
+        pids = [p for p in (sc.get("panel_ids") or []) if p in by_pid]
+        if not sb or not pids:
+            continue
+        win0, win1 = sb[0]["start"], sb[-1]["end"]
+        span = max(0.001, win1 - win0)
+        step = span / len(pids)
+        for i, pid in enumerate(pids):
+            s0 = win0 + i * step
+            s1 = win1 if i == len(pids) - 1 else s0 + step
+            mid = (s0 + s1) / 2.0
+            # The beat actually audible over this slice — that is the text the
+            # board shows on the row, and folded panels legitimately share one.
+            b = next((x for x in sb if x["start"] <= mid <= x["end"]), None) or \
+                min(sb, key=lambda x: abs((x["start"] + x["end"]) / 2 - mid))
+            d = by_pid[pid]
+            shots.append({
+                "index": b["index"], "start": round(s0, 3), "end": round(s1, 3),
+                "beat_text": b["text"],
+                "panel_id": pid, "panel_file": os.path.join(dst_crops,
+                                                            d.get("file") or f"{pid}.png"),
+                "width": d.get("width"), "height": d.get("height"),
+                "crop_bbox_norm": d.get("crop_bbox_norm") or [0.0, 0.0, 1.0, 1.0],
+                "focus_source": "claude",
+                "focus_reason": "crop chosen by Claude from the panel art",
+                "focus_confidence": 1.0,
+            })
+    if not shots:
+        raise PipelineError(
+            "Claude placed no line on any panel, so there is nothing to render.")
+    shots.sort(key=lambda s: s["start"])
+
+    # Exact tiling, the same way matcher.build_timeline does it: snap every
+    # shot's end to the next shot's start. Without this the pauses the TTS
+    # rhythm inserts BETWEEN scenes are left uncovered, and the render shows
+    # black for a beat at every scene change.
+    for i in range(len(shots) - 1):
+        shots[i]["end"] = shots[i + 1]["start"]
+    for sh in shots:
+        sh["dur"] = round(sh["end"] - sh["start"], 3)
+
+    segs = build_segments(shots)
+    with open(os.path.join(dest, "segments.json"), "w", encoding="utf-8") as f:
+        json.dump(segs, f, indent=2)
+
+    # ---- the files the board reads -----------------------------------
+    with open(os.path.join(dest, "descriptions.json"), "w", encoding="utf-8") as f:
+        json.dump([{k: v for k, v in d.items() if k != "n"} for d in descs],
+                  f, indent=2)
+    with open(os.path.join(dest, "script.json"), "w", encoding="utf-8") as f:
+        json.dump([{"scene_id": s["scene_id"], "text": s["text"],
+                    "panel_ids": s.get("panel_ids", [])} for s in scenes],
+                  f, indent=2)
+    with open(os.path.join(dest, "script.txt"), "w", encoding="utf-8") as f:
+        f.write("\n\n".join(s["text"] for s in scenes))
+
+    base_meta = {}
+    try:
+        with open(os.path.join(pdir, "project.json"), encoding="utf-8") as f:
+            base_meta = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    meta = {
+        "id": promoted_id(pdir),
+        "url": base_meta.get("url", ""),
+        "crops": dst_crops, "audio": audio_dir,
+        "descriptions": os.path.join(dest, "descriptions.json"),
+        "n_segments": len(segs),
+        "duration": round(shots[-1]["end"], 1),
+        "series": base_meta.get("series", ""),
+        "chapter": base_meta.get("chapter", ""),
+        "part": base_meta.get("part", ""),
+        # Stamped so this can never be mistaken for a normal chapter, on the
+        # board, in the project list or six months from now.
+        "match_method": "claude-experiment",
+        "experiment": True,
+        "experiment_of": os.path.basename(pdir.rstrip("/")),
+        "experiment_note": "Panels, descriptions, crops, script and placement "
+                           "by Claude. Audio by the standard TTS path.",
+    }
+    with open(os.path.join(dest, "project.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+
+    man = load_manifest(pdir) or {}
+    man["promoted_to"] = meta["id"]
+    man["promoted_segments"] = len(segs)
+    man["promoted_duration"] = meta["duration"]
+    _write(pdir, "manifest.json", man)
+    return {"project": meta["id"], "dir": dest, "segments": len(segs),
+            "beats": len(beats), "duration": meta["duration"]}
+
+
+def _audio_len(path):
+    import subprocess
+    try:
+        return round(float(subprocess.check_output(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", path], text=True).strip()), 3)
+    except Exception:
+        return 2.5

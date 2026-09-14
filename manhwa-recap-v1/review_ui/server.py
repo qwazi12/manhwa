@@ -3635,6 +3635,52 @@ def claude_test_compare():
         raise HTTPException(400, str(e))
 
 
+def _run_promote_job(job_id, pdir):
+    j = JOBS[job_id]
+    j["status"] = "running"
+    _persist_job(job_id)
+
+    def progress(msg):
+        j["stage"] = msg
+        j["done"] = min(j.get("done", 0) + 1, j["total"])
+        _persist_job(job_id)
+
+    try:
+        out = _ctest.promote(pdir, progress=progress)
+        j["status"] = "done"
+        j["stage"] = ("built %s — %d segments, %.0fs" %
+                      (out["project"], out["segments"], out["duration"]))
+        j["result"] = out
+        j["done"] = j["total"]
+    except Exception as e:
+        j["status"] = "error"
+        j["error"] = str(e)[:500]
+    _persist_job(job_id)
+
+
+@app.post("/api/test/promote")
+def claude_test_promote():
+    """Turn the Claude experiment into a REAL, playable project.
+
+    Runs Claude's script through the STANDARD TTS path and builds render
+    segments from Claude's own placement and crops — so the result is a normal
+    project the board, approve, export and Review pages already understand, and
+    can actually be watched. The baseline is never written to; the result is a
+    sibling project you can delete.
+    """
+    pdir = active_project_dir()
+    if not _ctest.read(pdir, "script.json"):
+        raise HTTPException(
+            400, "Run the Claude pipeline first — there is no experiment "
+                 "output to promote yet.")
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {"status": "queued", "done": 0, "total": 12,
+                    "kind": "claude-promote", "error": None, "stage": "queued"}
+    threading.Thread(target=_run_promote_job, args=(job_id, pdir),
+                     daemon=True).start()
+    return {"job": job_id, "project": _ctest.promoted_id(pdir)}
+
+
 @app.post("/api/test/reset")
 def claude_test_reset():
     """Throw the experiment away. It is a sidecar, so this cannot touch the

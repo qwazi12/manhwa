@@ -342,6 +342,77 @@ def main():
         check("comparing with no experiment output is refused",
               "not produced" in str(e))
 
+    # ============================== promote: make it actually watchable
+    # The comparison answers "did Claude decide better". It cannot answer "is
+    # this any good to watch", because a sidecar has no audio and no segments.
+    # promote() builds a REAL sibling project using the STANDARD TTS path.
+    # tts=False here so the test costs no TTS characters.
+    before_promote = fingerprint(pdir)
+    out = CP.promote(pdir, tts=False)
+    check("promote builds a separate sibling project",
+          out["project"].endswith("-claude") and os.path.isdir(out["dir"]))
+    check("...leaving the baseline byte-identical",
+          fingerprint(pdir) == before_promote)
+    check("...with real render segments", out["segments"] > 0)
+    check("...and a duration", out["duration"] > 0)
+
+    dest = out["dir"]
+    for f in ("descriptions.json", "script.json", "script.txt",
+              "segments.json", "project.json"):
+        check("the promoted project has " + f,
+              os.path.exists(os.path.join(dest, f)))
+    check("...and shares the baseline's crops rather than duplicating them",
+          os.path.islink(os.path.join(dest, "crops")) or
+          os.path.isdir(os.path.join(dest, "crops")))
+
+    with open(os.path.join(dest, "segments.json"), encoding="utf-8") as f:
+        psegs = json.load(f)
+    check("promoted segments carry Claude's crop, not a Gemini one",
+          all(sg.get("focus_source") == "claude" for sg in psegs))
+    check("...tile the timeline without gaps",
+          all(abs(a["end"] - b["start"]) < 0.01
+              for a, b in zip(psegs, psegs[1:])))
+    check("...and each carries its narration text",
+          all(sg["beats"] and sg["beats"][0].get("text") for sg in psegs))
+    check("segments are born UNTICKED, exactly as ingest leaves them",
+          all("user_included" not in sg for sg in psegs))
+
+    with open(os.path.join(dest, "project.json"), encoding="utf-8") as f:
+        pmeta = json.load(f)
+    check("the promoted project is stamped as an experiment",
+          pmeta.get("experiment") is True)
+    check("...naming the chapter it came from", pmeta.get("experiment_of"))
+    check("...and never mistakable for a normal match",
+          pmeta.get("match_method") == "claude-experiment")
+    check("...carrying the series and chapter so it is identifiable",
+          "series" in pmeta and "chapter" in pmeta)
+
+    # The board must be able to read the promoted project like any other.
+    prows = validator.build_rows(dest)
+    # Not row 1 specifically: the credits page is CORRECTLY left unassigned,
+    # so asserting that the first row has a line would be asserting a bug.
+    check("the board can read the promoted project like any other",
+          len(prows) > 0 and
+          any(r["placement"]["unit"] is not None for r in prows))
+    check("...with the panels Claude left out genuinely left out",
+          any(r["placement"]["role"] == "left_out" for r in prows))
+    check("...and the checker can validate it",
+          isinstance(validator.rule_findings(prows), list))
+
+    man_after = CP.load_manifest(pdir)
+    check("the manifest records what it was promoted to",
+          man_after.get("promoted_to") == out["project"])
+
+    import shutil as _sh
+    _sh.rmtree(dest)
+
+    try:
+        CP.promote(os.path.join(tmp, "bare"), tts=False)
+        check("promoting with no experiment output is refused", False)
+    except CP.PipelineError as e:
+        check("promoting with no experiment output is refused",
+              "Run the Claude pipeline first" in str(e))
+
     # ---- the experiment is disposable
     import shutil
     shutil.rmtree(CP.out_dir(pdir))

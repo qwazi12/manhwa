@@ -780,6 +780,7 @@ a {{ color:var(--accent); }}
   <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap">
     <button class="primary" style="flex:1" onclick="runClaudeTest()">Run Claude pipeline</button>
     <button onclick="loadClaudeCompare()">Compare</button>
+    <button onclick="promoteClaudeTest()" title="voice Claude's script with the normal TTS and build a real, watchable project">Make it watchable</button>
     <button onclick="resetClaudeTest()" title="delete the experiment sidecar">Reset</button>
   </div>
   <div style="display:flex;gap:5px;margin-bottom:8px">
@@ -1799,6 +1800,26 @@ function tWatch(jobId, model) {{
   }};
   tick();
   testPoll = setInterval(tick, 2000);
+}}
+
+/* Promote: run Claude's script through the STANDARD TTS path and build render
+   segments from Claude's own placement, producing a normal sibling project you
+   can tick, approve, export and watch. The baseline is untouched. */
+async function promoteClaudeTest() {{
+  if (!confirm('Voice Claude\u2019s script with the normal TTS and build a '
+      + 'playable project from it?' + String.fromCharCode(10)
+      + String.fromCharCode(10)
+      + 'This spends TTS characters, the same as any chapter. It creates a '
+      + 'SEPARATE project next to this one \u2014 your current chapter is not '
+      + 'touched. Open it from Projects when it finishes, tick the rows and '
+      + 'approve to export.')) return;
+  try {{
+    const r = await j('/api/test/promote', {{ method: 'POST' }});
+    tSetState('queued', {{ stage: 'Building ' + r.project + '…' }});
+    tWatch(r.job, 'TTS + segments');
+  }} catch (e) {{
+    tSetState('error', {{ stage: 'Could not start: ' + e.message }});
+  }}
 }}
 
 async function resetClaudeTest() {{
