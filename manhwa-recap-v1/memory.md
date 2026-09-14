@@ -5366,3 +5366,60 @@ also removed a pre-existing concat.txt and .durations.json. Both are
 regenerated: active_exports_dir() does makedirs(exist_ok=True) and concat.txt
 is rewritten per export (server.py:518). projects/ is gitignored, so nothing
 tracked was lost. No real export was deleted (there were none).
+
+### Session 29 (cont.) — TEST rebuilt as an INDEPENDENT lab; first real run done
+Owner's correction, and it was right: "it just looks like you brought over the
+previous work from board into the test area. The test area is supposed to be
+independent… paste a link, it ingests, it determines what and how it crops…
+after it runs it is supposed to allow me to see the end result just like board."
+
+WHAT I HAD BUILT WRONG: TEST required a chapter the MAIN system had already
+ingested, read the main system's crops and descriptions.json, and ended in a
+comparison report. That is a bolt-on to the board, not its own system.
+
+REBUILT as claude_lab.py — an independent pipeline from a URL:
+  download pages [shared] -> cut pages into panels [SWITCHABLE: Claude|YOLO]
+  -> Claude reads each panel (OCR + description + crop framing)
+  -> Claude writes the script -> Claude places lines on panels and orders them
+  -> existing TTS [shared, unchanged] -> segments -> A REAL PROJECT.
+Owner chose "both, switchable" for the splitter, so Claude-cut vs YOLO-cut can
+be compared on the same chapter.
+
+THE KEY DESIGN MOVE: the lab ends in an ordinary project directory with the
+same files every chapter has. So "see the result like the board" needed no
+viewer — you ACTIVATE the lab project and the board, Check, approve, export and
+Review all work on it unchanged. Its own project id (<slug>-lab-<splitter>)
+keeps it separate from the main chapter for the same URL.
+
+BUG FOUND IN PRODUCTION, NOT IN TESTS: the placement stage died with
+"Streaming is required for operations that may take longer than 10 minutes" —
+a non-streaming request with max_tokens=32000. It had already burned the
+describe and script stages before failing. _call_claude now streams whenever
+max_tokens >= 8000 and collapses back via get_final_message(), so no call site
+cares. The test stubs only implemented .create, so they had been covering only
+the path that worked; they now implement .stream too.
+
+ALSO: a deploy of mine restarted the container 4 batches into a 21-batch vision
+pass and lost all four, because results were only written after ALL batches.
+describe() now checkpoints per batch and skips panels already read on a re-run.
+LESSON: never trigger a job while a deploy is in flight — wait for
+`railway deployment list` to show SUCCESS first.
+
+FIRST REAL RUN — Overgeared Ch.339, Claude cutting the panels:
+  project   overgeared_339-lab-claude
+  20 pages -> 102 panels (Claude cut them; YOLO cut 123 on the same chapter)
+  52 narration lines, 87 render segments, 428s runtime
+  41 Claude calls, $1.346, 7.8 minutes end to end
+  status ok, ready to open on the board
+Baseline for comparison: overgeared_339 = 47 segments, 429.2s.
+So on the same chapter and near-identical runtime, Claude produced 87 segments
+against the baseline's 47 — markedly more cuts, less time per panel — from
+FEWER, larger panels (102 vs 123).
+
+Triggering from this machine works via the Railway CLI without ever printing a
+secret:
+  railway run --service recap-studio bash -c 'curl -H "x-shared-secret: $SHARED_SECRET" …'
+NOTE: Railway has ANTHROPIC_API_KEY set, NOT CLAUDE_API_KEY. The fallback in
+validator.api_key() is what makes the Claude passes work there.
+
+Tests: 22 files, 0 failing.
