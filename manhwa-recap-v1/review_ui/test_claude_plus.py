@@ -477,6 +477,36 @@ def main():
     check("a panel nothing plays over costs no crop call",
           PLUS.plan_crops(proj, [])[1]["calls"] == 0)
 
+    # =============================== fresh must mean fresh
+    # Clearing only pages/crops left descriptions.json in place, and the read
+    # stage resumes from it — so a re-run after the contract changed would skip
+    # every panel as "already read" and reuse the old reads.
+    import claude_pipeline as _cp
+    _cp._write(proj, "descriptions.json", [{"panel_id": "stale", "n": 1,
+                                            "visual_description": "old read"}])
+    with open(os.path.join(proj, "script.json"), "w", encoding="utf-8") as f:
+        json.dump([{"scene_id": 0, "text": "stale", "panel_ids": []}], f)
+    state2 = {"describe": good_panel, "crop": good_crop,
+              "chapter_map": CHAPTER_MAP, "issues": []}
+    validator._client = lambda: StubClient(make_router(state2))
+    # fresh=True re-runs the scrape, which must not touch the network here.
+    # The pages are already on disk, so the stub just reports them.
+    sys.path.insert(0, os.path.join(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))))
+    import types as _types
+    _fake_scraper = _types.ModuleType("scraper")
+    _fake_scraper.LAST_WARNING = ""
+    _fake_scraper.download_chapter = lambda url, out: sorted(
+        os.path.join(out, f) for f in os.listdir(out) if not f.startswith("_"))
+    sys.modules["scraper"] = _fake_scraper
+    LAB.run_lab("https://example.com/comics/demo/chapter/1",
+                splitter="claude", voice=False, fresh=True)
+    after_fresh = _cp.read(proj, "descriptions.json") or []
+    check("a fresh run does NOT reuse stale reads",
+          not any(d.get("panel_id") == "stale" for d in after_fresh))
+    check("...and re-reads the panels under the current contract",
+          bool(after_fresh) and all("ocr_confidence" in d for d in after_fresh))
+
     # =============================== resume after interruption
     full = CP.read(proj, "descriptions.json")
     CP._write(proj, "descriptions.json", full[:2])

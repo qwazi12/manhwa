@@ -514,6 +514,27 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
     for d in (pdir, pages, crops, audio, os.path.join(pdir, "clips")):
         os.makedirs(d, exist_ok=True)
 
+    # FRESH MUST MEAN FRESH. Clearing only pages and crops left the DERIVED
+    # artifacts in place — and the read stage resumes from whatever
+    # descriptions.json already holds. So a re-run after the read contract
+    # changed would silently skip every panel as "already read" and quietly
+    # reuse the old reads, which is the exact opposite of what fresh means and
+    # would make any before/after comparison meaningless.
+    if fresh:
+        for rel in ("descriptions.json", "chapter_map.json", "units.json",
+                    "script.json", "manifest.json"):
+            try:
+                os.remove(os.path.join(CP.out_dir(pdir), rel))
+            except FileNotFoundError:
+                pass
+        for rel in ("descriptions.json", "script.json", "script.txt",
+                    "segments.json", "panels.json", "review.json",
+                    "storyboard.json"):
+            try:
+                os.remove(os.path.join(pdir, rel))
+            except FileNotFoundError:
+                pass
+
     man = manifest(pdir) or {}
     man.update({"url": url, "splitter": splitter, "model": model,
                 "ts": datetime.now(timezone.utc).isoformat(),
