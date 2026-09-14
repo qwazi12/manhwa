@@ -761,32 +761,36 @@ a {{ color:var(--accent); }}
   <div id="vfindings" style="margin-top:10px"></div>
 </div>
 <div class="drawer wide" id="d_test">
-  <h3>🧪 Experiment — Claude instead of Gemini</h3>
-  <div class="expbanner">EXPERIMENTAL · nothing here touches your board.
-    Everything this produces is written to a <code>claude_test/</code> sidecar
-    and can be thrown away with one button.</div>
-  <div class="hint">Runs the whole <b>non-audio</b> chain with Claude instead of
-    Gemini — reading the panel text, describing the panels, choosing the crops,
-    writing the script, placing lines on panels and planning timing — on the
-    <b>same panel crops</b> your current chapter already uses, then scores both
-    side by side. Audio and narration generation are untouched.</div>
+  <h3>🧪 TEST LAB — an independent Claude pipeline</h3>
+  <div class="expbanner">EXPERIMENTAL · this is its OWN system. Paste a chapter
+    link and it builds the whole chapter from scratch — its own download, its
+    own panels, its own reading, script and sequencing — into its own project.
+    It never touches your main chapters.</div>
+  <div class="hint">Claude does the judgement work: cutting pages into panels
+    (optional), reading the text off each panel, describing it, choosing the
+    crop framing, writing the narration, and deciding which line plays over
+    which panel and in what order. Only the page download and the voice are
+    shared with the main system. When it finishes you get a normal project —
+    open it on the board, tick, approve, export, watch.</div>
+
+  <input class="field" id="laburl" placeholder="https://…/chapter/…"/>
+  <div class="hint" style="margin:-4px 0 8px">Who cuts the pages into panels?</div>
+  <div class="vmode">
+    <button id="lb_claude" onclick="setLabSplit('claude')">Claude<br>cuts panels</button>
+    <button id="lb_yolo" onclick="setLabSplit('yolo')">YOLO<br>cuts panels</button>
+  </div>
   <div id="teststate" class="vstate idle">
     <div class="vsrow"><span class="vspill">Not running</span>
       <span class="vsmode"></span></div>
     <div class="vsstage"></div>
     <div class="vsbar"><i></i></div>
   </div>
-  <div id="testinfo" class="hint" style="margin-top:8px">loading…</div>
-  <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap">
-    <button class="primary" style="flex:1" onclick="runClaudeTest()">Run Claude pipeline</button>
-    <button onclick="loadClaudeCompare()">Compare</button>
-    <button onclick="promoteClaudeTest()" title="voice Claude's script with the normal TTS and build a real, watchable project">Make it watchable</button>
-    <button onclick="resetClaudeTest()" title="delete the experiment sidecar">Reset</button>
-  </div>
-  <div style="display:flex;gap:5px;margin-bottom:8px">
-    <button id="tv_compare" class="vact" onclick="setTestView('compare')">Comparison</button>
-    <button id="tv_output" class="vact" onclick="setTestView('output')">Claude output</button>
-  </div>
+  <button class="primary" style="width:100%;margin-top:10px"
+    onclick="runLab()">Build this chapter with Claude</button>
+  <label class="vrecheck"><input type="checkbox" id="labfresh">
+    Start over (re-download and re-cut, ignoring anything already built)</label>
+
+  <div id="testinfo" class="hint" style="margin-top:10px">loading…</div>
   <div id="testbody"></div>
 </div>
 <div class="drawer" id="d_projects">
@@ -1214,7 +1218,7 @@ function toggleDrawer(name) {{
   if (name === 'logs') loadLogs();
   if (name === 'exports') loadExports();
   if (name === 'validate') loadValidation();
-  if (name === 'test') loadClaudeTest();
+  if (name === 'test') loadLab();
   if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
 }}
 /* Arriving from another page with ?open=<drawer> should land on that drawer,
@@ -1683,96 +1687,51 @@ loadValidation().then(function () {{
   if (live) vWatch(live, vMode);
 }});
 
-/* ---- 🧪 EXPERIMENT: Claude instead of Gemini ------------------------
-   Deliberately isolated. Everything below reads and writes only the
-   claude_test/ sidecar through /api/test/*; none of it can reach the
-   production board, and the Reset button deletes the whole experiment. */
-let testView = 'compare', testPoll = null, testStatus = null;
+/* ---- 🧪 TEST LAB: an independent Claude-driven chapter pipeline ----
+   This is NOT a view onto the board. It builds its own chapter from a URL and
+   ends in a REAL project, which is why "see the result like the board" needs no
+   special viewer: you open the lab project ON the board. */
+let labSplit = 'claude', testPoll = null;
 
-function tSetState(state, o) {{
-  vSetState(state, o, 'teststate', 'test');
+function tSetState(state, o) {{ vSetState(state, o, 'teststate', 'test'); }}
+
+function setLabSplit(v) {{
+  labSplit = v;
+  ['claude', 'yolo'].forEach(function (k) {{
+    const b = document.getElementById('lb_' + k);
+    if (b) b.classList.toggle('on', k === v);
+  }});
 }}
 
-function setTestView(v) {{
-  testView = v;
-  const a = document.getElementById('tv_compare');
-  const b = document.getElementById('tv_output');
-  if (a) a.classList.toggle('on', v === 'compare');
-  if (b) b.classList.toggle('on', v === 'output');
-  if (v === 'compare') loadClaudeCompare(); else loadClaudeRows();
-}}
-
-async function loadClaudeTest() {{
-  const info = document.getElementById('testinfo');
-  try {{
-    const d = await j('/api/test/status');
-    testStatus = d;
-    const bits = ['Chapter: ' + (d.title || d.project),
-                  d.baseline_panels + ' panels (shared with the baseline)'];
-    if (!d.has_baseline) {{
-      bits.push('NOT INGESTED — ingest this chapter normally first, so there '
-                + 'are crops to run on and a baseline to compare against');
-    }}
-    if (!d.key_configured) {{
-      bits.push('NO CLAUDE KEY on this server — set CLAUDE_API_KEY');
-    }}
-    const man = d.manifest;
-    if (man) {{
-      bits.push('last run: ' + (man.panels || 0) + ' panels · ' +
-                (man.calls || 0) + ' calls · $' +
-                (man.cost_usd || 0).toFixed(4) + ' · ' + (man.model || ''));
-    }}
-    info.textContent = bits.join(' · ');
-    info.style.color = (!d.has_baseline || !d.key_configured)
-      ? 'var(--bad)' : 'var(--ink3)';
-    if (!testPoll) {{
-      if (man && man.status === 'error') {{
-        tSetState('error', {{ mode: man.model,
-                             stage: 'Last run failed: ' + man.error }});
-      }} else if (d.has_claude) {{
-        tSetState('done', {{ mode: man && man.model,
-                            stage: 'Experiment output is ready to compare.' }});
-      }} else {{
-        tSetState('idle', {{ stage: 'The experiment has not been run on this '
-                                   + 'chapter yet.' }});
-      }}
-    }}
-    if (!document.getElementById('testbody').childNodes.length) setTestView(testView);
-  }} catch (e) {{
-    info.textContent = 'Could not load: ' + e.message;
-  }}
-}}
-
-async function runClaudeTest() {{
-  const d = testStatus || {{}};
-  if (!d.has_baseline) {{
-    alert('Ingest this chapter normally first. The experiment runs on the '
-          + 'same panel crops the current pipeline produced, and needs the '
-          + 'Gemini output as the baseline to compare against.');
+async function runLab() {{
+  const url = (document.getElementById('laburl').value || '').trim();
+  if (!/^https?:\/\//.test(url)) {{
+    alert('Paste a full http(s) chapter URL.');
     return;
   }}
-  const batches = Math.ceil((d.baseline_panels || 0) / (d.panels_per_call || 6));
-  if (!confirm('Run the Claude pipeline over ' + d.baseline_panels +
-      ' panels?' + String.fromCharCode(10) + String.fromCharCode(10) +
-      'About ' + (batches + 3) + ' Claude calls, most of them carrying panel '
-      + 'images. This is metered and capped like every other call, and the '
-      + 'cost shows in the header.' + String.fromCharCode(10) +
-      'It writes only to the claude_test sidecar — your board is untouched.'))
+  const fresh = document.getElementById('labfresh').checked;
+  if (!confirm('Build this chapter from scratch with Claude?'
+      + String.fromCharCode(10) + String.fromCharCode(10)
+      + 'Panels cut by: ' + (labSplit === 'claude' ? 'Claude' : 'YOLO')
+      + String.fromCharCode(10)
+      + 'This downloads the chapter, then spends Claude credit reading every '
+      + 'panel and writing the script, then TTS characters voicing it. It '
+      + 'creates its OWN project and does not touch your existing chapters.'))
     return;
   try {{
-    const r = await j('/api/test/run', {{
+    const r = await j('/api/lab/run', {{
       method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
-      body: JSON.stringify({{}})
+      body: JSON.stringify({{ url: url, splitter: labSplit, fresh: fresh }})
     }});
-    tSetState('queued', {{ mode: d.model,
-                          stage: 'Queued — ' + r.panels + ' panels' }});
-    tWatch(r.job, d.model);
+    tSetState('queued', {{ mode: 'panels cut by ' + r.splitter,
+                          stage: 'Queued — building ' + r.project }});
+    tWatch(r.job, 'panels cut by ' + r.splitter);
   }} catch (e) {{
     tSetState('error', {{ stage: 'Could not start: ' + e.message }});
   }}
 }}
 
-function tWatch(jobId, model) {{
+function tWatch(jobId, mode) {{
   if (testPoll) clearInterval(testPoll);
   const tick = async function () {{
     try {{
@@ -1781,15 +1740,12 @@ function tWatch(jobId, model) {{
         clearInterval(testPoll);
         testPoll = null;
         tSetState(s.status === 'done' ? 'done' : 'error',
-                  {{ mode: model, stage: s.status === 'done'
-                      ? (s.stage || 'Finished')
-                      : ('Failed: ' + (s.error || 'unknown')) }});
-        await loadClaudeTest();
+                  {{ mode: mode, stage: s.stage || s.status }});
+        await loadLab();
         refreshUsage();
-        if (s.status === 'done') setTestView('compare');
       }} else {{
         tSetState(s.status === 'queued' ? 'queued' : 'running',
-                  {{ mode: model, stage: s.stage || 'Working…',
+                  {{ mode: mode, stage: s.stage || 'Working…',
                     done: s.done, total: s.total }});
       }}
     }} catch (e) {{
@@ -1799,164 +1755,91 @@ function tWatch(jobId, model) {{
     }}
   }};
   tick();
-  testPoll = setInterval(tick, 2000);
+  testPoll = setInterval(tick, 3000);
 }}
 
-/* Promote: run Claude's script through the STANDARD TTS path and build render
-   segments from Claude's own placement, producing a normal sibling project you
-   can tick, approve, export and watch. The baseline is untouched. */
-async function promoteClaudeTest() {{
-  if (!confirm('Voice Claude\u2019s script with the normal TTS and build a '
-      + 'playable project from it?' + String.fromCharCode(10)
-      + String.fromCharCode(10)
-      + 'This spends TTS characters, the same as any chapter. It creates a '
-      + 'SEPARATE project next to this one \u2014 your current chapter is not '
-      + 'touched. Open it from Projects when it finishes, tick the rows and '
-      + 'approve to export.')) return;
+/* Opening a lab chapter just ACTIVATES it. From that moment the board, the
+   Check tab, approve, export and Review are all looking at Claude's chapter,
+   because it is an ordinary project. */
+async function openLab(pid) {{
+  if (!confirm('Open ' + pid + ' on the board?' + String.fromCharCode(10)
+      + 'This switches the studio to that chapter. Your other chapters are '
+      + 'untouched and you can switch back from Projects.')) return;
   try {{
-    const r = await j('/api/test/promote', {{ method: 'POST' }});
-    tSetState('queued', {{ stage: 'Building ' + r.project + '…' }});
-    tWatch(r.job, 'TTS + segments');
-  }} catch (e) {{
-    tSetState('error', {{ stage: 'Could not start: ' + e.message }});
-  }}
+    await j('/api/activate', {{
+      method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ id: pid }})
+    }});
+    location.href = '/storyboard';
+  }} catch (e) {{ alert('Could not open: ' + e.message); }}
 }}
 
-async function resetClaudeTest() {{
-  if (!confirm('Delete the experiment output for this chapter?' +
-      String.fromCharCode(10) +
-      'Your board and the Gemini baseline are not affected.')) return;
-  try {{
-    await j('/api/test/reset', {{ method: 'POST' }});
-    document.getElementById('testbody').textContent = '';
-    await loadClaudeTest();
-  }} catch (e) {{ alert('Could not reset: ' + e.message); }}
-}}
-
-const CMP_WIN_LABEL = {{ claude: 'Claude', baseline: 'current', tie: 'tie' }};
-
-async function loadClaudeCompare() {{
+async function loadLab() {{
+  const info = document.getElementById('testinfo');
   const box = document.getElementById('testbody');
+  if (!info || !box) return;
   box.textContent = '';
   try {{
-    const c = await j('/api/test/compare');
-
-    const sc = vEl('div', 'cmpscore');
-    [['Claude', c.score.claude, 'var(--ai)'],
-     ['Current', c.score.baseline, 'var(--ok)'],
-     ['Tie', c.score.ties, 'var(--ink3)']].forEach(function (row) {{
-      const d = vEl('div');
-      const b = vEl('b', null, String(row[1]));
-      b.style.color = row[2];
-      d.appendChild(b);
-      d.appendChild(vEl('span', 'hint', row[0]));
-      sc.appendChild(d);
-    }});
-    box.appendChild(sc);
-    box.appendChild(vEl('div', 'hint',
-      'Won on ' + c.score.scored_metrics + ' metrics that have a true '
-      + 'direction. ' + c.score.neutral_metrics + ' more are reported without '
-      + 'a winner, because nothing here knows the right answer for this '
-      + 'chapter. ' + c.panels_compared + ' panels compared.'));
-
-    const head = vEl('div', 'cmprow');
-    head.appendChild(vEl('div', 'cmphead', 'Metric'));
-    head.appendChild(vEl('div', 'cmphead cmpnum', 'Current'));
-    head.appendChild(vEl('div', 'cmphead cmpnum', 'Claude'));
-    head.appendChild(vEl('div', 'cmphead', 'Better'));
-    box.appendChild(head);
-
-    (c.metrics || []).forEach(function (m) {{
-      const r = vEl('div', 'cmprow');
-      r.appendChild(vEl('div', null, m.metric));
-      r.appendChild(vEl('div', 'cmpnum', String(m.baseline)));
-      r.appendChild(vEl('div', 'cmpnum', String(m.claude)));
-      r.appendChild(vEl('div', 'cmpwin ' + (m.winner || 'none'),
-                        m.winner ? CMP_WIN_LABEL[m.winner] : '—'));
-      if (m.note) r.appendChild(vEl('div', 'cmpnote', m.note));
-      box.appendChild(r);
-    }});
-
-    if ((c.most_disagreement || []).length) {{
-      const det = document.createElement('details');
-      det.className = 'vchapter';
-      det.appendChild(vEl('summary', null,
-        'Where they disagree most (' + c.most_disagreement.length +
-        ') — the panels worth opening'));
-      c.most_disagreement.forEach(function (d) {{
-        const w = vEl('div', 'trow');
-        const h = vEl('div');
-        const a = vEl('a', 'tn', 'row ' + d.row);
-        a.href = 'javascript:void(0)';
-        a.onclick = function () {{ vJumpTo(d.panel_id); }};
-        h.appendChild(a);
-        h.appendChild(vEl('span', 'hint',
-          '  ocr agreement ' + d.ocr_agreement +
-          ' · description agreement ' + d.desc_agreement));
-        w.appendChild(h);
-        const sides = vEl('div', 'tside');
-        const l = vEl('div'); l.appendChild(vEl('div', 'th', 'current'));
-        l.appendChild(vEl('div', null, d.baseline_desc));
-        const rr = vEl('div'); rr.appendChild(vEl('div', 'th', 'claude'));
-        rr.appendChild(vEl('div', null, d.claude_desc));
-        sides.appendChild(l); sides.appendChild(rr);
-        w.appendChild(sides);
-        det.appendChild(w);
-      }});
-      box.appendChild(det);
+    const d = await j('/api/lab/projects');
+    setLabSplit(labSplit);
+    if (!d.key_configured) {{
+      info.textContent = 'NO CLAUDE KEY on this server — set CLAUDE_API_KEY '
+        + 'or ANTHROPIC_API_KEY.';
+      info.style.color = 'var(--bad)';
+    }} else {{
+      info.textContent = (d.projects || []).length
+        ? (d.projects.length + ' lab chapter(s) built so far')
+        : 'No lab chapters yet. Paste a link above and build one.';
+      info.style.color = 'var(--ink3)';
     }}
-
-    const cav = document.createElement('details');
-    cav.className = 'vchapter';
-    cav.appendChild(vEl('summary', null, 'How to read this'));
-    (c.caveats || []).forEach(function (t) {{
-      cav.appendChild(vEl('div', 'cmpcaveat', '• ' + t));
-    }});
-    box.appendChild(cav);
-  }} catch (e) {{
-    box.appendChild(vEl('div', 'hint', 'No comparison yet: ' + e.message));
-  }}
-}}
-
-async function loadClaudeRows() {{
-  const box = document.getElementById('testbody');
-  box.textContent = '';
-  try {{
-    const d = await j('/api/test/rows');
-    const rows = d.rows || [];
-    if (!rows.length) {{
-      box.appendChild(vEl('div', 'hint',
-        'Nothing yet — run the Claude pipeline first.'));
-      return;
-    }}
-    box.appendChild(vEl('div', 'hint',
-      rows.length + ' panels as Claude read them. These are the same five '
-      + 'columns the board shows.'));
-    rows.slice(0, 200).forEach(function (r) {{
+    (d.projects || []).forEach(function (p) {{
       const w = vEl('div', 'trow');
-      const h = vEl('div');
-      const a = vEl('a', 'tn', 'row ' + r.n);
-      a.href = 'javascript:void(0)';
-      a.onclick = function () {{ vJumpTo(r.panel_id); }};
-      h.appendChild(a);
-      const t = r.timing || {{}};
-      h.appendChild(vEl('span', 'hint',
-        '  ' + (t.dur ? t.dur + 's' : 'no timing') +
-        (r.placement && r.placement.unit !== null && r.placement.unit !== undefined
-          ? '  ·  unit ' + r.placement.unit : '  ·  no line')));
-      w.appendChild(h);
-      w.appendChild(vEl('div', 'tl', 'ocr'));
-      w.appendChild(vEl('div', null, r.ocr || '(none)'));
-      w.appendChild(vEl('div', 'tl', 'description'));
-      w.appendChild(vEl('div', null, r.desc || '(none)'));
-      if (r.placement && r.placement.text) {{
-        w.appendChild(vEl('div', 'tl', 'script placement'));
-        w.appendChild(vEl('div', null, r.placement.text));
+      const h = vEl('div', 'exphead');
+      h.appendChild(vEl('span', 'exptitle', p.title || p.project));
+      h.appendChild(vEl('span', 'expch',
+        'cut by ' + (p.splitter || '?')));
+      if (p.active) h.appendChild(vEl('span', 'expopen', 'open now'));
+      if (p.status === 'error') {{
+        const e = vEl('span', 'expverdict', 'failed');
+        e.style.color = 'var(--bad)';
+        h.appendChild(e);
       }}
+      w.appendChild(h);
+      w.appendChild(vEl('div', 'expmeta',
+        [p.panels ? p.panels + ' panels' : null,
+         p.units ? p.units + ' lines' : null,
+         p.segments ? p.segments + ' segments' : null,
+         p.duration ? Math.round(p.duration) + 's' : null,
+         p.calls ? p.calls + ' Claude calls' : null,
+         (p.cost_usd !== null && p.cost_usd !== undefined)
+           ? '$' + Number(p.cost_usd).toFixed(4) : null
+        ].filter(Boolean).join(' · ') || '—'));
+      if (p.error) {{
+        const er = vEl('div', 'expmeta', p.error);
+        er.style.color = 'var(--bad)';
+        w.appendChild(er);
+      }}
+      const acts = vEl('div', 'vacts');
+      if (p.ready) {{
+        const b = vEl('button', 'vact', 'Open on the board');
+        b.onclick = function () {{ openLab(p.project); }};
+        acts.appendChild(b);
+      }} else {{
+        acts.appendChild(vEl('div', 'expmeta', 'not finished — nothing to open yet'));
+      }}
+      if (p.url) {{
+        const rr = vEl('button', 'vact ghost', 'Rebuild');
+        rr.onclick = function () {{
+          document.getElementById('laburl').value = p.url;
+          setLabSplit(p.splitter || 'claude');
+        }};
+        acts.appendChild(rr);
+      }}
+      w.appendChild(acts);
       box.appendChild(w);
     }});
   }} catch (e) {{
-    box.appendChild(vEl('div', 'hint', 'Could not load: ' + e.message));
+    info.textContent = 'Could not load: ' + e.message;
   }}
 }}
 

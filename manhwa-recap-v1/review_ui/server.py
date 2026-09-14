@@ -3560,6 +3560,107 @@ def _run_claude_test_job(job_id, pdir, stages, model):
     _persist_job(job_id)
 
 
+# ---- TEST LAB: an independent Claude-driven chapter pipeline ------------
+import claude_lab as _lab
+
+
+def _run_lab_job(job_id, url, splitter, fresh):
+    j = JOBS[job_id]
+    j["status"] = "running"
+    _persist_job(job_id)
+
+    def progress(msg):
+        j["stage"] = msg
+        j["done"] = min(j.get("done", 0) + 1, j["total"])
+        _persist_job(job_id)
+
+    try:
+        man = _lab.run_lab(url, splitter=splitter, progress=progress,
+                           job_id=job_id, fresh=fresh)
+        j["status"] = "done" if man.get("status") == "ok" else "error"
+        j["error"] = man.get("error")
+        j["project"] = man.get("project")
+        j["stage"] = (("%s — %d panels · %d lines · %d segments · $%.4f" %
+                       (man.get("project", ""), man.get("panels", 0),
+                        man.get("units", 0), man.get("segments", 0),
+                        man.get("cost_usd", 0.0)))
+                      if man.get("status") == "ok"
+                      else ("failed: " + str(man.get("error"))[:160]))
+        j["done"] = j["total"]
+    except Exception as e:
+        j["status"] = "error"
+        j["error"] = str(e)[:500]
+    _persist_job(job_id)
+
+
+class LabRunIn(BaseModel):
+    url: str
+    splitter: str = "claude"
+    fresh: bool = False
+
+
+@app.post("/api/lab/run")
+async def lab_run(body: LabRunIn):
+    """Build a whole chapter independently, from a URL, with Claude making the
+    decisions. Produces a REAL project — not a report — so the board, Check,
+    approve, export and Review all work on the result with no special cases."""
+    url = (body.url or "").strip()
+    if not re.match(r"^https?://", url):
+        raise HTTPException(400, "paste a full http(s) chapter URL")
+    if body.splitter not in _lab.SPLITTERS:
+        raise HTTPException(400, f"splitter must be one of {_lab.SPLITTERS}")
+    if not _validator.api_key():
+        raise HTTPException(
+            400, "No Claude API key on this server — set CLAUDE_API_KEY or "
+                 "ANTHROPIC_API_KEY in the environment.")
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {"status": "queued", "done": 0, "total": 60,
+                    "kind": "lab", "error": None, "stage": "queued",
+                    "url": url, "splitter": body.splitter}
+    threading.Thread(target=_run_lab_job,
+                     args=(job_id, url, body.splitter, body.fresh),
+                     daemon=True).start()
+    return {"job": job_id, "project": _lab.lab_id(url, body.splitter),
+            "splitter": body.splitter}
+
+
+@app.get("/api/lab/projects")
+def lab_projects():
+    """Every lab chapter built so far, with what it cost and whether it is
+    ready to open on the board."""
+    out = []
+    try:
+        names = sorted(os.listdir(_lab.PROJECTS))
+    except FileNotFoundError:
+        names = []
+    active = os.path.basename(active_project_dir().rstrip("/"))
+    for n in names:
+        if "-lab-" not in n:
+            continue
+        d = os.path.join(_lab.PROJECTS, n)
+        man = _lab.manifest(d) or {}
+        meta = _project_label(d)
+        segs = 0
+        try:
+            with open(os.path.join(d, "segments.json"), encoding="utf-8") as f:
+                segs = len(json.load(f))
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        out.append({
+            "project": n, "title": meta["title"] or n,
+            "series": meta["series"], "chapter": meta["chapter"],
+            "splitter": man.get("splitter"), "status": man.get("status"),
+            "error": man.get("error"), "url": man.get("url"),
+            "panels": man.get("panels"), "units": man.get("units"),
+            "segments": segs, "duration": man.get("duration"),
+            "cost_usd": man.get("cost_usd"), "calls": man.get("calls"),
+            "elapsed_sec": man.get("elapsed_sec"),
+            "ready": segs > 0, "active": n == active,
+        })
+    return {"projects": out, "splitters": list(_lab.SPLITTERS),
+            "key_configured": bool(_validator.api_key())}
+
+
 @app.get("/api/test/status")
 def claude_test_status():
     """What the TEST tab needs to decide what it can offer: does this project

@@ -470,12 +470,33 @@ def _client():
     return anthropic.Anthropic(api_key=key)
 
 
+# The SDK refuses a non-streaming request whose max_tokens implies it could run
+# past the 10-minute HTTP timeout. The placement pass learned this the
+# expensive way in production: it asked for 32000 tokens non-streaming and died
+# with "Streaming is required for operations that may take longer than 10
+# minutes" AFTER the describe and script stages had already been paid for.
+# Anything at or above this streams instead.
+STREAM_ABOVE_TOKENS = int(os.environ.get("VALIDATOR_STREAM_ABOVE", 8000))
+
+
 def _call_claude(client, **kwargs):
     """One metered Claude call. Everything that reaches the API goes through
-    here, so the gate cannot be bypassed by a new call site."""
+    here, so the gate cannot be bypassed by a new call site.
+
+    Large requests are STREAMED and then collapsed back to a single message
+    with .get_final_message(), so callers see exactly the same response object
+    either way and no call site has to care which path it took.
+    """
     model = kwargs.get("model", MODEL)
+    stream = kwargs.pop("stream", None)
+    if stream is None:
+        stream = kwargs.get("max_tokens", 0) >= STREAM_ABOVE_TOKENS
     with usage.gate("claude", 1, model=model) as meter:
-        resp = client.messages.create(**kwargs)
+        if stream:
+            with client.messages.stream(**kwargs) as s:
+                resp = s.get_final_message()
+        else:
+            resp = client.messages.create(**kwargs)
         meter.from_anthropic(resp)
     cost = usage.token_cost(model, meter.prompt_tokens, meter.output_tokens)
     return resp, meter, cost

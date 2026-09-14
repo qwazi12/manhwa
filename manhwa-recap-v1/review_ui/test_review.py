@@ -266,12 +266,17 @@ def main():
               and 'id="d_test"' in bhtml))
     r.append(("...clearly labelled experimental",
               "EXPERIMENTAL" in bhtml))
-    r.append(("...saying the board is not touched",
-              "claude_test" in bhtml))
-    r.append(("...offering the comparison and the raw Claude output",
-              "loadClaudeCompare" in bhtml and "loadClaudeRows" in bhtml))
-    r.append(("...and a way to throw the experiment away",
-              "resetClaudeTest" in bhtml))
+    r.append(("...saying it does not touch the main chapters",
+              "does not touch your main chapters" in bhtml
+              or "never touches your main chapters" in bhtml))
+    r.append(("the TEST tab takes a chapter URL of its own",
+              'id="laburl"' in bhtml and "/api/lab/run" in bhtml))
+    r.append(("...and lets you choose who cuts the pages into panels",
+              'id="lb_claude"' in bhtml and 'id="lb_yolo"' in bhtml))
+    r.append(("...building its own project rather than reading the board's",
+              "loadLab" in bhtml and "/api/lab/projects" in bhtml))
+    r.append(("...which you then open ON the board, like any chapter",
+              "openLab" in bhtml and "/api/activate" in bhtml))
     r.append(("the TEST tab has its own running indicator",
               'id="teststate"' in bhtml and "tSetState" in bhtml))
     r.append(("the experiment is LAST in the rail, after the workflow order",

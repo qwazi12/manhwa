@@ -63,6 +63,25 @@ class StubMessages:
         self.calls.append(kw)
         return _Resp(self.pick(kw))
 
+    # The real SDK requires streaming for large max_tokens, so the stub has to
+    # offer the same surface — otherwise the tests silently only ever cover the
+    # non-streaming path, which is exactly how the production placement stage
+    # shipped broken.
+    def stream(self, **kw):
+        outer = self
+
+        class _Ctx:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, *a):
+                return False
+
+            def get_final_message(self_inner):
+                return outer.create(**kw)
+
+        return _Ctx()
+
 
 class StubClient:
     def __init__(self, pick):
