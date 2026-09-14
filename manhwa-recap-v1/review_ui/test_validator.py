@@ -361,8 +361,26 @@ def main():
           "panel_ids": ["s_001", "s_002", "s_003"]}], stall_segs)
     sf = validator.rule_findings(validator.build_rows(stall))
     check("a run of segments stuck on one panel is caught",
-          any(f["category"] == "pacing" and "in a row" in f["issue"]
-              for f in sf))
+          any(f["category"] == "pacing" and "play over this one panel"
+              in f["issue"] for f in sf))
+
+    # THE MERGED CASE, which the seg_count version could never see:
+    # build_segments merges consecutive shots on one panel into a SINGLE
+    # segment, so a long hold has seg_count 1. Counting beats is what catches
+    # it — the Overgeared lab chapter had 11 such holds the rule missed.
+    merged = write_project(
+        os.path.join(tmp, "merged_hold"),
+        [{"panel_id": "m_001", "file": "m1.png", "ok": True, "ocr_text": "x",
+          "visual_description": "Standing still, the swordsman waits."}],
+        [{"scene_id": 0, "text": "a b c", "panel_ids": ["m_001"]}],
+        [{"seg_index": 0, "panel_id": "m_001", "start": 0.0, "dur": 21.0,
+          "user_included": True,
+          "beats": [{"index": 0, "text": "a", "start": 0.0, "end": 7.0},
+                    {"index": 1, "text": "b", "start": 7.0, "end": 14.0},
+                    {"index": 2, "text": "c", "start": 14.0, "end": 21.0}]}])
+    mf = validator.rule_findings(validator.build_rows(merged))
+    check("a long hold merged into ONE segment is still caught",
+          any(f["category"] == "pacing" for f in mf))
 
     # A credit page that is ALREADY left out is the pipeline working.
     ok_credit = write_project(os.path.join(tmp, "credit_ok"), [bad_descs[0]],

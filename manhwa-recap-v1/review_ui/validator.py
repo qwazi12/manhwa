@@ -275,6 +275,10 @@ def build_rows(pdir, review=None):
                 "seg_index": si,
                 "pos": pos_of.get(si),
                 "seg_count": len(mine),
+                # Beats, not segments, are what reveals a stall: build_segments
+                # MERGES consecutive shots on one panel into a single segment,
+                # so a panel held across three beats has seg_count 1.
+                "beat_count": sum(len(x.get("beats") or []) for x in mine),
                 "dur": round(sum(float(x.get("dur", 0.0)) for x in mine), 2)
                        if mine else None,
                 "start": round(float(seg.get("start", 0.0)), 2) if seg else None,
@@ -420,15 +424,22 @@ def rule_findings(rows):
     # This is checked PER ROW, not by walking for consecutive rows sharing a
     # panel — build_rows emits exactly one row per panel, so a "run" of rows
     # sharing a panel can never occur and a loop looking for one silently never
-    # fires. The run lives in the row's segment COUNT and its summed duration.
+    # fires.
+    #
+    # It counts BEATS, not segments. build_segments merges consecutive shots on
+    # the same panel into ONE segment, so a panel held across three beats has
+    # seg_count 1 and a seg_count test can never see it. The Overgeared lab
+    # chapter had 11 holds past 12s that the solver reported and this rule
+    # missed entirely, for exactly that reason.
     for r in rows:
         t = r["timing"]
-        if not t["in_video"] or (t.get("seg_count") or 0) < 2:
+        held = max(t.get("seg_count") or 0, t.get("beat_count") or 0)
+        if not t["in_video"] or held < 2:
             continue
         if (t["dur"] or 0) >= SAME_PANEL_RUN_SEC:
             out.append(_finding(
                 r, "On-screen timing & motion", "medium",
-                f"{t['seg_count']} segments in a row sit on this one panel for "
+                f"{held} narration beats play over this one panel for "
                 f"{t['dur']}s together.",
                 "Give some of that time to other panels, or cut the run short "
                 "— the video stalls on one image here.",
