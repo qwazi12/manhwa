@@ -446,7 +446,21 @@ def lab_report(pdir):
                   if validator._GENERIC_DESC.match(
                       (d.get("visual_description") or "").strip() or "x"))
     needs_review = sum(1 for d in descs if d.get("needs_review"))
-    violations = sum(1 for d in descs if d.get("contract_violations"))
+
+    # RECOMPUTED, not read off the record. The violations stored on a panel
+    # were judged by whatever contract was in force when it was read, so
+    # trusting them would make a re-measure replay the old rule's verdicts and
+    # report no change no matter what was fixed.
+    import claude_plus as _plus
+    recomputed = [_plus.audit_description(d.get("visual_description"),
+                                          subject_type=d.get("subject_type"),
+                                          is_credits=d.get("is_credits"))
+                  for d in descs]
+    violations = sum(1 for v in recomputed if v)
+    over_cap = sum(1 for v in recomputed
+                   if any(x.startswith("over_word_cap") for x in v))
+    banned = sum(1 for v in recomputed if "banned_opener" in v)
+    weak = sum(1 for v in recomputed if "weak_opener" in v)
 
     # ---- framing ---------------------------------------------------------
     crop_stats = passes.get("crop", {})
@@ -502,8 +516,10 @@ def lab_report(pdir):
             "generic_pct": _rate(generic, n),
             "needs_review": needs_review,
             "contract_violations": violations,
-            "over_word_cap": passes.get("read", {}).get("over_cap"),
-            "banned_openers": passes.get("read", {}).get("banned_openers"),
+            "over_word_cap": over_cap,
+            "banned_openers": banned,
+            "weak_openers": weak,
+            "contract_recomputed": True,
         },
         "splitting": {
             "coverage_mean": passes.get("split", {}).get("coverage_mean"),

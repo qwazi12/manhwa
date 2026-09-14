@@ -274,6 +274,52 @@ def main():
           all(f["severity_label"] and f["category_label"] for f in bf))
     check("...and a confidence", all("confidence" in f for f in bf))
 
+    # ---- COVERAGE: three situations the rule used to collapse into one.
+    # It asked only "is this unit in the video", and in_video needs the tick.
+    # Segments are born unticked, so on an un-reviewed project it fired once
+    # per unit — which is how two lab runs produced findings counts exactly
+    # equal to their unit counts and clean-row percentages reproducible as
+    # (panels - units)/panels. It was measuring the unit count.
+    def cov_project(name, tick_first, give_second_a_segment=True):
+        d = [{"panel_id": "c_001", "file": "c1.png", "ok": True,
+              "ocr_text": "a", "visual_description": "A swordsman strikes."},
+             {"panel_id": "c_002", "file": "c2.png", "ok": True,
+              "ocr_text": "b", "visual_description": "A rival parries hard."}]
+        sc = [{"scene_id": 0, "text": "Unit zero.", "panel_ids": ["c_001"]},
+              {"scene_id": 1, "text": "Unit one.", "panel_ids": ["c_002"]}]
+        sg = [{"seg_index": 0, "panel_id": "c_001", "start": 0.0, "dur": 4.0,
+               "user_included": tick_first,
+               "beats": [{"index": 0, "text": "Unit zero.",
+                          "start": 0.0, "end": 4.0}]}]
+        if give_second_a_segment:
+            sg.append({"seg_index": 1, "panel_id": "c_002", "start": 4.0,
+                       "dur": 4.0, "user_included": False,
+                       "beats": [{"index": 1, "text": "Unit one.",
+                                  "start": 4.0, "end": 8.0}]})
+        return write_project(os.path.join(tmp, name), d, sc, sg)
+
+    unreviewed = validator.rule_findings(validator.build_rows(
+        cov_project("cov_unreviewed", tick_first=False)))
+    check("an UN-REVIEWED project reports no coverage findings at all",
+          not [f for f in unreviewed if f["category"] == "coverage"])
+
+    partly = validator.rule_findings(validator.build_rows(
+        cov_project("cov_partly", tick_first=True)))
+    cov = [f for f in partly if f["category"] == "coverage"]
+    check("once some units ARE ticked, an unticked unit is reported",
+          len(cov) == 1 and cov[0]["row"] == 2)
+    check("...as a review decision, not a pipeline fault",
+          cov and cov[0]["severity"] == "medium")
+
+    noseg = validator.rule_findings(validator.build_rows(
+        cov_project("cov_noseg", tick_first=True,
+                    give_second_a_segment=False)))
+    cov2 = [f for f in noseg if f["category"] == "coverage"]
+    check("a unit with NO panel at all is still a hard defect",
+          len(cov2) == 1 and cov2[0]["severity"] == "high")
+    check("...and says nothing was ever matched to it",
+          cov2 and "no panel at all" in cov2[0]["issue"])
+
     # ---- a stall: several segments in a row on ONE panel
     stall_descs = [{"panel_id": f"s_{i:03d}", "file": f"s{i}.png",
                     "ocr_text": "x", "ok": True,

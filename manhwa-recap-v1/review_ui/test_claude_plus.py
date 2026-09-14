@@ -230,6 +230,21 @@ def main():
               for v in PLUS.audit_description(" ".join(["w"] * 60))))
     check("an empty description is caught",
           PLUS.audit_description("") == ["empty"])
+    # The action-verb rule must not apply to panels with no action in them.
+    # Forcing it produced dangling participles on the real Overgeared run.
+    static_desc = "A boxed narration caption on an otherwise empty white page."
+    check("a static panel is NOT required to open with an action verb",
+          "weak_opener" not in PLUS.audit_description(
+              static_desc, subject_type="text"))
+    check("...nor is a credits card",
+          "weak_opener" not in PLUS.audit_description(
+              static_desc, is_credits=True))
+    check("but an action panel still is",
+          "weak_opener" in PLUS.audit_description(
+              "A boy falls down a slope.", subject_type="character"))
+    check("a static panel still cannot use a banned opener",
+          "banned_opener" in PLUS.audit_description(
+              "A panel depicting a caption.", subject_type="text"))
 
     # =============================== the ported word budget
     check("the budget formula matches production's",

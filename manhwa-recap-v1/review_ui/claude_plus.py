@@ -90,11 +90,14 @@ later, so an honest low score is worth far more than a confident wrong one.
 
 DESCRIPTION (`description`)
 - MAXIMUM 50 WORDS. Count them.
-- MUST open with the concrete action happening in this panel, as a verb phrase \
-— not with the subject, and not with a framing word. \
+- If something is HAPPENING in the panel, open with that action as a verb \
+phrase — not with the subject, and not with a framing word. \
 Right: "Tumbling down a rocky slope, the dark-haired boy claws at the dirt." \
 Wrong: "A boy falls down a slope." \
 Wrong: "A panel depicting a boy falling."
+- If the panel is a title card, a credits block, a narration box or a pure \
+sound effect, there is NO action to lead with. Describe it plainly and \
+naturally instead — do not manufacture a verb phrase for a static image.
 - NEVER open with "a scene showing", "a panel depicting", "the image features", \
 or any equivalent.
 - After the action: who is in frame (name if it is visible), the setting, and \
@@ -168,13 +171,27 @@ def _clamp01(v, default=1.0):
         return default
 
 
-def audit_description(text):
+# Panels with no action in them. The action-verb rule does not apply to these —
+# see audit_description.
+STATIC_SUBJECTS = ("text", "credits", "effect")
+
+
+def audit_description(text, subject_type=None, is_credits=False):
     """Return the contract violations in one description.
 
     The prompt states the rules; this checks them. Violations do not throw —
     they are recorded on the panel and reported, because a slightly long
     description is still usable and a pipeline that hard-failed on one would be
     worse than one that flags it.
+
+    THE ACTION-VERB RULE IS NOT APPLIED TO STATIC PANELS. Forcing it on a
+    credits card or a text-only panel produced exactly the contortions you would
+    expect on the Overgeared run: "Displaying a chapter title card…" on a
+    credits page, and "Declaring in a spiky burst bubble, the line floats
+    over…" on a narration box — a dangling participle, since the line is not
+    the thing declaring. A title card HAS no action, so demanding an action verb
+    makes the description worse, not better. Production has the same rule but
+    filters these panels out before they reach it.
     """
     out = []
     t = (text or "").strip()
@@ -185,13 +202,15 @@ def audit_description(text):
         out.append(f"over_word_cap:{n}")
     if _BANNED_OPENERS.match(t):
         out.append("banned_opener")
-    # "MUST open with a verb phrase" — the cheap, reliable proxy is an -ing
-    # opener, which is the form production's examples all use. A description
-    # that opens some other way is flagged, not rejected: English has other
-    # valid action openings and a false reject would be worse than a note.
-    first = t.split()[0].lower().strip(",.")
-    if not first.endswith("ing"):
-        out.append("weak_opener")
+    static = is_credits or (subject_type or "").lower() in STATIC_SUBJECTS
+    if not static:
+        # "MUST open with a verb phrase" — the cheap, reliable proxy is an -ing
+        # opener, the form production's examples all use. Flagged, not
+        # rejected: English has other valid action openings and a false reject
+        # would be worse than a note.
+        first = t.split()[0].lower().strip(",.")
+        if not first.endswith("ing"):
+            out.append("weak_opener")
     return out
 
 
@@ -248,7 +267,8 @@ def describe_plus(pdir, panels, model=None, progress=None, on_batch=None,
             # A panel with nothing at all is only acceptable when it is
             # explicitly a blank or a credits block; otherwise the read failed
             # and must be marked rather than shipped as a silent empty.
-            violations = audit_description(desc)
+            violations = audit_description(
+                desc, subject_type=item.get("subject_type"), is_credits=is_cred)
             blank_ok = is_cred or (item.get("subject_type") == "effect")
             out.append({
                 "panel_id": rec["panel_id"], "file": rec.get("file"),

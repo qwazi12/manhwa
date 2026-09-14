@@ -417,20 +417,59 @@ def rule_findings(rows):
                 "— the video stalls on one image here.",
                 "rules", category="pacing"))
 
-    # --- Coverage: a unit that never reached the video at all -------------
-    placed = {r["placement"]["unit"] for r in rows
-              if r["placement"]["unit"] is not None and r["timing"]["in_video"]}
-    authored = {r["placement"]["unit"] for r in rows
-                if r["placement"]["unit"] is not None}
-    for unit in sorted(authored - placed):
-        sample = next((r for r in rows if r["placement"]["unit"] == unit), None)
-        if sample:
+    # --- Coverage ---------------------------------------------------------
+    # THREE DIFFERENT SITUATIONS, which this rule used to collapse into one.
+    #
+    # It asked only "does this unit have a panel that is IN the video", and
+    # in_video requires the tick. Segments are born unticked, so on any
+    # un-reviewed project EVERY unit failed and the rule fired once per unit —
+    # nothing to do with quality. On the Overgeared lab runs that produced 52
+    # findings for 52 units and 14 for 14, and the resulting "clean rows"
+    # percentages were reproducible to the decimal as (panels - units)/panels.
+    # The rule was measuring the unit count.
+    #
+    # What it should say depends on WHY the unit has no ticked panel:
+    #   no segment at all      -> a real defect whoever is reviewing
+    #   segments, none ticked, and nothing ticked anywhere -> the project has
+    #                             simply not been reviewed yet; not a defect
+    #   segments, none ticked, but OTHER units are ticked -> this unit was
+    #                             deliberately or accidentally left out; worth
+    #                             saying, but it is a review decision, not a
+    #                             pipeline fault
+    reviewed = any(r["timing"]["in_video"] for r in rows)
+    units = {}
+    for r in rows:
+        u = r["placement"]["unit"]
+        if u is None:
+            continue
+        slot = units.setdefault(u, {"sample": r, "has_segment": False,
+                                    "in_video": False})
+        if r["timing"].get("seg_index") is not None:
+            slot["has_segment"] = True
+        if r["timing"]["in_video"]:
+            slot["in_video"] = True
+
+    for unit in sorted(units):
+        slot = units[unit]
+        if slot["in_video"]:
+            continue
+        if not slot["has_segment"]:
             out.append(_finding(
-                sample, "Script placement", "high",
-                f"Narration unit {unit} has no panel in the final video — its "
-                "line will be heard over someone else's panel or not at all.",
-                "Tick a panel for this unit, or cut the line.",
+                slot["sample"], "Script placement", "high",
+                f"Narration unit {unit} has no panel at all — nothing was ever "
+                "matched to it, so its line has no picture to play over.",
+                "Assign a panel to this unit, or cut the line.",
                 "rules", category="coverage"))
+        elif reviewed:
+            out.append(_finding(
+                slot["sample"], "Script placement", "medium",
+                f"Narration unit {unit} has panels, but none of them are ticked "
+                "for the final video while other units are.",
+                "Tick one of this unit's panels, or cut the line if leaving it "
+                "out was deliberate.", "rules", confidence=0.7,
+                category="coverage"))
+        # else: the project is simply un-reviewed. Not a defect, and reporting
+        # it once per unit is what made this rule useless.
     return out
 
 
