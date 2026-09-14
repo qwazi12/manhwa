@@ -5541,3 +5541,61 @@ NEXT, in order:
 2. Exempt static/text/credits panels from the action-verb opener rule.
 3. Tighten the dense allowance — it fires on nearly every large scene.
 4. Investigate why narration shrank; the budget may be being under-spent.
+
+### Session 29 (cont.) — checker fixed and re-measured (no re-run, no spend)
+Owner's approved order, items 1-3. No new chapter was built; everything below
+is a re-audit of the chapter already on disk.
+
+#1 COVERAGE RULE — and TWO more defects it was hiding.
+  a) The coverage rule asked only "is this unit IN the video", and in_video
+     needs the tick. Segments are born unticked, so it fired once per unit.
+     Now separates: no panel at all (high) / panels unticked while OTHERS are
+     ticked (medium, a review decision) / wholly un-reviewed (silent).
+  b) Fixing it gave 0 findings and "100% clean" over 164 panels — silence, not
+     cleanliness. Cause: EVERY timing rule is gated on in_video too, so the
+     rule pass was nearly blind on any freshly built chapter. An un-reviewed
+     project is now judged AS BUILT (rejected segments still excluded, because
+     that IS a ruling).
+  c) Still 0. Cause: the stall rule required seg_count >= 2, but
+     build_segments MERGES consecutive shots on one panel into ONE segment, so
+     a 21s hold has seg_count 1 and could never be seen. It now counts BEATS.
+     The solver had independently reported 11 over-holds the rule missed.
+
+  MEASUREMENT PROGRESSION on the same unchanged chapter:
+     old rule        14 findings / 91.5% clean   <- artifact (== unit count)
+     coverage fixed   0 findings / 100%  clean   <- silence
+     as-built         0 findings / 100%  clean   <- still silent
+     stall fixed      5 findings /  97%  clean   <- FIRST REAL NUMBER
+  All 5 are pacing, medium. Solver counts 11 over-holds at its 12s cap; the
+  checker counts 5 at its 15s threshold — different thresholds, not a bug.
+
+#2 STATIC-PANEL EXEMPTION — done. audit_description no longer demands an
+action-verb opener from text/credits/effect panels, and the prompt says a
+static panel should be described plainly. Recomputed over the existing 164
+descriptions (lab_report now RECOMPUTES rather than reading stored verdicts,
+or a re-measure would just replay the old rule): 2 violations total
+(1 banned opener, 2 weak openers). The old run had 15 framing-word openers.
+
+#3 WHY NARRATION SHRANK — investigated BEFORE touching the allowance, and the
+answer is that the allowance is irrelevant.
+  Budget spend per unit, measured:
+     11-19 panel units -> 21-36% of budget
+     1-7   panel units -> 48-308%
+  Narration length is FLAT at ~38-52 words per unit regardless of whether the
+  scene has 1 panel or 19. The budget is a CEILING and every other rule in the
+  prompt ("compress ruthlessly", "far fewer sentences than panels", "a filler
+  panel earns ZERO") drives to the floor. It is under-spent by 70-79% on every
+  large scene, so RAISING the ceiling cannot do anything.
+  Density, the fair comparison across different panel counts:
+     OLD lab  1087 words / 87 panels = 12.49 words per panel
+     CLAUDE+   541 words /136 panels =  3.98 words per panel   (-68%)
+  Contributing: the chapter map made 14 scenes for 164 panels (9.7 panels per
+  unit) where the old run had 1.7. Big scenes + a "compress" instruction = a
+  near-constant ~40 words each.
+
+=> #4 (tighten the dense allowance) IS THE WRONG MOVE and was NOT done. The
+ceiling is never approached. The fix is a target RANGE rather than a ceiling,
+and/or smaller scenes from the chapter map.
+
+Tests 23 files, 0 failing. Four checker defects fixed this pass, all frozen as
+regression tests (three coverage branches, as-built evaluation, merged hold).
