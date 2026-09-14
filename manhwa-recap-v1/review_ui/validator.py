@@ -219,6 +219,21 @@ def build_rows(pdir, review=None):
     ordered = sorted(segs, key=lambda s: s.get("start", 0))
     pos_of = {s.get("seg_index"): i for i, s in enumerate(ordered)}
 
+    # EVALUATE AN UN-REVIEWED PROJECT AS BUILT.
+    #
+    # in_video means "ticked and not rejected", and segments are born unticked.
+    # Every timing and pacing rule is gated on it, so on a freshly built chapter
+    # the rule pass could only ever inspect descriptions, OCR and ordering — it
+    # was nearly blind exactly when it is most useful. Re-measuring the
+    # Overgeared lab chapter after fixing the coverage rule returned 0 findings
+    # and "100% clean" across 164 panels, which is not a clean board; it is a
+    # silent checker.
+    #
+    # When NOTHING is ticked anywhere, the honest reading is that the pipeline
+    # built this cut and nobody has ruled on it yet — so judge the cut it built.
+    # A rejected segment is still excluded, because that IS a ruling.
+    unreviewed = not any(s.get("user_included") for s in segs)
+
     rows = []
     for i, d in enumerate(descs, start=1):
         pid = d.get("panel_id", "")
@@ -228,8 +243,10 @@ def build_rows(pdir, review=None):
 
         in_video = False
         if seg is not None:
-            in_video = bool(seg.get("user_included")) and \
-                review.get(str(seg.get("seg_index")), {}).get("status") != "rejected"
+            rejected = review.get(str(seg.get("seg_index")), {}).get(
+                "status") == "rejected"
+            in_video = (not rejected) and (
+                bool(seg.get("user_included")) or unreviewed)
 
         if sc is None:
             placement = {"role": "left_out", "unit": None, "text": ""}

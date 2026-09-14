@@ -303,6 +303,25 @@ def main():
     check("an UN-REVIEWED project reports no coverage findings at all",
           not [f for f in unreviewed if f["category"] == "coverage"])
 
+    # An un-reviewed project is judged AS BUILT. Every timing rule is gated on
+    # in_video, so without this the checker is nearly blind on exactly the
+    # chapters it is most useful for: re-measuring the Overgeared lab chapter
+    # returned 0 findings over 164 panels, which was silence, not cleanliness.
+    flash = write_project(
+        os.path.join(tmp, "asbuilt"),
+        [{"panel_id": "a_001", "file": "a1.png", "ok": True, "ocr_text": "x",
+          "visual_description": "Charging forward, the swordsman lunges."}],
+        [{"scene_id": 0, "text": "He lunged.", "panel_ids": ["a_001"]}],
+        [{"seg_index": 0, "panel_id": "a_001", "start": 0.0, "dur": 0.4,
+          "beats": [{"index": 0, "text": "He lunged.", "start": 0.0,
+                     "end": 0.4}]}])          # NOTE: no user_included at all
+    ab = validator.rule_findings(validator.build_rows(flash))
+    check("an un-reviewed chapter is still checked for pacing, as built",
+          any(f["category"] == "pacing" for f in ab))
+    rej = validator.build_rows(flash, review={"0": {"status": "rejected"}})
+    check("...but a REJECTED segment stays excluded, because that is a ruling",
+          not rej[0]["timing"]["in_video"])
+
     partly = validator.rule_findings(validator.build_rows(
         cov_project("cov_partly", tick_first=True)))
     cov = [f for f in partly if f["category"] == "coverage"]
