@@ -227,6 +227,56 @@ def main():
     r.append(("...jumping to a row focuses it, not just scrolls near it",
               "vfocus" in bhtml))
 
+    # ---- the checker must SHOW that it is running
+    # Before this, a run that took a minute was indistinguishable from an idle
+    # tab: one line of grey text that looked like every other line of grey text.
+    r.append(("the Check tab has a dedicated running indicator",
+              'id="vstate"' in bhtml and "function vSetState" in bhtml))
+    r.append(("...with all five states, so 'failed' cannot look like 'idle'",
+              all(k in bhtml for k in
+                  ("idle", "queued", "running", "'done'", "error"))))
+    r.append(("...naming which mode is running",
+              "V_MODE_LABEL" in bhtml))
+    r.append(("...showing progress when the job reports it",
+              "vsbar" in bhtml and "o.total" in bhtml))
+    r.append(("...and an indeterminate bar when it cannot, so it never looks "
+              "stalled at 0%", "indet" in bhtml))
+    r.append(("the rail button shows the run too, so it is visible with the "
+              "drawer shut", "vdot" in bhtml))
+    r.append(("a run in flight survives a reload rather than looking idle",
+              "validateJob" in bhtml and "vWatch(" in bhtml))
+    r.append(("the indicator respects reduced motion",
+              "prefers-reduced-motion" in bhtml))
+
+    # ---- exports must be identifiable at a glance
+    # The list used to lead with the filename and bury the project in a hint.
+    r.append(("the export list leads with the manhwa title, not the filename",
+              "exptitle" in bhtml and "e.series" in bhtml))
+    r.append(("...showing the chapter as its own badge",
+              "expch" in bhtml and "e.chapter" in bhtml))
+    r.append(("...with the filename demoted to metadata",
+              "expfile" in bhtml))
+    import server as _srv2
+    r.append(("the exports API supplies the series and chapter to show",
+              "series" in _srv2.list_exports.__doc__ or
+              "_project_label" in open("server.py", encoding="utf-8").read()))
+
+    # ---- the experiment tab
+    r.append(("there is a TEST tab", 'data-d="test"' in bhtml
+              and 'id="d_test"' in bhtml))
+    r.append(("...clearly labelled experimental",
+              "EXPERIMENTAL" in bhtml))
+    r.append(("...saying the board is not touched",
+              "claude_test" in bhtml))
+    r.append(("...offering the comparison and the raw Claude output",
+              "loadClaudeCompare" in bhtml and "loadClaudeRows" in bhtml))
+    r.append(("...and a way to throw the experiment away",
+              "resetClaudeTest" in bhtml))
+    r.append(("the TEST tab has its own running indicator",
+              'id="teststate"' in bhtml and "tSetState" in bhtml))
+    r.append(("the experiment is LAST in the rail, after the workflow order",
+              bhtml.index('data-d="test"') > bhtml.index('data-d="logs"')))
+
     # ---- ?open= is a one-time instruction, not a sticky mode
     # Reported 2026-09-13: "it pops out and shows me the detals of the last tab
     # clicked every single time". /review links to /storyboard?open=logs; the

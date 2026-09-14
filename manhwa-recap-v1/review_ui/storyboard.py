@@ -509,9 +509,113 @@ tr.vflag-low td.n {{ box-shadow:inset 3px 0 0 var(--rule); }}
 .vscenerow.vreveal {{ color:var(--ai); }}
 .vrecheck {{ display:flex; gap:6px; align-items:center; font-size:11px;
   color:var(--ink3); margin-top:8px; }}
+/* ---- the running indicator ----
+   The checker can run for a minute or more. Before this, the only sign it was
+   working was a line of grey text that also looked like every other line of
+   grey text, so "is it running?" was a guess. State is now carried by COLOUR
+   and a moving bar, not by wording. */
+.vstate {{ border:1px solid var(--rule); border-left:3px solid var(--rule);
+  border-radius:8px; padding:9px 11px; margin:2px 0 4px; background:var(--panel2); }}
+.vsrow {{ display:flex; align-items:center; gap:8px; }}
+.vspill {{ font-size:11px; font-weight:800; letter-spacing:.04em;
+  text-transform:uppercase; padding:2px 9px; border-radius:10px;
+  background:var(--rule); color:var(--ink2); white-space:nowrap; }}
+.vsmode {{ font-size:11px; color:var(--ink3); margin-left:auto;
+  text-align:right; }}
+.vsstage {{ font-size:11.5px; color:var(--ink2); margin-top:6px;
+  min-height:1.3em; }}
+.vsbar {{ height:6px; border-radius:3px; background:var(--rule); margin-top:7px;
+  overflow:hidden; display:none; }}
+.vsbar > i {{ display:block; height:100%; width:0%; border-radius:3px;
+  background:var(--accent); transition:width .4s ease; }}
+.vstate.idle {{ opacity:.75; }}
+.vstate.queued {{ border-left-color:var(--warn); }}
+.vstate.queued .vspill {{ background:var(--warn); color:#1a1205; }}
+.vstate.running {{ border-left-color:var(--accent); background:var(--sa-bg); }}
+.vstate.running .vspill {{ background:var(--accent); color:var(--accent-ink); }}
+.vstate.running .vsbar {{ display:block; }}
+.vstate.done {{ border-left-color:var(--ok); }}
+.vstate.done .vspill {{ background:var(--ok-cta); color:var(--ok-cta-ink); }}
+.vstate.error {{ border-left-color:var(--bad); background:var(--badb-bg); }}
+.vstate.error .vspill {{ background:var(--bad-cta); color:var(--bad-cta-ink); }}
+/* An indeterminate bar for the stages that cannot report a fraction, so the
+   bar never sits frozen at 0% looking stalled. */
+.vstate.running .vsbar.indet > i {{ width:35%; animation:vslide 1.1s infinite ease-in-out; }}
+@keyframes vslide {{ 0% {{ margin-left:-35%; }} 100% {{ margin-left:100%; }} }}
+.vspin {{ display:inline-block; width:10px; height:10px; border-radius:50%;
+  border:2px solid var(--accent); border-top-color:transparent;
+  animation:vspin .8s linear infinite; }}
+@keyframes vspin {{ to {{ transform:rotate(360deg); }} }}
+/* The rail button carries the same state, so a run is visible with the drawer
+   shut — otherwise you have to open Check to find out Check is busy. */
+.navbtn .vdot {{ position:absolute; margin:-22px 0 0 22px; width:8px; height:8px;
+  border-radius:50%; background:var(--accent); box-shadow:0 0 0 2px var(--panel);
+  animation:vpulse 1.2s infinite; }}
+.navbtn .vdot.error {{ background:var(--bad); animation:none; }}
+.navbtn .vdot.done {{ background:var(--ok); animation:none; }}
+@keyframes vpulse {{ 50% {{ opacity:.35; }} }}
+@media (prefers-reduced-motion: reduce) {{
+  .vspin, .navbtn .vdot, .vstate.running .vsbar.indet > i {{ animation:none; }}
+}}
 /* The row a finding points at, flashed after a jump. Scrolling a 138-row table
    to the right place is no use if you cannot tell which row it stopped on. */
 tr.vfocus td {{ background:var(--sa-bg) !important; transition:background .3s; }}
+/* ---- exports: identified by manhwa + chapter, not by filename ---- */
+.exprow {{ border-bottom:1px solid var(--rule); padding:9px 0; }}
+.exphead {{ display:flex; align-items:baseline; gap:7px; flex-wrap:wrap; }}
+.exptitle {{ font-size:13.5px; font-weight:800; color:var(--ink);
+  text-decoration:none; letter-spacing:-.01em; }}
+.exptitle:hover {{ color:var(--accent); text-decoration:underline; }}
+.expch {{ font-size:11px; font-weight:700; color:var(--accent-ink);
+  background:var(--accent); border-radius:9px; padding:1px 7px; }}
+.expopen {{ font-size:10px; font-weight:700; color:var(--ok-cta-ink);
+  background:var(--ok-cta); border-radius:9px; padding:1px 6px; }}
+.expverdict {{ font-size:10px; color:var(--ink3); border:1px solid var(--rule);
+  border-radius:9px; padding:1px 6px; }}
+.expdel {{ margin-left:auto; background:none; border:1px solid var(--rule);
+  color:var(--bad); border-radius:3px; cursor:pointer; font-size:11px;
+  padding:1px 6px; }}
+.expmeta {{ font-size:11px; color:var(--ink3); margin-top:3px; }}
+.expfile {{ font-size:10px; opacity:.7; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; }}
+.expreview {{ display:inline-block; margin-top:5px; font-size:11px;
+  font-weight:600; }}
+/* ---- the experiment tab ---- */
+.navbtn.navtest .ic {{ filter:saturate(1.3); }}
+.navbtn.navtest {{ color:var(--ai); }}
+.drawer.wide {{ width:520px; }}
+.expbanner {{ background:var(--tall-bg); color:var(--tall-ink);
+  border:1px solid var(--ai); border-radius:7px; padding:7px 10px;
+  font-size:11px; font-weight:600; margin-bottom:9px; line-height:1.45; }}
+.expbanner code {{ background:transparent; color:var(--ai); }}
+.cmprow {{ display:grid; grid-template-columns:1fr 72px 72px 58px; gap:6px;
+  align-items:baseline; padding:5px 0; border-bottom:1px solid var(--rule-soft,var(--rule));
+  font-size:11.5px; }}
+.cmphead {{ font-weight:700; color:var(--ink3); font-size:10px;
+  text-transform:uppercase; letter-spacing:.5px; }}
+.cmpnum {{ text-align:right; font-variant-numeric:tabular-nums; }}
+.cmpwin {{ font-size:10px; font-weight:700; text-align:center; border-radius:9px;
+  padding:1px 5px; }}
+.cmpwin.claude {{ background:var(--ai-cta); color:var(--ai-ink); }}
+.cmpwin.baseline {{ background:var(--ok-cta); color:var(--ok-cta-ink); }}
+.cmpwin.tie {{ background:var(--rule); color:var(--ink2); }}
+.cmpwin.none {{ color:var(--ink3); }}
+.cmpnote {{ grid-column:1/-1; color:var(--ink3); font-size:10.5px;
+  margin-top:2px; }}
+.cmpscore {{ display:flex; gap:8px; margin:10px 0; }}
+.cmpscore div {{ flex:1; text-align:center; border:1px solid var(--rule);
+  border-radius:8px; padding:8px; }}
+.cmpscore b {{ display:block; font-size:19px; }}
+.cmpcaveat {{ font-size:10.5px; color:var(--ink3); margin-top:3px;
+  padding-left:12px; text-indent:-12px; }}
+.trow {{ border-bottom:1px solid var(--rule); padding:7px 0; font-size:11.5px; }}
+.trow .tn {{ font-weight:700; color:var(--accent); }}
+.trow .tl {{ color:var(--ink3); font-size:10px; text-transform:uppercase;
+  letter-spacing:.4px; margin-top:4px; }}
+.tside {{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:3px; }}
+.tside > div {{ background:var(--panel2); border-radius:6px; padding:5px 7px; }}
+.tside .th {{ font-size:9.5px; text-transform:uppercase; letter-spacing:.5px;
+  color:var(--ink3); margin-bottom:2px; }}
 /* ---- drawers ---- */
 .drawer {{ position:fixed; left:64px; top:86px; bottom:0; width:360px; background:var(--panel); color:var(--ink); border-right:1px solid var(--rule); z-index:70; padding:16px; overflow-y:auto; display:none; font-size:13px; box-shadow:4px 0 18px rgba(0,0,0,.5); }}
 .drawer h3 {{ font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink3); margin:0 0 10px; }}
@@ -612,6 +716,7 @@ a {{ color:var(--accent); }}
   <button class="navbtn" data-d="projects" onclick="toggleDrawer('projects')"><span class="ic">📚</span>Projects</button>
   <button class="navbtn" data-d="tracker" onclick="toggleDrawer('tracker')"><span class="ic">📡</span>Tracker</button>
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
+  <button class="navbtn navtest" data-d="test" onclick="toggleDrawer('test')" title="experimental — Claude-driven pipeline comparison"><span class="ic">🧪</span>TEST</button>
   {theme.RAIL_BUTTONS_HTML}
 </div>
 <div class="drawer" id="d_ingest">
@@ -638,6 +743,12 @@ a {{ color:var(--accent); }}
     of rows nothing flagged, which is the only way to catch a description that
     is wrong but plausible. Flagged rows get a badge on the board, and every
     finding carries buttons that fix it here.</div>
+  <div id="vstate" class="vstate idle">
+    <div class="vsrow"><span class="vspill">Not running</span>
+      <span class="vsmode"></span></div>
+    <div class="vsstage"></div>
+    <div class="vsbar"><i></i></div>
+  </div>
   <div class="vmode">
     <button id="vm_rules" onclick="setVMode('rules')">Rules<br>free</button>
     <button id="vm_text" onclick="setVMode('text')">+ Claude<br>text</button>
@@ -648,6 +759,34 @@ a {{ color:var(--accent); }}
     Re-run the check automatically after applying a fix</label>
   <div id="vstatus" class="hint" style="margin-top:10px">loading…</div>
   <div id="vfindings" style="margin-top:10px"></div>
+</div>
+<div class="drawer wide" id="d_test">
+  <h3>🧪 Experiment — Claude instead of Gemini</h3>
+  <div class="expbanner">EXPERIMENTAL · nothing here touches your board.
+    Everything this produces is written to a <code>claude_test/</code> sidecar
+    and can be thrown away with one button.</div>
+  <div class="hint">Runs the whole <b>non-audio</b> chain with Claude instead of
+    Gemini — reading the panel text, describing the panels, choosing the crops,
+    writing the script, placing lines on panels and planning timing — on the
+    <b>same panel crops</b> your current chapter already uses, then scores both
+    side by side. Audio and narration generation are untouched.</div>
+  <div id="teststate" class="vstate idle">
+    <div class="vsrow"><span class="vspill">Not running</span>
+      <span class="vsmode"></span></div>
+    <div class="vsstage"></div>
+    <div class="vsbar"><i></i></div>
+  </div>
+  <div id="testinfo" class="hint" style="margin-top:8px">loading…</div>
+  <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap">
+    <button class="primary" style="flex:1" onclick="runClaudeTest()">Run Claude pipeline</button>
+    <button onclick="loadClaudeCompare()">Compare</button>
+    <button onclick="resetClaudeTest()" title="delete the experiment sidecar">Reset</button>
+  </div>
+  <div style="display:flex;gap:5px;margin-bottom:8px">
+    <button id="tv_compare" class="vact" onclick="setTestView('compare')">Comparison</button>
+    <button id="tv_output" class="vact" onclick="setTestView('output')">Claude output</button>
+  </div>
+  <div id="testbody"></div>
 </div>
 <div class="drawer" id="d_projects">
   <h3>Projects</h3>
@@ -959,15 +1098,26 @@ async function loadExports() {{
       (ex.exports || []).map(e => {{
         const left = e.expires_in_days;
         const col = left <= 1 ? 'var(--bad)' : left <= 3 ? 'var(--warn)' : 'var(--ink3)';
-        return `<div style="border-bottom:1px solid var(--rule);padding:6px 0;font-size:12px">
-        <a href="${{e.url}}" target="_blank" style="color:var(--accent);font-weight:700">${{e.name}}</a>
-        <button title="delete this export now" onclick="delExport('${{e.name}}','${{e.project}}')"
-          style="float:right;background:none;border:1px solid var(--rule);color:var(--bad);border-radius:3px;cursor:pointer;font-size:11px;padding:1px 6px">✕</button><br>
-        <span class="hint">${{e.duration ? (Math.floor(e.duration/60)+':'+String(Math.round(e.duration%60)).padStart(2,'0')) : '?'}} · ${{e.size_mb}} MB · ${{e.created}}</span><br>
-        <span class="hint">${{e.project}}${{e.active_project ? ' · open' : ''}}</span>
+        const mins = e.duration ? (Math.floor(e.duration/60)+':'+String(Math.round(e.duration%60)).padStart(2,'0')) : '?';
+        const title = e.title || e.project;
+        const ch = e.chapter ? ('Ch.' + e.chapter) : '';
+        const part = e.part ? (' · Part ' + e.part) : '';
+        const verdict = (e.review_status && e.review_status !== 'review_pending')
+          ? (e.superseded ? 'superseded' : e.review_status.replace('_',' ')) : '';
+        return `<div class="exprow">
+        <div class="exphead">
+          <a href="${{e.url}}" target="_blank" class="exptitle">${{e.series || title}}</a>
+          ${{ch ? `<span class="expch">${{ch}}${{part}}</span>` : ''}}
+          ${{e.active_project ? '<span class="expopen">open</span>' : ''}}
+          ${{verdict ? `<span class="expverdict">${{verdict}}</span>` : ''}}
+          <button title="delete this export now" class="expdel"
+            onclick="delExport('${{e.name}}','${{e.project}}')">✕</button>
+        </div>
+        <div class="expmeta">${{mins}} · ${{e.size_mb}} MB · ${{e.created}}
+          · <span style="color:${{col}}">expires in ${{left < 1 ? (Math.round(left*24) + 'h') : (Math.round(left) + 'd')}}</span></div>
+        <div class="expmeta expfile" title="${{e.name}}">${{e.name}}</div>
         <a href="${{e.review_url || ('/review?project=' + e.project + '&name=' + e.name)}}"
-           style="font-size:11px;margin-left:6px">review${{e.review_status && e.review_status !== 'review_pending' ? (' · ' + (e.superseded ? 'superseded' : e.review_status.replace('_',' '))) : ''}}</a>
-        <span style="color:${{col}}"> · expires in ${{left < 1 ? (Math.round(left*24) + 'h') : (Math.round(left) + 'd')}}</span>
+           class="expreview">▶ watch &amp; review</a>
       </div>`;
       }}).join('') || 'No exports yet — tick segments and APPROVE.';
   }} catch (e) {{ document.getElementById('exportlist').textContent = 'failed to load'; }}
@@ -1051,7 +1201,7 @@ setInterval(refreshUsage, 15000);
 {theme.SHARED_JS}
 
 function toggleDrawer(name) {{
-  for (const d of ['ingest','projects','tracker','validate','logs','exports']) {{
+  for (const d of ['ingest','projects','tracker','validate','logs','exports','test']) {{
     const el = document.getElementById('d_' + d);
     const btn = document.querySelector(`.navbtn[data-d="${{d}}"]`);
     const show = d === name && el.style.display !== 'block';
@@ -1063,6 +1213,7 @@ function toggleDrawer(name) {{
   if (name === 'logs') loadLogs();
   if (name === 'exports') loadExports();
   if (name === 'validate') loadValidation();
+  if (name === 'test') loadClaudeTest();
   if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
 }}
 /* Arriving from another page with ?open=<drawer> should land on that drawer,
@@ -1093,6 +1244,69 @@ function toggleDrawer(name) {{
    Every node is built with DOM calls rather than HTML strings: findings carry
    model-written text, and this file has a long history of escaping bugs. */
 let vMode = 'full', vPoll = null, vReport = null;
+
+/* ---- running indicator -------------------------------------------------
+   Four states, carried by colour and motion rather than by wording: idle,
+   queued, running, done, error. The rail button mirrors it, so a run is
+   visible with the drawer shut. The job id is remembered, so closing the
+   drawer — or reloading the page — reattaches to a run still in flight
+   instead of leaving the tab looking idle while the server works. */
+const V_MODE_LABEL = {{
+  rules: 'Rules only — free, no Claude',
+  text: 'Rules + Claude (chapter, sequence, descriptions)',
+  full: 'Rules + Claude + vision (images)'
+}};
+const V_PILL = {{ idle: 'Not running', queued: 'Queued', running: 'Running',
+                 done: 'Finished', error: 'Failed' }};
+
+function vSetState(state, o, boxId, railTab) {{
+  o = o || {{}};
+  const box = document.getElementById(boxId || 'vstate');
+  if (box) {{
+    box.className = 'vstate ' + state;
+    const pill = box.querySelector('.vspill');
+    pill.textContent = '';
+    if (state === 'running') pill.appendChild(vEl('span', 'vspin'));
+    pill.appendChild(document.createTextNode(
+      (state === 'running' ? ' ' : '') + (V_PILL[state] || state)));
+    box.querySelector('.vsmode').textContent =
+      o.mode ? V_MODE_LABEL[o.mode] || o.mode : '';
+    box.querySelector('.vsstage').textContent = o.stage || '';
+    const bar = box.querySelector('.vsbar');
+    const fill = bar.querySelector('i');
+    // A fraction when the job reports one; an indeterminate sweep otherwise,
+    // so the bar never sits frozen at 0% looking stalled.
+    if (o.total && o.done !== undefined && o.done !== null && o.total > 0) {{
+      bar.classList.remove('indet');
+      fill.style.width = Math.max(3, Math.round(100 * o.done / o.total)) + '%';
+    }} else {{
+      bar.classList.add('indet');
+      fill.style.width = '';
+    }}
+  }}
+  const btn = document.querySelector(
+    '.navbtn[data-d="' + (railTab || 'validate') + '"]');
+  if (btn) {{
+    const old = btn.querySelector('.vdot');
+    if (old) old.remove();
+    if (state === 'running' || state === 'queued' || state === 'error') {{
+      const d = vEl('span', 'vdot' + (state === 'error' ? ' error' : ''));
+      d.title = 'Check: ' + (V_PILL[state] || state);
+      btn.appendChild(d);
+    }}
+  }}
+}}
+
+function vJob(id) {{
+  try {{
+    if (id) localStorage.setItem('validateJob', id);
+    else localStorage.removeItem('validateJob');
+  }} catch (e) {{}}
+  return id;
+}}
+function vActiveJob() {{
+  try {{ return localStorage.getItem('validateJob'); }} catch (e) {{ return null; }}
+}}
 
 function setVMode(m) {{
   vMode = m;
@@ -1382,6 +1596,21 @@ async function loadValidation() {{
     const d = await j('/api/validation');
     setVMode(vMode);
     paintValidation(d.report);
+    // Only describe a resting state here; a live run owns the indicator.
+    if (!vPoll && !vActiveJob()) {{
+      const rep = d.report;
+      if (!rep) vSetState('idle', {{ stage: 'This chapter has never been checked.' }});
+      else if (rep.status !== 'ok') {{
+        vSetState('error', {{ mode: rep.mode,
+          stage: 'Last run did not finish: ' + (rep.error || 'unknown') }});
+      }} else {{
+        const live = (rep.findings || []).filter(function (f) {{ return !f.accepted; }});
+        vSetState('done', {{ mode: rep.mode,
+          stage: 'Last run: ' + live.length + ' finding' +
+                 (live.length === 1 ? '' : 's') +
+                 (rep.stale ? ' — board edited since' : '') }});
+      }}
+    }}
   }} catch (e) {{
     const st = document.getElementById('vstatus');
     if (st) st.textContent = 'Could not load the last check: ' + e.message;
@@ -1399,31 +1628,316 @@ async function runValidation(quiet) {{
       method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
       body: JSON.stringify({{ mode: vMode }})
     }});
-    if (st) st.textContent = 'Checking ' + r.rows + ' rows…';
-    if (vPoll) clearInterval(vPoll);
-    vPoll = setInterval(async function () {{
-      try {{
-        const s = await j('/api/jobs/' + r.job);
-        if (st && s.stage) {{
-          st.textContent = s.stage +
-            (s.total ? ' (' + s.done + '/' + s.total + ')' : '');
-        }}
-        if (s.status === 'done' || s.status === 'error') {{
-          clearInterval(vPoll);
-          vPoll = null;
-          await loadValidation();
-          refreshUsage();   // the spend just changed; do not wait 15s to say so
-        }}
-      }} catch (e) {{ clearInterval(vPoll); vPoll = null; }}
-    }}, 2000);
+    vJob(r.job);
+    vSetState('queued', {{ mode: vMode,
+                          stage: 'Queued — ' + r.rows + ' rows to check' }});
+    vWatch(r.job, vMode);
   }} catch (e) {{
+    vSetState('error', {{ mode: vMode, stage: 'Could not start: ' + e.message }});
     if (st) st.textContent = 'Could not start: ' + e.message;
   }}
 }}
 
+/* Poll one run to completion. Separate from runValidation so a run already in
+   flight can be picked back up on load. */
+function vWatch(jobId, mode) {{
+  if (vPoll) clearInterval(vPoll);
+  const tick = async function () {{
+    try {{
+      const s = await j('/api/jobs/' + jobId);
+      const m = s.mode || mode || vMode;
+      if (s.status === 'done' || s.status === 'error') {{
+        clearInterval(vPoll);
+        vPoll = null;
+        vJob(null);
+        await loadValidation();
+        refreshUsage();   // the spend just changed; do not wait 15s to say so
+        vSetState(s.status === 'done' ? 'done' : 'error',
+                  {{ mode: m, stage: s.status === 'done'
+                      ? (s.stage || 'Finished')
+                      : ('Failed: ' + (s.error || s.stage || 'unknown')) }});
+      }} else {{
+        vSetState(s.status === 'queued' ? 'queued' : 'running',
+                  {{ mode: m, stage: s.stage || 'Working…',
+                    done: s.done, total: s.total }});
+      }}
+    }} catch (e) {{
+      clearInterval(vPoll);
+      vPoll = null;
+      vJob(null);
+      vSetState('error', {{ mode: mode, stage: 'Lost contact with the run: '
+                                               + e.message }});
+    }}
+  }};
+  tick();
+  vPoll = setInterval(tick, 2000);
+}}
+
 /* Badges are useful without opening the drawer, so the last report is painted
    on every load. Costs one small request and no API spend. */
-loadValidation();
+loadValidation().then(function () {{
+  // A run survives the page; the indicator must too, or a reload makes a
+  // working checker look idle.
+  const live = vActiveJob();
+  if (live) vWatch(live, vMode);
+}});
+
+/* ---- 🧪 EXPERIMENT: Claude instead of Gemini ------------------------
+   Deliberately isolated. Everything below reads and writes only the
+   claude_test/ sidecar through /api/test/*; none of it can reach the
+   production board, and the Reset button deletes the whole experiment. */
+let testView = 'compare', testPoll = null, testStatus = null;
+
+function tSetState(state, o) {{
+  vSetState(state, o, 'teststate', 'test');
+}}
+
+function setTestView(v) {{
+  testView = v;
+  const a = document.getElementById('tv_compare');
+  const b = document.getElementById('tv_output');
+  if (a) a.classList.toggle('on', v === 'compare');
+  if (b) b.classList.toggle('on', v === 'output');
+  if (v === 'compare') loadClaudeCompare(); else loadClaudeRows();
+}}
+
+async function loadClaudeTest() {{
+  const info = document.getElementById('testinfo');
+  try {{
+    const d = await j('/api/test/status');
+    testStatus = d;
+    const bits = ['Chapter: ' + (d.title || d.project),
+                  d.baseline_panels + ' panels (shared with the baseline)'];
+    if (!d.has_baseline) {{
+      bits.push('NOT INGESTED — ingest this chapter normally first, so there '
+                + 'are crops to run on and a baseline to compare against');
+    }}
+    if (!d.key_configured) {{
+      bits.push('NO CLAUDE KEY on this server — set CLAUDE_API_KEY');
+    }}
+    const man = d.manifest;
+    if (man) {{
+      bits.push('last run: ' + (man.panels || 0) + ' panels · ' +
+                (man.calls || 0) + ' calls · $' +
+                (man.cost_usd || 0).toFixed(4) + ' · ' + (man.model || ''));
+    }}
+    info.textContent = bits.join(' · ');
+    info.style.color = (!d.has_baseline || !d.key_configured)
+      ? 'var(--bad)' : 'var(--ink3)';
+    if (!testPoll) {{
+      if (man && man.status === 'error') {{
+        tSetState('error', {{ mode: man.model,
+                             stage: 'Last run failed: ' + man.error }});
+      }} else if (d.has_claude) {{
+        tSetState('done', {{ mode: man && man.model,
+                            stage: 'Experiment output is ready to compare.' }});
+      }} else {{
+        tSetState('idle', {{ stage: 'The experiment has not been run on this '
+                                   + 'chapter yet.' }});
+      }}
+    }}
+    if (!document.getElementById('testbody').childNodes.length) setTestView(testView);
+  }} catch (e) {{
+    info.textContent = 'Could not load: ' + e.message;
+  }}
+}}
+
+async function runClaudeTest() {{
+  const d = testStatus || {{}};
+  if (!d.has_baseline) {{
+    alert('Ingest this chapter normally first. The experiment runs on the '
+          + 'same panel crops the current pipeline produced, and needs the '
+          + 'Gemini output as the baseline to compare against.');
+    return;
+  }}
+  const batches = Math.ceil((d.baseline_panels || 0) / (d.panels_per_call || 6));
+  if (!confirm('Run the Claude pipeline over ' + d.baseline_panels +
+      ' panels?' + String.fromCharCode(10) + String.fromCharCode(10) +
+      'About ' + (batches + 3) + ' Claude calls, most of them carrying panel '
+      + 'images. This is metered and capped like every other call, and the '
+      + 'cost shows in the header.' + String.fromCharCode(10) +
+      'It writes only to the claude_test sidecar — your board is untouched.'))
+    return;
+  try {{
+    const r = await j('/api/test/run', {{
+      method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{}})
+    }});
+    tSetState('queued', {{ mode: d.model,
+                          stage: 'Queued — ' + r.panels + ' panels' }});
+    tWatch(r.job, d.model);
+  }} catch (e) {{
+    tSetState('error', {{ stage: 'Could not start: ' + e.message }});
+  }}
+}}
+
+function tWatch(jobId, model) {{
+  if (testPoll) clearInterval(testPoll);
+  const tick = async function () {{
+    try {{
+      const s = await j('/api/jobs/' + jobId);
+      if (s.status === 'done' || s.status === 'error') {{
+        clearInterval(testPoll);
+        testPoll = null;
+        tSetState(s.status === 'done' ? 'done' : 'error',
+                  {{ mode: model, stage: s.status === 'done'
+                      ? (s.stage || 'Finished')
+                      : ('Failed: ' + (s.error || 'unknown')) }});
+        await loadClaudeTest();
+        refreshUsage();
+        if (s.status === 'done') setTestView('compare');
+      }} else {{
+        tSetState(s.status === 'queued' ? 'queued' : 'running',
+                  {{ mode: model, stage: s.stage || 'Working…',
+                    done: s.done, total: s.total }});
+      }}
+    }} catch (e) {{
+      clearInterval(testPoll);
+      testPoll = null;
+      tSetState('error', {{ stage: 'Lost contact with the run: ' + e.message }});
+    }}
+  }};
+  tick();
+  testPoll = setInterval(tick, 2000);
+}}
+
+async function resetClaudeTest() {{
+  if (!confirm('Delete the experiment output for this chapter?' +
+      String.fromCharCode(10) +
+      'Your board and the Gemini baseline are not affected.')) return;
+  try {{
+    await j('/api/test/reset', {{ method: 'POST' }});
+    document.getElementById('testbody').textContent = '';
+    await loadClaudeTest();
+  }} catch (e) {{ alert('Could not reset: ' + e.message); }}
+}}
+
+const CMP_WIN_LABEL = {{ claude: 'Claude', baseline: 'current', tie: 'tie' }};
+
+async function loadClaudeCompare() {{
+  const box = document.getElementById('testbody');
+  box.textContent = '';
+  try {{
+    const c = await j('/api/test/compare');
+
+    const sc = vEl('div', 'cmpscore');
+    [['Claude', c.score.claude, 'var(--ai)'],
+     ['Current', c.score.baseline, 'var(--ok)'],
+     ['Tie', c.score.ties, 'var(--ink3)']].forEach(function (row) {{
+      const d = vEl('div');
+      const b = vEl('b', null, String(row[1]));
+      b.style.color = row[2];
+      d.appendChild(b);
+      d.appendChild(vEl('span', 'hint', row[0]));
+      sc.appendChild(d);
+    }});
+    box.appendChild(sc);
+    box.appendChild(vEl('div', 'hint',
+      'Won on ' + c.score.scored_metrics + ' metrics that have a true '
+      + 'direction. ' + c.score.neutral_metrics + ' more are reported without '
+      + 'a winner, because nothing here knows the right answer for this '
+      + 'chapter. ' + c.panels_compared + ' panels compared.'));
+
+    const head = vEl('div', 'cmprow');
+    head.appendChild(vEl('div', 'cmphead', 'Metric'));
+    head.appendChild(vEl('div', 'cmphead cmpnum', 'Current'));
+    head.appendChild(vEl('div', 'cmphead cmpnum', 'Claude'));
+    head.appendChild(vEl('div', 'cmphead', 'Better'));
+    box.appendChild(head);
+
+    (c.metrics || []).forEach(function (m) {{
+      const r = vEl('div', 'cmprow');
+      r.appendChild(vEl('div', null, m.metric));
+      r.appendChild(vEl('div', 'cmpnum', String(m.baseline)));
+      r.appendChild(vEl('div', 'cmpnum', String(m.claude)));
+      r.appendChild(vEl('div', 'cmpwin ' + (m.winner || 'none'),
+                        m.winner ? CMP_WIN_LABEL[m.winner] : '—'));
+      if (m.note) r.appendChild(vEl('div', 'cmpnote', m.note));
+      box.appendChild(r);
+    }});
+
+    if ((c.most_disagreement || []).length) {{
+      const det = document.createElement('details');
+      det.className = 'vchapter';
+      det.appendChild(vEl('summary', null,
+        'Where they disagree most (' + c.most_disagreement.length +
+        ') — the panels worth opening'));
+      c.most_disagreement.forEach(function (d) {{
+        const w = vEl('div', 'trow');
+        const h = vEl('div');
+        const a = vEl('a', 'tn', 'row ' + d.row);
+        a.href = 'javascript:void(0)';
+        a.onclick = function () {{ vJumpTo(d.panel_id); }};
+        h.appendChild(a);
+        h.appendChild(vEl('span', 'hint',
+          '  ocr agreement ' + d.ocr_agreement +
+          ' · description agreement ' + d.desc_agreement));
+        w.appendChild(h);
+        const sides = vEl('div', 'tside');
+        const l = vEl('div'); l.appendChild(vEl('div', 'th', 'current'));
+        l.appendChild(vEl('div', null, d.baseline_desc));
+        const rr = vEl('div'); rr.appendChild(vEl('div', 'th', 'claude'));
+        rr.appendChild(vEl('div', null, d.claude_desc));
+        sides.appendChild(l); sides.appendChild(rr);
+        w.appendChild(sides);
+        det.appendChild(w);
+      }});
+      box.appendChild(det);
+    }}
+
+    const cav = document.createElement('details');
+    cav.className = 'vchapter';
+    cav.appendChild(vEl('summary', null, 'How to read this'));
+    (c.caveats || []).forEach(function (t) {{
+      cav.appendChild(vEl('div', 'cmpcaveat', '• ' + t));
+    }});
+    box.appendChild(cav);
+  }} catch (e) {{
+    box.appendChild(vEl('div', 'hint', 'No comparison yet: ' + e.message));
+  }}
+}}
+
+async function loadClaudeRows() {{
+  const box = document.getElementById('testbody');
+  box.textContent = '';
+  try {{
+    const d = await j('/api/test/rows');
+    const rows = d.rows || [];
+    if (!rows.length) {{
+      box.appendChild(vEl('div', 'hint',
+        'Nothing yet — run the Claude pipeline first.'));
+      return;
+    }}
+    box.appendChild(vEl('div', 'hint',
+      rows.length + ' panels as Claude read them. These are the same five '
+      + 'columns the board shows.'));
+    rows.slice(0, 200).forEach(function (r) {{
+      const w = vEl('div', 'trow');
+      const h = vEl('div');
+      const a = vEl('a', 'tn', 'row ' + r.n);
+      a.href = 'javascript:void(0)';
+      a.onclick = function () {{ vJumpTo(r.panel_id); }};
+      h.appendChild(a);
+      const t = r.timing || {{}};
+      h.appendChild(vEl('span', 'hint',
+        '  ' + (t.dur ? t.dur + 's' : 'no timing') +
+        (r.placement && r.placement.unit !== null && r.placement.unit !== undefined
+          ? '  ·  unit ' + r.placement.unit : '  ·  no line')));
+      w.appendChild(h);
+      w.appendChild(vEl('div', 'tl', 'ocr'));
+      w.appendChild(vEl('div', null, r.ocr || '(none)'));
+      w.appendChild(vEl('div', 'tl', 'description'));
+      w.appendChild(vEl('div', null, r.desc || '(none)'));
+      if (r.placement && r.placement.text) {{
+        w.appendChild(vEl('div', 'tl', 'script placement'));
+        w.appendChild(vEl('div', null, r.placement.text));
+      }}
+      box.appendChild(w);
+    }});
+  }} catch (e) {{
+    box.appendChild(vEl('div', 'hint', 'Could not load: ' + e.message));
+  }}
+}}
 
 const ING_STAGES = ['scrape','split','describe','narrate','voice','match','segment'];
 let ingestState = null, ingestPolling = false;

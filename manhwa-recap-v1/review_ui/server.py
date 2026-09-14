@@ -2836,10 +2836,31 @@ def jobs_recent(limit: int = 20):
     return {"jobs": recs[:limit]}
 
 
+def _project_label(project_dir):
+    """Series + chapter for a project, read from its own project.json.
+
+    An export is identified by WHAT IT IS — "Overgeared Ch.339" — not by the
+    slug its folder happens to have or the timestamp it happened to be written
+    at. The drawer used to lead with the filename, which is the one string that
+    tells you least about which manhwa you are looking at.
+    """
+    try:
+        with open(os.path.join(project_dir, "project.json"), encoding="utf-8") as f:
+            meta = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {"series": "", "chapter": "", "title": "", "part": ""}
+    series = (meta.get("series") or "").strip()
+    chapter = str(meta.get("chapter") or "").strip()
+    title = series + (f" Ch.{chapter}" if chapter else "")
+    return {"series": series, "chapter": chapter,
+            "title": title or os.path.basename(project_dir.rstrip("/")),
+            "part": str(meta.get("part") or "").strip()}
+
+
 @app.get("/api/exports")
 def list_exports():
-    """Every exported MP4 for the ACTIVE project: name, size, created (ET),
-    duration — the Exports drawer's data source."""
+    """Every exported MP4 for the ACTIVE project: series/chapter, name, size,
+    created (ET), duration — the Exports drawer's data source."""
     import subprocess as sp
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -2847,6 +2868,7 @@ def list_exports():
     active_pid = os.path.basename(active_project_dir().rstrip("/"))
     out = []
     for pid, d in _all_export_dirs():
+        label = _project_label(os.path.dirname(d))
         cache_p = os.path.join(d, ".durations.json")
         try:
             cache = json.load(open(cache_p))
@@ -2873,6 +2895,8 @@ def list_exports():
                 _rs = {"status": "review_pending", "superseded": False}
             out.append({
                 "name": f, "project": pid, "size_mb": round(st.st_size / 1e6, 1),
+                "series": label["series"], "chapter": label["chapter"],
+                "title": label["title"], "part": label["part"],
                 "review_status": _rs.get("status"),
                 "superseded": _rs.get("superseded"),
                 "review_url": f"/review?project={pid}&name={f}",
@@ -3503,6 +3527,123 @@ def get_validation():
                 "model": _validator.MODEL, "effort": _validator.EFFORT}
     return {"report": rep, "model": _validator.MODEL,
             "effort": _validator.EFFORT}
+
+
+# ---- EXPERIMENT: the non-audio pipeline driven by Claude ----------------
+# Isolated on purpose. These routes never write the production
+# descriptions.json / script.json / segments.json — everything the experiment
+# produces lives under <project>/claude_test/, and the board never reads it.
+import claude_pipeline as _ctest
+
+
+def _run_claude_test_job(job_id, pdir, stages, model):
+    j = JOBS[job_id]
+    j["status"] = "running"
+    _persist_job(job_id)
+
+    def progress(msg):
+        j["stage"] = msg
+        j["done"] = min(j.get("done", 0) + 1, j["total"])
+        _persist_job(job_id)
+
+    try:
+        man = _ctest.run(pdir, stages=stages, model=model, progress=progress)
+        j["status"] = "done" if man.get("status") == "ok" else "error"
+        j["error"] = man.get("error")
+        j["stage"] = ("%d panels · %d calls · $%.4f" %
+                      (man.get("panels", 0), man.get("calls", 0),
+                       man.get("cost_usd", 0.0)))
+        j["done"] = j["total"]
+    except Exception as e:
+        j["status"] = "error"
+        j["error"] = str(e)[:500]
+    _persist_job(job_id)
+
+
+@app.get("/api/test/status")
+def claude_test_status():
+    """What the TEST tab needs to decide what it can offer: does this project
+    have a Gemini baseline, has the experiment run, what did it cost."""
+    pdir = active_project_dir()
+    meta = _project_label(pdir)
+    baseline = _ctest.baseline_panels(pdir)
+    man = _ctest.load_manifest(pdir)
+    return {
+        "project": os.path.basename(pdir.rstrip("/")),
+        "title": meta["title"], "series": meta["series"],
+        "chapter": meta["chapter"],
+        "baseline_panels": len(baseline),
+        "has_baseline": bool(baseline),
+        "manifest": man,
+        "has_claude": bool(_ctest.read(pdir, "descriptions.json")),
+        "model": _ctest.MODEL,
+        "key_configured": bool(_validator.api_key()),
+        "stages": list(_ctest.STAGES),
+        "panels_per_call": _ctest.PANELS_PER_CALL,
+    }
+
+
+class ClaudeTestIn(BaseModel):
+    stages: list[str] = list(_ctest.STAGES)
+    model: str | None = None
+
+
+@app.post("/api/test/run")
+def claude_test_run(body: ClaudeTestIn):
+    pdir = active_project_dir()
+    bad = [s for s in body.stages if s not in _ctest.STAGES]
+    if bad:
+        raise HTTPException(400, f"unknown stage(s): {', '.join(bad)}")
+    n = len(_ctest.baseline_panels(pdir))
+    if not n:
+        raise HTTPException(
+            400, "This project has not been ingested, so there are no panel "
+                 "crops to run the experiment on and no baseline to compare "
+                 "against. Ingest the chapter normally first.")
+    job_id = uuid.uuid4().hex[:12]
+    # Progress denominator: one tick per vision batch plus a few for the
+    # script/place/timing stages. Approximate by design — the stage text
+    # carries the truth.
+    steps = -(-n // _ctest.PANELS_PER_CALL) + 3
+    JOBS[job_id] = {"status": "queued", "done": 0, "total": max(1, steps),
+                    "kind": "claude-test", "error": None, "stage": "queued"}
+    threading.Thread(target=_run_claude_test_job,
+                     args=(job_id, pdir, tuple(body.stages), body.model),
+                     daemon=True).start()
+    return {"job": job_id, "panels": n, "stages": body.stages}
+
+
+@app.get("/api/test/rows")
+def claude_test_rows():
+    """The Claude variant as board rows, so the tab can show the five columns
+    exactly as the real board does."""
+    import claude_compare
+    pdir = active_project_dir()
+    try:
+        return {"rows": claude_compare._claude_rows(pdir)}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/test/compare")
+def claude_test_compare():
+    import claude_compare
+    pdir = active_project_dir()
+    try:
+        return claude_compare.compare(pdir, review=load_review())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/test/reset")
+def claude_test_reset():
+    """Throw the experiment away. It is a sidecar, so this cannot touch the
+    production board."""
+    import shutil
+    d = _ctest.out_dir(active_project_dir())
+    if os.path.isdir(d):
+        shutil.rmtree(d)
+    return {"ok": True, "removed": os.path.basename(d)}
 
 
 @app.get("/")

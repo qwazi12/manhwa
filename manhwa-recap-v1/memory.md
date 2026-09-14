@@ -5291,3 +5291,78 @@ no Vercel deploy needed. test_edge_routes still 41/41.
 STILL NOT EXERCISED AGAINST THE LIVE ANTHROPIC API from this machine (no key
 here). All Claude passes are stub-driven. First real run: 'text' mode on ONE
 chapter with the cost header watched.
+
+### Session 29 (cont.) — running indicator, export identity, and the TEST tab
+Three-item batch.
+
+1) CHECKER RUNNING INDICATOR. A run could take a minute and the only sign was
+one line of grey text that looked like every other line of grey text. Now a
+status banner with five states carried by COLOUR and motion, not wording:
+idle / queued / running / done / error. Shows which mode is running, the live
+stage text, and a real progress fraction when the job reports one — with an
+INDETERMINATE sweeping bar when it cannot, so the bar never sits frozen at 0%
+looking stalled. The rail button carries a pulsing dot, so a run is visible
+with the drawer SHUT. The job id is remembered in localStorage and vWatch()
+reattaches on load, so closing the drawer or reloading the page does not make a
+working checker look idle. vSetState() takes a target id + rail tab, so the
+TEST tab reuses it unchanged.
+VERIFIED live through the real lifecycle:
+  queued "Queued — 138 rows to check" -> running "Rule checks (timing,
+  coverage, ordering, credit pages)" -> done "6 finding(s) · $0.0000"
+
+2) EXPORT IDENTITY. /api/exports now carries series/chapter/title/part, read
+from each export's own project.json via _project_label(). The drawer leads with
+the SERIES at weight 800 plus a chapter badge; the filename drops to a 10px
+metadata line and the timestamp sits with it. The filename and the timestamp
+are the two strings that say least about which manhwa an export is.
+VERIFIED live: title "Swordmasters Youngest Son", badge "Ch.1", filename
+demoted to 10px.
+
+3) TEST TAB — Claude instead of Gemini for the whole NON-AUDIO chain.
+claude_pipeline.py (NEW): describe (OCR + description + CROP BOX per panel,
+several images per vision call), script (narration units), place (line->panel
+fit AND story sequencing), timing (proposed duration + camera move).
+claude_compare.py (NEW): the side-by-side.
+
+ISOLATION IS THE POINT: everything lands in <project>/claude_test/. The
+production descriptions.json / script.json / segments.json are never opened for
+writing. The test hashes all three before and after every run and fails on a
+single changed byte. Reset deletes the sidecar.
+
+FAIRNESS: both variants work from the SAME crops. Scrape and split are shared
+infrastructure, not Gemini judgements, so the only variable is who made the
+decisions. Requires the chapter to be ingested normally first — that produces
+both the crops and the baseline.
+
+HONESTY OF THE COMPARISON (the part worth protecting): there is no ground truth
+for a scraped chapter, so each metric declares a `direction`. lower_better /
+higher_better get a computed verdict; NEUTRAL metrics report both numbers and
+NAME NO WINNER, with a note saying what a human would have to look at. "OCR
+characters per panel" cannot crown a winner without inventing a result. The
+checker is reused as the measuring instrument — validator.rule_findings runs
+over BOTH variants with identical rules, so findings counts are like for like.
+Also emits a disagreement shortlist (worst agreement first) — the panels a human
+should actually open.
+
+Two kinds of failure, deliberately different: PRE-FLIGHT refusals (not
+ingested, past the panel cap) RAISE, because nothing has been spent yet;
+MID-RUN failures return an error manifest, because work has already been paid
+for and must not be thrown away.
+
+BLOCKER, STATED NOT WORKED AROUND: Overgeared Ch.339 was NOT run. This machine
+has no CLAUDE_API_KEY (it lives on Railway) and Overgeared is not ingested here
+— so there is neither a Claude half nor a baseline half to compare. I did NOT
+fabricate a comparison. /api/test/status reports key_configured and
+has_baseline, and the tab shows "NO CLAUDE KEY on this server" in red. On
+Railway the key exists: ingest Overgeared 339 normally, open TEST, Run.
+
+Tests: 22 files, 0 failing. test_claude_experiment 56 (NEW),
+test_review 58 -> 77. Baseline green and untouched: seo 159, thumbnail_studio
+103, thumbnail 35, publish_prep 47, outstand 112, storyboard_edit 55.
+
+CLEANUP NOTE: to verify the export rendering with no exports on disk I created
+a probe MP4 in the project's exports/ dir, then removed the whole dir — which
+also removed a pre-existing concat.txt and .durations.json. Both are
+regenerated: active_exports_dir() does makedirs(exist_ok=True) and concat.txt
+is rewritten per export (server.py:518). projects/ is gitignored, so nothing
+tracked was lost. No real export was deleted (there were none).
