@@ -342,6 +342,28 @@ def main():
         check("comparing with no experiment output is refused",
               "not produced" in str(e))
 
+    # ============================== resume after an interrupted run
+    # A real deploy restarted the container 4 batches into a 21-batch chapter
+    # and the first version threw all four away, because it only wrote results
+    # once every batch had finished. Batches are now checkpointed.
+    CP.run(pdir)                                   # a complete run
+    full = CP.read(pdir, "descriptions.json")
+    # Simulate an interruption: only the first two panels survived.
+    CP._write(pdir, "descriptions.json", full[:2])
+    stub.messages.calls.clear()
+    CP.run(pdir, stages=("describe",))
+    after_resume = CP.read(pdir, "descriptions.json")
+    check("an interrupted run resumes instead of starting over",
+          len(after_resume) == len(full))
+    check("...without paying again for the panels already read",
+          all(not any(b.get("text", "").startswith("PANEL 1:")
+                      for b in c["messages"][0]["content"]
+                      if isinstance(b, dict))
+              for c in stub.messages.calls))
+    check("...and the resumed run says how many it skipped",
+          CP.load_manifest(pdir)["passes"]["describe"].get("resumed") == 2)
+    CP.run(pdir)                                   # restore a full run
+
     # ============================== promote: make it actually watchable
     # The comparison answers "did Claude decide better". It cannot answer "is
     # this any good to watch", because a sidecar has no audio and no segments.

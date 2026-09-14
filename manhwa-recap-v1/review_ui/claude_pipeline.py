@@ -231,13 +231,25 @@ def _clean_crop(box):
     return [round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4)]
 
 
-def describe(pdir, panels, model=MODEL, progress=None):
-    """Claude replaces OCR + description + crop choice, several panels a call."""
+def describe(pdir, panels, model=MODEL, progress=None, on_batch=None,
+             skip=frozenset()):
+    """Claude replaces OCR + description + crop choice, several panels a call.
+
+    CHECKPOINTED AFTER EVERY BATCH. A 123-panel chapter is 21 vision calls, and
+    the first version only wrote its results once all 21 had finished — so a
+    container restart mid-run (a deploy, an env change) threw away everything
+    already paid for. `on_batch` persists what is done so far, and `skip` lets a
+    re-run resume instead of starting over.
+    """
     client = validator._client()
     tally = _Tally()
     out = []
-    batches = [panels[i:i + PANELS_PER_CALL]
-               for i in range(0, len(panels), PANELS_PER_CALL)]
+    todo = [p for p in panels if p["panel_id"] not in skip]
+    if progress and skip:
+        progress(f"Resuming — {len(skip)} panels already read, "
+                 f"{len(todo)} to go")
+    batches = [todo[i:i + PANELS_PER_CALL]
+               for i in range(0, len(todo), PANELS_PER_CALL)]
 
     for bi, batch in enumerate(batches, start=1):
         if progress:
@@ -282,9 +294,12 @@ def describe(pdir, panels, model=MODEL, progress=None):
                 "importance": int(item.get("importance") or 3),
                 "source": "claude", "ok": True,
             })
+        if on_batch:
+            on_batch(out)          # survive a restart mid-chapter
 
     out.sort(key=lambda r: r["n"])
-    return out, tally.stats(batches=len(batches), panels=len(out))
+    return out, tally.stats(batches=len(batches), panels=len(out),
+                            resumed=len(skip))
 
 
 # ------------------------------------------------- stage 2: write the script
@@ -642,10 +657,23 @@ def run(pdir, stages=STAGES, model=None, progress=None):
 
     try:
         if "describe" in stages:
-            descs, st = describe(pdir, panels, model=model, progress=progress)
-            if not descs:
+            # Anything a previous (possibly interrupted) run already read is
+            # kept and not paid for twice.
+            prior = read(pdir, "descriptions.json", []) or []
+            prior = [d for d in prior if d.get("visual_description")]
+            done_ids = {d["panel_id"] for d in prior}
+
+            def _checkpoint(partial):
+                merged = prior + [d for d in partial
+                                  if d["panel_id"] not in done_ids]
+                merged.sort(key=lambda r: r.get("n", 0))
+                _write(pdir, "descriptions.json", merged)
+
+            fresh, st = describe(pdir, panels, model=model, progress=progress,
+                                 on_batch=_checkpoint, skip=done_ids)
+            _checkpoint(fresh)
+            if not read(pdir, "descriptions.json"):
                 raise PipelineError("Claude returned no panel readings.")
-            _write(pdir, "descriptions.json", descs)
             _absorb("describe", st)
         descs = read(pdir, "descriptions.json", [])
         if not descs:
