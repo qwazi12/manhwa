@@ -5483,3 +5483,61 @@ RAW box is measured first.
 Tests: 23 files, 0 failing. test_claude_plus.py NEW (67). Baseline untouched and
 green: seo 159, thumbnail_studio 103, publish_prep 47, outstand 112,
 storyboard_edit 55, review 79.
+
+### Session 29 (cont.) — CLAUDE+ RUN ON OVERGEARED 339: the metrics were invalid
+Ran the full Claude+ pipeline, fresh, on the same chapter as the old lab run.
+164 panels · 14 scenes · 104 beats · 89 segments · 134 calls · $4.36 · 16.5 min.
+
+THE HEADLINE FINDING — CRITERIA 1 AND 2 MOVED, AND BOTH ARE ARTIFACTS.
+  findings   52 -> 14      rows clean   49.0% -> 91.5%
+Every one of the 14 findings is category 'coverage', and there are exactly 14
+narration units. The old run: 52 findings, 52 units. The coverage rule fires
+once per unit whose panels are not TICKED — and segments are born unticked, so
+it fires on every unit of any un-reviewed project.
+Verified arithmetically: (102-52)/102 = 49.0% and (164-14)/164 = 91.5%, both
+matching the reported numbers to the decimal.
+=> The rule pass found ZERO issues of any other kind in EITHER run. The "drop"
+is just "fewer units". These two metrics cannot measure output quality on an
+unticked project and must not be quoted as if they did.
+
+CRITERION 3 — the output genuinely IS better, and this one is real:
+  action-verb opener   0% -> 98%      (the ported contract actually binds)
+  framing-word opener  15 -> 1
+  over 50 words         1 -> 0
+Read side by side: more specific (a "glowing blue delivery-menu flyer" became a
+holographic menu with clothing and shot type), and it STOPPED INVENTING NAMES —
+the old run labelled a back-of-shoulder shot with a character name; the new one
+describes only what is visible.
+Neither run had quoted dialogue or panel/camera language, so those rules were
+already being followed and show no delta.
+
+REGRESSION FOUND: the forced -ing opener is wrong for static panels. On a
+credits card it produced "Displaying a chapter title card..."; on a text-only
+panel, "Declaring in a spiky burst bubble, the line floats over..." — a dangling
+participle. Production has the same rule but filters these panels earlier.
+
+COUNTER-INTENDED: total narration FELL 1124 -> 888 words despite 60% more
+panels (25 blocks of mean 36 words vs 45 blocks of mean 25). The change meant
+to reduce over-compression compressed MORE.
+
+DENSE ALLOWANCE TOO LOOSE: granted on 6 of 14 scenes, every grant landing on
+the 320 hard cap. With 16-20 panels per scene the base is always capped at 220,
+so the allowance has become a higher flat cap rather than a discriminator.
+
+WHAT WORKED, evidenced: split coverage mean 0.98 / min 0.874 with 0 retries and
+0 fallbacks, 61 blank crops dropped, 102 -> 164 panels (tall-panel splitting);
+critique caught 6 issues (5 hallucination, 1 misorder) and revised 6 units;
+placement monotonic with 0 inversions and 0 provenance escapes (grouping was
+sound); crop ran AFTER placement on 89 panels, 60.7% left full-frame.
+Also: 11 over-holds past the 12s cap, 12 ambiguous pairs, 10 low-confidence OCR.
+
+VERDICT under the owner's own rule: this is the "moves 3 but not 1" case —
+THE CHECKER IS MEASURING THE WRONG THINGS. Not yet a case for benchmarking
+against Gemini production.
+
+NEXT, in order:
+1. Fix the coverage rule to not fire on an un-reviewed project (or measure on a
+   ticked one), then re-measure 1 and 2. Until then those numbers are noise.
+2. Exempt static/text/credits panels from the action-verb opener rule.
+3. Tighten the dense allowance — it fires on nearly every large scene.
+4. Investigate why narration shrank; the budget may be being under-spent.
