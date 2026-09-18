@@ -5802,10 +5802,16 @@ copied boilerplate; they are real. Total addressable backlog **1610 chapters**,
 of which **405 across 5 WEBTOON titles were uningestable before this change**.
 
 **Pending / next:**
-- A second Railway deployment (`3efd958d`, auto-triggered by the GitHub push
-  alongside the manual `railway up`) sat in INITIALIZING; `17a672ce` is the one
-  serving. Worth confirming only one deploy path stays wired, so a push does
-  not race a manual `railway up` again.
+- **Deploy path races.** Three deployments came out of this one change:
+  `17a672ce` (manual `railway up`), `3efd958d` (GitHub auto-deploy of the same
+  push), and `ec59e280` (auto-deploy of the docs commit). The first two are now
+  REMOVED; **`ec59e280` is the deployment actually serving**, re-verified after
+  the swap: 14 series intact, all ingestable, Fog Land's cached 38 chapters
+  still present (so the store is on the Railway volume, not container disk),
+  tiers 6/4/4, `/health` and `/api/tracker` 200. Both a push AND `railway up`
+  trigger a deploy — worth wiring only one, so they stop racing. The earlier
+  note in this log naming `17a672ce` as serving was correct when written and is
+  superseded by this line.
 - Chapter-range / bulk queueing from the watchlist (today it is one chapter per
   click; the New-chapters view still owns multi-select queueing).
 - WEBTOON episode counts are INFERRED from the highest `episode_no` (the list
