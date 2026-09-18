@@ -5785,3 +5785,28 @@ treated as a comparable score. Tier is the more honest field.
 indirection — kept its intent (no tab may strand on "loading…") and made it
 stricter by requiring BOTH views to have a loader. Full suite: **26 suites,
 0 failures.**
+
+**Deployed + live-verified (2026-09-17).** Commit `530d9e6`, Railway deployment
+`17a672ce` = SUCCESS. Verified against
+`https://recap-studio-production.up.railway.app`:
+- `/health` 200 · `/api/watchlist` 200 · `/api/tracker` 200 (untouched)
+- `POST /api/watchlist/seed` → **14 added, 0 skipped**, all 14 `ingestable`
+- `GET /api/watchlist/chapters` live per source: **Fog Land (WEBTOON) 38
+  chapters**, **Murim Psychopath (Asura) 44 chapters, latest 43**
+- Locally via TestClient: duplicate mirror → **409**, malformed URL → **400**
+- Rendered board page: every watchlist element present, `node --check` PASS
+
+*Mirror probe, all 14 seeded URLs resolved with distinct chapter counts* —
+checked because the Asura slugs share a `-6f7fe6eb` suffix and could have been
+copied boilerplate; they are real. Total addressable backlog **1610 chapters**,
+of which **405 across 5 WEBTOON titles were uningestable before this change**.
+
+**Pending / next:**
+- A second Railway deployment (`3efd958d`, auto-triggered by the GitHub push
+  alongside the manual `railway up`) sat in INITIALIZING; `17a672ce` is the one
+  serving. Worth confirming only one deploy path stays wired, so a push does
+  not race a manual `railway up` again.
+- Chapter-range / bulk queueing from the watchlist (today it is one chapter per
+  click; the New-chapters view still owns multi-select queueing).
+- WEBTOON episode counts are INFERRED from the highest `episode_no` (the list
+  page paginates). A series with unpublished gaps would be over-reported.
