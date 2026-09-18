@@ -3326,6 +3326,195 @@ def api_tracker_untrack(body: UntrackIn):
     return _trk.build(_ing.list_projects(), _ing.PROJECTS)
 
 
+# ===================================================================
+# WATCHLIST — canonical series, mirrors, and chapter-level ingest.
+#
+# The tracker answers "what is new in what I already own". These routes
+# answer the question that comes BEFORE money is spent: what should we make
+# next, where can it be read, and which chapter do we pull. The two coexist;
+# nothing below changes /api/tracker.
+# ===================================================================
+def _wl_root():
+    import ingest as _ing
+    return _ing.PROJECTS
+
+
+def _wl_view():
+    import ingest as _ing
+    import watchlist as _wl
+    return _wl.view(_wl_root(), _ing.list_projects())
+
+
+class WLSeriesIn(BaseModel):
+    title: str
+    url: str = ""
+    tier: str = "watchlist"
+    rank: int | None = None
+    aliases: list[str] | None = None
+    keywords: list[str] | None = None
+    notes: str = ""
+
+
+class WLMirrorIn(BaseModel):
+    series_id: str
+    url: str
+
+
+class WLPrefIn(BaseModel):
+    series_id: str
+    series_key: str
+
+
+class WLUpdateIn(BaseModel):
+    series_id: str
+    title: str | None = None
+    tier: str | None = None
+    rank: int | None = None
+    notes: str | None = None
+    aliases: list[str] | None = None
+    keywords: list[str] | None = None
+
+
+class WLIngestIn(BaseModel):
+    series_id: str
+    series_key: str
+    chapter: str
+    fresh: bool = False
+    queue: bool = True
+
+
+@app.get("/api/watchlist")
+def api_watchlist():
+    return _wl_view()
+
+
+@app.post("/api/watchlist/seed")
+def api_watchlist_seed():
+    """Load the owner's demand research. Idempotent — an existing series keeps
+    whatever has since been edited about it."""
+    import watchlist as _wl
+    res = _wl.seed(_wl_root())
+    return {"seeded": res, "watchlist": _wl_view()}
+
+
+@app.post("/api/watchlist/series")
+def api_watchlist_add(body: WLSeriesIn):
+    """Add a title BEFORE anything is ingested — the whole point of a
+    watchlist. A source URL is optional; a title with no mirror yet is a
+    legitimate state (we want it, we have not found where to read it)."""
+    import watchlist as _wl
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(400, "a title is required")
+    s = _wl.add_series(_wl_root(), title, aliases=body.aliases,
+                       tier=body.tier, rank=body.rank,
+                       keywords=body.keywords, notes=body.notes)
+    url = (body.url or "").strip()
+    if url:
+        try:
+            _wl.add_mirror(_wl_root(), s["id"], url)
+        except _wl.WatchlistError as e:
+            raise HTTPException(409, str(e))
+    return {"series_id": s["id"], "watchlist": _wl_view()}
+
+
+@app.post("/api/watchlist/mirror")
+def api_watchlist_mirror(body: WLMirrorIn):
+    """Attach another place the same story can be read."""
+    import watchlist as _wl
+    url = (body.url or "").strip()
+    if not re.match(r"^https?://", url):
+        raise HTTPException(400, "paste a full series URL (http/https)")
+    try:
+        m = _wl.add_mirror(_wl_root(), body.series_id, url)
+    except _wl.WatchlistError as e:
+        raise HTTPException(409, str(e))
+    return {"mirror": m, "watchlist": _wl_view()}
+
+
+@app.post("/api/watchlist/preferred")
+def api_watchlist_preferred(body: WLPrefIn):
+    import watchlist as _wl
+    try:
+        _wl.set_preferred(_wl_root(), body.series_id, body.series_key)
+    except _wl.WatchlistError as e:
+        raise HTTPException(400, str(e))
+    return _wl_view()
+
+
+@app.post("/api/watchlist/update")
+def api_watchlist_update(body: WLUpdateIn):
+    import watchlist as _wl
+    try:
+        _wl.update_series(_wl_root(), body.series_id, title=body.title,
+                          tier=body.tier, rank=body.rank, notes=body.notes,
+                          aliases=body.aliases, keywords=body.keywords)
+    except _wl.WatchlistError as e:
+        raise HTTPException(404, str(e))
+    return _wl_view()
+
+
+@app.post("/api/watchlist/remove")
+def api_watchlist_remove(body: WLPrefIn):
+    """Drop a title from the watchlist. Never touches ingested project data —
+    same rule as untrack."""
+    import watchlist as _wl
+    _wl.remove_series(_wl_root(), body.series_id)
+    return _wl_view()
+
+
+@app.get("/api/watchlist/chapters")
+def api_watchlist_chapters(series_id: str, series_key: str, refresh: int = 0):
+    """What this mirror has, with what we already hold marked.
+
+    A refresh that FAILS reports the error instead of an empty list — the
+    tracker's lesson: silence must never render as 'no chapters'.
+    """
+    import watchlist as _wl
+    data = _wl.load(_wl_root())
+    s = _wl.find(data, series_id)
+    if s is None:
+        raise HTTPException(404, "not on the watchlist")
+    m = next((x for x in s["mirrors"] if x["series_key"] == series_key), None)
+    if m is None:
+        raise HTTPException(404, "that mirror is not attached to this series")
+    if refresh or m.get("status") == "unchecked":
+        m = _wl.refresh_mirror(_wl_root(), series_id, series_key)
+    have = set()
+    view = next((v for v in _wl_view()["series"] if v["id"] == series_id), {})
+    for vm in view.get("mirrors", []):
+        for c in vm.get("ingested", []):
+            have.add(str(c["chapter"]))
+    return {"source": m["source"], "label": m["label"], "status": m["status"],
+            "error": m["error"], "last_checked": m["last_checked"],
+            "support": m["support"],
+            "chapters": [{"id": c, "ingested": str(c) in have}
+                         for c in m.get("chapters", [])]}
+
+
+@app.post("/api/watchlist/ingest")
+def api_watchlist_ingest(body: WLIngestIn):
+    """Ingest one chapter from one mirror of one canonical series.
+
+    This is the join between planning and the existing pipeline: the provider
+    builds the chapter URL, then the ORIGINAL /api/ingest path runs unchanged,
+    so cost guardrails, dedupe and queueing all still apply.
+    """
+    import watchlist as _wl
+    data = _wl.load(_wl_root())
+    s = _wl.find(data, body.series_id)
+    if s is None:
+        raise HTTPException(404, "not on the watchlist")
+    try:
+        url = _wl.chapter_url(s, body.series_key, body.chapter)
+    except _wl.WatchlistError as e:
+        raise HTTPException(400, str(e))
+    if not url:
+        raise HTTPException(400, "this source cannot build a chapter URL yet")
+    res = start_ingest(IngestIn(url=url, fresh=body.fresh, queue=body.queue))
+    return dict(res, url=url, title=s["title"], chapter=body.chapter)
+
+
 @app.post("/api/activate")
 def activate_project(body: ActivateIn):
     """Point the studio at an ingested project: load its segments + audio."""

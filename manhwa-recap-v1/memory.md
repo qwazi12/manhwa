@@ -5695,3 +5695,93 @@ seo 159, thumbnail_studio 103, publish_prep 47, outstand 112).
 
 NOT VERIFIED ON OUTPUT: no paid chapter was re-run. Whether folding actually
 drops and crops actually improve on a real chapter needs one run to confirm.
+
+### 2026-09-17 — Source-agnostic canonical series + mirrors + providers; WEBTOON support; real watchlist
+
+**Why.** The tracker was never a watchlist. `tracker.build(projects, …)` groups
+ALREADY-INGESTED projects, so a title could not appear until money had been
+spent on it. Worse, series identity WAS a site URL, so one story on two sites
+was two unrelated rows, and a story on an unrecognised site was no row at all.
+
+**Confirmed against source before building (all seven findings held):**
+- `tracker.series_page_url()` returns `None` for WEBTOON.
+- `ingest.parse_series_chapter()` on a WEBTOON episode URL returned
+  `('episode-1', 'viewer?title_no=5988&episode_no=1')` → project id
+  `episode-1_viewer-title_no-5988-episode_no-1`. No error — just nonsense,
+  the worst failure mode available.
+- `tracker.chapter_numbers()` greps `/chapter/(\d+)` — Asura-specific.
+- grep for "webtoon" across the repo: no handling anywhere.
+
+**New — `review_ui/providers.py`.** `Provider` base + `AsuraProvider` (the
+exact existing regexes, behaviour unchanged), `WebtoonProvider`,
+`GenericProvider`. `REGISTRY = [WEBTOON, ASURA, GENERIC]`. Every provider
+declares a support level (SUPPORTED/PARTIAL/FALLBACK/UNSUPPORTED) so the UI can
+say "partial" instead of half-working.
+
+*Verified live:* Asura 44 chapters; WEBTOON 129 episodes; all four WEBTOON URL
+forms (list / viewer / mobile / different genre path) collapse to
+`webtoon:5988`.
+
+**WEBTOON extraction bug found and fixed.** First extraction: 1027 raw images →
+**1 page**, from `webtoons-static.pstatic.net`. Root cause: the generic
+extractor keeps images from whichever DIRECTORY appears most, and on WEBTOON
+that rule inverts — each strip slice sits in its own dated CDN folder while
+~500 UI assets share one. Fixed with a WEBTOON-specific extractor keyed on
+`<img class="_images" data-url="…">`.
+*Verified:* Stellar Swordmaster ep1 = **242 pages**, Extra's Academy ep1 =
+**53 pages**, all on `webtoon-phinf.pstatic.net`, quality=True.
+
+**New — `review_ui/watchlist.py`.** Separates the two ideas that were fused:
+CANONICAL SERIES (one story, once — exists before anything is ingested) and
+MIRROR (one place to read it; a series may have several). `add_mirror` refuses
+to attach one source to two different stories — that is the duplicate identity
+the layer exists to prevent, so it errors rather than silently forking.
+`refresh_mirror` keeps "could not check" distinct from "has nothing" (the
+tracker's own lesson). Ingest history is credited by provider series key, so a
+chapter pulled from either mirror counts toward the one story.
+
+**Bug found while testing, fixed:** `has_new` compared COUNTS
+(`len(done) < latest`), so holding chapters 1, 2 and 7 of a 3-chapter series
+reported "up to date" while chapter 3 had never been made. Now a set
+difference: `unmade = known - done`, plus a `checked` flag so an
+unrefreshed title says "not checked yet" instead of claiming to be current.
+The UI takes `unmade_count` from the server rather than recomputing the same
+flawed subtraction.
+
+**Bug found while wiring routes, fixed:** `add_series` never persisted when it
+loaded its own store (only `seed()` batched a save), so a title added through
+the API would vanish. Now saves when it owns the load.
+
+**Ingest is mirror-aware.** `parse_series_chapter` gives providers first
+refusal; the Asura path below is untouched. WEBTOON now yields
+`('the-stellar-swordmaster-5988', '7')` → project id
+`the-stellar-swordmaster-5988_7`.
+
+**Server routes** (`server.py`): `/api/watchlist` (view), `/seed`, `/series`,
+`/mirror`, `/preferred`, `/update`, `/remove`, `/chapters`, `/ingest`. The
+ingest route builds the chapter URL from the provider then calls the ORIGINAL
+`start_ingest` path unchanged — so cost guardrails, dedupe and queueing all
+still apply. `/api/tracker` is untouched.
+
+**UI** (`storyboard.py`): Tracker drawer is now a two-view console —
+**Watchlist** (add titles before ingestion, tier/source/ingestable filters,
+search across title+aliases+keywords, sort by tier/backlog/unmade/title,
+per-mirror support badges, chapter picker with jump-to-# and ingested marks)
+and **New chapters** (the existing view, unchanged). Chapter ingest hands off
+to the SAME ingest console the manual path uses — one place to watch a run.
+
+**Seeded the 14 researched titles** with tiers, ranks, aliases, keywords and
+their Asura/WEBTOON mirrors. All 14 resolve to `supported` and ingestable —
+including the five WEBTOON titles that were previously untrackable. Seeding is
+idempotent and an owner's edit survives a re-seed (verified).
+
+*Caveat recorded in code:* the ranks came from two DIFFERENT signals — official
+WEBTOON reads for the WEBTOON titles, YouTube recap traffic for the Asura ones.
+Those measure different markets, so `rank` is kept as the owner's ordering, not
+treated as a comparable score. Tier is the more honest field.
+
+**Tests:** new `test_providers.py` (33) and `test_watchlist.py` (39).
+`test_review.py`'s drawer-wiring assertion followed the new `trkTab`
+indirection — kept its intent (no tab may strand on "loading…") and made it
+stricter by requiring BOTH views to have a loader. Full suite: **26 suites,
+0 failures.**

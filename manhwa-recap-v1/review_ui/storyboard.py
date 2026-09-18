@@ -812,7 +812,54 @@ a {{ color:var(--accent); }}
   <div id="projlist" class="hint">loading…</div>
 </div>
 <div class="drawer" id="d_tracker">
-  <h3>NEW CHAPTERS</h3>
+  <h3>TRACKER</h3>
+  <div style="display:flex;gap:6px;margin-bottom:10px">
+    <button id="tkw" class="mini" onclick="trkTab('watch')">Watchlist</button>
+    <button id="tkn" class="mini" onclick="trkTab('new')">New chapters</button>
+  </div>
+
+  <!-- ============ WATCHLIST: what to make next, before any money is spent -->
+  <div id="trk_watch">
+    <div class="hint" style="margin-bottom:8px">One row per story, however many sites carry it.
+    Add a title here <em>before</em> ingesting it, then pick a source and a chapter.</div>
+    <details style="margin-bottom:8px">
+      <summary class="mini" style="cursor:pointer">+ add a title</summary>
+      <div style="display:flex;flex-direction:column;gap:5px;margin-top:6px">
+        <input id="wlTitle" placeholder="Title (e.g. The Stellar Swordmaster)">
+        <input id="wlUrl" placeholder="Series URL (optional — any supported site)">
+        <div style="display:flex;gap:5px">
+          <select id="wlTier" style="flex:1">
+            <option value="greenlight">Greenlight now</option>
+            <option value="high_upside">High-upside secondary</option>
+            <option value="watchlist" selected>Watchlist</option>
+          </select>
+          <button class="primary" onclick="wlAdd()">Add</button>
+        </div>
+        <div class="hint" style="font-size:11px">A title with no source yet is fine — that is
+        "we want this, we have not found where to read it".</div>
+      </div>
+    </details>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;font-size:12px">
+      <input id="wlQ" placeholder="search title / alias / keyword" style="flex:1;min-width:130px"
+             oninput="wlRender()">
+      <select id="wlTierF" onchange="wlRender()" title="tier">
+        <option value="">all tiers</option><option value="greenlight">greenlight</option>
+        <option value="high_upside">high-upside</option><option value="watchlist">watchlist</option>
+      </select>
+      <select id="wlSrcF" onchange="wlRender()" title="source"><option value="">all sources</option></select>
+      <select id="wlSort" onchange="wlRender()" title="sort">
+        <option value="tier">by tier</option><option value="backlog">by backlog</option>
+        <option value="new">by unmade chapters</option><option value="title">by title</option>
+      </select>
+      <label class="hint" style="display:inline-flex;gap:3px;align-items:center;cursor:pointer">
+        <input type="checkbox" id="wlOnlyIng" onchange="wlRender()"> ingestable only</label>
+      <button class="mini" onclick="wlSeed()" title="load the demand research as a starting watchlist">⤓ seed research</button>
+    </div>
+    <div id="wllist" class="hint">loading…</div>
+  </div>
+
+  <!-- ============ NEW CHAPTERS: what is new in what we already own -->
+  <div id="trk_new" style="display:none">
   <div class="hint" style="margin-bottom:8px">What the source has published since you last ingested each series.
   Checked at most twice an hour — press refresh to look again.</div>
   <button style="width:100%;margin-bottom:8px" onclick="loadTracker(1)">↻ Check for new chapters now</button>
@@ -822,6 +869,7 @@ a {{ color:var(--accent); }}
     <span class="hint">queued chapters run one at a time</span>
   </div>
   <div id="trackerlist" class="hint">loading…</div>
+  </div>
 </div>
 <div class="drawer" id="d_exports">
   <h3>EXPORTS — final videos</h3>
@@ -1234,7 +1282,7 @@ function toggleDrawer(name) {{
     if (btn) btn.classList.toggle('active', show);
   }}
   if (name === 'projects') loadProjects();
-  if (name === 'tracker') loadTracker(0);
+  if (name === 'tracker') trkTab('watch');   // planning first; 'New chapters' is a click away
   if (name === 'logs') loadLogs();
   if (name === 'exports') loadExports();
   if (name === 'validate') loadValidation();
@@ -2129,6 +2177,221 @@ async function delProject(id) {{
     loadProjects();
   }} catch (e) {{ alert('Delete failed: ' + (e.message || e)); }}
 }}
+// ================= WATCHLIST =================
+// The planning layer. loadTracker() below is the library layer and is
+// untouched: it answers "what is new in what I own", this answers "what
+// should I make next, and where can it be read".
+var WL = {{series: []}};
+var WLCH = {{}};      // series_id -> {{series_key: chapter payload}}
+
+function trkTab(which) {{
+  const w = which === 'watch';
+  document.getElementById('trk_watch').style.display = w ? '' : 'none';
+  document.getElementById('trk_new').style.display = w ? 'none' : '';
+  document.getElementById('tkw').className = 'mini' + (w ? ' primary' : '');
+  document.getElementById('tkn').className = 'mini' + (w ? '' : ' primary');
+  if (w) {{ if (!WL.series.length) wlLoad(); }} else loadTracker(0);
+}}
+
+async function wlLoad() {{
+  const box = document.getElementById('wllist');
+  try {{
+    WL = await j('/api/watchlist');
+    const srcs = new Set();
+    WL.series.forEach(sx => (sx.mirrors || []).forEach(m => srcs.add(m.source)));
+    const sel = document.getElementById('wlSrcF');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">all sources</option>' +
+      Array.from(srcs).sort().map(x => `<option value="${{x}}">${{x}}</option>`).join('');
+    sel.value = cur;
+    wlRender();
+  }} catch (e) {{ box.innerHTML = 'Failed to load the watchlist: ' + (e.message || e); }}
+}}
+
+function _supBadge(level) {{
+  // Honest about what each source can actually do, so nothing silently
+  // half-works the way a WEBTOON URL used to.
+  const map = {{supported: ['var(--ok)', 'full support'],
+                partial: ['var(--warn)', 'partial — chapter list may be incomplete'],
+                fallback: ['var(--warn)', 'generic fallback — may not extract cleanly'],
+                unsupported: ['var(--bad)', 'no reader for this site yet']}};
+  const [c, t] = map[level] || ['var(--bad)', level];
+  return `<span title="${{t}}" style="color:${{c}};font-size:11px">●&nbsp;${{level}}</span>`;
+}}
+
+function wlRender() {{
+  const box = document.getElementById('wllist');
+  const q = (document.getElementById('wlQ').value || '').toLowerCase().trim();
+  const tier = document.getElementById('wlTierF').value;
+  const src = document.getElementById('wlSrcF').value;
+  const sort = document.getElementById('wlSort').value;
+  const onlyIng = document.getElementById('wlOnlyIng').checked;
+
+  let rows = (WL.series || []).filter(sx => {{
+    if (tier && sx.tier !== tier) return false;
+    if (onlyIng && !sx.ingestable) return false;
+    if (src && !(sx.mirrors || []).some(m => m.source === src)) return false;
+    if (!q) return true;
+    const hay = [sx.title, ...(sx.aliases || []), ...(sx.keywords || [])].join(' ').toLowerCase();
+    return hay.indexOf(q) >= 0;
+  }});
+  if (sort === 'backlog') rows.sort((a, b) => (b.backlog || 0) - (a.backlog || 0));
+  else if (sort === 'new') rows.sort((a, b) => (b.unmade_count || 0) - (a.unmade_count || 0));
+  else if (sort === 'title') rows.sort((a, b) => a.title.localeCompare(b.title));
+
+  if (!rows.length) {{
+    box.innerHTML = (WL.series || []).length
+      ? 'Nothing matches those filters.'
+      : 'Nothing on the watchlist yet — add a title above, or seed the research.';
+    return;
+  }}
+  const tcol = {{greenlight: 'var(--ok)', high_upside: 'var(--warn)', watchlist: 'var(--fg2)'}};
+  box.innerHTML = rows.map(sx => {{
+    // Comes from the server as a SET difference, not backlog minus count —
+    // subtracting counts reports "up to date" while a middle chapter is
+    // missing. Never recompute it here.
+    const unmade = sx.unmade_count || 0;
+    const mirrors = (sx.mirrors || []).map(m => {{
+      const pref = m.series_key === sx.preferred_mirror;
+      return `<div style="display:flex;gap:6px;align-items:center;padding:3px 0;flex-wrap:wrap">
+        <span style="font-weight:600">${{m.label}}</span>
+        ${{_supBadge(m.support)}}
+        <span class="hint" style="font-size:11px">${{m.status === 'ok'
+            ? (m.chapter_count + ' chapters · latest ' + (m.latest || '?'))
+            : (m.status === 'error' ? '⚠ could not check' : 'not checked yet')}}</span>
+        ${{pref ? '<span class="hint" style="font-size:11px">★ preferred</span>'
+                : `<button class="mini" onclick="wlPrefer('${{sx.id}}','${{m.series_key}}')">set preferred</button>`}}
+        <button class="mini" onclick="wlChapters('${{sx.id}}','${{m.series_key}}',0)">chapters</button>
+        <button class="mini" onclick="wlChapters('${{sx.id}}','${{m.series_key}}',1)" title="re-check this source now">↻</button>
+        ${{m.error ? `<div class="hint" style="color:var(--bad);font-size:11px;width:100%">${{m.error}}</div>` : ''}}
+      </div>`;
+    }}).join('') || '<div class="hint" style="font-size:11px">No source attached yet.</div>';
+
+    return `<div style="border-bottom:1px solid var(--rule);padding:8px 0">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <div style="font-weight:700;flex:1">${{sx.title}}</div>
+        <span style="color:${{tcol[sx.tier] || 'var(--fg2)'}};font-size:11px">${{sx.tier_label}}</span>
+        <button class="mini danger" onclick="wlRemove('${{sx.id}}','${{(sx.title||'').replace(/'/g,'')}}')"
+          title="remove from the watchlist — ingested chapters and exports are NOT deleted">🗑</button>
+      </div>
+      ${{(sx.aliases || []).length ? `<div class="hint" style="font-size:11px">also: ${{sx.aliases.join(' · ')}}</div>` : ''}}
+      <div class="hint" style="font-size:11px">${{sx.ingested_count}} ingested${{sx.backlog ? ' of ' + sx.backlog : ''}}${{unmade ? ' · ' + unmade + ' unmade' : ''}}${{sx.checked ? '' : ' · not checked yet'}} · ${{sx.mirror_count}} source${{sx.mirror_count === 1 ? '' : 's'}}</div>
+      <div style="margin-top:4px">${{mirrors}}</div>
+      <div id="wlch_${{sx.id}}"></div>
+      <details style="margin-top:4px"><summary class="hint" style="cursor:pointer;font-size:11px">+ another source for this story</summary>
+        <div style="display:flex;gap:5px;margin-top:5px">
+          <input id="wlm_${{sx.id}}" placeholder="series URL on another site" style="flex:1">
+          <button class="mini" onclick="wlAddMirror('${{sx.id}}')">attach</button>
+        </div></details>
+    </div>`;
+  }}).join('');
+}}
+
+async function wlChapters(sid, key, refresh) {{
+  const box = document.getElementById('wlch_' + sid);
+  box.innerHTML = '<div class="hint" style="font-size:11px">' +
+    (refresh ? 'checking the source…' : 'loading chapters…') + '</div>';
+  try {{
+    const d = await j(`/api/watchlist/chapters?series_id=${{encodeURIComponent(sid)}}` +
+                      `&series_key=${{encodeURIComponent(key)}}&refresh=${{refresh ? 1 : 0}}`);
+    WLCH[sid] = WLCH[sid] || {{}}; WLCH[sid][key] = d;
+    if (d.status === 'error') {{
+      // A failed check must never render as "this source has nothing".
+      box.innerHTML = `<div class="hint" style="color:var(--bad);font-size:11px">⚠ could not check ${{d.label}} — ${{d.error}}</div>`;
+      return;
+    }}
+    wlChapRender(sid, key);
+    if (refresh) wlLoad();
+  }} catch (e) {{
+    box.innerHTML = `<div class="hint" style="color:var(--bad);font-size:11px">${{e.message || e}}</div>`;
+  }}
+}}
+
+function wlChapRender(sid, key, showAll) {{
+  const d = (WLCH[sid] || {{}})[key];
+  if (!d) return;
+  const box = document.getElementById('wlch_' + sid);
+  const filt = (document.getElementById('wlcf_' + sid) || {{}}).value || '';
+  let list = d.chapters.slice().reverse();          // newest first
+  if (filt) list = list.filter(c => String(c.id).indexOf(filt) >= 0);
+  const CAP = 60;
+  const shown = (showAll || filt) ? list : list.slice(0, CAP);
+  const chips = shown.map(c => `<button class="mini" onclick="wlIngest('${{sid}}','${{key}}','${{c.id}}')"
+      title="${{c.ingested ? 'already ingested — runs again' : 'ingest this chapter'}}"
+      style="${{c.ingested ? 'opacity:.45' : ''}}">${{c.ingested ? '✓ ' : ''}}${{c.id}}</button>`).join(' ');
+  box.innerHTML = `<div style="margin-top:6px;padding:6px;border:1px solid var(--rule);border-radius:4px">
+    <div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;flex-wrap:wrap">
+      <span class="hint" style="font-size:11px">${{d.label}} · ${{d.chapters.length}} chapters</span>
+      <input id="wlcf_${{sid}}" value="${{filt}}" placeholder="jump to #" style="width:80px"
+             oninput="wlChapRender('${{sid}}','${{key}}',1)">
+      ${{(!showAll && !filt && list.length > CAP)
+        ? `<button class="mini" onclick="wlChapRender('${{sid}}','${{key}}',1)">show all ${{list.length}}</button>` : ''}}
+      <button class="mini" onclick="document.getElementById('wlch_${{sid}}').innerHTML=''">close</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:3px;max-height:190px;overflow-y:auto">${{chips || '<span class="hint" style="font-size:11px">no match</span>'}}</div>
+  </div>`;
+  const f = document.getElementById('wlcf_' + sid);
+  if (f && filt) {{ f.focus(); f.setSelectionRange(filt.length, filt.length); }}
+}}
+
+async function wlIngest(sid, key, chapter) {{
+  const sx = (WL.series || []).find(x => x.id === sid) || {{}};
+  if (!confirm(`Ingest ${{sx.title || sid}} chapter ${{chapter}}?\n\nThis spends Gemini/TTS credit and is queued behind any run already going.`)) return;
+  try {{
+    const r = await j('/api/watchlist/ingest', {{method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{series_id: sid, series_key: key, chapter: String(chapter), queue: true}})}});
+    // Hand off to the SAME ingest console the manual path uses, so there is
+    // one place to watch a run — no second progress UI to keep in sync.
+    setActiveJob(r.job); toggleDrawer('ingest'); startIngestPoller();
+  }} catch (e) {{ alert('Could not start that ingest: ' + (e.message || e)); }}
+}}
+
+async function wlPost(path, body, msg) {{
+  try {{
+    const r = await j(path, {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                             body: JSON.stringify(body)}});
+    WL = r.watchlist || r;
+    wlRender();
+    return r;
+  }} catch (e) {{ alert((msg || 'That did not work') + ': ' + (e.message || e)); }}
+}}
+
+async function wlAdd() {{
+  const t = document.getElementById('wlTitle').value.trim();
+  if (!t) {{ alert('Give the title a name.'); return; }}
+  const r = await wlPost('/api/watchlist/series', {{
+    title: t, url: document.getElementById('wlUrl').value.trim(),
+    tier: document.getElementById('wlTier').value}}, 'Could not add that title');
+  if (r) {{ document.getElementById('wlTitle').value = ''; document.getElementById('wlUrl').value = ''; wlLoad(); }}
+}}
+async function wlAddMirror(sid) {{
+  const el = document.getElementById('wlm_' + sid);
+  const u = (el.value || '').trim();
+  if (!u) return;
+  const r = await wlPost('/api/watchlist/mirror', {{series_id: sid, url: u}},
+                         'Could not attach that source');
+  if (r) wlLoad();
+}}
+async function wlPrefer(sid, key) {{
+  await wlPost('/api/watchlist/preferred', {{series_id: sid, series_key: key}},
+               'Could not set the preferred source');
+}}
+async function wlRemove(sid, label) {{
+  if (!confirm(`Remove ${{label || sid}} from the watchlist?\n\nIngested chapters, clips and exports are NOT deleted — this only drops it from the planning list.`)) return;
+  await wlPost('/api/watchlist/remove', {{series_id: sid, series_key: ''}}, 'Could not remove that title');
+}}
+async function wlSeed() {{
+  const box = document.getElementById('wllist');
+  box.innerHTML = 'seeding…';
+  const r = await wlPost('/api/watchlist/seed', {{}}, 'Could not seed the watchlist');
+  if (r && r.seeded) {{
+    const a = r.seeded.added.length, k = r.seeded.skipped.length;
+    if (k) alert(`Added ${{a}} · left ${{k}} already on the list untouched.`);
+  }}
+  wlLoad();
+}}
+
 async function loadTracker(refresh) {{
   const box = document.getElementById('trackerlist');
   box.innerHTML = refresh ? 'checking the source…' : 'loading…';

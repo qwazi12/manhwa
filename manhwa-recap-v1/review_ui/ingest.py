@@ -34,7 +34,28 @@ STAGES = ["scrape", "split", "describe", "narrate", "voice", "match", "segment"]
 
 
 def parse_series_chapter(url):
+    """(series_slug, chapter_id) for a chapter URL.
+
+    Providers get first refusal, because these regexes encode ONE site's URL
+    shape. On a WEBTOON episode URL they returned
+    ('episode-1', 'viewer?title_no=5988&episode_no=1') and the project id
+    became 'episode-1_viewer-title_no-5988-episode_no-1' — no error, just
+    nonsense, which is the worst failure mode available.
+
+    The Asura path below is untouched and still handles every URL the
+    providers do not claim, so nothing about today's working flow changes.
+    """
     import hashlib
+    try:
+        import providers as _prov
+        p = _prov.for_url(url)
+        if p.name == "webtoon":
+            _, _, slug, tno = p._parts(url)
+            m = _prov.WebtoonProvider._EPISODE_NO.search(url or "")
+            if m:
+                return f"{slug}-{tno}" if tno else slug, m.group(1)
+    except Exception:
+        pass                              # fall through to the original rules
     url_clean = url.strip().rstrip("/").lower()
     m1 = re.search(r"/comics/([^/]+)/chapter/([^/]+)", url_clean)
     if m1:

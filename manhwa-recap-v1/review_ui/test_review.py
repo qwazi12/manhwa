@@ -304,9 +304,20 @@ def main():
     import re as _re
     _m = _re.search(r"function toggleDrawer\(name\) \{(.*?)\n\}", bhtml, _re.S)
     _body = _m.group(1) if _m else ""
-    for _fn in ("loadProjects", "loadTracker", "loadLogs", "loadExports",
-                "paintIngest"):
+    for _fn in ("loadProjects", "loadLogs", "loadExports", "paintIngest"):
         r.append(("clicking a tab calls %s" % _fn, _fn in _body))
+    # The tracker tab now opens a two-view console (watchlist / new chapters),
+    # so it dispatches through trkTab. The rule is unchanged — a tab click must
+    # reach a loader — it just has one hop, so follow the hop rather than
+    # dropping the check: BOTH views must load, or one of them strands on its
+    # "loading..." placeholder exactly as before.
+    r.append(("clicking the tracker tab calls trkTab", "trkTab" in _body))
+    _t = _re.search(r"function trkTab\(which\) \{(.*?)\n\}", bhtml, _re.S)
+    _tbody = _t.group(1) if _t else ""
+    r.append(("...and the watchlist view has a loader behind it",
+              "wlLoad" in _tbody))
+    r.append(("...and the new-chapters view still calls loadTracker",
+              "loadTracker" in _tbody))
     r.append(("no drawer loader is stranded in an uncalled function",
               "_navNoop" not in bhtml))
     # The board's placeholders say "loading..."; if a loader never runs the tab
