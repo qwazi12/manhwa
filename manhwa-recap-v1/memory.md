@@ -5918,3 +5918,34 @@ a dated note saying what the old text claimed and why it is superseded.
 `USAGE CAP EXCEEDED` and raises a named cap error; `split_with_yolo` raises a
 generic "the YOLO splitter failed — see split.log". A cap hit during a lab
 split is therefore harder to diagnose than the same hit during an ingest.
+
+**Blend run result (Ch.353, `splitter="yolo"`).** Completed: **72 panels · 14
+lines · 65 segments**, ready=True. Side by side with the claude-split run of
+Ch.352 — *different chapters, so the counts are NOT a quality comparison*:
+
+| Project | Split | Panels | Lines | Segs | Manifest cost | Calls |
+|---|---|---|---|---|---|---|
+| `i-am-the-fated-villain_352-lab-claude` | claude | 83 | 18 | 79 | $2.0474 | 68 |
+| `i-am-the-fated-villain_353-lab-yolo` | yolo | 72 | 14 | 65 | $1.6372 | 47 |
+
+**MY ERROR: I killed this run once.** I committed the handbook update while the
+run was in flight; the push auto-deployed, the container swapped, and the job
+died at `script: scene 2/15`. This is the third time a deploy has killed a run
+and the second time it was my own push — the "wire only one deploy path" item
+in this log is now a recurring defect, not a nice-to-have. Railway's CLI has no
+`deployment cancel`, so once the build starts it cannot be called off.
+
+**The stage cache shipped this morning paid for itself immediately.** On resume
+the run skipped the 12 read batches and the chapter map and restarted at
+`script`. Measured: daily spend moved **$3.2195 → $3.3173 (+$0.098, 8 calls)**
+where a cold re-run of read+map would have cost **~$0.917**.
+
+**Accounting nuance worth knowing.** The project manifest reads $1.6372, but
+true spend on Ch.353 across BOTH attempts was **$1.7724** (daily total went
+$2.2981 → $4.0705). The gap is by design: a cached stage reports **zero** cost
+because *this* run did not spend, and the original spend stays on the run that
+paid. Consequence: after a resume, a project's manifest UNDER-reports its
+lifetime cost. The daily usage log is the authority for "what did this actually
+cost me", not the project card.
+
+Daily spend at session end: **$4.0705 of the $30 cap**, 116 Claude calls.
