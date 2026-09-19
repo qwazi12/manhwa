@@ -940,7 +940,7 @@ segment's on-screen duration, "cut" buttons move the boundary between neighbours
 if a cut lands mid-sentence ✂), ⠿ drag a seg card onto ANOTHER ROW to play that narration over that panel (shift-drop also moves it there in the story; card-on-card still reorders), ✚ adds a new narrated line (TTS). 🗑 rejects a segment (takes it OUT of the final video; ✅ puts it back — nothing is deleted). Badges: ⚠ hold &gt;12s ·
 📜 tall strip (scroll-pan) · 🔇 silent hold · ✅/🗑 review status. Approving the project unlocks bulk rendering.</p>
 <table>
-<tr><th>#</th><th>Panel</th><th>System OCR</th><th>System description</th><th>Script placement</th><th>On-screen timing &amp; motion</th></tr>
+<tr><th>#</th><th>Panel</th><th>System OCR</th><th>System description</th><th>Script placement</th><th>On-screen timing &amp; motion<button id="undobtn" class="mini" onclick="undoEdit()" disabled title="undo the last timing/motion edit" style="margin-left:8px;vertical-align:middle">↶ Undo</button><div id="undohint" class="hint" style="font-weight:400;font-size:10px"></div></th></tr>
 {''.join(rows)}
 </table></div>
 <div id="cands" onclick="this.style.display='none'"><div class="inner" onclick="event.stopPropagation()"><h3>Pick replacement panel</h3><div id="candList"></div></div></div>
@@ -2429,6 +2429,44 @@ async function wlSeed() {{
   }}
   wlLoad();
 }}
+
+// ---------------- undo (timing & motion) ----------------
+// Every mutating op snapshots segments.json before it writes, so undo restores
+// the previous manifest rather than trying to invert the op. Carving slices an
+// mp3 and including a panel synthesises audio — inverses would be fifteen
+// chances to drift; a restore cannot.
+async function refreshUndo() {{
+  const b = document.getElementById('undobtn');
+  const h = document.getElementById('undohint');
+  if (!b) return;
+  try {{
+    const d = await j('/api/storyboard/undo');
+    const st = d.stack || [];
+    b.disabled = st.length === 0;
+    b.textContent = st.length ? '↶ Undo ' + st[0].op.replace(/_/g, ' ') : '↶ Undo';
+    if (h) h.textContent = st.length
+      ? st.length + ' edit' + (st.length === 1 ? '' : 's') + ' can be walked back'
+      : 'no edits to undo yet';
+  }} catch (e) {{
+    b.disabled = true;
+    if (h) h.textContent = '';
+  }}
+}}
+
+async function undoEdit() {{
+  const b = document.getElementById('undobtn');
+  if (b) {{ b.disabled = true; b.textContent = 'undoing…'; }}
+  try {{
+    const r = await j('/api/storyboard/undo', {{method: 'POST'}});
+    // Clips for the segments that actually changed were deleted, so the board
+    // must reload to show the restored timeline rather than the edited one.
+    location.reload();
+  }} catch (e) {{
+    alert('Could not undo: ' + (e.message || e));
+    refreshUndo();
+  }}
+}}
+refreshUndo();
 
 async function loadTracker(refresh) {{
   const box = document.getElementById('trackerlist');

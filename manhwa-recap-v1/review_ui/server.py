@@ -4305,6 +4305,30 @@ def sb_delline(body: DelLineIn):
     return {"ok": True}
 
 
+@app.post("/api/storyboard/undo")
+def storyboard_undo():
+    """Walk the timeline back one edit.
+
+    Restores the manifest as it stood before the last mutating op, rather than
+    applying an inverse — several ops here slice audio or synthesise it, and
+    "apply the opposite" would be fifteen separate chances to drift.
+    """
+    import storyboard_edit as edit
+    pdir = active_project_dir()
+    try:
+        res = edit.undo(pdir)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return res
+
+
+@app.get("/api/storyboard/undo")
+def storyboard_undo_stack():
+    """What undo would walk back through — so the button can name the edit."""
+    import storyboard_edit as edit
+    return {"stack": edit.undo_stack(active_project_dir())}
+
+
 @app.post("/api/storyboard/approve")
 def storyboard_approve(body: ApproveIn):
     import time

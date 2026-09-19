@@ -91,7 +91,134 @@ def normalize(segs):
     return corrected
 
 
+UNDO_DIR = "_undo"
+UNDO_DEPTH = 25          # how many edits back you can walk
+
+
+def _undo_dir(pdir):
+    d = os.path.join(pdir, UNDO_DIR)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _snapshot(pdir):
+    """Copy the CURRENT segments.json aside before it is overwritten.
+
+    Undo is a snapshot stack, not a set of inverse operations. Fifteen ops
+    mutate this timeline and several of them are not cleanly invertible —
+    carving a beat slices its mp3, including a panel synthesises audio — so
+    "apply the opposite" would be fifteen chances to get it subtly wrong.
+    Restoring the exact previous manifest cannot drift.
+    """
+    src = _segs_path(pdir)
+    if not os.path.exists(src):
+        return
+    d = _undo_dir(pdir)
+    # One base name, two files: <base>.json is the manifest, <base>.op is its
+    # label. Everything else (stack, naming, pruning) keys off the base, so the
+    # extension is appended in exactly one place.
+    base = "%.6f" % time.time()
+    tmp = os.path.join(d, base + ".tmp")
+    with open(src, "rb") as a, open(tmp, "wb") as b:
+        b.write(a.read())
+    os.replace(tmp, os.path.join(d, base + ".json"))
+    with open(os.path.join(d, base + ".op"), "w", encoding="utf-8") as f:
+        f.write("edit")          # renamed by _log() a moment later
+    for stale_name in _stack(pdir)[UNDO_DEPTH:]:
+        for suffix in (".json", ".op"):
+            try:
+                os.remove(os.path.join(d, stale_name + suffix))
+            except OSError:
+                pass
+
+
+def _stack(pdir):
+    """Snapshot names, newest first."""
+    try:
+        names = [f[:-5] for f in os.listdir(_undo_dir(pdir))
+                 if f.endswith(".json")]
+    except OSError:
+        return []
+    return sorted(names, key=float, reverse=True)
+
+
+def _name_snapshot(pdir, op):
+    """Label the newest snapshot with the op that came after it."""
+    st = _stack(pdir)
+    if not st:
+        return
+    try:
+        with open(os.path.join(_undo_dir(pdir), st[0] + ".op"), "w",
+                  encoding="utf-8") as f:
+            f.write(op)
+    except OSError:
+        pass
+
+
+def undo_stack(pdir):
+    """What undo would walk back through, newest first."""
+    out = []
+    d = _undo_dir(pdir)
+    for name in _stack(pdir):
+        try:
+            with open(os.path.join(d, name + ".op"), encoding="utf-8") as f:
+                op = f.read().strip()
+        except OSError:
+            op = "edit"
+        out.append({"id": name, "op": op, "ts": float(name)})
+    return out
+
+
+def undo(pdir):
+    """Restore the most recent snapshot and drop it from the stack.
+
+    Deliberately does NOT go through save(): save() takes a snapshot, so
+    undoing through it would push the undone state back on and the second
+    undo would redo the first. Walking straight back is what an operator
+    means by "undo that".
+    """
+    st = _stack(pdir)
+    if not st:
+        raise ValueError("nothing to undo")
+    d = _undo_dir(pdir)
+    newest = st[0]
+    with open(os.path.join(d, newest + ".json"), encoding="utf-8") as f:
+        segs = json.load(f)
+    try:
+        with open(os.path.join(d, newest + ".op"), encoding="utf-8") as f:
+            op = f.read().strip()
+    except OSError:
+        op = "edit"
+
+    before = {x["seg_index"]: json.dumps(x, sort_keys=True)
+              for x in load(pdir)}
+    normalize(segs)
+    tmp = _segs_path(pdir) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(segs, f, indent=2)
+    os.replace(tmp, _segs_path(pdir))
+
+    # Any segment whose content changed has a stale clip on disk; the render
+    # must redo exactly those and nothing else.
+    after = {x["seg_index"]: json.dumps(x, sort_keys=True) for x in segs}
+    changed = [si for si in set(before) | set(after)
+               if before.get(si) != after.get(si)]
+    _stale(pdir, changed)
+
+    for suffix in (".json", ".op"):
+        try:
+            os.remove(os.path.join(d, newest + suffix))
+        except OSError:
+            pass
+    _log(pdir, "undo", undid=op, segments_restored=len(segs),
+         clips_invalidated=len(changed))
+    return {"undid": op, "segments": len(segs), "restaged": len(changed),
+            "remaining": len(_stack(pdir))}
+
+
 def save(pdir, segs):
+    # Keep the pre-edit manifest so the operator can walk it back.
+    _snapshot(pdir)
     # Never persist a timeline that cannot be rendered.
     corrected = normalize(segs)
     tmp = _segs_path(pdir) + ".tmp"
@@ -106,6 +233,10 @@ def save(pdir, segs):
 
 
 def _log(pdir, op, **kw):
+    # The op runs save() first and logs after, so this is where the snapshot
+    # that save() just took finally learns what it was a snapshot BEFORE.
+    if op not in ("undo", "invariant_repair_on_save"):
+        _name_snapshot(pdir, op)
     entry = {"ts": time.time(), "op": op, **kw}
     with open(os.path.join(pdir, "edits.log.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")

@@ -5949,3 +5949,35 @@ lifetime cost. The daily usage log is the authority for "what did this actually
 cost me", not the project card.
 
 Daily spend at session end: **$4.0705 of the $30 cap**, 116 Claude calls.
+
+### 2026-09-19 — Undo for the timing & motion track
+
+**Why a snapshot stack, not inverse ops.** Fifteen routes mutate
+`segments.json` (the render manifest) and several are not cleanly invertible —
+carving a beat SLICES its mp3, including a panel SYNTHESISES audio. Fifteen
+inverse operations would be fifteen chances to drift the file that decides what
+actually renders. `save()` is the single choke point every op passes through,
+so it copies the pre-edit manifest aside; `_log()` (which every op calls right
+after) labels that snapshot with the op name; `undo()` restores it.
+
+`undo()` deliberately does NOT route through `save()`: save takes a snapshot,
+so undoing through it would push the undone state back on and a second undo
+would redo the first. It writes directly, then invalidates clips for **only**
+the seg_indexes whose content actually changed. Stack capped at
+`UNDO_DEPTH = 25`.
+
+**Bug the test caught before deploy:** `_snapshot` named the manifest
+`<ts>.json` but wrote its label to `<ts>.json.op`, while `_name_snapshot`,
+`undo_stack` and pruning all used `<ts>.op`. Result: naming still worked (a
+second, correct .op file got created) but every edit left an orphan file that
+pruning never removed. Fixed by deriving both names from one base.
+
+**UI:** `↶ Undo <op>` button in the `On-screen timing & motion` column header,
+with a hint line showing how many edits can be walked back; disabled when the
+stack is empty. Routes: `POST /api/storyboard/undo`, `GET /api/storyboard/undo`
+(stack, so the button can name the edit).
+
+**Tests:** new `test_undo.py` (24) — snapshot holds the PRE-edit state,
+repeated undo walks backwards rather than flip-flopping, only changed segments
+lose clips, stack is bounded and prunes from disk, restored timeline is still
+contiguous with beats intact. Full suite: **28 suites, 0 failures.**
