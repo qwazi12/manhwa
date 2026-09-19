@@ -482,6 +482,28 @@ def _save_manifest(pdir, man):
     os.replace(tmp, os.path.join(pdir, "lab.json"))
 
 
+def _cached_stage(pdir, name, fresh, compute):
+    """Run a paid stage once, then reuse its result.
+
+    `read` already resumed (it skips panels present in descriptions.json), but
+    every stage after it — map, script, critique, revise — re-ran from scratch,
+    so a run killed during `script` re-paid for `map` and `script` on the next
+    attempt. The read stage is the expensive one, which is why this went
+    unnoticed, but "cheaper than the expensive stage" is not the same as free.
+
+    Returns (value, cost_stats). A cache hit reports zero cost because this run
+    genuinely did not spend anything on it — the spend is recorded in the run
+    that actually paid.
+    """
+    if not fresh:
+        hit = CP.read(pdir, name, None)
+        if hit is not None:
+            return hit, {"cost_usd": 0.0, "calls": 0, "cached": True}
+    value, st = compute()
+    CP._write(pdir, name, value)
+    return value, st
+
+
 def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
             voice=True, fresh=False):
     """Build a whole chapter, independently, with Claude making the judgement
@@ -652,29 +674,47 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
 
         # ---- 4. chapter map --------------------------------------------
         _prog("map", "Claude mapping the chapter")
-        cmap, st = PLUS.chapter_map(descs, model=model,
-                                    progress=lambda m: _prog("map", m))
+        cmap, st = _cached_stage(
+            pdir, "chapter_map.json", fresh,
+            lambda: PLUS.chapter_map(descs, model=model,
+                                     progress=lambda m: _prog("map", m)))
+        if st.get("cached"):
+            _prog("map", "chapter map reused from the earlier run")
         _absorb("map", st)
-        CP._write(pdir, "chapter_map.json", cmap)
 
         # ---- 5. script (budgeted, scene-aware) -------------------------
-        units, st = PLUS.script_plus(descs, cmap, model=model,
-                                     progress=lambda m: _prog("script", m))
+        units, st = _cached_stage(
+            pdir, "script_units.json", fresh,
+            lambda: PLUS.script_plus(descs, cmap, model=model,
+                                     progress=lambda m: _prog("script", m)))
+        if st.get("cached"):
+            _prog("script", "narration reused from the earlier run")
         _absorb("script", st)
         if not units:
             raise LabError("Claude wrote no narration")
         man["diagnostics"]["dense_allowances"] = st.get("allowances", [])
 
         # ---- 6. critique + revise --------------------------------------
-        issues, st = PLUS.critique(units, descs, model=model,
+        def _critique_and_revise():
+            iss, cst = PLUS.critique(units, descs, model=model,
+                                     progress=lambda m: _prog("critique", m))
+            _absorb("critique", cst)
+            # Under-spend is arithmetic the pipeline already has, so it is
+            # raised in code rather than asked of the reviewer.
+            iss = iss + PLUS.underspend_issues(units)
+            rev, rst = PLUS.revise(units, iss, descs, cmap, model=model,
                                    progress=lambda m: _prog("critique", m))
-        _absorb("critique", st)
-        # Under-spend is arithmetic the pipeline already has, so it is raised
-        # in code rather than asked of the reviewer.
-        issues = issues + PLUS.underspend_issues(units)
-        units, st = PLUS.revise(units, issues, descs, cmap, model=model,
-                                progress=lambda m: _prog("critique", m))
+            return {"units": rev, "issues": iss}, rst
+
+        # Cached as ONE unit: revised lines without the critique that produced
+        # them is not a state worth resuming from.
+        blob, st = _cached_stage(pdir, "script_revised.json", fresh,
+                                 _critique_and_revise)
+        if st.get("cached"):
+            _prog("critique", "critique + revision reused from the earlier run")
         _absorb("revise", st)
+        units = blob["units"]
+        issues = blob["issues"]
         man["diagnostics"]["critique_issues"] = issues
 
         with open(os.path.join(pdir, "script.json"), "w", encoding="utf-8") as f:

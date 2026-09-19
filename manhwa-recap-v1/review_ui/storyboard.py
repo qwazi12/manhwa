@@ -1952,6 +1952,19 @@ async function loadLab() {{
   box.textContent = '';
   try {{
     const d = await j('/api/lab/projects');
+    // Which chapters are being built RIGHT NOW. Without this the card reads
+    // the half-written manifest and reports a live run as unfinished-and-
+    // unopenable, which is indistinguishable from a run that died.
+    let liveByProject = {{}};
+    try {{
+      const jd = await j('/api/jobs?limit=200');
+      (jd.jobs || []).forEach(function (x) {{
+        if (x.kind === 'lab' && (x.status === 'running' || x.status === 'queued')) {{
+          liveByProject[x.project || ''] = x;
+          if (x.url) liveByProject['url:' + x.url] = x;
+        }}
+      }});
+    }} catch (e) {{}}
     setLabSplit(labSplit);
     if (!d.key_configured) {{
       info.textContent = 'NO CLAUDE KEY on this server — set CLAUDE_API_KEY '
@@ -1996,7 +2009,16 @@ async function loadLab() {{
         b.onclick = function () {{ openLab(p.project); }};
         acts.appendChild(b);
       }} else {{
-        acts.appendChild(vEl('div', 'expmeta', 'not finished — nothing to open yet'));
+        const live = liveByProject[p.project] || liveByProject['url:' + (p.url || '')];
+        if (live) {{
+          const b = vEl('div', 'expmeta',
+            '⏳ building now — ' + (live.stage || 'working…'));
+          b.style.color = 'var(--warn)';
+          acts.appendChild(b);
+        }} else {{
+          acts.appendChild(vEl('div', 'expmeta',
+            'not finished — nothing to open yet'));
+        }}
       }}
       if (p.ready) {{
         const dg = vEl('button', 'vact ghost', 'Diagnostics');
@@ -2104,6 +2126,22 @@ async function recoverActiveIngest() {{
   }} catch (e) {{}}
 }}
 recoverActiveIngest();
+
+async function recoverActiveLab() {{
+  // A lab run lives in a background thread on the server, but the only thing
+  // watching it was tWatch's setInterval — which dies with the page. Reload,
+  // navigate away, or open the board on a phone and the run kept spending
+  // money with nothing reporting on it, while the card sat on the stale
+  // manifest saying "not finished — nothing to open yet".
+  if (testPoll) return;
+  try {{
+    const d = await j('/api/jobs?limit=200');
+    const live = (d.jobs || []).find(x => x.kind === 'lab' &&
+      (x.status === 'running' || x.status === 'queued'));
+    if (live) tWatch(live.job, 'panels cut by ' + (live.splitter || '?'));
+  }} catch (e) {{}}
+}}
+recoverActiveLab();
 async function loadProjects() {{
   const box = document.getElementById('projlist');
   const d = await j('/api/projects');

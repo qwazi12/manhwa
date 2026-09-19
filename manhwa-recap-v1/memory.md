@@ -5816,3 +5816,52 @@ of which **405 across 5 WEBTOON titles were uningestable before this change**.
   click; the New-chapters view still owns multi-select queueing).
 - WEBTOON episode counts are INFERRED from the highest `episode_no` (the list
   page paginates). A series with unpublished gaps would be over-reported.
+
+### 2026-09-18 — Lab runs were invisible while spending money; four defects fixed
+
+**Reported.** A TEST-tab run showed "48 Claude calls · $1.4225 / not finished —
+nothing to open yet" and appeared in neither Logs nor Ingest.
+
+**First finding: the run had already SUCCEEDED.** Live state for
+`i-am-the-fated-villain_352-lab-claude`: status ok, 83 panels → 18 units → **79
+segments**, ready=true, **68 calls / $2.047355**, 665.6s. The card was a stale
+snapshot frozen at the 48-call moment. No money was wasted — but there was no
+way to know that from the UI, which is the actual defect.
+
+**Root causes (four, independent):**
+
+1. **Lab job records carried no `ts`.** `/api/jobs` sorts by `ts` and truncates
+   to `limit` (20). Lab jobs sorted as 0, landed at the bottom of 42 records,
+   and were cut off. Verified live: `/api/jobs` → 0 lab jobs;
+   `/api/jobs?limit=200` → 5 lab jobs, every one `ts=None`. They were never
+   missing, just pushed off the end.
+   *Fixed:* stamp `ts` at creation; `/api/jobs` falls back to the file's mtime
+   for older records and flags it `ts_inferred` rather than presenting a
+   guessed timestamp as recorded fact.
+2. **No recovery for an in-flight lab run.** `tWatch`'s `setInterval` dies with
+   the page; ingest had `recoverActiveIngest()`, lab had no equivalent. Reload
+   or navigate away and the run kept spending with nothing watching it.
+   *Fixed:* `recoverActiveLab()` on load, resuming the same watcher.
+3. **The card could not tell a live run from a dead one.** It read the
+   half-written manifest and printed "not finished — nothing to open yet" for
+   both. *Fixed:* live runs now show "⏳ building now — <stage>"; the lab job
+   record carries `project` from creation so a running job matches its row.
+4. **Only `read` resumed.** `map`, `script`, `critique` and `revise` re-ran
+   from scratch, so a run killed mid-script re-paid for stages already bought.
+   (`read` was protected via `skip=done` from `descriptions.json`.)
+   *Fixed:* `_cached_stage()` — map → `chapter_map.json`, script →
+   `script_units.json`, critique+revise → `script_revised.json` (cached as ONE
+   unit: revised lines without their critique is not a resumable state). A
+   cache hit reports **zero** cost, because this run genuinely spent nothing;
+   the spend stays on the run that paid. `fresh=True` still re-buys.
+
+**Also surfaced by fix 1:** an earlier lab run had failed with
+`MAX_DAILY_SPEND_USD=$5.0 would be exceeded today` — a guardrail working
+correctly, but invisible to the operator until now.
+
+**Tests:** new `test_lab_visibility.py` (31). First fixture was wrong — it
+wrote render jobs NEWER than the lab record, where truncation is correct
+behaviour; corrected to the production shape (a recent lab run under older
+exports). The test writes into the REAL `_jobs_dir` because that is the path
+under test, so it removes its records in a `finally`. Full suite: **27 suites,
+0 failures.**

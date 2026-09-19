@@ -2828,11 +2828,22 @@ def jobs_recent(limit: int = 20):
     d = _jobs_dir()
     for f in os.listdir(d):
         if f.startswith("render_") and f.endswith(".json"):
+            fp = os.path.join(d, f)
             try:
-                recs.append(json.load(open(os.path.join(d, f))))
+                rec = json.load(open(fp))
             except Exception:
                 continue
-    recs.sort(key=lambda r: r.get("ts", 0), reverse=True)
+            # Fall back to the file's own mtime when the record carries no ts.
+            # Sorting a missing timestamp as 0 buried every lab run at the
+            # bottom of the list, where `limit` then cut it off entirely.
+            if not rec.get("ts"):
+                try:
+                    rec["ts"] = os.path.getmtime(fp)
+                    rec["ts_inferred"] = True
+                except OSError:
+                    rec["ts"] = 0
+            recs.append(rec)
+    recs.sort(key=lambda r: r.get("ts") or 0, reverse=True)
     return {"jobs": recs[:limit]}
 
 
@@ -3803,9 +3814,17 @@ async def lab_run(body: LabRunIn):
             400, "No Claude API key on this server — set CLAUDE_API_KEY or "
                  "ANTHROPIC_API_KEY in the environment.")
     job_id = uuid.uuid4().hex[:12]
+    # ts IS NOT OPTIONAL. /api/jobs sorts by it and truncates to `limit`, so a
+    # record without one sorts as 0 and falls off the end of the list — which
+    # is exactly why finished lab runs were invisible in the Logs drawer while
+    # their money had already been spent.
     JOBS[job_id] = {"status": "queued", "done": 0, "total": 60,
                     "kind": "lab", "error": None, "stage": "queued",
-                    "url": url, "splitter": body.splitter}
+                    "url": url, "splitter": body.splitter,
+                    "ts": time.time(),
+                    # Known up front, not only on completion — the card needs
+                    # to match a LIVE run to its row while it is still running.
+                    "project": _lab.lab_id(url, body.splitter)}
     threading.Thread(target=_run_lab_job,
                      args=(job_id, url, body.splitter, body.fresh),
                      daemon=True).start()
