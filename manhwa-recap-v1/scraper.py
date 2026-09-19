@@ -134,7 +134,26 @@ def download_chapter(url: str, output_dir: str):
     # Unescape HTML entities (e.g. &quot; to ")
     html_unescaped = html.unescape(html_content)
 
-    image_urls = find_page_urls(html_unescaped)
+    # A source whose page layout the generic heuristic cannot read gets its own
+    # extractor. Only providers that actually OVERRIDE extract_pages are used
+    # here, so Asura and every other site keep the exact path they have today.
+    image_urls = None
+    try:
+        import sys as _sys, os as _os
+        _ui = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                            "review_ui")
+        if _ui not in _sys.path:
+            _sys.path.insert(0, _ui)
+        import providers as _prov
+        _p = _prov.for_url(url)
+        if type(_p).extract_pages is not _prov.Provider.extract_pages:
+            image_urls = _p.extract_pages(html_unescaped)
+            print(f"[*] {_p.label} extractor: {len(image_urls)} pages")
+    except Exception as e:
+        print(f"[!] provider extraction unavailable ({e}); using the generic rule")
+        image_urls = None
+    if not image_urls:
+        image_urls = find_page_urls(html_unescaped)
 
     if not image_urls:
         raise ValueError("Could not find any panel images on the page.")
@@ -158,7 +177,14 @@ def download_chapter(url: str, output_dir: str):
 
         print(f"    [{idx}/{len(image_urls)}] Downloading: {img_url}")
         try:
-            img_req = urllib.request.Request(img_url, headers={"User-Agent": "Mozilla/5.0"})
+            # Referer is NOT optional. WEBTOON's image CDN enforces hotlink
+            # protection: the identical request returns 403 without it and 200
+            # with it. Sending the chapter URL is what a browser does, and the
+            # header is harmless on sources that ignore it.
+            img_req = urllib.request.Request(img_url, headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": url,
+            })
             with urllib.request.urlopen(img_req, context=ctx) as img_resp, open(filepath, "wb") as out_file:
                 out_file.write(img_resp.read())
             downloaded_paths.append(filepath)
@@ -167,6 +193,21 @@ def download_chapter(url: str, output_dir: str):
 
     if not downloaded_paths:
         raise RuntimeError("No images were successfully downloaded.")
+
+    # PARTIAL failure must not pass as success. A WEBTOON episode once yielded
+    # 139 links of which 138 returned 403 and ONE — a square thumbnail on a
+    # different host with no hotlink protection — downloaded fine. The chapter
+    # then ingested as a single image with no error raised anywhere, because
+    # the only guard here was "did everything fail".
+    failed = len(image_urls) - len(downloaded_paths)
+    if failed and len(downloaded_paths) < max(3, 0.6 * len(image_urls)):
+        raise RuntimeError(
+            f"only {len(downloaded_paths)} of {len(image_urls)} page images "
+            f"downloaded ({failed} failed) — refusing to ingest a chapter "
+            f"with most of its art missing. Check whether this source needs "
+            f"different request headers.")
+    if failed:
+        print(f"[!] {failed} of {len(image_urls)} images failed to download")
 
     print(f"[*] Successfully downloaded {len(downloaded_paths)} images to {output_dir}")
     return downloaded_paths

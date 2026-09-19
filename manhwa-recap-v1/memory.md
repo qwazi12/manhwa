@@ -5981,3 +5981,50 @@ stack is empty. Routes: `POST /api/storyboard/undo`, `GET /api/storyboard/undo`
 repeated undo walks backwards rather than flip-flopping, only changed segments
 lose clips, stack is bounded and prunes from disk, restored timeline is still
 contiguous with beats intact. Full suite: **28 suites, 0 failures.**
+
+### 2026-09-19 — WEBTOON ingest returned exactly 1 image: three stacked defects
+
+**Reported:** ingesting Stellar Swordmaster s2-episode-129 produced one image.
+
+**My first hypothesis was WRONG and worth recording.** I assumed the generic
+extractor was collapsing the page (the 1027→1 failure fixed earlier in
+`providers.py`). Measured against the live page instead: `find_page_urls`
+returned **139** URLs, not 1. Extraction was not the failure.
+
+**The actual chain, each link proven against the live page:**
+
+1. **Hotlink protection.** WEBTOON's image CDN rejects requests without a
+   `Referer`. Same image, three ways: scraper.py's exact headers → **403
+   Forbidden**; `+ Referer: webtoons.com` → **OK 114,200 bytes**;
+   `+ Referer: <episode URL>` → **OK**. `scraper.py` sent User-Agent only.
+2. **A second host with no such protection.** Of the 139 links, **138** were
+   strip slices on `webtoon-phinf.pstatic.net` (all 403) and **1** was a square
+   thumbnail on `swebtoon-phinf.pstatic.net` (downloaded fine). Hence exactly
+   one image — not a coincidence, an arithmetic certainty.
+3. **The download guard only caught total failure.** `if not downloaded_paths:
+   raise` — 1 of 139 is not zero, so the chapter ingested silently. Same
+   "silence reads as success" family as the Doctors Rebirth 3-of-11 bug.
+
+**Also found:** `providers.WebtoonProvider.extract_pages` existed and was
+**never wired into the download path** — `scraper.py` had no reference to
+`providers` at all. It was listed as pending work and never done.
+
+**Fixes (all in `scraper.py`):**
+- Route extraction through a provider **only when it actually overrides**
+  `extract_pages` (`type(p).extract_pages is not Provider.extract_pages`), so
+  Asura and every other source keep byte-identical behaviour. Guarded by
+  try/except with a printed fallback notice.
+- Send `Referer: <chapter url>` on every image request — what a browser sends,
+  ignored by sources that do not care.
+- Refuse a chapter that lost most of its art: raise when fewer than
+  `max(3, 60%)` of the page images arrived, naming how many of how many and
+  pointing at request headers as the likely cause.
+
+**Verified live (free — scraping costs nothing):** episode 129 now downloads
+**134 pages, 14.6 MB**, no warnings. Was 1 image.
+
+**Tests:** new `test_scraper_sources.py` (12), fully stubbed — the fake CDN
+403s without a Referer, exactly as the real one does. First Asura fixture was
+wrong (each page in its own directory, which tests the dominant-directory
+heuristic's failure mode rather than Asura); corrected to one directory, which
+is how Asura actually serves a chapter. Full suite: **29 suites, 0 failures.**
