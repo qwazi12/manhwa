@@ -374,6 +374,8 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
   <button onclick="addLine({si})">✚ add line</button>
   <button onclick="setStatus({si},'approved')">✅</button>
   <button class="danger" title="DELETE this image slot (undoable)" onclick="delSeg({si})">🗑</button>
+  <button class="undobtn" onclick="undoEdit()" disabled
+    title="nothing to undo yet">↶</button>
   <button title="duplicate this image as a silent slot you can retime or drag" onclick="dupSeg({si})">⧉</button>
 </div></div>""")
         timing_cell = "".join(tcells) or '<i class="off">— not on video timeline —</i>'
@@ -940,7 +942,7 @@ segment's on-screen duration, "cut" buttons move the boundary between neighbours
 if a cut lands mid-sentence ✂), ⠿ drag a seg card onto ANOTHER ROW to play that narration over that panel (shift-drop also moves it there in the story; card-on-card still reorders), ✚ adds a new narrated line (TTS). 🗑 rejects a segment (takes it OUT of the final video; ✅ puts it back — nothing is deleted). Badges: ⚠ hold &gt;12s ·
 📜 tall strip (scroll-pan) · 🔇 silent hold · ✅/🗑 review status. Approving the project unlocks bulk rendering.</p>
 <table>
-<tr><th>#</th><th>Panel</th><th>System OCR</th><th>System description</th><th>Script placement</th><th>On-screen timing &amp; motion<button id="undobtn" class="mini" onclick="undoEdit()" disabled title="undo the last timing/motion edit" style="margin-left:8px;vertical-align:middle">↶ Undo</button><div id="undohint" class="hint" style="font-weight:400;font-size:10px"></div></th></tr>
+<tr><th>#</th><th>Panel</th><th>System OCR</th><th>System description</th><th>Script placement</th><th>On-screen timing &amp; motion</th></tr>
 {''.join(rows)}
 </table></div>
 <div id="cands" onclick="this.style.display='none'"><div class="inner" onclick="event.stopPropagation()"><h3>Pick replacement panel</h3><div id="candList"></div></div></div>
@@ -2436,21 +2438,24 @@ async function wlSeed() {{
 // mp3 and including a panel synthesises audio — inverses would be fifteen
 // chances to drift; a restore cannot.
 async function refreshUndo() {{
-  const b = document.getElementById('undobtn');
-  const h = document.getElementById('undohint');
-  if (!b) return;
+  // One button per card, but ONE shared history: the snapshot stack is
+  // timeline-wide, so this undoes the last edit made anywhere — which the
+  // tooltip states, because a button sitting on seg #9 that reverts an edit
+  // to seg #3 would otherwise be a nasty surprise.
+  const btns = document.querySelectorAll('.undobtn');
+  if (!btns.length) return;
+  let st = [];
   try {{
-    const d = await j('/api/storyboard/undo');
-    const st = d.stack || [];
+    st = (await j('/api/storyboard/undo')).stack || [];
+  }} catch (e) {{ st = []; }}
+  const label = st.length ? st[0].op.replace(/_/g, ' ') : '';
+  btns.forEach(function (b) {{
     b.disabled = st.length === 0;
-    b.textContent = st.length ? '↶ Undo ' + st[0].op.replace(/_/g, ' ') : '↶ Undo';
-    if (h) h.textContent = st.length
-      ? st.length + ' edit' + (st.length === 1 ? '' : 's') + ' can be walked back'
-      : 'no edits to undo yet';
-  }} catch (e) {{
-    b.disabled = true;
-    if (h) h.textContent = '';
-  }}
+    b.title = st.length
+      ? ('undo the last edit on this timeline: ' + label +
+         '  (' + st.length + ' can be walked back)')
+      : 'nothing to undo yet';
+  }});
 }}
 
 async function undoEdit() {{

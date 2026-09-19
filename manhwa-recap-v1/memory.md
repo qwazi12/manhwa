@@ -6028,3 +6028,43 @@ returned **139** URLs, not 1. Extraction was not the failure.
 wrong (each page in its own directory, which tests the dominant-directory
 heuristic's failure mode rather than Asura); corrected to one directory, which
 is how Asura actually serves a chapter. Full suite: **29 suites, 0 failures.**
+
+### 2026-09-19 — Undo moved to the seg cards; two concurrent runs completed
+
+**Undo relocated** from the `On-screen timing & motion` column header onto each
+seg card, beside ✅ and 🗑, per operator request. Important semantics recorded
+because the UI now implies otherwise: the snapshot stack is **timeline-wide**,
+so a button on seg #9 undoes the last edit made *anywhere* — including one made
+to seg #3. Each button's tooltip states this and names the op it will revert.
+Per-card undo would need per-segment snapshots, a different design.
+
+**Concurrency verified safe.** Two lab runs at once; `usage.py` keys the current
+job off `threading.local()`, so per-job cost attribution and per-job caps stay
+correct while daily caps remain shared (which is right).
+
+**A display defect noticed, not fixed:** lab jobs appear in BOTH the lab list
+and the ingest list, because `_all_ingest_jobs()` globs every `*.json` in
+`_JOBS_DIR` including the `render_*.json` files lab runs write. The operator's
+murim run looked like a regular Asura ingest; the tell was "Claude reading
+panels" (default ingest uses Gemini). Also noticed: a stray
+`review_ui/storyboard.py.bak` is tracked in the working tree.
+
+**Run results (all `splitter="yolo"`, Claude+ downstream):**
+
+| Project | Panels | Lines | Segs | Cost | Calls | Segs/line |
+|---|---|---|---|---|---|---|
+| `i-am-the-fated-villain_352-lab-claude` | 83 | 18 | 79 | $2.0474 | 68 | 4.4 |
+| `i-am-the-fated-villain_353-lab-yolo` | 72 | 14 | 65 | $1.6372 | 47 | 4.6 |
+| `murim-psychopath_43-lab-yolo` | 156 | 25 | 144 | $3.0224 | 96 | 5.8 |
+| `the-stellar-swordmaster-5988_129-lab-yolo` | 210 | 22 | 208 | $3.6087 | 122 | **9.5** |
+
+**WEBTOON ingest fix confirmed in production.** Episode 129 scraped from the
+Railway container — the datacenter-IP worry is resolved, the `Referer` fix works
+there too. 134 strip images in, 210 panels out.
+
+**Finding worth investigating (not acted on):** the WEBTOON run has ~9.5 images
+per narration line against 4.4–5.8 for the page-format titles, and 208 segments
+from 210 panels — i.e. nearly every panel was used. The YOLO detector was
+trained on page-format manhwa, not continuous vertical strips, so this looks
+like over-segmentation of the strips with narration spread thin across the
+result. Needs eyes on the board before any tuning.
