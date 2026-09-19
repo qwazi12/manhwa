@@ -273,125 +273,186 @@ driven by it.
 
 ---
 
-# PART B — the Claude lab (`claude_lab.py`, `claude_pipeline.py`)
+# PART B — the Claude lab (`claude_lab.py`, `claude_plus.py`, `claude_place.py`)
 
-## B1. Cut into panels — switchable
+> **This part was rewritten on 2026-09-19.** The previous version described
+> `claude_pipeline.py`, the first draft of the lab. Its "absent compared to the
+> default" lists — no coverage target, no DP, no provenance constraint — were
+> accurate then and are wrong now: the Claude+ upgrade added all three. Treat
+> any older copy of this section as describing a pipeline that no longer runs.
 
-**Option A — Claude cuts (`split_with_claude`).** One vision call per page.
-Pages downscaled to `PAGE_MAX_PX = 1400`. The prompt asks for panel boxes in
-reading order plus a `kind` of `art | text | credits`, instructs that bubbles
-overlapping borders be included, and says it is better to include gutter than to
-clip art or text.
+## B1. Cut into panels — switchable (`claude` | `yolo`)
 
-Validation is `_sane_box()`: clamp to [0,1], sort so x0<x1, reject anything
-under 5% wide or 1% tall. `MAX_PANELS_PER_PAGE = 14`. Boxes sorted by
-(y0, x0). Crops taken from the **original** resolution.
+**Option A — Claude cuts (`split_with_claude`).** One vision call per page,
+page downscaled to `PAGE_MAX_PX = 1400`, crops taken from the **original**
+resolution. `MAX_PANELS_PER_PAGE = 14`, `MIN_PANEL_PX = 80`.
 
-**Absent compared to the default:** no coverage target, no gap recovery, no
-bubble/figure anchors, no background/gutter analysis, no trim-to-content, no
-blank detection or archiving, no minimum pixel size, no tall-panel recursion, no
-moment slicing, no valley cuts.
+Unlike the first draft, the output is now *validated against the page*:
 
-**Option B — YOLO cuts (`split_with_yolo`).** Runs `split_panels.py` exactly as
-ingest does, so this half is identical to the default.
+- **Coverage gate.** `COVERAGE_TARGET = 0.85` — the fraction of the page's INK
+  that ends up inside a panel box. A page below target is retried. This is
+  production's rule, adopted: a splitter that silently drops art produces a
+  chapter with holes, and nothing downstream can tell.
+- **Gap recovery** (`_recover_bands`) — horizontal bands of ink that no box
+  claimed are recovered as panels rather than lost.
+- **Tall-panel recursion** (`_split_tall`) — a box far taller than it is wide is
+  cut again at background valleys.
+- **Blank rejection** — each crop is tested with production's `_is_blank_crop`;
+  a gutter sliver is dropped, and the count is reported as `blanks_dropped`.
+- **Fallback** — if Claude's cut cannot be made to cover the page, YOLO runs
+  instead and `diagnostics.split_fallback` records that it happened. The
+  fallback is never silent.
 
-## B2. Read each panel — `claude_pipeline.describe`
+**Option B — YOLO cuts (`split_with_yolo`).** Runs `panel-split/split_panels.py`
+with the same argv, same cwd and same env as `ingest.py` does. This half is not
+"similar to" the default — it is the same process. Cost: **$0**, no model calls.
 
-`PANELS_PER_CALL = 6` images per call, each labelled `PANEL n:`. Returns per
-panel: `ocr`, `description`, `crop`, `is_credits`, `subject`, `importance` (1–5).
+*Known gap:* `ingest.py` inspects the splitter's log for `USAGE CAP EXCEEDED`
+and raises a named cap error; `split_with_yolo` raises a generic
+"the YOLO splitter failed — see split.log". A cap hit during a lab split is
+therefore harder to read than the same hit during an ingest.
 
-Crop validation is `_clean_crop()`: clamp, reject under 5% in either axis, else
-accept. **No `CROP_MIN_AREA = 0.12` floor.**
+## B2. Read each panel — `claude_plus.describe_plus`
 
-Checkpointed after every batch and resumable — a restart skips panels already
-read rather than paying twice.
+Batched vision calls. Each panel returns more than prose:
 
-**Compared to the default's describe prompt:** no word cap, no forced
-action-verb opening, no banned openers, one example instead of four, and OCR is
-not declared the primary match signal. It does add `is_credits`, `subject` and
-`importance`, which the default has no equivalent of at this stage.
+| Field | Why it exists |
+|---|---|
+| `ocr` | the words actually on the panel |
+| `visual_description` | what is depicted |
+| `ocr_confidence` | feeds `panel_weights()` at placement time |
+| `desc_confidence` | low confidence is surfaced, not hidden |
+| `needs_review` | the model flagging its own uncertainty |
+| `subject_type` | `character / scene / object / text / credits` |
+| `focus_hint` | **advisory only** — never a crop box |
 
-**The structural difference:** the crop is chosen **here** — in the same call as
-the description, before any narration exists. It therefore cannot follow the
-line, because the line has not been written.
+`audit_description()` checks the prose for the failure modes that matter
+(missing action verb, hedging, restating the OCR), and **exempts static, text
+and credits panels** from the action-verb rule, because a title card has no
+action to describe and flagging it is noise.
 
-## B3. Write the script — `claude_pipeline.script`
+**Resumable.** Descriptions are checkpointed to `descriptions.json` after every
+batch and the stage skips panels already read (`skip=done`), so a run killed
+here resumes without re-paying. Cost is banked per batch, so a run that dies
+half way still reports what it actually spent.
 
-`SCRIPT_CHUNK = 40` panels per call. A rolling tail passes the last unit's
-closing ~400 characters as continuation context. Returns units with
-`covers_panels` hints. Units renumbered densely 0..n-1.
+## B3. Write the script — `claude_plus.script_plus`
 
-Eight bullet rules: story order, past tense third person, numbered units of one
-or two sentences, cover the whole chapter, skip credits/title/SFX panels, don't
-narrate the merely visible, never invent, don't address the viewer or tease.
+Scene-aware and **budgeted**, which is the part the default does not do:
 
-**Absent compared to the default:** no word budget of any kind, no voice anchor,
-no style anchor, no banned vocabulary, no dialogue-fidelity rule, no
-reported-speech requirement, no density rule, no global beatsheet, **and no
-critique/revise pass at all.**
+- `word_budget(n_panels, n_dialogue)` sets how much narration a scene has
+  earned from how much is actually on the page.
+- `scene_budget()` applies it per scene, with a dense-scene allowance.
+- The budget is a **target range**, not a point: `TARGET_MIN_FRAC = 0.50`,
+  `TARGET_MAX_FRAC = 0.90`. A single number made the model pad to hit it.
 
-## B4. Place lines on panels — `claude_pipeline.place`
+Then critique and revise, with issue types including `missing_worldbuilding`.
+`underspend_issues()` is computed **in code** rather than asked of the model —
+under-spend is arithmetic the pipeline already has, and asking a model to check
+arithmetic it just produced is how you get agreement instead of an answer.
 
-**One call** carrying every unit and every panel. `max_tokens = 32000`, so it
-streams (see below).
+## B4. Place lines on panels — `claude_place.place`
 
-Rules given: every unit gets at least one panel; panels stay in reading order
-across the chapter; choose the panel that *shows* what the line is about, not
-one merely on the same topic; a unit may hold several consecutive panels; a
-panel may go unused; never assign credits, title cards or pure SFX panels; a
-reveal's panel must not precede the unit that sets it up.
+A **dynamic-programming solver**, not a single "assign these" call. Forward-only
+(a line may not reach backwards into an earlier panel), with tuned costs:
 
-Post-processing: a `used` set prevents one panel going to two units. Unknown
-panel numbers dropped.
+| Cost | Value | What it buys |
+|---|---|---|
+| `HOLD_PENALTY` | 0.06 | mild resistance to sitting on one panel |
+| `OVER_HOLD_PENALTY` | 0.5 | sharp resistance past the cap |
+| `HOLD_CAP_S` | 12.0s | the point where a hold becomes a stare |
+| `JUNK_COST` | 3.0 | keeps lines off credits / SFX / title cards |
+| `PROVENANCE_COST` | 0.3 | a line should land on the panel it was WRITTEN from |
 
-**Absent compared to the matcher:** no DP, no scoring, no embeddings, no hold
-penalty or hold cap, no junk filter, no importance bonus, no provenance
-constraint, no enforcement of the monotonic ordering it was asked for — the
-instruction is stated but never checked.
+`PROVENANCE_COST` was calibrated by sweep, not guessed: **0.9** pinned every
+line to its source panel and escapes fell to zero (a wall); **0.5** allowed one
+escape; **0.3** restored full recovery while still preferring provenance.
 
-## B5. Beats, voice, segments
+`panel_weights()` weights candidates by OCR confidence, so a panel the reader
+could not read is a weaker target. `expand_units()` then spreads a unit across
+consecutive panels for visual progression, with `MIN_VISUAL_SEC = 1.4` and a
+`_distinct()` check so "progression" means a genuinely different image.
 
-Beats and voice are **identical** to the default — `segment_beats_scenes` and
-`_synth_rest`, unchanged.
+## B5. Choose the crop — **after** the script, not during the read
 
-`claude_lab._build` lays the placement onto the timeline: each unit's panels
-split that unit's beat window evenly, the beat covering a slice's midpoint
-supplies the row's text, then shot ends are snapped to the next shot's start —
-the same exact-tiling rule as `build_timeline`. `focus_source = "claude"`.
+The single most important structural change. The first draft chose crops during
+the read pass, which made it *structurally impossible* for framing to serve the
+narration — the line did not exist yet.
 
-> The `claude_pipeline.timing` stage (Claude proposing seconds and camera moves)
-> exists but the lab does **not** use it — lab timing comes from real TTS audio.
-> It is only used by the older sidecar comparison path.
+Crops are now planned last, by `claude_plus.plan_crops`, and every proposed box
+is run through the shared `crop_score.choose_crop` with the **RAW** box (an
+earlier bug normalised slivers before measuring them, which made rejections
+unattributable). Full frame wins unless a crop beats it by a real margin *and*
+passes lint. `focus_confidence` is never the gate — the two worst boxes in the
+Martial Genius audit both carried 1.0.
 
-## B6. One shared fix worth recording
+## B6. Beats, voice, segments — shared, unchanged
 
-`validator._call_claude` now streams whenever `max_tokens ≥ 8000` and collapses
-the result with `get_final_message()`. The placement stage failed in production
-with *"Streaming is required for operations that may take longer than 10
-minutes"* — after the read and script stages had already been paid for.
+`segment_beats_scenes`, the TTS path and `build_segments` are the default
+system's code, imported and run as-is. The lab does not fork the spine.
 
 ---
 
 # PART C — side by side
 
-| Decision | Default (Gemini) | Claude lab |
+> Rewritten 2026-09-19. The previous table's "Claude lab" column said *none*
+> for tall panels, blank crops, script budget, script QC and hold control, and
+> "one prompt, dedup only" for placement. Claude+ added every one of those, so
+> the old table now overstates the gap everywhere **except panel cutting** —
+> which is the one place it was, and remains, real.
+
+| Decision | Default (Gemini) | Claude+ lab |
 |---|---|---|
-| Panel cutting | 4 passes, coverage-gated at 0.85, anchors, ~25 thresholds | 1 prompt, clamp + 5%/1% reject, cap 14/page |
-| Tall panels | recursion → vision beats → moment slices → valley cuts | none |
-| Blank/junk crops | density threshold + archive | none |
-| OCR | "highest-priority match signal", exact, punctuation kept | exact, joined — priority not stated |
-| Description length | **MAX 50 words** | "one or two sentences" |
-| Description form | **must** open with action verb; 3 banned openers | free |
-| Script length | **computed budget** 12/panel + 7/dialogue, 40–220 | none |
-| Script rules | 9 mandatory + banned vocabulary + voice anchor | 8 bullets |
-| Script QC | **critique pass** (5 issue types) + targeted revision | none |
-| Placement | global DP, embeddings, junk filter, importance, provenance | one prompt, dedup only |
-| Hold control | `HOLD_PENALTY` 0.06, `MAX_HOLD` 5, `HOLD_CAP_S` 12s | none |
-| Crop trigger | **only** when narration hits a detail keyword | every panel, always |
-| Crop input | panel image **+ the beats assigned to it** | panel image alone |
-| Crop output | box + framing_mode + reason + confidence | box only |
-| Crop floor | `CROP_MIN_AREA` 0.12 | 5% per axis |
-| Crop timing | **after** the script, driven by it | **before** the script exists |
+| **Panel cutting** | **4 passes, coverage-gated 0.85, bubble/figure anchors, trim-to-content, ~25 tuned thresholds** | 1 vision call + coverage gate 0.85 + retry + gap recovery + blank drop + YOLO fallback |
+| **Tall panels** | **recursion → vision beats → moment slices → valley cuts** | `_split_tall` — valley cuts only |
+| Blank/junk crops | density threshold + archive | the **same** `_is_blank_crop`, reused |
+| OCR | exact, punctuation kept | exact, **plus `ocr_confidence`** which feeds placement |
+| Description form | max 50 words, must open with an action verb | audited for verb/hedging/OCR-restating, **static + credits panels exempt** |
+| Script length | computed budget 12/panel + 7/dialogue | `word_budget` + `scene_budget`, as a **range** (0.50–0.90) not a point |
+| Script QC | critique pass, 5 issue types | critique + revise, incl. `missing_worldbuilding`; **under-spend computed in code** |
+| Placement | global DP, embeddings, junk filter, importance, provenance | global DP, **OCR-confidence weights**, junk filter, `PROVENANCE_COST` 0.3 (swept) |
+| Hold control | `HOLD_PENALTY` 0.06, `HOLD_CAP_S` 12s | the same constants, plus `MIN_VISUAL_SEC` 1.4 for progression |
+| Crop trigger | only when narration hits a detail keyword | planned per placement, then scored |
+| Crop scoring | `crop_score.choose_crop` | **the same** `crop_score.choose_crop` |
+| Crop timing | after the script, driven by it | after the script, driven by it |
+| Beats / voice / segments | `beat_segmenter` + `build_segments` | **the same modules, imported** |
+
+**The honest summary:** these two systems have converged. Reading, scripting,
+placement, cropping and timing are now either the same code or the same ideas
+with different tuning. **Panel cutting is the one stage that never converged**,
+and it is the stage where the default has four passes and roughly twenty-five
+tuned thresholds against the lab's single call plus a validation gate.
+
+---
+
+# PART C2 — the blend (`splitter="yolo"`)
+
+The operator's read after chapter 352 was: *Claude's OCR, description, script
+placement and on-screen timing are better; the default's panels are better.*
+Part C says why that is exactly what you would expect.
+
+**The blend already exists and needs no new code.** `split_with_yolo` shells out
+to `panel-split/split_panels.py` with the same argv, cwd and env that
+`ingest.py` uses — so running the lab with `splitter="yolo"` gives production's
+panels, unmodified, feeding Claude's reading, scripting, DP placement and
+crop-after-script.
+
+| Stage | Blend uses | Why |
+|---|---|---|
+| Panel cutting | **default (YOLO, 4-pass)** | the stage that never converged, and the default wins it |
+| Read / OCR | Claude+ | confidence fields feed placement |
+| Script | Claude+ | budgeted, critiqued, world-building aware |
+| Placement | Claude+ DP | provenance-constrained |
+| Crop | Claude+ → shared scorer | planned after the line exists |
+| Beats / voice / segments | shared | identical in both |
+
+Cost note: the split stage costs **$0** in the blend (YOLO is a local model, no
+API calls), so a blend run is *cheaper* than a `claude`-split run of the same
+chapter, not more expensive.
+
+The board column that changes is **Panel**. `/panelimg/{pid}` serves the panel
+PNG the splitter produced, so the Panel column is a direct view of the splitter
+— which is precisely the column the operator wanted back.
 
 ---
 

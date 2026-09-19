@@ -5865,3 +5865,56 @@ behaviour; corrected to the production shape (a recent lab run under older
 exports). The test writes into the REAL `_jobs_dir` because that is the path
 under test, so it removes its records in a `finally`. Full suite: **27 suites,
 0 failures.**
+
+### 2026-09-19 — Daily cap raised; handbook de-drifted; blend run (YOLO split + Claude+) on Ch.353
+
+**Cap.** `MAX_DAILY_SPEND_USD` 12 → **30** via Railway env var (not by touching
+`usage.py`). Note it was already 12, not the documented 5 — raised in an earlier
+session and never reverted. A single job stays bounded by
+`MAX_CLAUDE_CALLS_PER_JOB=400` (default, unset on Railway); Ch.352 used 68
+calls, so one runaway job is capped well below the daily ceiling. Spend at the
+time of the change: $2.2981.
+
+**Operator's read after Ch.352:** Claude's `System OCR / System description /
+Script placement / On-screen timing & motion` are better; the DEFAULT system's
+`Panel` is better.
+
+**That is exactly what the code predicts.** The two pipelines have converged on
+reading, scripting, placement, cropping and timing — several stages are now
+literally the same modules (`crop_score.choose_crop`, `beat_segmenter`,
+`build_segments`, `_is_blank_crop`). **Panel cutting is the one stage that never
+converged:** the default runs 4 passes with bubble/figure anchors,
+trim-to-content and ~25 tuned thresholds, plus recursion → vision beats →
+moment slices → valley cuts for tall panels; the lab's Claude splitter is one
+vision call plus a validation gate.
+
+**The blend needed NO new code.** `claude_lab.split_with_yolo` invokes
+`panel-split/split_panels.py` with the same argv, cwd and env as `ingest.py` —
+verified line by line, not assumed. So `splitter="yolo"` = production's panels
+feeding Claude+'s read/script/DP-placement/crop-after-script. The split stage
+costs **$0** in the blend, so it is *cheaper* than a claude-split run.
+Board note: `/panelimg/{pid}` serves the splitter's PNG, so the Panel column is
+a direct view of the splitter — the exact column the operator wanted back.
+
+**Pre-flight checks before spending:** YOLO weights ship as <100MB chunks in
+`panel-split/weights/` (both committed), reassembled at Docker build with a
+SHA256 assert, so the path is sound in the container. All three prior lab runs
+used `splitter="claude"`, so the yolo path was previously unexercised in prod.
+
+**Run started:** `i-am-the-fated-villain_353-lab-yolo`, job `044ee76133f7`.
+
+**PIPELINE_HANDBOOK.md de-drifted (Rule 33).** Parts B and C described
+`claude_pipeline.py`, the lab's FIRST draft, and claimed the Claude side had
+"no coverage target, no DP, no provenance constraint, no script budget, no
+script QC, no hold control" — all true when written, all false since Claude+.
+Rewrote Part B against the current code (verified constants: COVERAGE_TARGET
+0.85, PAGE_MAX_PX 1400, MAX_PANELS_PER_PAGE 14, MIN_PANEL_PX 80,
+PROVENANCE_COST 0.3, HOLD_PENALTY 0.06, OVER_HOLD_PENALTY 0.5, HOLD_CAP_S 12,
+JUNK_COST 3.0, MIN_VISUAL_SEC 1.4, TARGET_MIN/MAX_FRAC 0.50/0.90), rewrote the
+Part C table, and added **Part C2 — the blend**. Both rewritten sections carry
+a dated note saying what the old text claimed and why it is superseded.
+
+**Gap found, not yet fixed:** `ingest.py` inspects the splitter log for
+`USAGE CAP EXCEEDED` and raises a named cap error; `split_with_yolo` raises a
+generic "the YOLO splitter failed — see split.log". A cap hit during a lab
+split is therefore harder to diagnose than the same hit during an ingest.
