@@ -6068,3 +6068,48 @@ from 210 panels — i.e. nearly every panel was used. The YOLO detector was
 trained on page-format manhwa, not continuous vertical strips, so this looks
 like over-segmentation of the strips with narration spread thin across the
 result. Needs eyes on the board before any tuning.
+
+### 2026-09-20 — Lab chapters were born unrenderable: shared beats never sliced
+
+**Answering "I thought this was fixed": it never was.** The Session 28 entry in
+this log records the same symptom, calls it *"data defect, not code;
+/api/storyboard/repair_slices is the fix. NOT actioned (outside this batch)."*
+What existed was the **guard** (`render_segments.py:278`) that prints the error.
+The cause was diagnosed, deferred, and never addressed.
+
+**Root cause — structural, not data, not operator edits, not undo.**
+`claude_lab._build_shots` (line 881 comment) gives each panel of a multi-panel
+narration unit *"a slice of the shared narration window"* — it slices the
+**window** but never the **audio**, leaving every shot pointing at the same beat
+index. With no explicit `file`, `render_segments.py` falls back to
+`beat_<index>.mp3`, the WHOLE sentence, which by construction cannot fit a
+window that was deliberately narrowed.
+
+`expand_units()` exists specifically to spread a line across panels, so the
+multi-panel unit is the NORMAL case. Measured live on
+`i-am-the-fated-villain_352-lab-claude`: **52 of 79 segments (66%) broken.**
+Arithmetic proof: `beat_000.mp3` is 11.016s; seg 0's window is **5.508s** —
+exactly half — and seg 1's is 6.108s, both referencing the whole file.
+
+**The error message was sending the operator to a dead end.** Dry run of
+`repair_slices` on the live project: **5 of 52**. It re-binds slices that
+already exist, and none did.
+
+**Fixes:**
+1. `claude_lab._slice_shared_beats()` — after end-snapping (the snapped window
+   is what the renderer checks), cut the mp3 at slot boundaries and record a
+   `beat_file` per part. The last part runs to the end of the audio, because
+   the final shot's window is snapped to the next scene's start and trimming
+   there would clip the closing words. EVERY shot of a multi-shot beat gets a
+   file — one missing file reinstates the whole-file fallback.
+2. `segments.build_segments` — strictly additive `beat_file` -> `file`
+   passthrough. Production shots never set it, so production output is
+   unchanged (asserted in the test).
+3. `storyboard_edit.repair_shared_beats()`, wired into
+   `/api/storyboard/repair_slices` — creates the missing slices for chapters
+   ALREADY built, so the advice the render error gives is finally true.
+
+**Tests:** new `test_lab_audio_slices.py` (11) using real ffmpeg audio, because
+the bug is durations on disk disagreeing with the manifest. Includes a negative
+control asserting the whole-file fallback WOULD fail the same check, so the
+test cannot pass vacuously. Full suite: **30 suites, 0 failures.**

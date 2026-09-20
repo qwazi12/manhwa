@@ -1254,6 +1254,70 @@ def repair_overlapping_slices(pdir, segs=None, dry_run=False):
     return fixed
 
 
+def repair_shared_beats(pdir, dry_run=False):
+    """Slice a sentence that several segments each claim in full.
+
+    The lab builder spread one narration line across several panels, gave each
+    its own narrow window, but left every one of them pointing at the WHOLE
+    `beat_<index>.mp3`. The renderer then refused the chapter — correctly, since
+    a 5.544s file cannot play inside a 5.099s window.
+
+    The existing repairs could not help: `repair_slice_binding` re-binds slices
+    that already exist, and here none did. On the live project it fixed 5 of 52.
+
+    This creates the missing slices, so the advice the render error gives is
+    finally true for this fault.
+    """
+    segs = load(pdir)
+    audio = _audio_dir(pdir)
+
+    holders = {}
+    for seg in segs:
+        for b in seg.get("beats", []):
+            if b.get("file"):
+                continue                   # already sliced
+            holders.setdefault(b["index"], []).append((seg, b))
+
+    fixed = []
+    for idx, group in sorted(holders.items()):
+        if len(group) < 2:
+            continue                       # one owner — the whole file is right
+        src = os.path.join(audio, f"beat_{idx:03d}.mp3")
+        if not os.path.exists(src):
+            continue
+        try:
+            dur = _ffdur(src)
+        except Exception:
+            continue
+        group.sort(key=lambda gb: gb[1]["start"])
+        base = float(group[0][1]["start"])
+        for i, (seg, b) in enumerate(group):
+            t0 = max(0.0, float(b["start"]) - base)
+            t1 = (dur if i == len(group) - 1
+                  else max(t0 + 0.05, float(group[i + 1][1]["start"]) - base))
+            t0, t1 = min(t0, dur), min(t1, dur)
+            if t1 <= t0:
+                t0, t1 = max(0.0, dur - 0.05), dur
+            name = f"beat_{idx:03d}_p{i:02d}.mp3"
+            if not dry_run:
+                try:
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-ss", f"{t0:.3f}",
+                         "-t", f"{max(t1 - t0, 0.05):.3f}", "-i", src,
+                         "-q:a", "4", os.path.join(audio, name)],
+                        check=True, capture_output=True)
+                except Exception:
+                    continue
+                b["file"] = name
+            fixed.append({"seg": seg["seg_index"], "beat": idx, "file": name,
+                          "from": round(t0, 3), "to": round(t1, 3)})
+    if fixed and not dry_run:
+        save(pdir, segs)
+        _stale(pdir, [f["seg"] for f in fixed])
+        _log(pdir, "repair_shared_beats", n=len(fixed))
+    return fixed
+
+
 def repair_orphaned_beats(pdir, segs=None, dry_run=False):
     """Fix beats scheduled outside their own segment's window.
 

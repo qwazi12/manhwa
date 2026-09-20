@@ -820,7 +820,7 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
         # ---- 11. segments ----------------------------------------------
         _prog("segment", "building render segments")
         segs = _build_shots(crops, descs, beats, slots, crops_by_pid,
-                            build_segments)
+                            build_segments, audio_dir=audio)
         with open(os.path.join(pdir, "segments.json"), "w",
                   encoding="utf-8") as f:
             json.dump(segs, f, indent=2)
@@ -862,7 +862,77 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
         return man
 
 
-def _build_shots(crops, descs, beats, slots, crops_by_pid, build_segments):
+def _audio_dur(path):
+    out = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", path], text=True).strip()
+    return round(float(out), 3)
+
+
+def _extract_range(src, t0, t1, out):
+    """Write src[t0:t1] to out. Re-encodes so the cut lands where asked."""
+    subprocess.run(["ffmpeg", "-y", "-ss", f"{t0:.3f}", "-t", f"{max(t1 - t0, 0.05):.3f}",
+                    "-i", src, "-q:a", "4", out],
+                   check=True, capture_output=True)
+
+
+def _slice_shared_beats(shots, beats, audio_dir):
+    """Cut a beat's mp3 when its sentence is spread over several panels.
+
+    THE BUG THIS FIXES: `expand_units` deliberately spreads one narration line
+    across several panels for visual progression, and each resulting shot got
+    its own narrow window but kept the SAME beat index. With no explicit file
+    the renderer falls back to `beat_<index>.mp3` — the whole sentence — so a
+    5.5s file was scheduled inside a 5.099s window and the render was refused.
+    Measured on i-am-the-fated-villain_352: 52 of 79 segments, because a
+    multi-panel unit is the normal case, not an edge case.
+
+    Production already solved this for hand edits (`storyboard_edit._slice_mp3`
+    writes an explicit per-part file); the lab build simply never did it.
+
+    Every shot of a multi-shot beat gets an explicit file — including any
+    degenerate one — because a single missing file reinstates the whole-file
+    fallback and with it the bug.
+    """
+    by_beat = {}
+    for sh in shots:
+        by_beat.setdefault(sh["index"], []).append(sh)
+
+    sliced = 0
+    for idx, group in by_beat.items():
+        if len(group) < 2:
+            continue                       # one panel, whole file is correct
+        src = os.path.join(audio_dir, f"beat_{idx:03d}.mp3")
+        if not os.path.exists(src):
+            continue
+        try:
+            dur = _audio_dur(src)
+        except Exception:
+            continue
+        group.sort(key=lambda x: x["start"])
+        base = float(beats[idx]["start"])
+        for i, sh in enumerate(group):
+            t0 = max(0.0, float(sh["start"]) - base)
+            # The last part runs to the end of the audio: the final shot's
+            # window is snapped to the NEXT scene's start, which may sit past
+            # the sentence, and trimming there would clip the last words.
+            t1 = (dur if i == len(group) - 1
+                  else max(t0 + 0.05, float(group[i + 1]["start"]) - base))
+            t0, t1 = min(t0, dur), min(t1, dur)
+            if t1 <= t0:
+                t0, t1 = max(0.0, dur - 0.05), dur
+            name = f"beat_{idx:03d}_p{i:02d}.mp3"
+            try:
+                _extract_range(src, t0, t1, os.path.join(audio_dir, name))
+            except Exception:
+                continue
+            sh["beat_file"] = name
+            sliced += 1
+    return sliced
+
+
+def _build_shots(crops, descs, beats, slots, crops_by_pid, build_segments,
+                 audio_dir=None):
     """One shot per beat, carrying the crop chosen for its panel.
 
     Unlike the first version there is no folding maths here: the DP already
@@ -897,4 +967,8 @@ def _build_shots(crops, descs, beats, slots, crops_by_pid, build_segments):
         shots[i]["end"] = shots[i + 1]["start"]
     for sh in shots:
         sh["dur"] = round(sh["end"] - sh["start"], 3)
+    # Slice AFTER the ends are snapped — the snapped window is the one the
+    # renderer will check the audio against.
+    if audio_dir:
+        _slice_shared_beats(shots, beats, audio_dir)
     return build_segments(shots)

@@ -46,12 +46,20 @@ def build_segments(shots):
                 "end": float(s["end"]),
                 "beats": [],
             }
-        cur["beats"].append({
+        beat = {
             "index": s["index"],
             "start": float(s["start"]),
             "end": float(s["end"]),
             "text": s.get("beat_text", ""),
-        })
+        }
+        # A shot may carry its OWN slice of a shared beat's audio. Without an
+        # explicit file the renderer falls back to beat_<index>.mp3 — the WHOLE
+        # sentence — which cannot fit a window that was deliberately narrowed
+        # to one panel's share of it. Producers that do not slice never set
+        # this key, so their output is unchanged.
+        if s.get("beat_file"):
+            beat["file"] = s["beat_file"]
+        cur["beats"].append(beat)
         cur["end"] = float(s["end"])
     if cur is not None:
         segments.append(cur)

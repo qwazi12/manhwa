@@ -4204,8 +4204,13 @@ def sb_repair_slices(body: RepairIn):
         bound = storyboard_edit.repair_slice_binding(pdir, dry_run=body.dry_run)
         overlap = storyboard_edit.repair_overlapping_slices(pdir, dry_run=body.dry_run)
         orphan = storyboard_edit.repair_orphaned_beats(pdir, dry_run=body.dry_run)
+        # Several segments each claiming one whole sentence — the fault that
+        # blocked i-am-the-fated-villain_352 on 52 of 79 segments and that the
+        # three repairs above could not touch (they fixed 5).
+        shared = storyboard_edit.repair_shared_beats(pdir, dry_run=body.dry_run)
         return {"rebound": bound, "overlaps": overlap, "orphaned": orphan,
-                "total": len(bound) + len(overlap) + len(orphan)}
+                "shared_beats": shared,
+                "total": len(bound) + len(overlap) + len(orphan) + len(shared)}
     except ValueError as e:
         raise HTTPException(400, str(e))
 
