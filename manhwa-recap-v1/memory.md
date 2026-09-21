@@ -6113,3 +6113,52 @@ already exist, and none did.
 the bug is durations on disk disagreeing with the manifest. Includes a negative
 control asserting the whole-file fallback WOULD fail the same check, so the
 test cannot pass vacuously. Full suite: **30 suites, 0 failures.**
+
+### 2026-09-20 — Margin-trim theory tested and REJECTED; TALL_RATIO made sweepable
+
+**Hypothesis (mine): manhwa pages carry side margins that poison the row
+statistics driving horizontal cuts. MEASURED AND FALSE.**
+- swordmasters ch1, 19 pages: **258 crops with the trim off, 258 with it on** —
+  byte-identical panel count.
+- Content columns span the FULL width on **0 of 20 pages** across two titles
+  (swordmaster 760px, fated-villain 900px): margin 0.00% everywhere.
+- Output crops are also clean: 10 of 12 at 0.00% side bars. `_content_bounds`
+  inside `save_crop` was already removing what little exists.
+- So the black bars in the operator's screenshots are NOT in the source pages
+  or the pipeline's crops — they are display-side letterboxing of a tall panel
+  into a 16:9 frame.
+
+The margin code was **reverted** rather than left in: it fired on nothing, and
+speculative machinery in the splitter is a path someone has to reason about
+later. Reverted cleanly (only the TALL_RATIO change remains in the diff).
+
+**What the measurement DID find — and the operator was right to push back.**
+Two constants disagree, and the ordering decides the outcome:
+
+| Where | Constant | Value | Effect |
+|---|---|---|---|
+| `split_panels.py` | `TALL_RATIO` | 1.8 | taller than this → cut into sub-shots |
+| `render_segments.py` | `TALL_AR` | 2.2 | taller than this → scroll-pan top→bottom |
+
+The splitter runs FIRST, so slicing at 1.8 pre-empts scroll-pan at 2.2
+entirely — the renderer only ever sees panels the splitter declined to cut.
+`render_segments.py:154` records that TALL_AR was deliberately lowered
+3.0 → 2.2 to catch MORE tall panels, while the splitter was quietly cutting
+those same panels up first. The two changes were never reconciled. My earlier
+claim that a tall strip "cannot be shown as one frame" was wrong: the renderer
+never uses one frame for it, it animates down it.
+
+**A/B measured (free, no API spend):**
+
+| Title | 1.8 | 6.0 | Verdict |
+|---|---|---|---|
+| WEBTOON ep128 (138 strips) | 227 crops | **227 crops** | identical filenames, **0 `_shot_` crops** — the slicer never fires on strip format |
+| Fated Villain ch.353 (10 pages) | 72 crops (53 are slices) | **45 crops** | **11 panels stop being cut** |
+
+So the slicing behaviour is **title-specific**: a page-format (Asura) concern
+that never touches strip-format titles. Worth knowing before moving a global
+constant.
+
+`TALL_RATIO` is now `SPLIT_TALL_RATIO` env-overridable — the change that made
+this sweep possible; the default 1.8 is unchanged, so behaviour is identical
+unless the var is set.

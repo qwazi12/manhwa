@@ -70,7 +70,13 @@ CONTENT_LINE_FRAC = 0.01       # a row/col needs >= this frac non-bg to be conte
 # --- blank-crop archiving tunables ---
 BLANK_DENSITY_THRESHOLD = 0.015   # crops with less than this fraction non-bg content are "blank"
 ARCHIVE_BLANKS = True             # move (not delete) blank crops to an archive/ subfolder
-TALL_RATIO = 1.8               # panel h/w above this is a candidate for sub-shots
+# Panel h/w above this is a candidate for sub-shots. NOTE THE TENSION with
+# render_segments.TALL_AR = 2.2, the point at which a tall panel is instead
+# SCROLL-PANNED top->bottom. The splitter runs first, so slicing at 1.8
+# pre-empts scroll-pan at 2.2 entirely: the renderer only ever sees panels
+# this step chose not to cut. Env-overridable so the two can be swept
+# against each other rather than argued about.
+TALL_RATIO = float(os.environ.get("SPLIT_TALL_RATIO", 1.8))
 # Moment slicing (T2, Session 23): a tall panel is cut into MOMENTS — groups
 # of speech bubbles separated by a real vertical gap — with each cut placed
 # at the lowest-ink row BETWEEN moments. Slices never overlap by
