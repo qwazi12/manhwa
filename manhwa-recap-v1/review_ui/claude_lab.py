@@ -758,6 +758,10 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
 
         # ---- 9. place (DETERMINISTIC, monotonic) -----------------------
         _prog("place", f"placing {len(beats)} beats on {len(descs)} panels")
+        # Measure bubble coverage before placing, so "is this a picture or a
+        # page of dialogue?" is answered from the image, not inferred.
+        n_bf = annotate_bubble_frac(descs, crops)
+        _prog("place", f"measured bubble coverage on {n_bf} panels")
         idx_of = {d["panel_id"]: i for i, d in enumerate(descs)}
         allowed = {}
         for i, b in enumerate(beats):
@@ -929,6 +933,45 @@ def _slice_shared_beats(shots, beats, audio_dir):
             sh["beat_file"] = name
             sliced += 1
     return sliced
+
+
+def annotate_bubble_frac(descs, crops_dir):
+    """Measure how much of each panel is speech bubble, from the image itself.
+
+    This is the BACKEND/FRONTEND split made measurable: the placer uses it to
+    keep a panel that is mostly dialogue box off the screen, while its OCR
+    still feeds the script. Reuses production's own `_detect_bubbles`, so the
+    two pipelines agree on what a bubble is.
+
+    A panel that cannot be read is left unannotated rather than guessed at —
+    `is_text_surface` then falls back to the reader's `subject_type`.
+    """
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "panel-split"))
+        import split_panels as SP
+        import numpy as np
+        from PIL import Image
+    except Exception:
+        return 0
+
+    done = 0
+    for d in descs:
+        path = os.path.join(crops_dir, d.get("file") or f"{d['panel_id']}.png")
+        if not os.path.exists(path):
+            continue
+        try:
+            g = np.array(Image.open(path).convert("L"))
+            h, w = g.shape
+            bg = SP._estimate_background_color(g)
+            area = 0
+            for b in SP._detect_bubbles(g, bg) or []:
+                if isinstance(b, (list, tuple)) and len(b) >= 4:
+                    area += max(0, b[2] - b[0]) * max(0, b[3] - b[1])
+            d["bubble_frac"] = round(area / max(w * h, 1), 4)
+            done += 1
+        except Exception:
+            continue
+    return done
 
 
 def _build_shots(crops, descs, beats, slots, crops_by_pid, build_segments,

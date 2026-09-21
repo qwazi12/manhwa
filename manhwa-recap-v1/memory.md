@@ -6162,3 +6162,51 @@ constant.
 `TALL_RATIO` is now `SPLIT_TALL_RATIO` env-overridable — the change that made
 this sweep possible; the default 1.8 is unchanged, so behaviour is identical
 unless the var is set.
+
+### 2026-09-20 — Backend/frontend split: bubbles feed the script, art gets the screen
+
+**The operator's framing, which is the right one:** speech bubbles are BACKEND
+(they feed the OCR that writes the narration); images are FRONTEND (what the
+viewer's eye gets). Track 1 already worked — the script is written from all
+descriptions before placement runs, so bubbles always fed it. Track 2 was never
+enforced: nothing stopped a dialogue-box panel from also taking a frame.
+
+**Measured first, on I Am The Fated Villain ch.353 (72 crops):**
+- **46%** of crops are >=25% speech bubble, **14%** are >=50%, worst is **84.9%**
+  (19 bubbles in one 900x3244 crop).
+- Cause is by design and documented in `split_panels.py`: the moment slicer
+  cuts a tall panel into *"MOMENTS — groups of speech bubbles separated by a
+  real vertical gap"*. Dialogue clusters are its unit of meaning, so it
+  produces frames centred on them. 9 of the 14 worst offenders are `_shot_`
+  slices.
+
+**A PREDICTION OF MINE THAT THE DATA KILLED.** I expected raising TALL_RATIO
+(fewer slices, whole panels) to reduce bubble dominance. It does the opposite:
+
+| | crops | mean bubble% | median | >=50% |
+|---|---|---|---|---|
+| 1.8 sliced | 72 | 25.5% | 22.5% | 10 |
+| 6.0 whole | 45 | **30.0%** | **30.8%** | 8 |
+
+Slicing yields some pure-art slices that dilute the average; whole panels merge
+art and dialogue so nothing dilutes it. Absolute bad frames barely move (10→8).
+**TALL_RATIO and bubble dominance are independent problems.**
+
+**Fix — a HARD exclusion, not another cost.** `claude_place.is_text_surface()`
+keys off a measured `bubble_frac` (falling back to the reader's `subject_type`),
+and such panels are removed from the visual candidate set outright
+(`s = -inf`). A soft penalty is provably not enough: the score's OCR-similarity
+term actively REWARDS matching a line to the panel holding its own words —
+exactly the bubble panel — so `JUNK_COST = 3.0` competes with the very signal
+that creates the problem, and sometimes loses.
+
+`claude_lab.annotate_bubble_frac()` measures coverage from the crop image using
+production's own `_detect_bubbles`, so both pipelines agree on what a bubble is.
+Unreadable panels are left unannotated rather than guessed at.
+
+**Verified on the 72 real crops:** 72/72 annotated; **10 excluded (14%)**,
+including the 84.9% one; 12 beats placed across 12 distinct panels with
+**0 text surfaces reaching the screen**; and the all-text fallback still places
+beats rather than showing nothing. Full suite: **30 suites, 0 failures.**
+
+Threshold is `PLUS_TEXT_SURFACE_FRAC` (default 0.50).

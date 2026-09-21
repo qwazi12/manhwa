@@ -201,6 +201,31 @@ def importance(panel, max_area=None):
 
 
 # ---------------------------------------------------------------- the DP
+TEXT_SURFACE_FRAC = float(os.environ.get("PLUS_TEXT_SURFACE_FRAC", 0.50))
+
+
+def is_text_surface(panel):
+    """Is this panel a place to READ rather than a picture to SHOW?
+
+    THE PRINCIPLE: speech bubbles are BACKEND — they feed the OCR that writes
+    the narration. Art is FRONTEND — it is what the viewer's eye gets. A panel
+    that is mostly dialogue box has already done its job by the time the script
+    exists; putting it on screen spends a frame on words the narrator is
+    speaking aloud anyway.
+
+    Measured on I Am The Fated Villain ch.353: 46% of crops were >=25% speech
+    bubble and one was 84.9%, because the moment-slicer cuts tall panels at
+    GROUPS OF SPEECH BUBBLES — dialogue clusters are its unit of meaning.
+
+    `bubble_frac` is measured from the image when the producer supplies it;
+    `subject_type` is the reader's own judgement and is used when it does not.
+    """
+    bf = panel.get("bubble_frac")
+    if bf is not None:
+        return float(bf) >= TEXT_SURFACE_FRAC
+    return (panel.get("subject_type") or "").lower() == "text"
+
+
 def place(beats, panels, allowed=None, progress=None):
     """Assign one panel per beat: forward-only, globally optimal, explainable.
 
@@ -222,6 +247,19 @@ def place(beats, panels, allowed=None, progress=None):
     imp = [importance(p, max_area) for p in panels]
     wts = [panel_weights(p) for p in panels]
 
+    # BACKEND vs FRONTEND. A text surface keeps feeding the script — the script
+    # was already written from these descriptions before placement runs — but
+    # it is removed from the VISUAL candidate set outright. A soft penalty was
+    # tried and is not enough: the score's OCR-similarity term actively REWARDS
+    # matching a line to the panel holding its own words, which is exactly the
+    # bubble panel. A cost that competes with that will sometimes lose.
+    text_surface = [is_text_surface(p) for p in panels]
+    eligible = [j for j in range(n_p) if not text_surface[j]]
+    if not eligible:
+        # Every panel reads as text: show them rather than show nothing.
+        eligible = list(range(n_p))
+        text_surface = [False] * n_p
+
     # ---- score matrix -------------------------------------------------
     S = [[0.0] * n_p for _ in range(n_b)]
     for i, b in enumerate(beats):
@@ -231,7 +269,9 @@ def place(beats, panels, allowed=None, progress=None):
             s = (wo * sim(text, p.get("ocr_text", ""), idf)
                  + wd * sim(text, p.get("visual_description", ""), idf))
             s += IMPORTANCE_W * imp[j]
-            if junk[j]:
+            if text_surface[j]:
+                s = float("-inf")          # backend only — never on screen
+            elif junk[j]:
                 s -= JUNK_COST
             if allowed is not None:
                 ok = allowed.get(i)
@@ -344,6 +384,7 @@ def place(beats, panels, allowed=None, progress=None):
     return assignments, {
         "beats": n_b, "panels": n_p,
         "junk_panels": sum(junk),
+        "text_surfaces_excluded": sum(text_surface),
         "provenance_escapes": escapes,
         "uncertain_placements": uncertain,
         "total_score": round(best, 4),
