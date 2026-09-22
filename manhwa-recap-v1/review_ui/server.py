@@ -2730,6 +2730,13 @@ def _persist_job(job_id):
     try:
         rec = dict(JOBS.get(job_id) or {})
         rec["job"] = job_id
+        # A heartbeat on every write is what makes "is this job alive?"
+        # answerable. Without it a worker killed mid-run leaves a record that
+        # says "running" forever and nothing can tell it from real progress.
+        rec["heartbeat"] = time.time()
+        rec.setdefault("ts", rec["heartbeat"])
+        JOBS.get(job_id, {}).update(
+            {"heartbeat": rec["heartbeat"], "ts": rec["ts"]})
         tmp = os.path.join(_jobs_dir(), f"render_{job_id}.json.tmp")
         with open(tmp, "w") as f:
             json.dump(rec, f)
@@ -2800,10 +2807,35 @@ def _run_render_job(job_id, seg_indices):
         JOBS[job_id]["error"] = str(e)
 
 
+def _active_render_for_project(project):
+    """A render already in flight for this project, if any.
+
+    Ingest has had this guard since the folder-race bug; render never did, so
+    a second render could be started on top of a first and both would write
+    the same clips directory. That is how one project ended up with a 9-hour
+    zombie and a second job stuck at 0 of 59.
+    """
+    _sweep_stalled_jobs()
+    for jid, j in JOBS.items():
+        if (j.get("project") == project
+                and j.get("status") in ("queued", "running")):
+            return jid
+    return None
+
+
 def _start_render(seg_indices):
+    project = os.path.basename(active_project_dir().rstrip("/"))
+    existing = _active_render_for_project(project)
+    if existing:
+        raise HTTPException(
+            409, f"a render is already running for {project} (job {existing}). "
+                 f"Wait for it, or stop it first — starting a second render "
+                 f"writes the same clips and neither finishes cleanly.")
     job_id = uuid.uuid4().hex[:12]
     JOBS[job_id] = {"status": "queued", "done": 0, "total": len(seg_indices),
-                    "seg_indices": seg_indices, "error": None}
+                    "seg_indices": seg_indices, "error": None,
+                    "project": project, "ts": time.time(),
+                    "heartbeat": time.time()}
     threading.Thread(target=_run_render_job, args=(job_id, seg_indices),
                      daemon=True).start()
     return job_id
@@ -2820,10 +2852,77 @@ def job_status(job_id: str):
     return j
 
 
+STALL_SECONDS = float(os.environ.get("JOB_STALL_SECONDS", 1800))
+STOP_GRACE_SECONDS = float(os.environ.get("JOB_STOP_GRACE_SECONDS", 120))
+
+
+def _sweep_stalled_jobs():
+    """Retire jobs whose worker is gone, WITHOUT waiting for a restart.
+
+    Observed 2026-09-22: two renders on the-extras-academy-survival-guide were
+    still marked "running" — one for 9.2 hours after the operator pressed STOP
+    (control="stop", never acknowledged), and a second at 0 of 59 clips for
+    1.9 hours. Nothing could retire them, because the only sweep ran at boot
+    and no deploy had happened since.
+
+    Two rules:
+      - control="stop" is honoured cooperatively by a LIVE worker. If the
+        worker has not checked in within STOP_GRACE_SECONDS, it is not alive,
+        so the stop is applied here instead of hanging forever.
+      - any running job silent for STALL_SECONDS is declared dead.
+
+    Runs on every job listing, so the system heals itself while the operator
+    is looking at it rather than at the next deploy.
+    """
+    now = time.time()
+    swept = []
+    d = _jobs_dir()
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return swept
+    for fn in names:
+        if not fn.endswith(".json"):
+            continue
+        fp = os.path.join(d, fn)
+        try:
+            rec = json.load(open(fp))
+        except Exception:
+            continue
+        if rec.get("status") not in ("running", "queued"):
+            continue
+        last = rec.get("heartbeat") or rec.get("ts") or 0
+        age = now - last
+        stopping = rec.get("control") == "stop"
+        if stopping and age > STOP_GRACE_SECONDS:
+            rec["status"] = "cancelled"
+            rec["error"] = ("stopped by the operator; the worker did not "
+                            "acknowledge, so the job was retired here")
+        elif age > STALL_SECONDS:
+            rec["status"] = "error"
+            rec["error"] = (f"no progress for {age/60:.0f} minutes — the worker "
+                            f"is gone (restart, crash, or killed mid-run). "
+                            f"Cached work is kept; re-submit to resume.")
+        else:
+            continue
+        jid = rec.get("job") or fn[:-5].replace("render_", "")
+        try:
+            json.dump(rec, open(fp, "w"))
+        except Exception:
+            continue
+        if jid in JOBS:
+            JOBS[jid].update({"status": rec["status"], "error": rec["error"]})
+        swept.append(jid)
+    if swept:
+        print(f"[sweep] retired {len(swept)} dead job(s): {swept}", flush=True)
+    return swept
+
+
 @app.get("/api/jobs")
 def jobs_recent(limit: int = 20):
     """Recent render/export job records (persisted; restart-proof) for the
     Logs drawer — newest first."""
+    _sweep_stalled_jobs()
     recs = []
     d = _jobs_dir()
     for f in os.listdir(d):

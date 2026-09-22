@@ -179,6 +179,71 @@ def _ink_profile(panel_gray, bg_color):
     return not_bg.mean(axis=1)
 
 
+BORDER_ONLY_CUTS = os.environ.get("SPLIT_BORDER_ONLY", "1") != "0"
+
+
+def _enforce_readable(slices, ink, w, min_h):
+    """Never leave a piece too tall to read, even if it has no border.
+
+    Cutting only on borders is right, but it cannot be absolute: a borderless
+    stretch of art still has to fit on screen. Skipping those cuts on Murim
+    Psychopath ch.43 produced 900x7278 crops — aspect ratio 8.1 — and this
+    file's own valley-cut path exists precisely "so the renderer never
+    scroll-pans an unreadable 7:1 strip".
+
+    So a piece over NO_DIALOGUE_AR is divided at its ink valleys into pieces of
+    roughly VALLEY_TARGET_AR. Borders remain the preferred seam; this is the
+    floor that stops the preference becoming a 8:1 strip.
+    """
+    out = []
+    for (a, b) in slices:
+        ph = b - a
+        if ph <= NO_DIALOGUE_AR * w:
+            out.append((a, b))
+            continue
+        n = max(2, round(ph / max(VALLEY_TARGET_AR * w, 1)))
+        bounds = [a]
+        for i in range(1, n):
+            c = a + int(ph * i / n)
+            lo, hi = max(bounds[-1] + min_h, c - 200), min(b - min_h, c + 200)
+            if lo >= hi:
+                continue
+            bounds.append(lo + int(np.argmin(ink[lo:hi])))
+        bounds.append(b)
+        out.extend((x, y) for x, y in zip(bounds, bounds[1:]) if y > x)
+    return out
+
+
+def _border_cut(panel_gray, bg_color, lo, hi):
+    """The row of a real PANEL BORDER inside [lo, hi), or None.
+
+    The moment slicer used to cut at `argmin(ink)` — the least-inky single row
+    in the gap. That answers "where is it quietest", not "where does the panel
+    end". When a genuine border exists it lands on an arbitrary row inside it;
+    when none exists it cuts anyway, straight through artwork.
+
+    A border is not a quiet row, it is a RUN of near-uniform background rows —
+    the same definition `_find_gutter_runs` already uses at page level. Reusing
+    it means the cut lands in the MIDDLE of the gutter band, which is where the
+    eye reads the panel as ending.
+
+    Returns None when the gap holds no real border, so the caller can decide
+    whether cutting there is justified at all.
+    """
+    band = panel_gray[lo:hi]
+    if band.shape[0] < 3:
+        return None
+    close = np.abs(band.astype(np.int16) - bg_color) <= BG_COLOR_TOLERANCE
+    frac = close.mean(axis=1)
+    runs = _find_gutter_runs(frac >= GUTTER_FRACTION, MIN_GUTTER_RUN)
+    if not runs:
+        return None
+    # widest run wins: a thick gutter is a panel boundary, a thin one is a
+    # gap between speech bubbles inside a single picture.
+    a, b = max(runs, key=lambda r: r[1] - r[0])
+    return lo + (a + b) // 2
+
+
 def _moment_slices(panel_gray, bg_color):
     """T2: cut a tall panel into non-overlapping MOMENT slices.
 
@@ -209,7 +274,20 @@ def _moment_slices(panel_gray, bg_color):
             lo, hi = a_bot, b_top
             if hi - lo < 20:
                 continue
-            cuts.append(lo + int(np.argmin(ink[lo:hi])))
+            # CUT ON BORDERS, NEVER THROUGH ART. The old rule cut at the
+            # quietest row in the gap, which is a real border when one exists
+            # and an arbitrary line across a picture when one does not.
+            # Measured on Fated Villain ch.353: 12 of 21 gaps hold a real
+            # border; the other 9 are artwork (median uniformity 0.14, and
+            # only 1 of 9 would qualify even at a 0.80 threshold). Those 9
+            # were being cut anyway. Now a gap with no border is left intact —
+            # the panel stays whole and the renderer scroll-pans it, which is
+            # what TALL_AR exists for.
+            cut = _border_cut(panel_gray, bg_color, lo, hi)
+            if cut is not None:
+                cuts.append(cut)
+            elif not BORDER_ONLY_CUTS:
+                cuts.append(lo + int(np.argmin(ink[lo:hi])))
         bounds = [0] + cuts + [h]
         slices = [(a, b) for a, b in zip(bounds, bounds[1:]) if b > a]
         # merge slices shorter than min_h into their shorter neighbour
@@ -219,6 +297,7 @@ def _moment_slices(panel_gray, bg_color):
                 merged[-1] = (merged[-1][0], s[1])
             else:
                 merged.append(s)
+        merged = _enforce_readable(merged, ink, w, min_h)
         if len(merged) > 1:
             return merged
 
@@ -232,7 +311,9 @@ def _moment_slices(panel_gray, bg_color):
             lo, hi = max(bounds[-1] + min_h, c - 200), min(h - min_h, c + 200)
             if lo >= hi:
                 continue
-            bounds.append(lo + int(np.argmin(ink[lo:hi])))
+            cut = _border_cut(panel_gray, bg_color, lo, hi)
+            bounds.append(cut if cut is not None
+                          else lo + int(np.argmin(ink[lo:hi])))
         bounds.append(h)
         slices = [(a, b) for a, b in zip(bounds, bounds[1:]) if b - a >= min_h]
         if len(slices) > 1:

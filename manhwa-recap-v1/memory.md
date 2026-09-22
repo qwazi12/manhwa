@@ -6210,3 +6210,53 @@ including the 84.9% one; 12 beats placed across 12 distinct panels with
 beats rather than showing nothing. Full suite: **30 suites, 0 failures.**
 
 Threshold is `PLUS_TEXT_SURFACE_FRAC` (default 0.50).
+
+### 2026-09-22 — Renders hung, not failed: stop ignored, no dedupe, no stall detection
+
+**The operator's premise ("what changed all of a sudden?") does NOT hold, and
+saying so mattered.** The beat-fit render ERRORS are all dated **09-20** and are
+the pre-existing unsliced-audio defect on `352-lab-claude` / `353-lab-yolo` —
+lab chapters built BEFORE the 09-20 slicing fix. The active project validates
+**96 segments, 0 errors**. Nothing regressed.
+
+**What was actually wrong today** — two jobs on
+`the-extras-academy-survival-guide-6465_2`, both stuck in `running`:
+
+| job | age | progress | control |
+|---|---|---|---|
+| `830f59c7ca30` | **9.2 h** | 37/96 | **`stop`** |
+| `bac12627bb3f` | 1.9 h | **0/59** | — |
+
+The operator pressed STOP on the first; it stayed `running` for nine hours.
+Then a second render was started **on the same project** and never produced a
+single clip.
+
+**Three root causes:**
+1. **`control="stop"` is cooperative only.** It is honoured where a LIVE worker
+   reaches `_control_gate`. A worker killed mid-run never reaches it, so the
+   record says `running` forever.
+2. **The only sweep ran at BOOT** (`_sweep_orphaned_ingest_jobs`). No deploy had
+   happened since 09-21, so nothing could retire them.
+3. **No render dedupe.** Ingest has had `_active_ingest_for_url` since the
+   folder-race bug; render never had an equivalent, so a second render could
+   start on top of the first and both wrote the same clips directory.
+
+**Fixes (future-proofing, in order of what actually prevents recurrence):**
+- `_persist_job` stamps a **`heartbeat`** on every write — the thing that makes
+  "is this alive?" answerable at all. Also backfills `ts`.
+- `_sweep_stalled_jobs()` runs **on every job listing**, not just at boot, so
+  the system heals while the operator is looking at it: a `stop` unacknowledged
+  for `JOB_STOP_GRACE_SECONDS` (120) is applied here; any job silent for
+  `JOB_STALL_SECONDS` (1800) is declared dead with the reason and a note that
+  cached work survives.
+- `_active_render_for_project()` + a **409** on a second render for the same
+  project.
+
+**Tests:** new `test_job_sweep.py` (16), including the case that matters most —
+a job that just reported progress must SURVIVE the sweep, or long renders get
+killed mid-flight. Full suite: **31 suites, 0 failures.**
+
+**Still outstanding (unchanged, not a regression):** `353-lab-yolo` has never
+had `repair_shared_beats` run on it, and `352-lab-claude` still has ~20 errors
+of a different kind — one panel whose window is shorter than its own sentence.
+That needs a pacing decision (stretch the window vs split the line).
