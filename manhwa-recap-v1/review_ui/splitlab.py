@@ -36,8 +36,8 @@ if os.path.join(ROOT, "panel-split") not in sys.path:
 
 MIN_PANEL_PX = 60
 BREAK_MIN_ROWS = 4
-STRIP_AR = 4.0          # a source whose tiles are this tall-for-their-width
-                        # is a scroll, not a page
+STRIP_MIN_TILES = 8      # fewer images than this is a page set, not a scroll
+STRIP_UNIFORM_FRAC = 0.7  # share of images that must have the SAME height
 
 
 def _root():
@@ -115,18 +115,31 @@ def _spans(runs, h):
 
 
 def is_strip(pages):
-    """Tall narrow tiles in quantity mean a continuous scroll."""
-    if len(pages) < 4:
+    """Is this a scroll chopped into tiles, or a set of real pages?
+
+    NOT aspect ratio — that reads exactly backwards on the two live sources.
+    Asura serves very TALL page images (900x16000, AR ~17) while WEBTOON
+    serves modest tiles (800x1280, AR 1.6), so an "is it tall?" test calls
+    Asura a scroll and WEBTOON a set of pages. Measured: that mislabelled
+    Stellar Swordmaster ep129 as page format and produced 413 sliver panels
+    at median AR 0.26.
+
+    The real signature is UNIFORMITY. A CDN slicing one scroll emits tiles of
+    identical height; genuine pages vary (ch.358 ran 504, 1024, 11128 ...
+    16000). So: many images, most sharing one exact height.
+    """
+    if len(pages) < STRIP_MIN_TILES:
         return False
-    tall = 0
-    for p in pages[:8]:
+    heights = []
+    for p in pages:
         try:
-            w, h = Image.open(p).size
+            heights.append(Image.open(p).size[1])
         except Exception:
             continue
-        if h / max(w, 1) >= STRIP_AR:
-            tall += 1
-    return tall >= 3
+    if len(heights) < STRIP_MIN_TILES:
+        return False
+    common = max(set(heights), key=heights.count)
+    return heights.count(common) / len(heights) >= STRIP_UNIFORM_FRAC
 
 
 def run(slug, pages, on_progress=None):

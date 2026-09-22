@@ -6354,3 +6354,36 @@ accumulating them. Full suite: **33 suites, 0 failures.**
 **Vercel deploy** before thumbnails resolve on manhwa.nodepilot.dev; the
 Railway URL works now. And the Murim regression check for the splitter logic
 has still never been run.
+
+### 2026-09-22 — Split Lab format detection was INVERTED
+
+**Caught by running it on production, not by reasoning.** Both live runs came
+back mislabelled:
+
+| run | detected | actually | result |
+|---|---|---|---|
+| `i-am-the-fated-villain_358` | strip | page | 47 panels (benign) |
+| `the-stellar-swordmaster-5988_129` | page | strip | **413 panels, median AR 0.26** |
+
+`is_strip()` tested tile aspect ratio >= 4.0. That reads exactly backwards on
+the two real sources: **Asura serves very TALL page images** (900x16000,
+AR ~17) while **WEBTOON serves modest tiles** (800x1280, AR 1.6). So the test
+called Asura a scroll and WEBTOON a page set — handing the webtoon the
+per-tile path whose sliver failure this whole feature exists to avoid.
+
+**Fix: key on UNIFORMITY, not shape.** A CDN slicing one scroll emits tiles of
+identical height; genuine pages vary. Measured on the real sources:
+- Fated Villain 358: 9 images, most common height occurs **once** -> PAGE
+- Stellar Swordmaster: 138 tiles, **137 of them exactly 1280px** -> STRIP
+
+`STRIP_MIN_TILES = 8`, `STRIP_UNIFORM_FRAC = 0.7` (one odd tile — the last
+slice of a scroll is usually short — must not defeat detection).
+
+Tests extended to 14, including the case that would have caught this: tall
+pages of DIFFERING heights are pages even though every one is far taller than
+it is wide. Full suite: **33 suites, 0 failures.**
+
+**Vercel deployed** (approved): CLI `59.25.4` is broken on npm
+(`@vercel/elysia@8.0.2` does not exist); pinned `48.2.0`. Verified through the
+domain: `/splitimg` now returns 401 (the Basic Auth wall) exactly like
+`/panelimg`, where before it would have 404'd at the edge.

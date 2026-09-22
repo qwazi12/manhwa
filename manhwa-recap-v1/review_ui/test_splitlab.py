@@ -72,12 +72,31 @@ def main():
     check("...and the source pages are STILL there",
           len(os.listdir(pages_dir)) == 3)
 
-    # strip detection keys off shape, not site name
-    tall = tempfile.mkdtemp(prefix="sltall_")
-    tp = [page(os.path.join(tall, "%03d.png" % i), h=2400, w=400)
-          for i in range(1, 6)]
-    check("tall narrow tiles are recognised as a scroll", SL.is_strip(tp))
-    check("page-shaped images are not", not SL.is_strip(pages))
+    # ---- format detection keys on UNIFORMITY, not on shape.
+    # An aspect-ratio test read exactly backwards on the live sources: Asura
+    # serves very TALL pages (900x16000, AR ~17) and WEBTOON serves modest
+    # tiles (800x1280, AR 1.6), so "is it tall?" called Asura a scroll and
+    # WEBTOON a page set — which produced 413 sliver panels at median AR 0.26.
+    tiles_dir = tempfile.mkdtemp(prefix="sltiles_")
+    tiles = [page(os.path.join(tiles_dir, "%03d.png" % i), h=1280, w=800)
+             for i in range(1, 15)]
+    check("many equal-height tiles are a scroll", SL.is_strip(tiles))
+
+    varied_dir = tempfile.mkdtemp(prefix="slvar_")
+    varied = [page(os.path.join(varied_dir, "%03d.png" % i), h=hh, w=900)
+              for i, hh in enumerate(
+                  [504, 1024, 11128, 14062, 14518, 15694, 15902, 16000, 11998], 1)]
+    check("tall pages of DIFFERING heights are pages, not a scroll",
+          not SL.is_strip(varied))
+    check("...even though every one of them is far taller than it is wide",
+          all(Image.open(v).size[1] / Image.open(v).size[0] > 0.5 for v in varied))
+    check("a handful of images is never a scroll", not SL.is_strip(pages))
+
+    mixed_dir = tempfile.mkdtemp(prefix="slmix_")
+    mixed = [page(os.path.join(mixed_dir, "%03d.png" % i),
+                  h=1280 if i <= 12 else 900, w=800) for i in range(1, 15)]
+    check("one odd tile does not stop a scroll being recognised",
+          SL.is_strip(mixed))
 
     for name, ok in R:
         print(("PASS " if ok else "FAIL ") + name)
