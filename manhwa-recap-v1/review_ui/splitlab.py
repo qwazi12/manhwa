@@ -1,0 +1,224 @@
+"""Split Lab — run the background-registration splitter and LOOK at the result.
+
+The splitter was being evaluated by reading numbers off a terminal and opening
+crop folders on the server, which the operator cannot reach. Panel boundaries
+are a visual judgement — "did this cut land on a gutter or through a face?" is
+not answerable from a count — so the results need to be in the UI.
+
+Two source shapes, one algorithm:
+
+  PAGE format (Asura)   each image is a real page; register and split per page.
+  STRIP format (WEBTOON) the CDN serves one continuous scroll chopped into
+                         arbitrary ~1280px tiles that can land mid-panel. A
+                         tile is not a page: registering per tile gave 376
+                         sliver-fragments with backgrounds varying 16.9-254,
+                         against 93 sane panels when the scroll is registered
+                         ONCE. So tiles are concatenated first and panels are
+                         stitched back across tile boundaries.
+
+Nothing here touches the shipped pipeline. This is a preview surface.
+"""
+
+import json
+import os
+import shutil
+import sys
+import time
+
+import numpy as np
+from PIL import Image
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+RECAP = os.path.abspath(os.path.join(HERE, ".."))
+ROOT = os.path.abspath(os.path.join(RECAP, ".."))
+if os.path.join(ROOT, "panel-split") not in sys.path:
+    sys.path.insert(0, os.path.join(ROOT, "panel-split"))
+
+MIN_PANEL_PX = 60
+BREAK_MIN_ROWS = 4
+STRIP_AR = 4.0          # a source whose tiles are this tall-for-their-width
+                        # is a scroll, not a page
+
+
+def _root():
+    import ingest
+    return os.path.join(ingest.PROJECTS, "_splitlab")
+
+
+def runs_dir(slug):
+    return os.path.join(_root(), slug)
+
+
+def list_runs():
+    out = []
+    try:
+        names = sorted(os.listdir(_root()))
+    except OSError:
+        return out
+    for n in names:
+        meta = os.path.join(_root(), n, "meta.json")
+        try:
+            with open(meta, encoding="utf-8") as f:
+                out.append(json.load(f))
+        except Exception:
+            continue
+    out.sort(key=lambda m: m.get("ts", 0), reverse=True)
+    return out
+
+
+def _profile(gray):
+    g = gray.astype(np.float32)
+    h = g.shape[0]
+    rows = g.mean(axis=1)
+    dx = np.abs(np.diff(g, axis=1)).mean(axis=1)
+    dy = np.zeros(h, np.float32)
+    if h > 1:
+        d = np.abs(np.diff(g, axis=0)).mean(axis=1)
+        dy[:-1] = d
+        dy[-1] = d[-1] if d.size else 0.0
+    return rows, dx + dy
+
+
+def register(rows, edge):
+    """The modal row-mean is the gutter colour; tolerance is that cluster's
+    own spread. Deriving both from the page means a dark page, a light page
+    and a bleed page all take the same code path."""
+    hist, bins = np.histogram(rows, bins=256, range=(0, 255))
+    bg = float(bins[int(hist.argmax())])
+    near = np.abs(rows - bg) <= 6.0
+    if near.sum() < 3:
+        near = np.abs(rows - bg) <= 12.0
+    tol = float(rows[near].std()) * 2 if near.sum() >= 3 else 0.0
+    tol = max(tol, 14.0)
+    base = float(np.median(edge[near])) if near.sum() >= 3 else float(np.median(edge))
+    return bg, tol, max(base * 3.0, 1.0)
+
+
+def breaks(rows, edge, bg, tol, ethr):
+    mask = (np.abs(rows - bg) <= tol) & (edge <= ethr)
+    runs, st = [], None
+    for i, v in enumerate(mask):
+        if v and st is None:
+            st = i
+        elif not v and st is not None:
+            if i - st >= BREAK_MIN_ROWS:
+                runs.append((st, i))
+            st = None
+    if st is not None and len(mask) - st >= BREAK_MIN_ROWS:
+        runs.append((st, len(mask)))
+    return runs
+
+
+def _spans(runs, h):
+    cuts = [0] + [(a + b) // 2 for a, b in runs] + [h]
+    return [(a, b) for a, b in zip(cuts, cuts[1:]) if (b - a) >= MIN_PANEL_PX]
+
+
+def is_strip(pages):
+    """Tall narrow tiles in quantity mean a continuous scroll."""
+    if len(pages) < 4:
+        return False
+    tall = 0
+    for p in pages[:8]:
+        try:
+            w, h = Image.open(p).size
+        except Exception:
+            continue
+        if h / max(w, 1) >= STRIP_AR:
+            tall += 1
+    return tall >= 3
+
+
+def run(slug, pages, on_progress=None):
+    """Split `pages` and write preview crops. Returns the metadata dict."""
+    d = runs_dir(slug)
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d, exist_ok=True)
+
+    def prog(m):
+        if on_progress:
+            on_progress(m)
+
+    strip = is_strip(pages)
+    panels, stats = [], []
+
+    if strip:
+        prog(f"assembling {len(pages)} tiles into one scroll")
+        means, edges, offs, hs, W = [], [], [], [], None
+        y = 0
+        for p in pages:
+            g = np.array(Image.open(p).convert("L"))
+            if W is None:
+                W = g.shape[1]
+            r, e = _profile(g)
+            means.append(r)
+            edges.append(e)
+            offs.append(y)
+            hs.append(g.shape[0])
+            y += g.shape[0]
+        rows = np.concatenate(means)
+        edge = np.concatenate(edges)
+        bg, tol, ethr = register(rows, edge)
+        rn = breaks(rows, edge, bg, tol, ethr)
+        sp = _spans(rn, rows.size)
+        stats.append({"page": "(continuous scroll)", "h": int(rows.size),
+                      "bg": round(bg, 1), "tol": round(tol, 1),
+                      "gaps": len(rn), "panels": len(sp)})
+        prog(f"{len(rn)} gaps -> {len(sp)} panels")
+        for i, (a, b) in enumerate(sp, 1):
+            parts = []
+            for p, o, hh in zip(pages, offs, hs):
+                if o + hh <= a or o >= b:
+                    continue
+                im = Image.open(p).convert("RGB")
+                parts.append(im.crop((0, max(0, a - o), W, min(hh, b - o))))
+            if not parts:
+                continue
+            tot = sum(x.height for x in parts)
+            canvas = Image.new("RGB", (W, tot))
+            yy = 0
+            for x in parts:
+                canvas.paste(x, (0, yy))
+                yy += x.height
+            name = "p%03d.png" % i
+            canvas.save(os.path.join(d, name))
+            panels.append({"name": name, "w": W, "h": tot,
+                           "ar": round(tot / max(W, 1), 2), "page": "scroll"})
+    else:
+        for p in pages:
+            base = os.path.splitext(os.path.basename(p))[0]
+            im = Image.open(p).convert("RGB")
+            g = np.array(im.convert("L"))
+            rows, edge = _profile(g)
+            bg, tol, ethr = register(rows, edge)
+            rn = breaks(rows, edge, bg, tol, ethr)
+            sp = _spans(rn, g.shape[0])
+            stats.append({"page": os.path.basename(p), "h": int(g.shape[0]),
+                          "bg": round(bg, 1), "tol": round(tol, 1),
+                          "gaps": len(rn), "panels": len(sp)})
+            prog(f"{base}: {len(rn)} gaps -> {len(sp)} panels")
+            for i, (a, b) in enumerate(sp, 1):
+                band = g[a:b]
+                nb = np.abs(band.astype(np.int16) - bg) > tol
+                rs = np.where(nb.sum(axis=1) > 0)[0]
+                cs = np.where(nb.sum(axis=0) > 0)[0]
+                if rs.size and cs.size:
+                    y0, y1 = a + int(rs[0]), a + int(rs[-1]) + 1
+                    x0, x1 = int(cs[0]), int(cs[-1]) + 1
+                else:
+                    y0, y1, x0, x1 = a, b, 0, g.shape[1]
+                name = "%s_p%02d.png" % (base, i)
+                im.crop((x0, y0, x1, y1)).save(os.path.join(d, name))
+                panels.append({"name": name, "w": x1 - x0, "h": y1 - y0,
+                               "ar": round((y1 - y0) / max(x1 - x0, 1), 2),
+                               "page": os.path.basename(p)})
+
+    ars = [p["ar"] for p in panels] or [0]
+    meta = {"slug": slug, "ts": time.time(), "format": "strip" if strip else "page",
+            "pages": len(pages), "panels": len(panels), "stats": stats,
+            "median_ar": float(np.median(ars)),
+            "over_3": int(sum(1 for a in ars if a > 3)),
+            "panel_list": panels}
+    with open(os.path.join(d, "meta.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+    return meta

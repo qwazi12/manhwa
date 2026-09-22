@@ -90,6 +90,122 @@ VALLEY_TARGET_AR = 2.2         # ...into pieces of roughly this aspect ratio
 
 # ----------------------------------------------------------- background
 
+REGISTER_BG = os.environ.get("SPLIT_REGISTER_BG", "1") != "0"
+BG_TOL_FLOOR = float(os.environ.get("SPLIT_BG_TOL_FLOOR", 14))
+BG_EDGE_MULT = float(os.environ.get("SPLIT_BG_EDGE_MULT", 3.0))
+BREAK_MIN_ROWS = int(os.environ.get("SPLIT_BREAK_MIN_ROWS", 4))
+BREAK_MIN_PANEL_PX = int(os.environ.get("SPLIT_BREAK_MIN_PANEL_PX", 60))
+BREAK_MIN_INK = float(os.environ.get("SPLIT_BREAK_MIN_INK", 0.003))
+
+
+def register_background(gray):
+    """Learn THIS page's background instead of assuming one.
+
+    `_estimate_background_color` votes near-white against near-black over the
+    whole page and returns 255 or 0. Measured on Fated Villain ch.353 it
+    returned 0 for all ten pages, while the modal row-mean was 64.7, 38.8 and
+    105.6 on three of them — and on the worst, page 001, ZERO of 800 rows then
+    qualified as gutter, so the page could not be split geometrically at all.
+
+    In webtoon format the gutter is the single most-repeated full-width row
+    type, so the MODE of the row-mean distribution is the gutter colour. That
+    holds on dark pages, light pages, and bleed pages where art touches the
+    edges — which is why this samples row means rather than the page border.
+
+    Tolerance comes from the spread of the modal cluster itself, not a
+    constant and not the spread of the whole page. The edge threshold is
+    measured in the same cluster's rows, so a grainy or vignetted gutter still
+    reads as a gutter while sky or smoke inside a panel does not.
+
+    Returns (bg, tolerance, edge_threshold).
+    """
+    h, w = gray.shape
+    g = gray.astype(np.float32)
+    rows = g.mean(axis=1)
+    hist, edges = np.histogram(rows, bins=256, range=(0, 255))
+    bg = float(edges[int(hist.argmax())])
+
+    near = np.abs(rows - bg) <= 6.0
+    if near.sum() < 3:
+        near = np.abs(rows - bg) <= 12.0
+    tol = float(rows[near].std()) if near.sum() >= 3 else 0.0
+    tol = max(tol * 2.0, BG_TOL_FLOOR)
+
+    # Edge energy per row: how much the row actually varies. A flat gutter is
+    # near zero even when grainy; art is not.
+    dx = np.abs(np.diff(g, axis=1)).mean(axis=1)
+    dy = np.zeros(h, np.float32)
+    if h > 1:
+        d = np.abs(np.diff(g, axis=0)).mean(axis=1)
+        dy[:-1] = d
+        dy[-1] = d[-1] if d.size else 0.0
+    edge = dx + dy
+    base = float(np.median(edge[near])) if near.sum() >= 3 else float(np.median(edge))
+    edge_thr = max(base * BG_EDGE_MULT, 1.0)
+    return bg, tol, edge_thr
+
+
+def background_rows(gray, bg=None, tol=None, edge_thr=None):
+    """Rows whose ENTIRE width is background.
+
+    Two tests, both required. Brightness alone accepts a dim panel; edge
+    energy alone accepts a flat colour fill. Speech bubbles, caption boxes,
+    frame strokes and SFX need no special handling and get none: a bubble
+    never spans edge to edge, so any row crossing one carries non-background
+    pixels and fails the brightness test for free.
+    """
+    if bg is None:
+        bg, tol, edge_thr = register_background(gray)
+    g = gray.astype(np.float32)
+    rows = g.mean(axis=1)
+    h = gray.shape[0]
+    dx = np.abs(np.diff(g, axis=1)).mean(axis=1)
+    dy = np.zeros(h, np.float32)
+    if h > 1:
+        d = np.abs(np.diff(g, axis=0)).mean(axis=1)
+        dy[:-1] = d
+        dy[-1] = d[-1] if d.size else 0.0
+    return (np.abs(rows - bg) <= tol) & ((dx + dy) <= edge_thr)
+
+
+def panels_between_breaks(gray, bg=None, tol=None, edge_thr=None):
+    """Spans between background bands, top to bottom. One pass, no recursion.
+
+    A break is >= BREAK_MIN_ROWS contiguous background rows; panels are what
+    lies between them. Slivers are merged into the neighbour rather than
+    orphaned, so nothing is silently dropped.
+    """
+    h = gray.shape[0]
+    if bg is None:
+        bg, tol, edge_thr = register_background(gray)
+    mask = background_rows(gray, bg, tol, edge_thr)
+
+    runs, start = [], None
+    for i, v in enumerate(mask):
+        if v and start is None:
+            start = i
+        elif not v and start is not None:
+            if i - start >= BREAK_MIN_ROWS:
+                runs.append((start, i))
+            start = None
+    if start is not None and h - start >= BREAK_MIN_ROWS:
+        runs.append((start, h))
+
+    cuts = [0] + [(a + b) // 2 for a, b in runs] + [h]
+    spans = [(a, b) for a, b in zip(cuts, cuts[1:]) if b > a]
+
+    keep = []
+    for (a, b) in spans:
+        band = gray[a:b]
+        ink = float((np.abs(band.astype(np.int16) - bg) > tol).mean())
+        if (b - a) < BREAK_MIN_PANEL_PX or ink < BREAK_MIN_INK:
+            if keep:
+                keep[-1] = (keep[-1][0], b)     # merge into the neighbour
+            continue
+        keep.append((a, b))
+    return keep, runs, (bg, tol, edge_thr)
+
+
 def _estimate_background_color(gray: np.ndarray) -> int:
     """Gutters are almost always white or black. Pick whichever has more
     pixels within tolerance (robust against large flat-color panel fills)."""

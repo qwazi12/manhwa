@@ -6289,3 +6289,43 @@ The validator degrades rather than failing a finished build: an unvalidatable
 project returns a dict and the chapter still completes.
 
 **Tests:** new `test_lab_ready.py` (14). Full suite: **32 suites, 0 failures.**
+
+### 2026-09-22 — Split Lab tab: the splitter preview lives in the UI now
+
+**Why:** the splitter was being judged by reading counts off a terminal and
+opening crop folders on the Railway volume, which the operator cannot browse.
+"Did this cut land on a gutter or through a face?" is not answerable from a
+number, so the result had to be visible.
+
+**New `review_ui/splitlab.py`** — preview surface, no model calls, no spend.
+Handles both source shapes with ONE algorithm:
+- **page format (Asura):** register and split per page.
+- **strip format (WEBTOON):** a CDN tile is NOT a page — it is an arbitrary
+  ~1280px slice of a continuous scroll that can land mid-panel. Per-tile
+  registration gave **376 sliver-fragments** with backgrounds varying
+  **16.9-254**; registering the assembled scroll ONCE gives **93 panels,
+  median AR 2.34**. Tiles are concatenated, split once, and panels stitched
+  back across tile boundaries so nothing is cut at a 1280px line.
+  `is_strip()` decides on tile aspect ratio, not on the site name.
+
+**Routes:** `POST /api/split/run` (URL or ingested project — scraping is free,
+so a preview never requires ingesting first), `GET /api/split/runs`,
+`GET /api/split/run/{slug}`, `GET /splitimg/{slug}/{name}`.
+**UI:** `✂️ Split` rail tab — run, past-runs picker, per-page bg/tol/gaps/panels
+line, panel grid with size + AR, and a "taller than 3:1" filter.
+
+**`test_edge_routes.py` caught a real defect before deploy:** `/splitimg` was
+missing from BOTH `vercel.json` files, so the images would have 404'd through
+manhwa.nodepilot.dev while working fine on the Railway URL. Added alongside
+`/panelimg`. **This needs a Vercel deploy as well as Railway** — the test reads
+the repo's config, not the one Vercel is currently serving.
+
+**Correction recorded:** I claimed the tall (>3:1) Fated Villain panels were
+"merged panels with uncut gaps inside". WRONG — I had re-registered the
+background on each CROP, where the modal row differs from the page's. Judged
+against the PAGE's reference, the widest such "gap" (395 rows, mean 94.2) has
+min 0 / max 255 — artwork averaging to mid-gray, not a gutter. Those panels are
+genuine single art blocks. ch.358 re-run is byte-identical: 49 panels, median
+AR 1.83.
+
+Full suite: **32 suites, 0 failures.**

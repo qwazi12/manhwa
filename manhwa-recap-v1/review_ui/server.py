@@ -3898,6 +3898,110 @@ class LabRunIn(BaseModel):
     fresh: bool = False
 
 
+class SplitRunIn(BaseModel):
+    url: str = ""
+    project: str = ""
+
+
+def _splitlab_pages(body):
+    """Where the page images come from: an already-ingested project, or a
+    chapter URL scraped on demand. Scraping is free, so a preview never needs
+    the chapter to be ingested first."""
+    import ingest as _ing
+    import splitlab as _sl
+    if body.project:
+        pdir = os.path.join(_ing.PROJECTS, os.path.basename(body.project))
+        pages = os.path.join(pdir, "pages")
+        if not os.path.isdir(pages):
+            raise HTTPException(404, f"no pages for project {body.project}")
+        slug = os.path.basename(body.project)
+    else:
+        url = (body.url or "").strip()
+        if not re.match(r"^https?://", url):
+            raise HTTPException(400, "paste a full chapter URL, or pick a project")
+        slug = _ing._slug(url)
+        pages = os.path.join(_sl.runs_dir(slug), "_pages")
+        if not os.path.isdir(pages) or not os.listdir(pages):
+            os.makedirs(pages, exist_ok=True)
+            sys.path.insert(0, RECAP)
+            import scraper
+            scraper.download_chapter(url, pages)
+    files = sorted(os.path.join(pages, f) for f in os.listdir(pages)
+                   if os.path.splitext(f)[1].lower()
+                   in (".png", ".jpg", ".jpeg", ".webp"))
+    if not files:
+        raise HTTPException(400, "no page images found")
+    return slug, files
+
+
+@app.post("/api/split/run")
+def split_run(body: SplitRunIn):
+    """Preview the background-registration splitter. No model calls, no spend."""
+    import splitlab as _sl
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {"status": "queued", "done": 0, "total": 1, "kind": "split",
+                    "stage": "queued", "error": None, "ts": time.time(),
+                    "heartbeat": time.time(),
+                    "project": body.project or body.url}
+
+    def work():
+        j = JOBS[job_id]
+        j["status"] = "running"
+        _persist_job(job_id)
+        try:
+            slug, files = _splitlab_pages(body)
+            j["total"] = len(files)
+
+            def prog(m):
+                j["stage"] = m
+                j["done"] = min(j["done"] + 1, j["total"])
+                _persist_job(job_id)
+
+            meta = _sl.run(slug, files, on_progress=prog)
+            j["status"] = "done"
+            j["stage"] = (f"{meta['panels']} panels from {meta['pages']} "
+                          f"{meta['format']} image(s)")
+            j["slug"] = slug
+            j["done"] = j["total"]
+        except HTTPException as e:
+            j["status"] = "error"
+            j["error"] = str(e.detail)[:300]
+        except Exception as e:
+            j["status"] = "error"
+            j["error"] = str(e)[:300]
+        _persist_job(job_id)
+
+    threading.Thread(target=work, daemon=True).start()
+    return {"job": job_id}
+
+
+@app.get("/api/split/runs")
+def split_runs():
+    import splitlab as _sl
+    return {"runs": [{k: v for k, v in m.items() if k != "panel_list"}
+                     for m in _sl.list_runs()]}
+
+
+@app.get("/api/split/run/{slug}")
+def split_run_detail(slug: str):
+    import splitlab as _sl
+    d = _sl.runs_dir(os.path.basename(slug))
+    try:
+        with open(os.path.join(d, "meta.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        raise HTTPException(404, "no such split run")
+
+
+@app.get("/splitimg/{slug}/{name}")
+def split_image(slug: str, name: str):
+    import splitlab as _sl
+    p = os.path.join(_sl.runs_dir(os.path.basename(slug)), os.path.basename(name))
+    if not os.path.exists(p):
+        raise HTTPException(404, "not found")
+    return FileResponse(p, media_type="image/png")
+
+
 @app.post("/api/lab/run")
 async def lab_run(body: LabRunIn):
     """Build a whole chapter independently, from a URL, with Claude making the

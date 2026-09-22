@@ -733,6 +733,7 @@ a {{ color:var(--accent); }}
   <button class="navbtn" data-d="tracker" onclick="toggleDrawer('tracker')"><span class="ic">📡</span>Tracker</button>
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
   <button class="navbtn navtest" data-d="test" onclick="toggleDrawer('test')" title="experimental — Claude-driven pipeline comparison"><span class="ic">🧪</span>TEST</button>
+  <button class="navbtn" data-d="split" onclick="toggleDrawer('split')" title="preview the panel splitter on any chapter"><span class="ic">✂️</span>Split</button>
   {theme.RAIL_BUTTONS_HTML}
 </div>
 <div class="drawer" id="d_ingest">
@@ -812,6 +813,26 @@ a {{ color:var(--accent); }}
 <div class="drawer" id="d_projects">
   <h3>Projects</h3>
   <div id="projlist" class="hint">loading…</div>
+</div>
+<div class="drawer" id="d_split">
+  <h3>SPLIT LAB</h3>
+  <div class="hint" style="margin-bottom:8px">Preview how a chapter cuts into panels, before spending anything.
+  Scraping and splitting cost <b>no</b> Gemini/TTS/Claude credit.</div>
+  <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:9px">
+    <input id="spUrl" placeholder="chapter URL (Asura or WEBTOON)">
+    <div style="display:flex;gap:5px">
+      <select id="spProj" style="flex:1"><option value="">— or an ingested project —</option></select>
+      <button class="primary" onclick="spRun()">Split</button>
+    </div>
+  </div>
+  <div id="spstate" class="hint" style="margin-bottom:8px"></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:12px">
+    <select id="spPick" onchange="spShow(this.value)"><option value="">— past runs —</option></select>
+    <label class="hint" style="display:inline-flex;gap:3px;align-items:center;cursor:pointer">
+      <input type="checkbox" id="spTall" onchange="spPaint()"> only taller than 3:1</label>
+  </div>
+  <div id="spmeta" class="hint" style="margin-bottom:8px"></div>
+  <div id="spgrid" style="display:flex;flex-wrap:wrap;gap:8px"></div>
 </div>
 <div class="drawer" id="d_tracker">
   <h3>TRACKER</h3>
@@ -1276,7 +1297,7 @@ setInterval(refreshUsage, 15000);
 {theme.SHARED_JS}
 
 function toggleDrawer(name) {{
-  for (const d of ['ingest','projects','tracker','validate','logs','exports','test']) {{
+  for (const d of ['ingest','projects','tracker','validate','logs','exports','test','split']) {{
     const el = document.getElementById('d_' + d);
     const btn = document.querySelector(`.navbtn[data-d="${{d}}"]`);
     const show = d === name && el.style.display !== 'block';
@@ -1289,6 +1310,7 @@ function toggleDrawer(name) {{
   if (name === 'exports') loadExports();
   if (name === 'validate') loadValidation();
   if (name === 'test') loadLab();
+  if (name === 'split') loadSplit();
   if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
 }}
 /* Arriving from another page with ?open=<drawer> should land on that drawer,
@@ -2472,6 +2494,87 @@ async function undoEdit() {{
   }}
 }}
 refreshUndo();
+
+// ---------------- Split Lab ----------------
+// Panel boundaries are a VISUAL judgement — "did this cut land on a gutter or
+// through a face?" cannot be read off a count — so the results belong in the
+// UI rather than in a crop folder on the server the operator cannot reach.
+var SPCUR = null, spPoll = null;
+
+async function loadSplit() {{
+  try {{
+    const d = await j('/api/projects');
+    const sel = document.getElementById('spProj');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— or an ingested project —</option>' +
+      (d.projects || []).filter(p => p.id && p.id.indexOf('(current)') < 0)
+        .map(p => `<option value="${{p.id}}">${{p.id}}</option>`).join('');
+    sel.value = cur;
+  }} catch (e) {{}}
+  try {{
+    const r = await j('/api/split/runs');
+    const sel = document.getElementById('spPick');
+    sel.innerHTML = '<option value="">— past runs —</option>' +
+      (r.runs || []).map(m => `<option value="${{m.slug}}">${{m.slug}} · ${{m.panels}} panels</option>`).join('');
+    if (!SPCUR && (r.runs || []).length) spShow(r.runs[0].slug);
+  }} catch (e) {{}}
+}}
+
+async function spRun() {{
+  const url = document.getElementById('spUrl').value.trim();
+  const proj = document.getElementById('spProj').value;
+  if (!url && !proj) {{ alert('Paste a chapter URL or pick a project.'); return; }}
+  const st = document.getElementById('spstate');
+  st.textContent = 'starting…';
+  try {{
+    const r = await j('/api/split/run', {{method:'POST',
+      headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{url: url, project: proj}})}});
+    if (spPoll) clearInterval(spPoll);
+    spPoll = setInterval(async function () {{
+      let s;
+      try {{ s = await j('/api/jobs/' + r.job); }} catch (e) {{ return; }}
+      st.textContent = (s.status === 'running' ? '⏳ ' : '') + (s.stage || s.status)
+        + (s.total > 1 ? `  (${{s.done}}/${{s.total}})` : '');
+      if (s.status === 'done' || s.status === 'error') {{
+        clearInterval(spPoll); spPoll = null;
+        if (s.status === 'error') st.textContent = '⚠ ' + (s.error || 'failed');
+        await loadSplit();
+        if (s.slug) spShow(s.slug);
+      }}
+    }}, 1500);
+  }} catch (e) {{ st.textContent = '⚠ ' + (e.message || e); }}
+}}
+
+async function spShow(slug) {{
+  if (!slug) return;
+  try {{
+    SPCUR = await j('/api/split/run/' + encodeURIComponent(slug));
+    document.getElementById('spPick').value = slug;
+    spPaint();
+  }} catch (e) {{
+    document.getElementById('spmeta').textContent = 'could not load that run: ' + (e.message || e);
+  }}
+}}
+
+function spPaint() {{
+  const m = SPCUR; if (!m) return;
+  const onlyTall = document.getElementById('spTall').checked;
+  const rows = (m.stats || []).map(s =>
+    `${{s.page}}: bg ${{s.bg}} · tol ${{s.tol}} · ${{s.gaps}} gaps → <b>${{s.panels}}</b>`).join(' &nbsp;|&nbsp; ');
+  document.getElementById('spmeta').innerHTML =
+    `<b>${{m.panels}} panels</b> from ${{m.pages}} ${{m.format}} image(s) · median AR ${{m.median_ar}}`
+    + ` · ${{m.over_3}} taller than 3:1<div style="margin-top:5px;font-size:11px">${{rows}}</div>`;
+  const list = (m.panel_list || []).filter(p => !onlyTall || p.ar > 3);
+  document.getElementById('spgrid').innerHTML = list.map(p => `
+    <figure style="margin:0;width:132px">
+      <a href="/splitimg/${{m.slug}}/${{p.name}}" target="_blank">
+        <img src="/splitimg/${{m.slug}}/${{p.name}}" loading="lazy"
+             style="display:block;width:132px;border:1px solid var(--rule);border-radius:3px${{p.ar > 3 ? ';outline:2px solid var(--warn)' : ''}}"></a>
+      <figcaption class="hint" style="font-size:10px;text-align:center;margin-top:3px">
+        ${{p.w}}×${{p.h}} · AR ${{p.ar}}</figcaption>
+    </figure>`).join('') || '<span class="hint">nothing to show</span>';
+}}
 
 async function loadTracker(refresh) {{
   const box = document.getElementById('trackerlist');

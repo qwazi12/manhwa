@@ -51,6 +51,10 @@
       "destination": "https://recap-studio-production.up.railway.app/panelimg/:path*"
     },
     {
+      "source": "/splitimg/:path*",
+      "destination": "https://recap-studio-production.up.railway.app/splitimg/:path*"
+    },
+    {
       "source": "/segimg/:path*",
       "destination": "https://recap-studio-production.up.railway.app/segimg/:path*"
     },
