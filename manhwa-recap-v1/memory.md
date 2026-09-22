@@ -6329,3 +6329,28 @@ genuine single art blocks. ch.358 re-run is byte-identical: 49 panels, median
 AR 1.83.
 
 Full suite: **32 suites, 0 failures.**
+
+### 2026-09-22 — Split Lab: stop button, and a self-inflicted rmtree bug
+
+**Stop:** `■` beside the Split button, checked between pages via the existing
+`_control_gate` — the only safe interruption point, since a half-written crop
+set would look like a finished run with pages silently missing. A cancelled
+run deletes its partial output rather than leaving it to be mistaken for a
+result.
+
+**Bug I introduced and then hit immediately.** All three URL-sourced runs died
+with `No such file or directory: .../_splitlab/<slug>/_pages/001.webp`.
+`_splitlab_pages` scrapes into `<run_dir>/_pages/`, and `splitlab.run()` opened
+with `shutil.rmtree(run_dir)` — **wiping the source images it had just
+downloaded**. Project-sourced runs survived because their pages live outside
+that directory, which made the failure look source-specific when it was not.
+Fixed: clear only the previous crop FILES, never the directory.
+
+**Tests:** new `test_splitlab.py` (11), the load-bearing one being "the source
+pages SURVIVE the run", plus that a re-run replaces crops rather than
+accumulating them. Full suite: **33 suites, 0 failures.**
+
+**Still outstanding:** `/splitimg` is in both `vercel.json` files but needs a
+**Vercel deploy** before thumbnails resolve on manhwa.nodepilot.dev; the
+Railway URL works now. And the Murim regression check for the splitter logic
+has still never been run.

@@ -132,8 +132,19 @@ def is_strip(pages):
 def run(slug, pages, on_progress=None):
     """Split `pages` and write preview crops. Returns the metadata dict."""
     d = runs_dir(slug)
-    shutil.rmtree(d, ignore_errors=True)
     os.makedirs(d, exist_ok=True)
+    # Clear the PREVIOUS crops only. rmtree on the run directory also deleted
+    # `_pages/` — the freshly scraped source images this run is about to read —
+    # so every URL-sourced run died with "No such file or directory" on its
+    # first page. Project-sourced runs survived because their pages live
+    # outside this directory, which is what made the bug look source-specific.
+    for f in os.listdir(d):
+        fp = os.path.join(d, f)
+        if os.path.isfile(fp):
+            try:
+                os.remove(fp)
+            except OSError:
+                pass
 
     def prog(m):
         if on_progress:
