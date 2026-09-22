@@ -3962,7 +3962,16 @@ def lab_projects():
             "segments": segs, "duration": man.get("duration"),
             "cost_usd": man.get("cost_usd"), "calls": man.get("calls"),
             "elapsed_sec": man.get("elapsed_sec"),
-            "ready": segs > 0, "active": n == active,
+            # READY MEANS RENDERABLE. It used to mean "segments.json exists",
+            # so a chapter whose audio did not fit its windows still showed a
+            # green light and then failed at render. A build that predates the
+            # check has timeline=None and keeps the old meaning rather than
+            # being wrongly marked broken.
+            "timeline": man.get("timeline"),
+            "timeline_errors": (man.get("timeline") or {}).get("errors"),
+            "ready": segs > 0 and ((man.get("timeline") or {}).get("errors")
+                                   in (None, 0)),
+            "active": n == active,
         })
     return {"projects": out, "splitters": list(_lab.SPLITTERS),
             "key_configured": bool(_validator.api_key())}

@@ -6260,3 +6260,32 @@ killed mid-flight. Full suite: **31 suites, 0 failures.**
 had `repair_shared_beats` run on it, and `352-lab-claude` still has ~20 errors
 of a different kind — one panel whose window is shorter than its own sentence.
 That needs a pacing decision (stretch the window vs split the line).
+
+### 2026-09-22 — `ready` now means RENDERABLE, checked by the build itself
+
+**Why:** `ready` meant only "segments.json exists". That is how
+`353-lab-yolo` reached the operator with a green light and then failed at
+render — beat 6 was 9.144s of audio inside a 4.699s window. A chapter that
+cannot render is not a finished chapter, and the operator should not be the
+one who discovers that.
+
+**Change:** `claude_lab._validate_own_timeline(pdir)` runs as stage 11b, right
+after `segments.json` is written. It validates, runs the mechanical repair
+(`repair_shared_beats` — the same one that took `352-lab-claude` from 52 errors
+to 20), re-validates, and records `{errors_before, repaired, errors, checked}`
+in the manifest. `/api/lab/projects` then computes
+`ready = segs > 0 AND timeline.errors in (None, 0)` and exposes
+`timeline_errors` so the count is visible, not just the verdict.
+
+**Two deliberate choices:**
+- Errors that SURVIVE the repair are reported, not papered over — they are a
+  different fault (one panel whose window is shorter than its own sentence)
+  and need a pacing decision, not a mechanical fix.
+- A build predating this check has `timeline = None` and keeps the OLD
+  meaning, so existing chapters are not retroactively marked broken on the
+  strength of a field they never had.
+
+The validator degrades rather than failing a finished build: an unvalidatable
+project returns a dict and the chapter still completes.
+
+**Tests:** new `test_lab_ready.py` (14). Full suite: **32 suites, 0 failures.**

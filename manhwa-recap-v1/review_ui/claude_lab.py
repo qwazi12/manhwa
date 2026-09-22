@@ -829,6 +829,16 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
                   encoding="utf-8") as f:
             json.dump(segs, f, indent=2)
 
+        # ---- 11b. the build must not declare itself ready if it is not ----
+        # `ready` used to mean only "segments.json exists", which is how
+        # 353-lab-yolo came out of the oven already unrenderable: beat 6 was
+        # 9.144s of audio inside a 4.699s window. A chapter that cannot render
+        # is not a finished chapter, so the build checks its OWN timeline,
+        # repairs what is mechanically repairable, and reports what is left
+        # instead of handing the operator a green light and a render failure.
+        _prog("segment", "validating the timeline")
+        man["timeline"] = _validate_own_timeline(pdir)
+
         series, chapter = ingest.parse_series_chapter(url)
         meta = {
             "id": lab_id(url, splitter), "url": url,
@@ -972,6 +982,39 @@ def annotate_bubble_frac(descs, crops_dir):
         except Exception:
             continue
     return done
+
+
+def _validate_own_timeline(pdir):
+    """Check, repair, re-check. Returns what the operator needs to know.
+
+    The repair is the same `repair_shared_beats` that took 352-lab-claude from
+    52 errors to 20 — it slices audio that several segments were each claiming
+    in full. Errors that survive it are a different fault (a single panel whose
+    window is shorter than its own sentence) and need a pacing decision, so
+    they are REPORTED rather than silently papered over.
+    """
+    out = {"errors": None, "repaired": 0, "checked": False}
+    try:
+        import storyboard_edit as SE
+    except Exception:
+        return out
+    def _count():
+        try:
+            return len(SE.validate_timeline(pdir).get("errors") or [])
+        except Exception:
+            return None
+    before = _count()
+    if before is None:
+        return out
+    out["checked"] = True
+    out["errors_before"] = before
+    if before:
+        try:
+            out["repaired"] = len(SE.repair_shared_beats(pdir) or [])
+        except Exception:
+            out["repaired"] = 0
+    out["errors"] = _count()
+    return out
 
 
 def _build_shots(crops, descs, beats, slots, crops_by_pid, build_segments,
