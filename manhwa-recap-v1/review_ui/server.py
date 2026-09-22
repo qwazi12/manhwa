@@ -3950,9 +3950,14 @@ def split_run(body: SplitRunIn):
         _persist_job(job_id)
         try:
             slug, files = _splitlab_pages(body)
+            j["slug"] = slug
             j["total"] = len(files)
 
             def prog(m):
+                # Stop is checked between pages, which is the only point a
+                # split can be interrupted safely: a half-written crop set
+                # would look like a finished run with pages missing.
+                _control_gate(JOBS, job_id, _persist_job)
                 j["stage"] = m
                 j["done"] = min(j["done"] + 1, j["total"])
                 _persist_job(job_id)
@@ -3963,6 +3968,11 @@ def split_run(body: SplitRunIn):
                           f"{meta['format']} image(s)")
             j["slug"] = slug
             j["done"] = j["total"]
+        except JobCancelled:
+            j["status"] = "cancelled"
+            j["stage"] = "stopped — partial results discarded"
+            import shutil as _sh
+            _sh.rmtree(_sl.runs_dir(j.get("slug") or ""), ignore_errors=True)
         except HTTPException as e:
             j["status"] = "error"
             j["error"] = str(e.detail)[:300]

@@ -823,6 +823,7 @@ a {{ color:var(--accent); }}
     <div style="display:flex;gap:5px">
       <select id="spProj" style="flex:1"><option value="">— or an ingested project —</option></select>
       <button class="primary" onclick="spRun()">Split</button>
+      <button id="spStop" class="mini danger" onclick="spStop()" disabled title="stop this split">■</button>
     </div>
   </div>
   <div id="spstate" class="hint" style="margin-bottom:8px"></div>
@@ -2499,7 +2500,16 @@ refreshUndo();
 // Panel boundaries are a VISUAL judgement — "did this cut land on a gutter or
 // through a face?" cannot be read off a count — so the results belong in the
 // UI rather than in a crop folder on the server the operator cannot reach.
-var SPCUR = null, spPoll = null;
+var SPCUR = null, spPoll = null, spJob = null;
+
+async function spStop() {{
+  if (!spJob) return;
+  try {{
+    await j('/api/jobs/control', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{job: spJob, action: 'stop'}})}});
+    document.getElementById('spstate').textContent = 'stopping…';
+  }} catch (e) {{ alert('Could not stop: ' + (e.message || e)); }}
+}}
 
 async function loadSplit() {{
   try {{
@@ -2530,14 +2540,18 @@ async function spRun() {{
     const r = await j('/api/split/run', {{method:'POST',
       headers:{{'Content-Type':'application/json'}},
       body: JSON.stringify({{url: url, project: proj}})}});
+    spJob = r.job;
+    document.getElementById('spStop').disabled = false;
     if (spPoll) clearInterval(spPoll);
     spPoll = setInterval(async function () {{
       let s;
       try {{ s = await j('/api/jobs/' + r.job); }} catch (e) {{ return; }}
       st.textContent = (s.status === 'running' ? '⏳ ' : '') + (s.stage || s.status)
         + (s.total > 1 ? `  (${{s.done}}/${{s.total}})` : '');
-      if (s.status === 'done' || s.status === 'error') {{
+      if (s.status === 'done' || s.status === 'error' || s.status === 'cancelled') {{
         clearInterval(spPoll); spPoll = null;
+        spJob = null;
+        document.getElementById('spStop').disabled = true;
         if (s.status === 'error') st.textContent = '⚠ ' + (s.error || 'failed');
         await loadSplit();
         if (s.slug) spShow(s.slug);
