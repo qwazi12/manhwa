@@ -6481,3 +6481,86 @@ baseline of 156; the flat-band path adds **+19%**, outside the +/-15% band. It
 is verifiably CORRECT on Fated Villain (4 real gutters, each checked) and
 over-fires on Murim's flat art regions. Same title-dependence as every other
 polarity-sensitive rule here. Default left ON; `SPLIT_FLAT_STD=0` disables.
+
+### 2026-09-23 — OVERNIGHT BATCH
+
+#### STAGE 1 — FP classifier self-validation: classifier is UNRELIABLE
+Dumped every art-FP-flagged region plus 20 random accepted regions and
+inspected them (crops kept in `scratchpad/fp_review/`, contact sheets
+`fp_sheet.png`, `fp_pre_sheet.png`, `fp_nearwhite.png`).
+
+The "few holes, large mean size = art" heuristic flagged **2** art-FPs in a
+22-region sample. Visual inspection: only **4 of 22 are genuine speech
+bubbles** — the rest are flat art (faces, smoke, fabric, gradients, colour
+fills). The classifier **under-counts art FPs by ~8x**. Its 2 positive labels
+were correct; its negatives are worthless.
+
+**Attribution — change 1 did NOT cause this.** Sampled the pre-change-1
+accepted set (`BUBBLE_EDGE_SPAN=0` restores the original rule): **4 genuine
+bubbles of 18** (~22% precision). Post-change-1: ~20%. Change 1 raised recall
+and FPs together; precision was already this poor. The defect is upstream of
+both planned changes: "flat region with holes" accepts flat ARTWORK, and
+manhwa is full of flat colour fills containing line work.
+
+Measured a further hypothesis (reported, not shipped): every genuine bubble in
+both sheets is near-white with dark text.
+
+| variant | accepted | panels w/ zero | precision (visual) |
+|---|---|---|---|
+| change 1 only | 93 | 6/20 | ~20% |
+| + fill near-white (>=200) | 43 | 15/20 | — |
+| + near-white AND >=8 glyphs | 36 | 15/20 | **8/18 ~44%** |
+
+Even the best variant leaves ~56% art FPs — surviving ones are pale skin and
+bright effect fills, which clear a >=200 threshold.
+
+#### STAGE 2 — GATED OFF, not shipped
+The hard gate was "art-region FPs >5% of accepted regions -> revert, log, move
+on". Measured art-FP rate is **~56-80%**, i.e. 11-16x the gate, and it fails
+BEFORE change 2 is applied. Relaxing the area floor raises recall, which on a
+detector at 20-44% precision adds mostly art. **Change 2 not applied.**
+Change 1 kept (it is precision-neutral and recall-positive). **Blur remains
+opt-in and must not be enabled by default** — at this precision it would blur
+faces and SFX at scale, which is exactly what the gate exists to prevent.
+
+No deploy for stages 1-2: nothing shippable was produced.
+
+#### STAGE 3 — recurrence hypothesis TESTED and REJECTED
+"A flat band's colour must recur in >=2 other bands on the page" — gutters
+repeat, one-off art fills do not.
+
+| chapter | flat bands | survive | removed |
+|---|---|---|---|
+| Fated Villain 358 | 6 | 4 | 2 |
+| Fated Villain 353 | 10 | 3 | 7 |
+| Murim Psychopath 43 | 153 | 122 | 31 |
+
+**2 of the 4 verified FV gutters DIE** (pages 003 and 008, one band each) —
+including the strongest piece of evidence, the 157-row band at mean 87.6.
+Per the stated validity check ("must be all 4 — if any die, the test is
+wrong"), **the test is wrong**: a real gutter can be UNIQUE on its page when
+it divides two panels of differing ground colour, and recurrence silently
+deletes singletons. Murim's 31 removals were roughly the right magnitude
+against its +29 excess, but the FV condition had already failed.
+
+**Shipped instead — the agreed fallback.** `FLAT_STD_DEFAULT = 0` (OFF
+globally) with `FLAT_STD_BY_TITLE = {"i-am-the-fated-villain": 6.0}`, so the
+verified gutters are kept only where they were measured. An explicit
+`SPLIT_FLAT_STD` env var still overrides.
+
+#### STAGE 4 — Murim regression gate: **FAIL**. Chain stopped.
+
+| | panels |
+|---|---|
+| recorded baseline | 156 |
+| live production splitter, ch43 re-run today | **151** |
+| new config (flat-band OFF for this title) | **125** |
+| delta | **-19.9%** vs 156, -17.2% vs 151 (band +/-15%) |
+
+Fails against either reference. Also noted: a fresh production run gives 151,
+not the recorded 156, so the **baseline itself carries ~3% variance** and
+should be re-recorded before it gates anything else.
+
+#### STAGE 5 — engine merge: **SKIPPED**, gate not passed.
+Not started. No ingest changes, no engine field, no `-lab-` migration, no
+smoke tests. Default engine remains Gemini by default because nothing changed.

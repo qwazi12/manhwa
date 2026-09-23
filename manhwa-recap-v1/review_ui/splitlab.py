@@ -95,7 +95,34 @@ def register(rows, edge):
     return bg, tol, max(base * 3.0, 1.0)
 
 
-FLAT_STD = float(os.environ.get("SPLIT_FLAT_STD", 6.0))
+# Flat-band detection: DEFAULT OFF.
+# It is verifiably correct on I Am The Fated Villain (4 gutters, each checked
+# individually, including a 157-row band at mean 87.6 that a bg=0 test cannot
+# see) and over-fires on Murim Psychopath by +19%, outside the +/-15%
+# regression band. A recurrence rule was tested as a way to keep both —
+# "gutters repeat, one-off art fills do not" — and REJECTED by measurement:
+# it deleted 2 of the 4 verified FV gutters, because a real gutter can be
+# unique on its page when it separates two panels of differing ground colour.
+# So: off globally, on for the titles where it has been measured.
+FLAT_STD_DEFAULT = float(os.environ.get("SPLIT_FLAT_STD", 0.0))
+FLAT_STD_BY_TITLE = {
+    # slug prefix -> flat-band threshold. Measured, not assumed.
+    "i-am-the-fated-villain": 6.0,
+}
+
+
+def flat_std_for(slug):
+    """Per-title flat-band setting. A title earns this by measurement."""
+    env = os.environ.get("SPLIT_FLAT_STD")
+    if env is not None:
+        return float(env)                       # explicit override wins
+    for prefix, v in FLAT_STD_BY_TITLE.items():
+        if (slug or "").startswith(prefix):
+            return v
+    return FLAT_STD_DEFAULT
+
+
+FLAT_STD = FLAT_STD_DEFAULT
 
 
 def flat_rows(gray):
@@ -205,6 +232,8 @@ def _save_panel(img, path, blur):
 
 def run(slug, pages, on_progress=None, blur=False):
     """Split `pages` and write preview crops. Returns the metadata dict."""
+    global FLAT_STD
+    FLAT_STD = flat_std_for(slug)
     d = runs_dir(slug)
     os.makedirs(d, exist_ok=True)
     # Clear the PREVIOUS crops only. rmtree on the run directory also deleted
@@ -278,7 +307,8 @@ def run(slug, pages, on_progress=None, blur=False):
             g = np.array(im.convert("L"))
             rows, edge = _profile(g)
             bg, tol, ethr = register(rows, edge)
-            rn = breaks(rows, edge, bg, tol, ethr, gray=g)
+            rn = breaks(rows, edge, bg, tol, ethr,
+                        gray=g if FLAT_STD > 0 else None)
             sp = _spans(rn, g.shape[0])
             stats.append({"page": os.path.basename(p), "h": int(g.shape[0]),
                           "bg": round(bg, 1), "tol": round(tol, 1),

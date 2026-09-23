@@ -36,6 +36,7 @@ MIN_INK_FRAC = float(os.environ.get("BUBBLE_MIN_INK", 0.012))
 MAX_INK_FRAC = float(os.environ.get("BUBBLE_MAX_INK", 0.55))
 INK_DELTA = float(os.environ.get("BUBBLE_INK_DELTA", 55))
 BOX_FILL_MIN = float(os.environ.get("BUBBLE_BOX_FILL", 0.42))
+EDGE_SPAN_FRAC = float(os.environ.get("BUBBLE_EDGE_SPAN", 0.60))
 
 
 def _label(mask):
@@ -67,10 +68,22 @@ def find_bubbles(gray):
     if lbl is None or not n:
         return []
 
-    # Anything touching the border is the page/panel ground, not a bubble.
-    edge_ids = set(np.unique(np.concatenate(
-        [lbl[0, :], lbl[-1, :], lbl[:, 0], lbl[:, -1]])))
-    edge_ids.discard(0)
+    # EDGE CONTACT IS NOT ENOUGH TO BE BACKGROUND.
+    # Touching the border was the single biggest killer in the miss report:
+    # 144 candidates, more than the shape test (47) and the ink test (3)
+    # combined. These are panel CROPS, not whole pages, so a bubble composed
+    # near a panel edge clips the boundary and was being read as ground.
+    #
+    # The criterion is what fraction of an EDGE the component owns, never its
+    # absolute size: crops here run from 60px to over 5,000px, so any pixel
+    # threshold would just re-import the area-floor bug at a different layer.
+    # Background spans its edge; a clipped bubble touches a short stretch.
+    edge_ids = set()
+    for line in (lbl[0, :], lbl[-1, :], lbl[:, 0], lbl[:, -1]):
+        n_line = line.size
+        for cid, cnt in zip(*np.unique(line, return_counts=True)):
+            if cid and cnt >= EDGE_SPAN_FRAC * n_line:
+                edge_ids.add(int(cid))
 
     out = []
     for i in range(1, n + 1):
