@@ -6642,3 +6642,18 @@ failed to parse. The surrounding code already avoids this with
 `test_storyboard_js_syntax.py` before deploy.
 
 Tests: new `test_engine_merge.py` (18). Suite: **35 suites, 0 failures.**
+
+### FOLLOW-UP FILED — retire the `-lab-` suffix (trigger-based)
+
+**Trigger:** the next time `claude_lab.run_lab` is touched for ANY reason.
+
+**Do atomically:** `lab_id`, `lab_dir`, and the `"-lab-"` substring filter in
+`/api/lab/projects`, with tests proving existing projects' board, clip and
+export paths still resolve. A half-applied rename strands projects.
+
+**Why this is NOT cosmetic:** the listing logic still keys on the FILENAME
+convention while the engine now lives in a FIELD. The two can drift — a
+Claude project whose folder lacks `-lab-` would vanish from the lab listing,
+and a Gemini project in a `-lab-` folder would appear in it. Confirmed live:
+the Claude smoke test (ch.357) produced `i-am-the-fated-villain_357-lab-claude`
+with `engine=claude`, so today both agree by accident of naming, not by design.

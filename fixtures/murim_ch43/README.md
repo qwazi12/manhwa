@@ -69,3 +69,17 @@ from 8/153 to 18/143.
 Evidence: `cutmaps/` (the 3 pages with the most disagreement; red = prod cuts,
 green = new cuts, yellow = a differing cut measured as a real gutter),
 and `cut_arbitration.json` in the session scratchpad.
+
+## The gate cannot validate this baseline — the cut maps do
+
+Because the baseline was re-recorded **as the new config's own output**, the
+regression gate now compares that config against itself: 125 vs 125, 0.0%,
+inside any band. **It cannot fail, and it is not evidence of correctness.**
+
+Its only value is as a FUTURE consistency check — "does this config still
+produce 125 after the next change?"
+
+The evidentiary basis for the splitter's correctness is the **cut-map
+classification** (143 interior features vs 18 real gutters, `cutmaps/`),
+which is independent of the gate. A future session must not cite
+"the gate passes" as validation.
