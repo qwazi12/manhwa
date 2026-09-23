@@ -91,7 +91,56 @@ def _slug(url):
     return f"{series_slug}_{chapter_slug}"
 
 
-def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False):
+ENGINES = ("gemini", "claude")
+
+
+def _run_claude_engine(url, progress, job_id=None, fresh=False):
+    """The Claude pipeline, reached through the SAME entry point as Gemini.
+
+    Deliberately a DISPATCH, not a stage-level merge. `claude_lab.run_lab` is
+    monolithic — it does its own scrape, split, read, script, place and
+    segment — so interleaving its stages with this module's would mean
+    refactoring it. That is a large change to a paid path, and the win here is
+    the operator-facing one: one entry point, one projects list, one engine
+    field. The internals stay where they are until there is a reason to move
+    them.
+
+    run_lab reports progress as a single string; this module's callers expect
+    (stage, msg, pct), so the two are adapted here rather than changing either.
+    """
+    import claude_lab
+
+    stages = claude_lab.STAGES
+    seen = {"i": 0}
+
+    def adapt(line):
+        stage = str(line).split(":", 1)[0].strip()
+        if stage in stages:
+            seen["i"] = max(seen["i"], stages.index(stage))
+        pct = int(100 * seen["i"] / max(len(stages) - 1, 1))
+        progress(stage if stage in stages else "segment", str(line), pct)
+
+    man = claude_lab.run_lab(url, progress=adapt, job_id=job_id, fresh=fresh)
+    if man.get("status") != "ok":
+        raise RuntimeError(man.get("error") or "claude engine failed")
+
+    # Stamp the engine onto whatever project.json run_lab wrote, so the field
+    # is present regardless of which path produced the project.
+    pdir = os.path.join(PROJECTS, man.get("project") or "")
+    pj = os.path.join(pdir, "project.json")
+    try:
+        with open(pj, encoding="utf-8") as f:
+            meta = json.load(f)
+    except (OSError, ValueError):
+        meta = dict(man)
+    meta["engine"] = "claude"
+    with open(pj, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+    return meta
+
+
+def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
+               engine="gemini"):
     """Run the pipeline for one chapter URL. `progress(stage, msg, pct)` is
     called as it advances. Returns the finished project dict.
 
@@ -106,6 +155,11 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False):
     only changed panels) and the hash-keyed TTS cache (unchanged sentences
     re-synth for free). Needed to re-run a chapter after a pipeline fix —
     without it the script cache happily replays the old cut."""
+    if engine not in ENGINES:
+        raise ValueError(f"engine must be one of {ENGINES}")
+    if engine == "claude":
+        return _run_claude_engine(url, progress, job_id=job_id, fresh=fresh)
+
     sys.path.insert(0, RECAP)
     sys.path.insert(0, os.path.join(RECAP, "hyperframes"))
     import scraper, narrate, beat_segmenter, matcher
@@ -319,6 +373,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False):
             "duration": round(shots[-1]["end"], 1) if shots else 0,
             "series": series_title, "chapter": chapter_title,
             "match_method": match_method,
+            "engine": "gemini",
             "split_coverage": split_coverage,
             # Persisted so the whole library stays auditable: a truncated
             # chapter is now visible in project.json / /api/projects instead
@@ -374,6 +429,18 @@ def list_projects():
             data = json.load(open(pj))
         except Exception:
             continue
+        # Engine backfill, same self-healing idiom as series/chapter below.
+        # Projects built before the engine field existed carry it in their
+        # FOLDER NAME ("-lab-"), which is exactly the kind of meaning-encoded-
+        # in-a-filename the merge exists to retire. Recorded as a field; the
+        # folder is NOT renamed, because the board, clips and exports all
+        # reference these paths and a rename would have to be atomic with them.
+        if not data.get("engine"):
+            data["engine"] = "claude" if "-lab-" in pid else "gemini"
+            try:
+                json.dump(data, open(pj, "w"), indent=2)
+            except OSError:
+                pass
         series, chapter = _derive_series_chapter(pid, data)
         # Self-healing backfill: persist the proper names for any legacy project
         # whose stored series/chapter are missing or folder-id-derived, so it's

@@ -745,6 +745,14 @@ a {{ color:var(--accent); }}
   <label class="hint" style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
     <input type="checkbox" id="ingfresh"> Fresh re-ingest (regenerate script,
     audio &amp; timeline — for re-running a chapter after a pipeline fix)</label>
+  <label class="hint" style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+    Engine
+    <select id="ingengine" style="flex:0 0 auto">
+      <option value="gemini" selected>Gemini (default)</option>
+      <option value="claude">Claude</option>
+    </select>
+    <span style="opacity:.75">Gemini is the established path. Claude is
+      opt-in per ingest and recorded on the project.</span></label>
   <button class="primary" onclick="runIngest()">▶ Run ingest</button>
   <div id="ingprog" style="margin-top:12px"></div>
 </div>
@@ -2079,9 +2087,11 @@ async function runIngest() {{
   const url = document.getElementById('ingurl').value.trim();
   if (!/^https?:\\/\\//.test(url)) {{ alert('Paste a full http(s) chapter URL'); return; }}
   const fresh = document.getElementById('ingfresh').checked;
+  const engine = document.getElementById('ingengine').value;
   if (fresh && !confirm('Fresh re-ingest regenerates narration, TTS audio and the timeline for this chapter (cached descriptions and unchanged TTS lines are still reused). Continue?')) return;
+  if (engine === 'claude' && !confirm('Run this chapter through the CLAUDE engine?' + String.fromCharCode(10) + String.fromCharCode(10) + 'Gemini is the established path; Claude is newer and its cost profile differs.' + String.fromCharCode(10) + 'The choice is recorded on the project.')) return;
   try {{
-    const r = await j('/api/ingest', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{url, fresh}})}});
+    const r = await j('/api/ingest', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{url, fresh, engine}})}});
     setActiveJob(r.job); startIngestPoller();
   }} catch (e) {{ alert(e.message); }}
 }}

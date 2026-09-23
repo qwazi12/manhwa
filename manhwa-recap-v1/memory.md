@@ -6613,3 +6613,32 @@ against itself and cannot fail. It is a useful FUTURE regression guard (does
 this config stay at 125 as code changes?) and is **not** evidence the new
 config is correct. The evidence for that is the arbitration tally (143 vs 18),
 which is independent of the gate.
+
+#### STAGE 5 — engine merge: one entry point, engine recorded per project
+`ingest.run_ingest(url, progress, ..., engine="gemini")`. **Gemini remains the
+default** — a newer path earns default status with data, not by being newer.
+
+Deliberately a **dispatch, not a stage-level merge**: `claude_lab.run_lab` is
+monolithic (its own scrape/split/read/script/place/segment), so interleaving
+its stages would mean refactoring a paid path. The operator-facing win — one
+entry point, one projects list, one engine field — does not require that.
+`run_lab` reports progress as a single string; it is adapted at the boundary
+rather than changing either side.
+
+- `project.json` records `engine` on BOTH paths.
+- Legacy `-lab-*` projects are backfilled as `claude` using the same
+  self-healing idiom already used for series/chapter. **Folders are NOT
+  renamed** — the board, clips and exports reference those paths, and a
+  rename would have to be atomic with all of them.
+- Route validates the engine and refuses `claude` with no key up front,
+  rather than failing mid-run after spend.
+- Board offers the choice with Gemini pre-selected and a confirm on Claude.
+
+**A JS bug I introduced and caught:** a `\n` in a confirm string became a REAL
+newline when storyboard.py's f-string evaluated it, and a literal newline
+inside a single-quoted JS string is a syntax error — the whole board's script
+failed to parse. The surrounding code already avoids this with
+`String.fromCharCode(10)`; I had not followed the local idiom. Caught by
+`test_storyboard_js_syntax.py` before deploy.
+
+Tests: new `test_engine_merge.py` (18). Suite: **35 suites, 0 failures.**

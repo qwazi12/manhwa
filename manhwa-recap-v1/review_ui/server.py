@@ -3160,7 +3160,7 @@ def _active_ingest_for_url(url):
     return None
 
 
-def _run_ingest_job(job_id, url, fresh=False):
+def _run_ingest_job(job_id, url, fresh=False, engine="gemini"):
     import ingest
     INGEST[job_id]["status"] = "running"
     _persist_ingest(job_id)
@@ -3172,7 +3172,8 @@ def _run_ingest_job(job_id, url, fresh=False):
         _persist_ingest(job_id)
 
     try:
-        meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh)
+        meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh,
+                                 engine=engine)
         INGEST[job_id].update(status="done", project=meta, pct=100)
     except JobCancelled as e:
         INGEST[job_id].update(status="cancelled", error=str(e))
@@ -3309,6 +3310,11 @@ class IngestIn(BaseModel):
     url: str
     fresh: bool = False    # S4: clear derived artifacts, regenerate all stages
     queue: bool = False    # run after any in-flight ingest instead of alongside
+    # GEMINI IS THE DEFAULT and stays the default. Claude is the newer path;
+    # a new path earns default status with data, it does not get it by being
+    # newer. The choice is recorded per project so the two can be compared
+    # like-for-like later.
+    engine: str = "gemini"
 
 
 @app.post("/api/ingest")
@@ -3325,15 +3331,23 @@ def start_ingest(body: IngestIn):
         job_id = _enqueue_ingest(url, body.fresh)
         return {"job": job_id, "stages": ingest_stages(), "existing": False,
                 "fresh": body.fresh, "queued": True}
+    import ingest as _ing
+    if body.engine not in _ing.ENGINES:
+        raise HTTPException(400, f"engine must be one of {_ing.ENGINES}")
+    if body.engine == "claude" and not _validator.api_key():
+        raise HTTPException(400, "no Claude API key on this server — "
+                                 "set CLAUDE_API_KEY or ANTHROPIC_API_KEY")
     job_id = uuid.uuid4().hex[:12]
     INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "queued",
                       "status": "queued", "error": None, "project": None,
-                      "url": url, "ts": time.time(), "control": "run"}
+                      "url": url, "ts": time.time(), "control": "run",
+                      "engine": body.engine}
     _persist_ingest(job_id)
-    threading.Thread(target=_run_ingest_job, args=(job_id, url, body.fresh),
+    threading.Thread(target=_run_ingest_job,
+                     args=(job_id, url, body.fresh, body.engine),
                      daemon=True).start()
     return {"job": job_id, "stages": ingest_stages(), "existing": False,
-            "fresh": body.fresh}
+            "fresh": body.fresh, "engine": body.engine}
 
 
 def ingest_stages():
