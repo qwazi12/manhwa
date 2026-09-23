@@ -269,6 +269,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             raise subprocess.CalledProcessError(split_p.returncode, split_p.args,
                                                 "", err_text)
     n_crops = len([f for f in os.listdir(crops) if f.lower().endswith(".png")])
+    if not n_crops:
+        raise RuntimeError("the splitter produced no panel crops")
     # S2: read the splitter's per-page coverage stats and surface them —
     # a page whose art wasn't fully cropped must be VISIBLE, not a log line.
     split_coverage = None
@@ -294,12 +296,22 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             }
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         pass
-    if split_coverage:
+    # TWO SHAPES LIVE HERE. The legacy splitter reports an art-coverage ratio
+    # per page; the background-registration splitter reports format/pages/
+    # panels instead, because "coverage" is not a quantity it computes. Reading
+    # a legacy-only key unconditionally is what made a successful split fail
+    # the whole ingest with KeyError: 'pages_below_85' AFTER every page had
+    # already been cut.
+    if split_coverage and "pages_below_85" in split_coverage:
         warn = (f" ⚠ {split_coverage['pages_below_85']} page(s) under 85%"
                 if split_coverage["pages_below_85"] else "")
         progress("split", f"{n_crops} panel crops · art coverage "
                           f"min {split_coverage['min']:.0%} / "
                           f"mean {split_coverage['mean']:.0%}{warn}", 30)
+    elif split_coverage:
+        progress("split", f"{n_crops} panel crops · "
+                          f"{split_coverage.get('format')} format · "
+                          f"{split_coverage.get('pages')} page(s)", 30)
     else:
         progress("split", f"{n_crops} panel crops.", 30)
 

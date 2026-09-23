@@ -69,6 +69,17 @@ def main():
         check("strip detection still keys on tile uniformity, not site name",
               SL.is_strip.__doc__ and "UNIFORMITY" in SL.is_strip.__doc__)
 
+    # The regression that broke a live ingest: the new path sets a different
+    # split_coverage shape, and the reporting line read a legacy-only key
+    # unconditionally — so a split that cut every page correctly still failed
+    # the whole run with KeyError: 'pages_below_85'.
+    check("coverage reporting guards the legacy-only key",
+          '"pages_below_85" in split_coverage' in src)
+    check("...and has a branch for the new splitter's shape",
+          "elif split_coverage:" in src)
+    check("an empty crop set is caught explicitly",
+          "the splitter produced no panel crops" in src)
+
     for name, ok in R:
         print(("PASS " if ok else "FAIL ") + name)
     n_ok = sum(1 for _, ok in R if ok)
