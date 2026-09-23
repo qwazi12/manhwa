@@ -131,9 +131,6 @@ Also return:
 - `importance` — 1 to 5, how much this panel matters to the chapter's story.
 - `needs_review` — true when a human should look at this panel before trusting \
 it (text you could not read, a panel you could not interpret, a likely bad cut).
-- `focus_hint` — ADVISORY ONLY. If part of the panel obviously carries the \
-subject, give it as [x0, y0, x1, y1] fractions; otherwise [0, 0, 1, 1]. The \
-real crop is decided later, once the narration exists, so do not agonise here.
 
 Answer for EVERY panel you are given, using the panel numbers given."""
 
@@ -154,11 +151,10 @@ DESCRIBE_SCHEMA = {
                     "subject_type": {"type": "string"},
                     "importance": {"type": "integer"},
                     "needs_review": {"type": "boolean"},
-                    "focus_hint": {"type": "array", "items": {"type": "number"}},
                 },
                 "required": ["n", "ocr", "ocr_confidence", "description",
                              "desc_confidence", "is_credits", "subject_type",
-                             "importance", "needs_review", "focus_hint"],
+                             "importance", "needs_review"],
                 "additionalProperties": False,
             },
         },
@@ -306,8 +302,13 @@ def describe_plus(pdir, panels, model=None, progress=None, on_batch=None,
                                 or (not desc and not blank_ok)
                                 or "empty" in violations,
                 "contract_violations": violations,
-                # Advisory only. The real crop is decided after placement.
-                "focus_hint": _clean_crop(item.get("focus_hint")),
+                # NOTE: there was a `focus_hint` box here — asked of the model,
+                # normalised through _clean_crop, stored, and read by NOTHING.
+                # Worse than dead weight: being cleaned as a crop box made it
+                # look load-bearing. Crops are chosen after placement by
+                # crop_score, which deliberately ignores model confidence at
+                # all (the two worst boxes in the Martial Genius audit both
+                # carried 1.0). Removed rather than wired in.
                 "source": "claude+", "ok": bool(desc) or blank_ok,
             })
         if on_batch:

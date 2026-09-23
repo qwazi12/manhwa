@@ -146,7 +146,7 @@ def good_panel(n):
                            "across the courtyard.",
             "desc_confidence": 0.9, "is_credits": n == 1,
             "subject_type": "character", "importance": 3,
-            "needs_review": False, "focus_hint": [0, 0, 1, 1]}
+            "needs_review": False}
 
 
 def good_crop(n):
