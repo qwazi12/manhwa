@@ -788,8 +788,14 @@ a {{ color:var(--accent); }}
   <button class="navbtn" data-d="projects" onclick="toggleDrawer('projects')"><span class="ic">📚</span>Projects</button>
   <button class="navbtn" data-d="tracker" onclick="toggleDrawer('tracker')"><span class="ic">📡</span>Tracker</button>
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
-  <button class="navbtn navtest" data-d="test" onclick="toggleDrawer('test')" title="experimental — Claude-driven pipeline comparison"><span class="ic">🧪</span>TEST</button>
-  <button class="navbtn" data-d="split" onclick="toggleDrawer('split')" title="preview the panel splitter on any chapter"><span class="ic">✂️</span>Split</button>
+  <!-- ARCHIVED 2026-09-23. Both features graduated into Ingest: the Claude
+       engine is now an engine choice, and the background-registration
+       splitter is the production split path. The drawers and their routes
+       remain so existing runs stay openable; only the rail entries are gone.
+       Re-enable by restoring these two buttons.
+  <button class="navbtn navtest" data-d="test" onclick="toggleDrawer('test')"><span class="ic">🧪</span>TEST</button>
+  <button class="navbtn" data-d="split" onclick="toggleDrawer('split')"><span class="ic">✂️</span>Split</button>
+  -->
   {theme.RAIL_BUTTONS_HTML}
 </div>
 <div class="drawer" id="d_ingest">
@@ -2173,6 +2179,13 @@ function paintIngest() {{
       <button class="danger" onclick="stopIngest()">⏹ Stop ingest</button>
       <span class="hint">stops after the current step finishes</span></div>`;
   }}
+  if (s.status === 'done') {{
+    box.innerHTML += `<div class="hint" style="margin-top:8px">
+      ✅ Finished${{s.project && s.project.id ? ' — ' + s.project.id : ''}}.
+      This is the LAST run, not a live one.
+      <button class="mini" style="margin-left:6px" onclick="ingestState=null;
+        document.getElementById('ingprog').innerHTML='';">clear</button></div>`;
+  }}
   if (s.status === 'cancelled') {{
     box.innerHTML += `<div class="hint" style="margin-top:8px">Stopped. Whatever
       finished is kept; re-run the ingest to continue.</div>`;
@@ -2213,8 +2226,19 @@ async function startIngestPoller() {{
 }}
 if (activeJob()) startIngestPoller();   // survive reloads mid-ingest
 async function recoverActiveIngest() {{
-  // Pick up any running ingest job started outside the UI (e.g. curl / restart)
-  if (activeJob()) return;
+  // A finished job left in localStorage used to repaint its progress bar on
+  // every load, so the drawer showed a run that ended hours ago as though it
+  // were live. Validate the stored id before trusting it.
+  const stored = activeJob();
+  if (stored) {{
+    try {{
+      const s = await j('/api/ingest/status/' + stored);
+      if (s.status === 'done' || s.status === 'error' || s.status === 'cancelled') {{
+        setActiveJob(null); ingestState = s; paintIngest();
+      }} else {{ startIngestPoller(); }}
+    }} catch (e) {{ setActiveJob(null); }}
+    return;
+  }}
   try {{
     const ij = await j('/api/logs/ingest');
     const running = (ij.jobs || []).find(x => x.status === 'running' || x.status === 'queued');
