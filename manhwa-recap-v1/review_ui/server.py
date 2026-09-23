@@ -3901,6 +3901,7 @@ class LabRunIn(BaseModel):
 class SplitRunIn(BaseModel):
     url: str = ""
     project: str = ""
+    blur: bool = False
 
 
 def _splitlab_pages(body):
@@ -3962,7 +3963,7 @@ def split_run(body: SplitRunIn):
                 j["done"] = min(j["done"] + 1, j["total"])
                 _persist_job(job_id)
 
-            meta = _sl.run(slug, files, on_progress=prog)
+            meta = _sl.run(slug, files, on_progress=prog, blur=body.blur)
             j["status"] = "done"
             j["stage"] = (f"{meta['panels']} panels from {meta['pages']} "
                           f"{meta['format']} image(s)")

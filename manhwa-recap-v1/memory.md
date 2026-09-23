@@ -6433,3 +6433,51 @@ would read as a gutter and cut through art.
 branch only. The strip branch works on concatenated row profiles without
 holding full images, so WEBTOON is unchanged (93 panels, verified). Extending
 it there needs the tiles held or streamed.
+
+### 2026-09-22 — Bubble blur: polarity-independent detection, built in the right order
+
+**Order mattered.** Building the blur on `split_panels._detect_bubbles` would
+have looked excellent on a dark title and done NOTHING on light ones — on a
+white page the bubble interior is the same value as the page, so labelling
+merges them into one huge component that fails the max-area test. So the
+detector was replaced first, and measured on both polarities before any blur
+shipped.
+
+**New `review_ui/bubbles.py`.** A bubble is a near-uniform fill ENCLOSED by its
+own stroke: fill regions touching the page border are background, regions that
+do not are enclosed islands, and an island containing dark marks is a bubble.
+Nothing in that test mentions light or dark, so one path serves both.
+
+**A bug I wrote and then measured out.** First run: **0 bubbles on BOTH
+titles** — worse than the detector it replaced. Cause was a self-contradictory
+test: ink was computed as `(|sub - fill| > INK_DELTA) & component`, but the
+component IS the near-uniform fill, so lettering is excluded from it by
+construction. Asking for pixels both far from fill and inside the fill returns
+~0 always. **Lettering is the HOLES punched through the fill**, measured inside
+the component's bounding box.
+
+**Acceptance (the criterion proposed earlier — the light title must be
+non-trivial, so "found nothing" cannot pass as "working"):**
+
+| title | panels with bubbles | coverage mean | max |
+|---|---|---|---|
+| DARK Fated Villain | **17/26 (65%)** | 7.21% | 26.49% |
+| LIGHT Stellar Swordmaster | **15/26 (58%)** | 3.58% | 16.58% |
+
+**Blur is display-side.** The unblurred crop is ALWAYS written; the blurred
+copy is a twin (`<name>_blur.png`). OCR, re-reads and the render are untouched.
+Blur, never inpaint — an over-large blur is ugly but honest, a generated fill
+puts art in the export that was never drawn.
+
+**Also fixed: 1-pixel panels.** `_spans` enforced a minimum HEIGHT but nothing
+checked WIDTH, so a band whose only content was a thin vertical line trimmed to
+a 1px column and shipped as **1x86, AR 86**. A too-narrow trim now means the
+TRIM was wrong, not that the panel is a sliver: full width is restored.
+Murim ch.44 min width **1 -> 57px**, max AR **86 -> 5.1**.
+
+**Flat-band finding, unresolved and left to the owner.** `SPLIT_FLAT_STD` diff
+on Murim ch.44: **6.0 -> 183 panels, 0.0 -> 154**. The 154 sits on the ch.43
+baseline of 156; the flat-band path adds **+19%**, outside the +/-15% band. It
+is verifiably CORRECT on Fated Villain (4 real gutters, each checked) and
+over-fires on Murim's flat art regions. Same title-dependence as every other
+polarity-sensitive rule here. Default left ON; `SPLIT_FLAT_STD=0` disables.

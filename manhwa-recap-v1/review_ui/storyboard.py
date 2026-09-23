@@ -822,6 +822,8 @@ a {{ color:var(--accent); }}
     <input id="spUrl" placeholder="chapter URL (Asura or WEBTOON)">
     <div style="display:flex;gap:5px">
       <select id="spProj" style="flex:1"><option value="">— or an ingested project —</option></select>
+      <label class="hint" style="display:inline-flex;gap:3px;align-items:center;cursor:pointer"
+             title="also write a bubble-blurred copy of each panel"><input type="checkbox" id="spBlurRun"> blur bubbles</label>
       <button class="primary" onclick="spRun()">Split</button>
       <button id="spStop" class="mini danger" onclick="spStop()" disabled title="stop this split">■</button>
     </div>
@@ -831,6 +833,9 @@ a {{ color:var(--accent); }}
     <select id="spPick" onchange="spShow(this.value)"><option value="">— past runs —</option></select>
     <label class="hint" style="display:inline-flex;gap:3px;align-items:center;cursor:pointer">
       <input type="checkbox" id="spTall" onchange="spPaint()"> only taller than 3:1</label>
+    <label class="hint" style="display:inline-flex;gap:3px;align-items:center;cursor:pointer"
+           title="show the blurred copies where they exist">
+      <input type="checkbox" id="spBlurView" onchange="spPaint()"> show blurred</label>
   </div>
   <div id="spmeta" class="hint" style="margin-bottom:8px"></div>
   <div id="spgrid" style="display:flex;flex-wrap:wrap;gap:8px"></div>
@@ -2539,7 +2544,8 @@ async function spRun() {{
   try {{
     const r = await j('/api/split/run', {{method:'POST',
       headers:{{'Content-Type':'application/json'}},
-      body: JSON.stringify({{url: url, project: proj}})}});
+      body: JSON.stringify({{url: url, project: proj,
+                             blur: document.getElementById('spBlurRun').checked}})}});
     spJob = r.job;
     document.getElementById('spStop').disabled = false;
     if (spPoll) clearInterval(spPoll);
@@ -2578,15 +2584,18 @@ function spPaint() {{
     `${{s.page}}: bg ${{s.bg}} · tol ${{s.tol}} · ${{s.gaps}} gaps → <b>${{s.panels}}</b>`).join(' &nbsp;|&nbsp; ');
   document.getElementById('spmeta').innerHTML =
     `<b>${{m.panels}} panels</b> from ${{m.pages}} ${{m.format}} image(s) · median AR ${{m.median_ar}}`
-    + ` · ${{m.over_3}} taller than 3:1<div style="margin-top:5px;font-size:11px">${{rows}}</div>`;
+    + ` · ${{m.over_3}} taller than 3:1`
+    + (m.blur ? ` · <b>${{m.blurred_panels}}</b> with bubbles blurred (mean ${{(m.bubble_cov_mean*100).toFixed(1)}}% of panel)` : '')
+    + `<div style="margin-top:5px;font-size:11px">${{rows}}</div>`;
+  const showBlur = document.getElementById('spBlurView').checked;
   const list = (m.panel_list || []).filter(p => !onlyTall || p.ar > 3);
   document.getElementById('spgrid').innerHTML = list.map(p => `
     <figure style="margin:0;width:132px">
-      <a href="/splitimg/${{m.slug}}/${{p.name}}" target="_blank">
-        <img src="/splitimg/${{m.slug}}/${{p.name}}" loading="lazy"
+      <a href="/splitimg/${{m.slug}}/${{(showBlur && p.blurred) ? p.name.replace('.png','_blur.png') : p.name}}" target="_blank">
+        <img src="/splitimg/${{m.slug}}/${{(showBlur && p.blurred) ? p.name.replace('.png','_blur.png') : p.name}}" loading="lazy"
              style="display:block;width:132px;border:1px solid var(--rule);border-radius:3px${{p.ar > 3 ? ';outline:2px solid var(--warn)' : ''}}"></a>
       <figcaption class="hint" style="font-size:10px;text-align:center;margin-top:3px">
-        ${{p.w}}×${{p.h}} · AR ${{p.ar}}</figcaption>
+        ${{p.w}}×${{p.h}} · AR ${{p.ar}}${{p.blurred ? ' · ' + (p.bubble_frac*100).toFixed(0) + '% bubble' : ''}}</figcaption>
     </figure>`).join('') || '<span class="hint">nothing to show</span>';
 }}
 

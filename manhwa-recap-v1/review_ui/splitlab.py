@@ -34,7 +34,8 @@ ROOT = os.path.abspath(os.path.join(RECAP, ".."))
 if os.path.join(ROOT, "panel-split") not in sys.path:
     sys.path.insert(0, os.path.join(ROOT, "panel-split"))
 
-MIN_PANEL_PX = 60
+MIN_PANEL_PX = 60        # minimum panel HEIGHT
+MIN_PANEL_W = 40         # ...and WIDTH: the trim could return a 1px column
 BREAK_MIN_ROWS = 4
 STRIP_MIN_TILES = 8      # fewer images than this is a page set, not a scroll
 STRIP_UNIFORM_FRAC = 0.7  # share of images that must have the SAME height
@@ -181,7 +182,28 @@ def is_strip(pages):
     return heights.count(common) / len(heights) >= STRIP_UNIFORM_FRAC
 
 
-def run(slug, pages, on_progress=None):
+def _save_panel(img, path, blur):
+    """Write a panel, plus a bubble-blurred twin when asked.
+
+    The blur is DISPLAY-SIDE: the unblurred crop is always written, so OCR,
+    re-reads and the render are untouched. Blur, never inpaint — a slightly
+    over-large blur is ugly but honest, while a generated fill puts art in the
+    export that was never drawn.
+    """
+    img.save(path)
+    if not blur:
+        return None
+    try:
+        import bubbles as _b
+        out, cov = _b.blur_bubbles(img)
+        if cov > 0:
+            out.save(path[:-4] + "_blur.png")
+        return cov
+    except Exception:
+        return None
+
+
+def run(slug, pages, on_progress=None, blur=False):
     """Split `pages` and write preview crops. Returns the metadata dict."""
     d = runs_dir(slug)
     os.makedirs(d, exist_ok=True)
@@ -244,9 +266,11 @@ def run(slug, pages, on_progress=None):
                 canvas.paste(x, (0, yy))
                 yy += x.height
             name = "p%03d.png" % i
-            canvas.save(os.path.join(d, name))
+            cov = _save_panel(canvas, os.path.join(d, name), blur)
             panels.append({"name": name, "w": W, "h": tot,
-                           "ar": round(tot / max(W, 1), 2), "page": "scroll"})
+                           "ar": round(tot / max(W, 1), 2), "page": "scroll",
+                           "bubble_frac": round(cov, 4) if cov else 0.0,
+                           "blurred": bool(cov)})
     else:
         for p in pages:
             base = os.path.splitext(os.path.basename(p))[0]
@@ -270,14 +294,30 @@ def run(slug, pages, on_progress=None):
                     x0, x1 = int(cs[0]), int(cs[-1]) + 1
                 else:
                     y0, y1, x0, x1 = a, b, 0, g.shape[1]
+                # The trim measures the content box, and a band whose only
+                # content is a thin vertical line trims to a 1px column — one
+                # shipped as 1x86, aspect ratio 86. A panel needs width as
+                # well as height, and a too-narrow trim means the trim was
+                # wrong, not that the panel is a sliver: keep the full width.
+                if (x1 - x0) < MIN_PANEL_W:
+                    x0, x1 = 0, g.shape[1]
+                    if (y1 - y0) < MIN_PANEL_PX:
+                        continue
                 name = "%s_p%02d.png" % (base, i)
-                im.crop((x0, y0, x1, y1)).save(os.path.join(d, name))
+                cov = _save_panel(im.crop((x0, y0, x1, y1)),
+                                  os.path.join(d, name), blur)
                 panels.append({"name": name, "w": x1 - x0, "h": y1 - y0,
                                "ar": round((y1 - y0) / max(x1 - x0, 1), 2),
-                               "page": os.path.basename(p)})
+                               "page": os.path.basename(p),
+                               "bubble_frac": round(cov, 4) if cov else 0.0,
+                               "blurred": bool(cov)})
 
     ars = [p["ar"] for p in panels] or [0]
+    blurred = sum(1 for p in panels if p.get("blurred"))
+    bcov = [p.get("bubble_frac", 0.0) for p in panels]
     meta = {"slug": slug, "ts": time.time(), "format": "strip" if strip else "page",
+            "blur": bool(blur), "blurred_panels": blurred,
+            "bubble_cov_mean": round(float(np.mean(bcov)) if bcov else 0.0, 4),
             "pages": len(pages), "panels": len(panels), "stats": stats,
             "median_ar": float(np.median(ars)),
             "over_3": int(sum(1 for a in ars if a > 3)),
