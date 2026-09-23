@@ -6387,3 +6387,49 @@ it is wide. Full suite: **33 suites, 0 failures.**
 (`@vercel/elysia@8.0.2` does not exist); pinned `48.2.0`. Verified through the
 domain: `/splitimg` now returns 401 (the Basic Auth wall) exactly like
 `/panelimg`, where before it would have 404'd at the edge.
+
+### 2026-09-22 — The single-background hole: tested, real, fixed
+
+**The hole.** Registration picks ONE background per page, so on a bg=0 page a
+gutter at any other brightness fails `|row_mean - bg| <= tol` and the break is
+missed. I had used exactly that test to dismiss the operator's "there are still
+gaps in there" claim, which made the dismissal unsound.
+
+**Test 1 — the tall panels the operator asked about: the hole does NOT
+manifest there.** A gutter is a FLAT row whatever its colour, so flatness was
+measured instead of brightness. **0 flat interior bands across all 11 panels
+over 3:1.** Threshold sweep, calibrated against rows the page already accepts
+as gutter (row-wise std: median 0.00, p90 0.05, **max 5.33**):
+
+| max std | bands found |
+|---|---|
+| 6 | **0** |
+| 12 | 2 |
+| 30 | 16 |
+| 60 | 92 |
+
+Nothing appears until far looser than any real gutter, so those tall panels
+genuinely have no interior gutters. The earlier retraction was correct.
+
+**Test 2 — but the hole IS real elsewhere.** Colour-agnostic flat-band
+detection on ch.358: **53 -> 57 panels**, 3 pages gaining cuts. Every new cut
+verified as a genuine gutter:
+
+| page | rows | mean | std | dx |
+|---|---|---|---|---|
+| 003 | 157 | **87.6** | 4.91 | 0.06 |
+| 008 | 14 | 25.3 | 3.44 | 0.11 |
+| 009 (x4) | 14-101 | 14.7-16.1 | ~5.5 | ~0.09 |
+
+A 157-row band at mean **87.6** on a page registering bg=0 tol=14 is six times
+outside tolerance — invisible to the old test, and it was being cut through.
+
+**Fix:** `flat_rows()` accepts a row uniform ACROSS its width regardless of
+colour (`FLAT_STD = 6`, just above the observed 5.33 ceiling). A band must
+also be flat DOWN its height before counting, or a smooth sky or colour fill
+would read as a gutter and cut through art.
+
+**Known limit, not silently left:** the flat-band test is wired into the PAGE
+branch only. The strip branch works on concatenated row profiles without
+holding full images, so WEBTOON is unchanged (93 panels, verified). Extending
+it there needs the tiles held or streamed.

@@ -94,8 +94,47 @@ def register(rows, edge):
     return bg, tol, max(base * 3.0, 1.0)
 
 
-def breaks(rows, edge, bg, tol, ethr):
+FLAT_STD = float(os.environ.get("SPLIT_FLAT_STD", 6.0))
+
+
+def flat_rows(gray):
+    """Rows that are uniform ACROSS their width, whatever colour they are.
+
+    Closes a real hole: registration picks ONE background per page, so on a
+    black-background page a WHITE gutter band fails the brightness test and the
+    break is missed entirely. A gutter is not "the page's colour" — it is a
+    FLAT row.
+
+    Calibrated, not guessed: rows the page-level test already accepts as gutter
+    have a row-wise std of median 0.00, p90 0.05, max 5.33 across Fated Villain
+    ch.358. FLAT_STD = 6 sits just above that observed ceiling.
+
+    A band must also be flat VERTICALLY (uniform down its whole height) before
+    it counts, or a smooth sky or colour fill inside a panel would read as a
+    gutter and cut straight through the art.
+    """
+    g = gray.astype(np.float32)
+    return g.std(axis=1) <= FLAT_STD
+
+
+def breaks(rows, edge, bg, tol, ethr, gray=None):
     mask = (np.abs(rows - bg) <= tol) & (edge <= ethr)
+    if gray is not None:
+        flat = flat_rows(gray) & (edge <= ethr)
+        # Accept a flat band only where the band is uniform down its height
+        # too: one colour throughout is a gutter, a vertical gradient is art.
+        extra = np.zeros_like(mask)
+        st = None
+        for i, v in enumerate(list(flat) + [False]):
+            if v and st is None:
+                st = i
+            elif not v and st is not None:
+                if i - st >= BREAK_MIN_ROWS:
+                    band = gray[st:i].astype(np.float32)
+                    if band.std() <= FLAT_STD:
+                        extra[st:i] = True
+                st = None
+        mask = mask | extra
     runs, st = [], None
     for i, v in enumerate(mask):
         if v and st is None:
@@ -215,7 +254,7 @@ def run(slug, pages, on_progress=None):
             g = np.array(im.convert("L"))
             rows, edge = _profile(g)
             bg, tol, ethr = register(rows, edge)
-            rn = breaks(rows, edge, bg, tol, ethr)
+            rn = breaks(rows, edge, bg, tol, ethr, gray=g)
             sp = _spans(rn, g.shape[0])
             stats.append({"page": os.path.basename(p), "h": int(g.shape[0]),
                           "bg": round(bg, 1), "tol": round(tol, 1),
