@@ -218,22 +218,68 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     os.makedirs(crops, exist_ok=True)
     subp_env = {**os.environ, "RECAP_JOB_ID": job_id}
     split_log = os.path.join(proj, "split.log")
-    with open(split_log, "w", encoding="utf-8") as f_log:
-        split_p = subprocess.run(
-            [PY, os.path.join(ROOT, "panel-split", "split_panels.py"),
-             "--input", pages, "--out", crops, "--batch"],
-            cwd=os.path.join(ROOT, "panel-split"),
-            env=subp_env, stdout=f_log, stderr=f_log)
-    if split_p.returncode != 0:
-        err_text = open(split_log, encoding="utf-8").read()
-        if "USAGE CAP EXCEEDED" in err_text:
-            raise usage.UsageCapExceeded(err_text.strip().splitlines()[-1])
-        raise subprocess.CalledProcessError(split_p.returncode, split_p.args,
-                                            "", err_text)
+
+    # SPLITTER. The background-registration splitter is now the production
+    # path. It registers the gutter colour PER PAGE from the modal row-mean
+    # instead of voting near-white against near-black, and assembles WEBTOON
+    # CDN tiles into one scroll before cutting — a tile is an arbitrary slice,
+    # not a page, and per-tile registration produced sliver fragments.
+    #
+    # Evidence for the swap is the cut arbitration on the pinned Murim ch.43
+    # fixture: of 161 cuts the two splitters disagree on, 143 are interior
+    # features the legacy splitter was shredding (bubble bands, frame strokes,
+    # tonal transitions) and 18 are real gutters this one misses. Better on
+    # net, not strictly better — the 18 are a known cost.
+    #
+    # SPLIT_ENGINE=legacy restores the old subprocess in one env var.
+    use_legacy = os.environ.get("SPLIT_ENGINE", "new").lower() == "legacy"
+    split_stats = None
+    if not use_legacy:
+        try:
+            import splitlab
+            page_files = sorted(
+                os.path.join(pages, f) for f in os.listdir(pages)
+                if os.path.splitext(f)[1].lower()
+                in (".png", ".jpg", ".jpeg", ".webp"))
+            n_crops, split_stats = splitlab.split_into(
+                page_files, crops, slug=proj_id,
+                on_progress=lambda m: progress("split", m, 20))
+            with open(split_log, "w", encoding="utf-8") as f_log:
+                json.dump(split_stats, f_log, indent=2)
+            if not n_crops:
+                raise RuntimeError("the splitter produced no panels")
+        except Exception as e:
+            # Never leave a chapter unsplit because the new path failed:
+            # fall back loudly rather than aborting the ingest.
+            progress("split", f"new splitter failed ({e}) — using legacy", 19)
+            use_legacy = True
+            split_stats = None
+
+    if use_legacy:
+        with open(split_log, "w", encoding="utf-8") as f_log:
+            split_p = subprocess.run(
+                [PY, os.path.join(ROOT, "panel-split", "split_panels.py"),
+                 "--input", pages, "--out", crops, "--batch"],
+                cwd=os.path.join(ROOT, "panel-split"),
+                env=subp_env, stdout=f_log, stderr=f_log)
+        if split_p.returncode != 0:
+            err_text = open(split_log, encoding="utf-8").read()
+            if "USAGE CAP EXCEEDED" in err_text:
+                raise usage.UsageCapExceeded(err_text.strip().splitlines()[-1])
+            raise subprocess.CalledProcessError(split_p.returncode, split_p.args,
+                                                "", err_text)
     n_crops = len([f for f in os.listdir(crops) if f.lower().endswith(".png")])
     # S2: read the splitter's per-page coverage stats and surface them —
     # a page whose art wasn't fully cropped must be VISIBLE, not a log line.
     split_coverage = None
+    if split_stats is not None:
+        # The new splitter reports format and per-page panel counts rather
+        # than the legacy coverage ratio; surface what it does measure so
+        # the record does not go dark.
+        split_coverage = {"engine": "background-registration",
+                          "format": split_stats.get("format"),
+                          "pages": split_stats.get("pages"),
+                          "panels": split_stats.get("panels")}
     try:
         pj = json.load(open(os.path.join(crops, "panels.json")))
         covs = [(pg["prefix"], pg.get("coverage", {}).get("coverage_final"))

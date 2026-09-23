@@ -425,6 +425,7 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     all_c = life.get("est_cost_usd", 0) + u.get("est_cost_usd", 0)
     mm = meta.get("match_method", "")
     return f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>{html.escape(title)} — storyboard: story + render plan</title>
 <style>
 /* ---------------------------------------------------------------- palette
@@ -570,6 +571,61 @@ tr.vflag-low td.n {{ box-shadow:inset 3px 0 0 var(--rule); }}
 .navbtn .vdot.error {{ background:var(--bad); animation:none; }}
 .navbtn .vdot.done {{ background:var(--ok); animation:none; }}
 @keyframes vpulse {{ 50% {{ opacity:.35; }} }}
+/* ---------------------------------------------------------------- mobile
+   The board is a 6-column table beside a fixed 64px rail with 360px drawers —
+   a layout that assumes a mouse and a wide screen. On a phone the columns
+   cannot fit, so rows become stacked cards, the rail becomes a bottom bar
+   (thumb reach, and it stops stealing horizontal space), and drawers go
+   full-width. Nothing is hidden: the same controls are present, re-laid out.
+   Breakpoint is 820px so tablets in portrait get the phone layout too. */
+@media (max-width: 820px) {{
+  body {{ margin: 0 0 76px 0; -webkit-text-size-adjust: 100%; }}
+
+  /* rail -> bottom bar, horizontally scrollable so every tab stays reachable */
+  .rail {{ left:0; right:0; top:auto; bottom:0; width:auto; height:64px;
+           flex-direction:row; overflow-x:auto; overflow-y:hidden;
+           border-right:none; border-top:1px solid var(--rule);
+           padding:0 4px; gap:2px; -webkit-overflow-scrolling:touch; }}
+  .navbtn {{ flex:0 0 auto; width:62px; height:56px; font-size:9px; }}
+
+  /* drawers cover the screen rather than sitting in a 360px column */
+  .drawer, .drawer.wide {{ left:0; right:0; width:auto; top:0; bottom:64px;
+                           padding:14px; box-shadow:none;
+                           border-right:none; z-index:90; }}
+
+  /* the table stops being a table: one card per row */
+  table, thead, tbody, tr, th, td {{ display:block; width:auto; }}
+  thead {{ display:none; }}
+  tr {{ border:1px solid var(--rule); border-radius:10px; margin:0 8px 12px;
+        padding:8px; background:var(--panel); }}
+  td {{ border:none; border-bottom:1px solid var(--rule); padding:8px 4px; }}
+  tr td:last-child {{ border-bottom:none; }}
+  td.n {{ width:auto; }}
+  td.img {{ width:auto; text-align:center; }}
+  td.img img {{ max-width:100%; max-height:60vh; }}
+  td.ocr, td.vis, td.script, td.timing {{ width:auto; font-size:13px; }}
+
+  /* the columns lose their headers when stacked, so label them */
+  td.ocr::before {{ content:"OCR"; }}
+  td.vis::before {{ content:"DESCRIPTION"; }}
+  td.script::before {{ content:"SCRIPT PLACEMENT"; }}
+  td.timing::before {{ content:"TIMING & MOTION"; }}
+  td.ocr::before, td.vis::before, td.script::before, td.timing::before {{
+    display:block; font-size:9px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--ink3); margin-bottom:4px; }}
+
+  /* touch targets: 44px is the accessible minimum */
+  button, select, input {{ min-height:40px; font-size:15px; }}
+  .mini {{ min-height:34px; }}
+  h2 {{ font-size:18px; }}
+}}
+
+/* very narrow phones: give the cards the full width */
+@media (max-width: 420px) {{
+  tr {{ margin:0 4px 10px; }}
+  .navbtn {{ width:56px; }}
+}}
+
 @media (prefers-reduced-motion: reduce) {{
   .vspin, .navbtn .vdot, .vstate.running .vsbar.indet > i {{ animation:none; }}
 }}

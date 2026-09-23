@@ -230,6 +230,95 @@ def _save_panel(img, path, blur):
         return None
 
 
+def split_into(pages, crops_dir, slug="", on_progress=None):
+    """Split `pages` into `crops_dir` using PRODUCTION's filename convention.
+
+    This is the same algorithm the Split Lab preview uses, writing
+    `pageNNN_panel_NN.png` so `describe`, `match` and the board keep working
+    unchanged — the pipeline downstream derives a panel_id from the filename,
+    so the naming is a contract, not a cosmetic.
+
+    Returns (n_crops, stats) where stats mirrors what the legacy splitter's
+    panels.json carried, so coverage reporting does not go dark.
+    """
+    global FLAT_STD
+    FLAT_STD = flat_std_for(slug)
+    strip = is_strip(pages)
+    made, per_page = 0, []
+
+    if strip:
+        # A scroll is one continuous image chopped into CDN tiles; register
+        # once and stitch panels back across tile seams.
+        if on_progress:
+            on_progress(f"assembling {len(pages)} tiles into one scroll")
+        means, edges, offs, hs, W = [], [], [], [], None
+        y = 0
+        for p in pages:
+            g = np.array(Image.open(p).convert("L"))
+            if W is None:
+                W = g.shape[1]
+            r, e = _profile(g)
+            means.append(r); edges.append(e); offs.append(y); hs.append(g.shape[0])
+            y += g.shape[0]
+        rows = np.concatenate(means); edge = np.concatenate(edges)
+        bg, tol, ethr = register(rows, edge)
+        rn = breaks(rows, edge, bg, tol, ethr)
+        sp = _spans(rn, rows.size)
+        for i, (a, b) in enumerate(sp, 1):
+            parts = []
+            for p, o, hh in zip(pages, offs, hs):
+                if o + hh <= a or o >= b:
+                    continue
+                im = Image.open(p).convert("RGB")
+                parts.append(im.crop((0, max(0, a - o), W, min(hh, b - o))))
+            if not parts:
+                continue
+            tot = sum(x.height for x in parts)
+            canvas = Image.new("RGB", (W, tot))
+            yy = 0
+            for x in parts:
+                canvas.paste(x, (0, yy)); yy += x.height
+            canvas.save(os.path.join(crops_dir, "page001_panel_%03d.png" % i))
+            made += 1
+        per_page.append({"page": "(scroll)", "bg": round(bg, 1),
+                         "gaps": len(rn), "panels": made})
+    else:
+        for pi, p in enumerate(pages, 1):
+            im = Image.open(p).convert("RGB")
+            g = np.array(im.convert("L"))
+            rows, edge = _profile(g)
+            bg, tol, ethr = register(rows, edge)
+            rn = breaks(rows, edge, bg, tol, ethr,
+                        gray=g if FLAT_STD > 0 else None)
+            sp = _spans(rn, g.shape[0])
+            n_here = 0
+            for i, (a, b) in enumerate(sp, 1):
+                band = g[a:b]
+                nb = np.abs(band.astype(np.int16) - bg) > tol
+                rs = np.where(nb.sum(axis=1) > 0)[0]
+                cs = np.where(nb.sum(axis=0) > 0)[0]
+                if rs.size and cs.size:
+                    y0, y1 = a + int(rs[0]), a + int(rs[-1]) + 1
+                    x0, x1 = int(cs[0]), int(cs[-1]) + 1
+                else:
+                    y0, y1, x0, x1 = a, b, 0, g.shape[1]
+                if (x1 - x0) < MIN_PANEL_W:
+                    x0, x1 = 0, g.shape[1]
+                    if (y1 - y0) < MIN_PANEL_PX:
+                        continue
+                n_here += 1
+                im.crop((x0, y0, x1, y1)).save(
+                    os.path.join(crops_dir,
+                                 "page%03d_panel_%03d.png" % (pi, n_here)))
+                made += 1
+            per_page.append({"page": os.path.basename(p), "bg": round(bg, 1),
+                             "gaps": len(rn), "panels": n_here})
+            if on_progress:
+                on_progress(f"{os.path.basename(p)}: {n_here} panels")
+    return made, {"format": "strip" if strip else "page",
+                  "pages": len(pages), "panels": made, "per_page": per_page}
+
+
 def run(slug, pages, on_progress=None, blur=False):
     """Split `pages` and write preview crops. Returns the metadata dict."""
     global FLAT_STD
