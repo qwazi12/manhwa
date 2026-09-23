@@ -4084,8 +4084,15 @@ def describe_panels(body: DescribePanelsIn):
     with open(out, "w", encoding="utf-8") as f:
         json.dump(descs, f, indent=2)
 
-    with_ocr = sum(1 for d in descs
-                   if str(d.get("ocr") or "").strip())
+    # KEY NAME MATTERS: describe_plus stores the transcription as `ocr_text`,
+    # not `ocr`. Counting the wrong key reported with_ocr=0 for all 57 panels
+    # and sent a legibility investigation (and real money) chasing a failure
+    # that did not exist. Both spellings are accepted so neither producer can
+    # silently read as empty again.
+    def _ocr_of(d):
+        return str(d.get("ocr_text") or d.get("ocr") or "").strip()
+
+    with_ocr = sum(1 for d in descs if _ocr_of(d))
     conf = [d.get("ocr_confidence") for d in descs
             if d.get("ocr_confidence") is not None]
     # Legibility is a function of how much the panel was shrunk, so the
@@ -4099,14 +4106,14 @@ def describe_panels(body: DescribePanelsIn):
         k = ("<1200" if h < 1200 else "1200-1568" if h <= 1568
              else "1569-2500" if h <= 2500 else ">2500")
         by_h[k][1] += 1
-        if str(d.get("ocr") or "").strip():
+        if _ocr_of(d):
             by_h[k][0] += 1
     return {"slug": slug, "panels": len(descs),
             "max_px": body.max_px or prev,
             "fill_by_height": {k: {"with_ocr": v[0], "panels": v[1]}
                                for k, v in by_h.items()},
             "empty_ids": [d.get("panel_id") for d in descs
-                          if not str(d.get("ocr") or "").strip()],
+                          if not _ocr_of(d)],
             "with_ocr": with_ocr, "empty_ocr": len(descs) - with_ocr,
             "carrying_confidence": len(conf),
             "mean_confidence": round(sum(conf) / len(conf), 3) if conf else None,
@@ -4125,8 +4132,9 @@ def describe_panels_read(slug: str):
         raise HTTPException(404, "that run has not been OCR'd")
     return {"slug": slug, "panels": [
         {"panel_id": d.get("panel_id"),
-         "has_ocr": bool(str(d.get("ocr") or "").strip()),
-         "ocr_len": len(str(d.get("ocr") or "").strip()),
+         "has_ocr": bool(str(d.get("ocr_text") or d.get("ocr") or "").strip()),
+         "ocr_len": len(str(d.get("ocr_text") or d.get("ocr") or "").strip()),
+         "height": d.get("height"),
          "ocr_confidence": d.get("ocr_confidence"),
          "desc_confidence": d.get("desc_confidence"),
          "subject_type": d.get("subject_type"),
