@@ -4005,6 +4005,12 @@ def split_run(body: SplitRunIn):
 class DescribePanelsIn(BaseModel):
     slug: str
     limit: int = 0          # 0 = every panel in the run
+    # Long-edge cap for the vision call. 1568 is the API's effective maximum:
+    # beyond it the service downscales server-side, so larger values buy
+    # tokens rather than resolution. Overridden per call so a legibility
+    # experiment changes ONE variable without restarting the service.
+    max_px: int = 0         # 0 = leave the module default alone
+    tile: bool = False      # split over-tall panels into overlapping tiles
 
 
 @app.post("/api/describe/panels")
@@ -4061,7 +4067,18 @@ def describe_panels(body: DescribePanelsIn):
 
     job_id = "ocrbench_" + slug[:24]
     _u.set_job(job_id)
-    descs, st = CP.describe_plus(work, panels)
+
+    import claude_pipeline as CPL
+    prev = CPL.VISION_MAX_PX
+    if body.max_px:
+        if body.max_px > 1568:
+            raise HTTPException(400, "max_px above 1568 buys tokens, not "
+                                     "resolution — the API downscales past it")
+        CPL.VISION_MAX_PX = int(body.max_px)
+    try:
+        descs, st = CP.describe_plus(work, panels)
+    finally:
+        CPL.VISION_MAX_PX = prev
 
     out = os.path.join(run, "descriptions.json")
     with open(out, "w", encoding="utf-8") as f:
@@ -4071,7 +4088,25 @@ def describe_panels(body: DescribePanelsIn):
                    if str(d.get("ocr") or "").strip())
     conf = [d.get("ocr_confidence") for d in descs
             if d.get("ocr_confidence") is not None]
+    # Legibility is a function of how much the panel was shrunk, so the
+    # response carries the height bins rather than a single average that
+    # would hide the cliff.
+    by_h = {"<1200": [0, 0], "1200-1568": [0, 0],
+            "1569-2500": [0, 0], ">2500": [0, 0]}
+    hmap = {p["panel_id"]: p["height"] for p in panels}
+    for d in descs:
+        h = hmap.get(d.get("panel_id"), 0)
+        k = ("<1200" if h < 1200 else "1200-1568" if h <= 1568
+             else "1569-2500" if h <= 2500 else ">2500")
+        by_h[k][1] += 1
+        if str(d.get("ocr") or "").strip():
+            by_h[k][0] += 1
     return {"slug": slug, "panels": len(descs),
+            "max_px": body.max_px or prev,
+            "fill_by_height": {k: {"with_ocr": v[0], "panels": v[1]}
+                               for k, v in by_h.items()},
+            "empty_ids": [d.get("panel_id") for d in descs
+                          if not str(d.get("ocr") or "").strip()],
             "with_ocr": with_ocr, "empty_ocr": len(descs) - with_ocr,
             "carrying_confidence": len(conf),
             "mean_confidence": round(sum(conf) / len(conf), 3) if conf else None,
