@@ -6564,3 +6564,52 @@ should be re-recorded before it gates anything else.
 #### STAGE 5 — engine merge: **SKIPPED**, gate not passed.
 Not started. No ingest changes, no engine field, no `-lab-` migration, no
 smoke tests. Default engine remains Gemini by default because nothing changed.
+
+### 2026-09-23 — Batch: cut arbitration, OCR-gate blocked, gate tautology
+
+#### PART 1 — Murim cut arbitration: production was OVER-SPLITTING
+Classified all **161** cuts present in the production splitter and absent from
+the new config, on the pinned fixture:
+
+| classification | count |
+|---|---|
+| (b) interior feature (bubble band, frame stroke, tonal transition) | **143** |
+| (a) real gutter the new config misses | **18** |
+
+Verdict (b). New-config baseline re-recorded at **125**; `BASELINE_PROD=151`
+kept separate in the test, because asserting one splitter against the other's
+baseline is what produced the bogus -17.2% "regression".
+**Known cost stated, not hidden:** 18 genuine gutters are missed. Better on
+net, not strictly better.
+
+**Classifier bug caught mid-arbitration:** the first pass required a cut band
+to match the page's SINGLE registered background, labelling white bands on
+black pages (row-std 0.55, 2.91 — essentially perfect flatness) as "interior
+features" for being the wrong colour. The same single-background hole already
+fixed in flat-band detection, reintroduced in the measurement tool. Corrected
+tally moved 8/153 -> 18/143.
+
+#### PART 2 — OCR gate measurement: BLOCKED, $0 spent of the $1 authorised
+The describe path needs the Claude key, which is a Railway env var (not
+extracted). No endpoint exposes per-panel `ocr`/`ocr_confidence` for a named
+project, and a full ch.358 lab run to generate them costs ~$2, over the cap.
+Spending the $1 would not have completed the measurement, so it was not spent.
+Unblocks with EITHER a small read-only diagnostic endpoint returning field
+presence + confidence only (no dialogue text, $0 of model spend) OR raising
+the authorisation to cover a full chapter read.
+
+#### KNOWN LIMITATION FILED — Gemini has no ocr_confidence
+Production/Gemini descriptions carry **0 of 138** records with
+`ocr_confidence`, so the OCR gate's skip branch can never fire on a Gemini
+ingest: "empty OCR" cannot be distinguished from "OCR failed", and the
+conservative branch runs geometry. **The shipped gate is inert on Gemini
+ingests.** Follow-up (not this batch): have `panel-describe/describe.py` emit
+a confidence field matching Claude+'s schema.
+
+#### PART 3 — gate re-run is TAUTOLOGICAL, and says so
+125 vs a baseline of 125 is 0.0%, inside +/-15%. But the baseline was
+re-recorded AS the candidate's own output, so the gate compares the new config
+against itself and cannot fail. It is a useful FUTURE regression guard (does
+this config stay at 125 as code changes?) and is **not** evidence the new
+config is correct. The evidence for that is the arbitration tally (143 vs 18),
+which is independent of the gate.
