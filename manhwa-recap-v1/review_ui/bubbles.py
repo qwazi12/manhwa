@@ -47,6 +47,48 @@ def _label(mask):
     return ndimage.label(mask)
 
 
+# Reusing the threshold this codebase already uses for "low confidence OCR"
+# (claude_compare.py) rather than inventing a second one — two different
+# definitions of the same idea is how a field drifts.
+OCR_CONF_LOW = float(os.environ.get("BUBBLE_OCR_CONF_LOW", 0.45))
+
+
+def should_detect(panel):
+    """Should geometry even look at this panel?
+
+    Stage 1 already OCR'd every panel. The detector re-derived "is there text
+    here?" from pixel shapes and got it wrong most of the time — measured
+    precision 20-44%, with false positives (pale skin, bright effect fills)
+    that are photometrically identical to a balloon. Geometry cannot separate
+    a bubble from a cheek; OCR already knows.
+
+    Returns (run_geometry, reason).
+
+      non-empty OCR                 -> run. There IS dialogue to find.
+      empty OCR, confident reader   -> SKIP. The reader looked and found no
+                                       text, so every flat region here is art.
+      empty OCR, unconfident reader -> run. Emptiness may mean the reader
+                                       failed on stylised or low-contrast
+                                       lettering, not that none exists.
+      no confidence field at all    -> run. Gemini descriptions carry no
+                                       `ocr_confidence` (0 of 138 records
+                                       checked), so "empty" cannot be
+                                       distinguished from "failed". Running
+                                       geometry keeps today's behaviour rather
+                                       than silently skipping most of the
+                                       catalogue.
+    """
+    ocr = str(panel.get("ocr") or panel.get("ocr_text") or "").strip()
+    if ocr:
+        return True, "has ocr"
+    conf = panel.get("ocr_confidence")
+    if conf is None:
+        return True, "no confidence field — cannot distinguish empty from failed"
+    if float(conf) >= OCR_CONF_LOW:
+        return False, "empty ocr, reader confident — no dialogue on this panel"
+    return True, "empty ocr but reader unsure — may have missed stylised text"
+
+
 def find_bubbles(gray):
     """[(x0, y0, x1, y1, mask), ...] for each detected bubble.
 
