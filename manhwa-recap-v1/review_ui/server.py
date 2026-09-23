@@ -19,8 +19,10 @@ Everything is deploy-agnostic: put this behind any reverse proxy / subdomain
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 from fastapi import FastAPI, HTTPException, Request
@@ -3998,6 +4000,103 @@ def split_run(body: SplitRunIn):
 
     threading.Thread(target=work, daemon=True).start()
     return {"job": job_id}
+
+
+class DescribePanelsIn(BaseModel):
+    slug: str
+    limit: int = 0          # 0 = every panel in the run
+
+
+@app.post("/api/describe/panels")
+def describe_panels(body: DescribePanelsIn):
+    """OCR a stored panel set server-side, where the Claude key already lives.
+
+    Built so a benchmark can be OCR'd for cents and RE-OCR'd whenever it
+    changes, instead of a one-off full-chapter run that answers the question
+    once. The OCR gate consumes `ocr` + `ocr_confidence`; Split Lab panels have
+    neither, because splitting makes no model calls.
+
+    Returns COUNTS ONLY. The dialogue text itself is never sent back — the
+    caller needs to know whether a panel has text and how confident the reader
+    was, not what the characters said.
+    """
+    import claude_plus as CP
+    import splitlab as _sl
+    import usage as _u
+
+    slug = os.path.basename(body.slug or "")
+    run = _sl.runs_dir(slug)
+    if not os.path.isdir(run):
+        raise HTTPException(404, f"no split run '{slug}'")
+    if not _validator.api_key():
+        raise HTTPException(400, "no Claude API key on this server")
+
+    names = sorted(f for f in os.listdir(run)
+                   if f.endswith(".png") and not f.endswith("_blur.png"))
+    if body.limit:
+        names = names[:body.limit]
+    if not names:
+        raise HTTPException(400, "that run has no panels")
+
+    from PIL import Image
+    panels = []
+    for i, f in enumerate(names, start=1):
+        try:
+            w, h = Image.open(os.path.join(run, f)).size
+        except OSError:
+            continue
+        panels.append({"panel_id": os.path.splitext(f)[0], "file": f,
+                       "width": w, "height": h, "n": i, "_n": i})
+
+    # describe_plus resolves images as <pdir>/crops/<file>; the run stores them
+    # flat. A symlinked view avoids copying a few hundred MB to satisfy a path.
+    work = tempfile.mkdtemp(prefix="ocrbench_")
+    link = os.path.join(work, "crops")
+    try:
+        os.symlink(run, link)
+    except OSError:
+        os.makedirs(link, exist_ok=True)
+        for f in names:
+            shutil.copyfile(os.path.join(run, f), os.path.join(link, f))
+
+    job_id = "ocrbench_" + slug[:24]
+    _u.set_job(job_id)
+    descs, st = CP.describe_plus(work, panels)
+
+    out = os.path.join(run, "descriptions.json")
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(descs, f, indent=2)
+
+    with_ocr = sum(1 for d in descs
+                   if str(d.get("ocr") or "").strip())
+    conf = [d.get("ocr_confidence") for d in descs
+            if d.get("ocr_confidence") is not None]
+    return {"slug": slug, "panels": len(descs),
+            "with_ocr": with_ocr, "empty_ocr": len(descs) - with_ocr,
+            "carrying_confidence": len(conf),
+            "mean_confidence": round(sum(conf) / len(conf), 3) if conf else None,
+            "calls": st.get("calls"), "cost_usd": st.get("cost_usd")}
+
+
+@app.get("/api/describe/panels/{slug}")
+def describe_panels_read(slug: str):
+    """The gate-relevant fields for each panel — deliberately NOT the text."""
+    import splitlab as _sl
+    run = _sl.runs_dir(os.path.basename(slug))
+    try:
+        with open(os.path.join(run, "descriptions.json"), encoding="utf-8") as f:
+            descs = json.load(f)
+    except (OSError, ValueError):
+        raise HTTPException(404, "that run has not been OCR'd")
+    return {"slug": slug, "panels": [
+        {"panel_id": d.get("panel_id"),
+         "has_ocr": bool(str(d.get("ocr") or "").strip()),
+         "ocr_len": len(str(d.get("ocr") or "").strip()),
+         "ocr_confidence": d.get("ocr_confidence"),
+         "desc_confidence": d.get("desc_confidence"),
+         "subject_type": d.get("subject_type"),
+         "needs_review": d.get("needs_review")}
+        for d in descs]}
 
 
 @app.get("/api/split/runs")
