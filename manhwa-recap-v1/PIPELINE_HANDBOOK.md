@@ -39,62 +39,91 @@ Two stages are genuinely shared, byte for byte:
 
 # PART A — the default (Gemini) system
 
-## A1. Cut into panels — `split_panels.py`
+## A1. Cut into panels — `splitlab.split_into` (since 2026-09-23)
 
-**Coverage-gated, four passes, with anchor back-stops.** The controlling idea is
-that no pass is trusted on its own; each one is checked against how much of the
-page's *ink* has been covered.
+> **This section was rewritten on 2026-09-24.** It previously described
+> `panel-split/split_panels.py` as the production splitter. That changed:
+> background registration is now the default ingest path, and the four-pass
+> detector below is the FALLBACK. Restore the old behaviour with
+> `SPLIT_ENGINE=legacy`.
 
-`detect_panels()` runs in this order:
+### The rule
 
-1. **YOLO** (`conf=0.3`). Each box passes `_apply_bleed_guard` (expands up to
-   30px to avoid clipping art) and must be ≥ `MIN_PANEL_SIZE = 80` px on both
-   axes.
-2. **Geometric gutter split** over any content bands YOLO left uncovered.
+**A panel is what lies between two breaks. A break is a band of rows that is
+background across the full width.** Nothing else fires a cut — which is why
+speech bubbles need no special handling: a bubble never spans edge to edge, so
+a row crossing one always contains non-background pixels and can never qualify.
+
+### Registering the background — per page, never global
+
+The gutter colour is the **mode of the row-mean distribution**. In a chapter
+the gutter is the single most-repeated full-width row type, so the modal row
+IS the gutter — on dark pages, light pages, and bleed pages where art touches
+the edges (which is why this samples row means rather than the page border).
+
+Tolerance comes from the spread of that modal cluster itself, floored at 14
+grey levels. Not a constant, and not the spread of the whole page.
+
+The old `_estimate_background_color` voted near-white against near-black and
+returned 255 or 0. Measured on Fated Villain ch.353 it returned 0 for all ten
+pages while the true modal row was 64.7, 38.8 and 105.6 on three of them — and
+on the worst, **0 of 800 rows** then qualified as gutter, so the page could not
+be split geometrically at all.
+
+### Strip format
+
+A WEBTOON CDN tile is **not a page** — it is an arbitrary ~1280px slice of one
+continuous scroll, and it can land mid-panel. Tiles are concatenated, the
+scroll is registered **once**, and panels are stitched back across tile seams.
+Per-tile registration produced **376 sliver fragments** with backgrounds
+varying 16.9–254; one-scroll registration gives **93 panels, median AR 2.34**.
+
+Format is decided by **tile-height uniformity**, not by site name: a CDN
+slicing one scroll emits equal-height tiles (137 of 138 identical), while real
+pages vary (504 … 16000 on one chapter). An aspect-ratio test read exactly
+backwards here — Asura serves very tall pages, WEBTOON modest tiles.
+
+### Flat bands — off by default
+
+A gutter is a flat row *whatever its colour*, so a white band on a black page
+is a real break the single-background test cannot see. This is **off globally**
+and enabled per title (`FLAT_STD_BY_TITLE`), because it is verifiably right on
+Fated Villain (4 gutters, each checked, including a 157-row band at mean 87.6)
+and over-fires on Murim by +19%.
+
+A recurrence rule was tested as a way to keep both — "gutters repeat, one-off
+art fills do not" — and **rejected by measurement**: it deleted 2 of the 4
+verified gutters, because a real gutter can be unique on its page when it
+divides panels of differing ground colour.
+
+### Evidence for the swap
+
+Cut-by-cut arbitration on the pinned Murim ch.43 fixture. Of **161** cuts the
+two splitters disagree on:
+
+| | count |
+|---|---|
+| interior features the legacy splitter was shredding | **143** |
+| real gutters this splitter misses | **18** |
+
+Better on net, **not strictly better** — the 18 are a recorded cost.
+Confirmed in production on ch.44: 21 pages → **154 panels**, matching the
+preview measurement exactly.
+
+### The fallback — the four-pass detector
+
+`panel-split/split_panels.py` still ships and runs whenever the new path
+raises, so a chapter that has already paid to scrape never dies at the split
+stage. Coverage-gated, four passes, no pass trusted alone:
+
+1. **YOLO** (`conf=0.3`), each box through `_apply_bleed_guard` (expands up to
+   30px to avoid clipping art), ≥ `MIN_PANEL_SIZE = 80` px on both axes.
+2. **Geometric gutter split** over content bands YOLO left uncovered.
 3. **Anchors force-include what both missed** — speech bubbles
-   (`BUBBLE_MIN_AREA = 4000` px², `BUBBLE_MAX_AREA_FRAC = 0.25`) and detected
-   figures. An anchor counts as safe if ≥ `ANCHOR_COVERED_FRAC = 0.6` of it
-   lies inside a kept box.
+   (`BUBBLE_MIN_AREA = 4000` px², `BUBBLE_MAX_AREA_FRAC = 0.25`) and figures.
+   An anchor is safe if ≥ `ANCHOR_COVERED_FRAC = 0.6` of it lies inside a kept
+   box.
 4. **Fail-open**: remaining content bands ship as density crops.
-
-Coverage control: `COVERAGE_TARGET = 0.85` — below this, gap recovery runs.
-A gap band must have ≥ `GAP_MIN_DENSITY = 0.04` ink and be ≥ `GAP_MIN_H = 120`
-px to matter. Per-stage coverage is recorded in stats and surfaced on the board
-as `min / mean / worst_page / pages_below_85`.
-
-**Gutter detection:** background colour estimated per page;
-`BG_COLOR_TOLERANCE = 10`; a row/col is gutter if ≥ `GUTTER_FRACTION = 0.985`
-of it matches background; a real gap needs `MIN_GUTTER_RUN = 8` consecutive
-such rows; `EDGE_MARGIN = 4` px trimmed off each cut to avoid gutter bleed.
-
-**Content trim:** `TRIM_TO_CONTENT = True`, `CONTENT_PAD = 6` px kept around
-content, `CONTENT_LINE_FRAC = 0.01` for a row/col to count as content.
-
-**Blank handling:** `BLANK_DENSITY_THRESHOLD = 0.015`; blanks are *archived*
-(`ARCHIVE_BLANKS = True`), moved to a subfolder rather than deleted.
-
-### Layer 2 — sub-shots inside a tall panel (`_layer2_shots`)
-
-A panel is a candidate when height/width ≥ `TALL_RATIO = 1.8`. Then, in order:
-
-1. **Internal gutters?** Split on them and **recurse**. (Added after 7:1 pages
-   reached the board as single untouched crops.)
-2. **Gutterless tall → vision segmentation** (`vision_segment.py`), if
-   height/width ≥ `MIN_RATIO_FOR_VISION = 2.2`. The model is asked to list every
-   caption/narration box top-to-bottom with `y_center`, verbatim `text`, and a
-   one-sentence description of the art around it. Cuts are placed at the
-   **midpoints between consecutive caption centres**. `temperature = 0.0`.
-   Requires `MIN_BEATS = 2` or it returns `None`; slivers thinner than
-   `MIN_BEAT_FRAC = 0.02` of height are dropped.
-   **Fail-safe:** any error, missing key, or single-beat result returns `None`
-   and the caller keeps its geometric behaviour — never worse than before.
-   Because the same call returns OCR and description, these sub-crops arrive
-   **pre-described**.
-3. **Moment slicing** otherwise: bubble clusters separated by
-   `MOMENT_GAP = 300` px, cut at the lowest-ink row between clusters,
-   `SLICE_MIN_H = 320` px minimum.
-4. **Bubble-less extreme tall** (`NO_DIALOGUE_AR = 3.0`): ink-valley cuts into
-   pieces of roughly `VALLEY_TARGET_AR = 2.2`.
 
 ## A2. Read each panel — `describe.py`
 
@@ -281,36 +310,30 @@ driven by it.
 > accurate then and are wrong now: the Claude+ upgrade added all three. Treat
 > any older copy of this section as describing a pipeline that no longer runs.
 
-## B1. Cut into panels — switchable (`claude` | `yolo`)
+## B1. Cut into panels — graduated to production, tab archived
 
-**Option A — Claude cuts (`split_with_claude`).** One vision call per page,
-page downscaled to `PAGE_MAX_PX = 1400`, crops taken from the **original**
-resolution. `MAX_PANELS_PER_PAGE = 14`, `MIN_PANEL_PX = 80`.
+> **Rewritten 2026-09-24.** This section described a `claude | yolo` switch in
+> the TEST tab. Both are gone as an operator-facing choice: the
+> background-registration splitter became the production path (see A1) and the
+> Split and TEST rail tabs were archived on 2026-09-23. Their drawers and
+> routes remain so existing runs stay openable.
 
-Unlike the first draft, the output is now *validated against the page*:
+The lab no longer owns a splitter of its own worth documenting separately. A
+Claude-driven splitter (`split_with_claude`) still exists in `claude_lab.py`
+— one vision call per page at `PAGE_MAX_PX = 1400`, validated against a
+`COVERAGE_TARGET = 0.85` ink gate with gap recovery, tall-panel recursion and
+blank rejection — but it is not the path any ingest takes, and it costs money
+that A1's splitter does not.
 
-- **Coverage gate.** `COVERAGE_TARGET = 0.85` — the fraction of the page's INK
-  that ends up inside a panel box. A page below target is retried. This is
-  production's rule, adopted: a splitter that silently drops art produces a
-  chapter with holes, and nothing downstream can tell.
-- **Gap recovery** (`_recover_bands`) — horizontal bands of ink that no box
-  claimed are recovered as panels rather than lost.
-- **Tall-panel recursion** (`_split_tall`) — a box far taller than it is wide is
-  cut again at background valleys.
-- **Blank rejection** — each crop is tested with production's `_is_blank_crop`;
-  a gutter sliver is dropped, and the count is reported as `blanks_dropped`.
-- **Fallback** — if Claude's cut cannot be made to cover the page, YOLO runs
-  instead and `diagnostics.split_fallback` records that it happened. The
-  fallback is never silent.
+**What the operator chooses now is the ENGINE, not the splitter.** One ingest
+entry point takes `engine = gemini | claude`, recorded per project.
+**Gemini is the default**: a newer path earns default status with data, not by
+being newer. Both engines use the same A1 splitter.
 
-**Option B — YOLO cuts (`split_with_yolo`).** Runs `panel-split/split_panels.py`
-with the same argv, same cwd and same env as `ingest.py` does. This half is not
-"similar to" the default — it is the same process. Cost: **$0**, no model calls.
-
-*Known gap:* `ingest.py` inspects the splitter's log for `USAGE CAP EXCEEDED`
-and raises a named cap error; `split_with_yolo` raises a generic
-"the YOLO splitter failed — see split.log". A cap hit during a lab split is
-therefore harder to read than the same hit during an ingest.
+*Known gap, filed:* the lab listing still keys on the `-lab-` substring in a
+folder name while the engine now lives in a field, so the two can drift. The
+rename is deferred until `run_lab` is next touched, and must be atomic across
+`lab_id`, `lab_dir` and that filter.
 
 ## B2. Read each panel — `claude_plus.describe_plus`
 
