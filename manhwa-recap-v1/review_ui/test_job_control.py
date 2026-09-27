@@ -156,6 +156,40 @@ def main():
         r.append(("every stop confirms first rather than acting instantly",
                   _html.count("confirm(") >= 3))
 
+    # ---- render jobs refuse a broken timeline BEFORE rendering anything.
+    # They used to call _rerender straight away and die on the renderer's own
+    # check at the first bad clip ("seg 5: beat 4 ... does not fit").
+    rendered = []
+    saved = {k: getattr(srv, k) for k in ("_gate_timeline", "_rerender",
+             "load_segments", "video_segments", "needs_render",
+             "active_project_dir", "_persist_job", "_do_export")}
+    def bad_gate(segs, action):
+        raise srv.HTTPException(400, f"{action} blocked — 1 timing error(s) "
+                                     "would cut narration. seg 5: G2")
+    try:
+        srv._gate_timeline = bad_gate
+        srv._rerender = lambda seg: rendered.append(seg["seg_index"])
+        srv._persist_job = noop
+        srv.load_segments = lambda: [{"seg_index": 5, "user_included": True}]
+        srv.video_segments = lambda segs: segs
+        srv.needs_render = lambda ticked, pdir: [5]
+        srv.active_project_dir = lambda: "/nonexistent"
+        srv._do_export = lambda: {}
+        srv.JOBS["rj"] = {"status": "queued", "done": 0}
+        srv._run_render_job("rj", [5])
+        r.append(("a render job refuses a broken timeline before rendering",
+                  srv.JOBS["rj"]["status"] == "error" and not rendered))
+        r.append(("...and reports the gate's message, not an HTTP repr",
+                  srv.JOBS["rj"]["error"].startswith("render blocked")))
+        srv.JOBS["fj"] = {"status": "queued"}
+        srv._run_finalize_job("fj")
+        r.append(("the approve/finalize job refuses it too, before any clip",
+                  srv.JOBS["fj"]["status"] == "error" and not rendered and
+                  "render blocked" in srv.JOBS["fj"]["error"]))
+    finally:
+        for k, v in saved.items():
+            setattr(srv, k, v)
+
     for name, ok in r:
         print(("PASS " if ok else "FAIL ") + name)
     n = sum(1 for _, ok in r if ok)

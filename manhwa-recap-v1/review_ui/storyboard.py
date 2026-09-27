@@ -1008,6 +1008,8 @@ a {{ color:var(--accent); }}
   <label class="mini" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"
          title="rebuild EVERY ticked clip, even ones that already exist">
     <input type="checkbox" id="forceAll"> re-render all</label>
+  <button class="mini" onclick="repairTimeline()"
+    title="fix the timing faults that block a render: swapped or overlapping slices, beats outside their segment, shared sentences, and audio longer than its window">🔧 repair timeline</button>
   <button id="approveBtn" class="{'on' if approved else ''}" onclick="toggleApproval()">
     {'✔ APPROVED — click to re-render &amp; re-export' if approved else 'APPROVE PROJECT FOR RENDER'}</button>
 </header>
@@ -1210,6 +1212,27 @@ async function toggleApproval() {{
     pollFinalize(jr.job);
   }}
 }}
+/* The render error names /api/storyboard/repair_slices; this is the button
+   for it, so fixing a blocked timeline needs no hand-made API call. Dry run
+   first, so the operator sees what will change before anything is written. */
+async function repairTimeline() {{
+  let d;
+  try {{
+    d = await j('/api/storyboard/repair_slices', {{method:'POST',
+      headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{dry_run: true}})}});
+  }} catch (e) {{ alert('Could not check the timeline: ' + e.message); return; }}
+  if (!d.total) {{ alert('Nothing to repair — no timing faults the repair can fix.'); return; }}
+  const n = function (x) {{ return Array.isArray(x) ? x.length : ((x && x.n) || 0); }};
+  const grown = (d.truncated || []).map(function (t) {{
+    return 'seg ' + t.seg + ' ' + t.dur_before + 's -> ' + t.dur_after + 's'; }}).join(', ');
+  if (!confirm('Repair ' + d.total + ' timing fault(s)?  ' +
+               'swapped: ' + n(d.rebound) + ' · overlapping: ' + n(d.overlaps) +
+               ' · outside window: ' + n(d.orphaned) + ' · shared: ' + n(d.shared_beats) +
+               ' · audio longer than window: ' + n(d.truncated) +
+               (grown ? ' (' + grown + ')' : '') +
+               '.  Affected clips will need re-rendering. Undo is available.')) return;
+  post('/api/storyboard/repair_slices', {{dry_run: false}}, 'repairing timeline…');
+}}
 /* ---- R1/R5/R6: live finalize progress (render -> export -> link) ---- */
 let finalizeTimer = null;
 async function stopRender() {{
@@ -1256,7 +1279,8 @@ async function pollFinalize(id) {{
     }} else if (s.status === 'error') {{
       clearInterval(finalizeTimer);
       localStorage.removeItem('finalizeJob');
-      txt.textContent = '❌ ' + (s.error || 'render failed');
+      txt.textContent = '❌ ' + (s.error || 'render failed') +
+        (/repair_slices/.test(s.error || '') ? '  →  click 🔧 repair timeline, then approve again' : '');
       txt.style.color = 'var(--bad)';
     }}
   }}, 3000);

@@ -46,6 +46,11 @@ def main():
             FakeSE.state["errors"] = 2          # repair fixes some, not all
             return [{"seg": 1}, {"seg": 2}, {"seg": 3}]
 
+        @staticmethod
+        def repair_truncated_beats(pdir, dry_run=False):
+            calls["truncated"] = calls.get("truncated", 0) + 1
+            return []
+
     real = sys.modules.get("storyboard_edit")
     sys.modules["storyboard_edit"] = FakeSE
     try:
@@ -64,6 +69,9 @@ def main():
         check("...reporting how many errors it started with",
               r["errors_before"] == 7)
         check("...how many segments it repaired", r["repaired"] == 3)
+        check("...and also runs the truncation repair (audio longer than "
+              "its window), which the board could not fix by hand either",
+              calls.get("truncated") == 1)
         check("...and how many SURVIVED, rather than claiming success",
               r["errors"] == 2)
     finally:

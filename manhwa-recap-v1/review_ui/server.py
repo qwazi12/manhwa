@@ -2760,6 +2760,11 @@ def _run_finalize_job(job_id):
         segs = load_segments()
         ticked = video_segments(segs)
         missing = needs_render(ticked, pdir)
+        # Same pre-render gate as /api/render-missing, over every ticked seg
+        # (the export gates all of them anyway). Without it the job died on
+        # the renderer's own check at the first bad clip, after spending
+        # render time on the ones before it, and named only that one fault.
+        _gate_timeline([s["seg_index"] for s in ticked], "render")
         j["total"] = len(missing)
         for n, si in enumerate(missing, 1):
             segs = load_segments()
@@ -2791,6 +2796,8 @@ def _run_finalize_job(job_id):
 def _run_render_job(job_id, seg_indices):
     JOBS[job_id]["status"] = "running"
     try:
+        # Refuse up front with every timing fault, not mid-batch with one.
+        _gate_timeline(seg_indices, "render")
         for si in seg_indices:
             _control_gate(JOBS, job_id, _persist_job)   # pause/stop between clips
             segs = load_segments()
@@ -2804,6 +2811,9 @@ def _run_render_job(job_id, seg_indices):
         JOBS[job_id]["status"] = "cancelled"
         JOBS[job_id]["error"] = str(e)
         _persist_job(job_id)
+    except HTTPException as e:
+        JOBS[job_id]["status"] = "error"
+        JOBS[job_id]["error"] = str(e.detail)
     except Exception as e:  # noqa
         JOBS[job_id]["status"] = "error"
         JOBS[job_id]["error"] = str(e)
