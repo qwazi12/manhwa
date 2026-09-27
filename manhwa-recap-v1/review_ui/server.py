@@ -4587,9 +4587,13 @@ def sb_repair_slices(body: RepairIn):
         # blocked i-am-the-fated-villain_352 on 52 of 79 segments and that the
         # three repairs above could not touch (they fixed 5).
         shared = storyboard_edit.repair_shared_beats(pdir, dry_run=body.dry_run)
+        # Last: a lone beat whose real mp3 outruns its window (G2). Nothing
+        # above touches it because its json range fits (seg 5 / beat 4 case).
+        truncated = storyboard_edit.repair_truncated_beats(pdir, dry_run=body.dry_run)
         return {"rebound": bound, "overlaps": overlap, "orphaned": orphan,
-                "shared_beats": shared,
-                "total": len(bound) + len(overlap) + len(orphan) + len(shared)}
+                "shared_beats": shared, "truncated": truncated,
+                "total": len(bound) + len(overlap) + len(orphan) + len(shared)
+                         + len(truncated)}
     except ValueError as e:
         raise HTTPException(400, str(e))
 

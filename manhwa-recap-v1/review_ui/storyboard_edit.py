@@ -1348,6 +1348,62 @@ def repair_orphaned_beats(pdir, segs=None, dry_run=False):
     return fixed
 
 
+def repair_truncated_beats(pdir, segs=None, dry_run=False):
+    """Grow a segment whose audio FILE runs past its window (G2-truncated).
+
+    The other repairs cannot see this fault: they measure misfit from the
+    beat's json start/end, and here the json range fits — only the real mp3
+    is longer (a re-voiced line, or TTS drift). One record, one owner, so
+    nothing re-binds, collapses, re-seats or slices it, and the render stayed
+    blocked ("seg 5: beat 4 ... 6.168s" in a 5.105s window) with no way
+    forward. Holding the image a little longer is the only fix that keeps
+    every word, so the window grows to fit the audio; later beats in the same
+    segment move down so the longer line does not play over them. Runs after
+    repair_shared_beats, so a line several segments claim is sliced, not
+    stretched.
+    """
+    segs = load(pdir) if segs is None else segs
+    adir = _audio_dir(pdir)
+    fixed = []
+    for s_ in segs:
+        beats = sorted(s_.get("beats") or [], key=lambda x: x["start"])
+        lens = []
+        truncated = False
+        for b in beats:
+            fname = b.get("file") or f"beat_{b['index']:03d}.mp3"
+            alen = _audio_len(os.path.join(adir, fname))
+            lens.append(alen)
+            if alen is not None and \
+                    b["start"] - s_["start"] + alen > s_["dur"] + COVER_TOL:
+                truncated = True
+        if not truncated:
+            continue                       # healthy — do not touch
+        before = s_["dur"]
+        shift, need = 0.0, s_["dur"]
+        for b, alen in zip(beats, lens):
+            b["start"] = round(b["start"] + shift, 3)
+            b["end"] = round(b["end"] + shift, 3)
+            if alen is None:
+                continue                   # missing audio is G0, not ours
+            real_end = round(b["start"] + alen, 3)
+            if real_end > b["end"]:
+                shift = round(shift + real_end - b["end"], 3)
+                b["end"] = real_end
+            need = max(need, round(b["end"] - s_["start"], 3))
+        rec = {"seg": s_["seg_index"], "dur_before": round(before, 3),
+               "dur_after": round(need, 3)}
+        if not dry_run:
+            s_["beats"] = beats
+            s_["dur"] = need
+        fixed.append(rec)
+    if fixed and not dry_run:
+        _ripple(segs)
+        save(pdir, segs)
+        _stale(pdir, [f["seg"] for f in fixed])
+        _log(pdir, "repair_truncated_beats", n=len(fixed))
+    return fixed
+
+
 def repair_slice_binding(pdir, dry_run=False):
     """Re-bind beats that the old carve bug handed to the wrong segment.
 

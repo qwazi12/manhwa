@@ -6657,3 +6657,34 @@ Claude project whose folder lacks `-lab-` would vanish from the lab listing,
 and a Gemini project in a `-lab-` folder would appear in it. Confirmed live:
 the Claude smoke test (ch.357) produced `i-am-the-fated-villain_357-lab-claude`
 with `engine=claude`, so today both agree by accident of naming, not by design.
+
+### 2026-09-27 — G2 truncation had no repair; repair_slices now fixes it
+
+**Input:** render blocked with `seg 5: beat 4 (beat_004.mp3) does not fit its
+5.105s window — starts at +0.000s and runs 6.168s`, and the error's advice
+(POST /api/storyboard/repair_slices) did not clear it.
+
+**Root cause:** a lone beat whose REAL mp3 is longer than its window while its
+json start/end still fit. All four repairs are blind to it: orphaned/binding
+measure misfit from the json range (reads 0), overlapping needs >=2 records,
+shared needs >=2 owning segments. So the error pointed at an endpoint that
+could not fix the fault — same class of bug as Sessions 25/26.
+
+**Fix:** `storyboard_edit.repair_truncated_beats` — only touches segments where
+G2 actually fires; grows the window to the real audio length, pushes later
+beats in the same segment down so a longer line does not overlap the next,
+then `_ripple`s. Wired into `/api/storyboard/repair_slices` LAST (after
+shared-beat slicing, so a multi-owner line is sliced, not stretched); result
+has a new `truncated` key and counts toward `total`.
+
+**Verified:** test_hardening.py 47/47 (7 new, including the exact live shape);
+storyboard_edit 55/55, lab_ready 14/14, lab_audio_slices 11/11, undo 24/24,
+render_epoch 22/22, storyboard_js_syntax 2/2. NOT verified against the live
+project — its segments.json is on Railway.
+
+**Still open (not changed, flagged):**
+- `_run_finalize_job` / `_run_render_job` call `_rerender()` with no
+  `_gate_timeline` pre-check, so they die mid-batch on the renderer's own
+  check instead of refusing up front with the full error list.
+- No board button calls repair_slices — operator must POST it by hand.
+- `claude_lab` post-build auto-repair only runs `repair_shared_beats`.

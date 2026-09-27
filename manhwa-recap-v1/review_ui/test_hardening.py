@@ -271,6 +271,49 @@ def main():
     again = se.repair_slice_binding(tmp2)
     r.append(("repair leaves an already-healthy timeline untouched", again["n"] == 0))
 
+    # ------------------------- G2 repair: real mp3 longer than its json range
+    # Live case: "seg 5: beat 4 (beat_004.mp3) does not fit its 5.105s window
+    # — starts at +0.000s and runs 6.168s". The json said the beat fit, so
+    # every other repair skipped it and the render stayed blocked.
+    tmp4 = tempfile.mkdtemp(prefix="trunc_")
+    _mp3(os.path.join(tmp4, "audio", "beat_004.mp3"), 6.168)
+    _mp3(os.path.join(tmp4, "audio", "beat_005.mp3"), 3.6)
+    _mp3(os.path.join(tmp4, "audio", "beat_006.mp3"), 2.3)
+    _mp3(os.path.join(tmp4, "audio", "beat_007.mp3"), 3.0)
+    _write_raw(tmp4, [
+        # the live case: one beat, json fits, file does not
+        {"seg_index": 5, "start": 0.0, "end": 5.105, "dur": 5.105,
+         "clip": "clips/seg_005.mp4", "user_included": True,
+         "beats": [{"index": 4, "text": "long line", "start": 0.0, "end": 5.0}]},
+        # two beats: the first file outruns its json range into the second
+        {"seg_index": 6, "start": 5.105, "end": 10.21, "dur": 5.105,
+         "clip": "clips/seg_006.mp4", "user_included": True,
+         "beats": [{"index": 5, "text": "a", "start": 5.105, "end": 8.105},
+                   {"index": 6, "text": "b", "start": 8.105, "end": 10.205}]},
+        {"seg_index": 7, "start": 10.21, "end": 13.21, "dur": 3.0,
+         "clip": "clips/seg_007.mp4", "user_included": True,
+         "beats": [{"index": 7, "text": "next", "start": 10.21, "end": 13.21}]}])
+    r.append(("a real mp3 outrunning its window is caught (G2)",
+              any(e["rule"] == "G2-truncated" and e["seg"] == 5
+                  for e in se.validate_timeline(tmp4)["errors"])))
+    r.append(("...and the older repairs cannot see it (json range fits)",
+              se.repair_orphaned_beats(tmp4, dry_run=True) == []))
+    dry = se.repair_truncated_beats(tmp4, dry_run=True)
+    r.append(("dry run reports it without writing",
+              [d["seg"] for d in dry] == [5, 6] and se.load(tmp4)[0]["dur"] == 5.105))
+    rep = se.repair_truncated_beats(tmp4)
+    out = se.load(tmp4)
+    r.append(("repair_truncated_beats grows the window to fit every word",
+              len(rep) == 2 and se.validate_timeline(tmp4)["ok"]
+              and abs(out[0]["dur"] - 6.168) < 0.05))
+    r.append(("...pushes the later beat in the segment past the longer line",
+              out[1]["beats"][1]["start"] - out[1]["start"] >= 3.6 - 0.05))
+    r.append(("...and ripples the next segment without changing its offsets",
+              out[2]["start"] == out[1]["end"] and
+              out[2]["beats"][0]["start"] == out[2]["start"]))
+    r.append(("...and leaves a healthy timeline untouched",
+              se.repair_truncated_beats(tmp4) == []))
+
     # --------------------------------------------------------------- dimensions
     _png(os.path.join(tmp, "crops", "stale.png"), 900, 811)
     r.append(("board geometry comes from the FILE, not the recorded numbers",
