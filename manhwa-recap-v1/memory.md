@@ -6688,3 +6688,28 @@ project — its segments.json is on Railway.
   check instead of refusing up front with the full error list.
 - No board button calls repair_slices — operator must POST it by hand.
 - `claude_lab` post-build auto-repair only runs `repair_shared_beats`.
+
+### 2026-09-27 — the three follow-ups from the G2 fix (commit 7491022)
+
+- **Render jobs gated up front:** `_run_finalize_job` gates every ticked seg
+  and `_run_render_job` gates its seg list with `_gate_timeline` BEFORE any
+  clip renders. `_run_render_job` now reports `HTTPException.detail`, not the
+  exception repr.
+- **Board button:** 🔧 repair timeline in the storyboard header. It dry-runs
+  `/api/storyboard/repair_slices`, shows per-repair counts plus each grown
+  segment (before -> after seconds), confirms, then applies. Undoable because
+  the endpoint snapshots. When a render error names repair_slices, the render
+  strip now says to click it.
+- **Lab auto-repair:** `claude_lab._validate_own_timeline` runs all five
+  repairs in endpoint order (was shared-beats only). This reverses the earlier
+  "report, don't paper over" choice for short windows, because nothing on the
+  board could fix that fault by hand.
+
+**Verified:** full review_ui suite passes, 37 suites, 0 failures (new:
+job_control +3, lab_ready +1).
+
+**NOT DEPLOYED — GitHub is ahead of Railway.** The first `railway up --ci`
+failed with a TLS connection drop during upload. The session's permission
+check then blocked the retry. The live repair on the seg 5 / beat 4 project
+has NOT been run. Pending: owner runs `railway up` from ~/dev/manhwa, then
+clicks 🔧 repair timeline on the board, then approves again.
