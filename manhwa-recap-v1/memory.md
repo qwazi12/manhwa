@@ -6788,3 +6788,7 @@ jobs at deploy time.
 **Not verified live:** 358-lab-claude's current timeline. /api/validate only
 reads the ACTIVE project (358 gemini, 27 segs, 0 errors), and I did not
 switch the owner's active project.
+**Deploy verified:** ffa27a4 auto-deployed (SUCCESS), /health 200.
+**Pending:** (1) owner re-opens 358-lab-claude, clicks 🔧 repair timeline,
+then Approve; (2) render speed — options given to the owner, none chosen yet;
+(3) the story-writing changes; (4) Gemini/Claude picker in the tracker.
