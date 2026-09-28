@@ -6856,3 +6856,12 @@ before the queue branch and carried through `_enqueue_ingest` and the worker.
 present); job_control 31 -> 43 (parallel scheduler x6, queue keeps engine,
 tracker route x3, picker in HTML x2). Full review_ui suite: 38 files pass.
 **Not verified yet:** a render on Railway itself.
+**Deploy verified:** ff766c6 = deployment 429ff550, SUCCESS; /health 200;
+the build log shows `cv2 5.0.0` (the build-time import check passed).
+**Not verified on Railway:** an actual fast render. `railway ssh` failed with
+"Host key verification failed" (the host key was never accepted on this Mac;
+the prompt is interactive, so I did not bypass it). The first Approve in the
+UI is the live test. If it misbehaves, set `RENDERER=hyperframes` (and/or
+`RENDER_CLIP_PARALLEL=1`) on Railway to roll back.
+**Pending:** owner — repair + Approve 358-lab-claude (the first live fast
+render); then the story-writing changes.
