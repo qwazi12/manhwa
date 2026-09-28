@@ -110,20 +110,66 @@ def main():
     # ---- queue runs one at a time
     srv.INGEST.clear(); srv._QUEUE.clear(); srv._QUEUE_RUNNING = False
     order, running = [], []
-    def fake_run(job_id, url, fresh=False):
+    engines = {}
+    def fake_run(job_id, url, fresh=False, engine="gemini"):
+        engines[url] = engine
         running.append(job_id)
         r.append(("only one queued ingest runs at a time", len(running) == 1)) if len(running) > 1 else None
         time.sleep(0.05); order.append(url); running.remove(job_id)
         srv.INGEST[job_id]["status"] = "done"
     srv._run_ingest_job = fake_run
     srv._persist_ingest = noop
-    ids = [srv._enqueue_ingest(f"http://x/chapter/{n}") for n in (1, 2, 3)]
+    ids = [srv._enqueue_ingest(f"http://x/chapter/{n}", engine=e)
+           for n, e in ((1, "gemini"), (2, "claude"), (3, "gemini"))]
     for _ in range(200):
         if all(srv.INGEST[i].get("status") == "done" for i in ids): break
         time.sleep(0.02)
     r.append(("every queued chapter runs", len(order) == 3))
     r.append(("...in the order they were queued",
               order == ["http://x/chapter/1", "http://x/chapter/2", "http://x/chapter/3"]))
+    r.append(("a queued ingest keeps its engine (it used to be dropped -> Gemini)",
+              engines == {"http://x/chapter/1": "gemini", "http://x/chapter/2": "claude",
+                          "http://x/chapter/3": "gemini"}))
+
+    # ---- Tracker ingest: the engine picked in the chapter list reaches the
+    # pipeline, is validated like the manual drawer, and defaults to Gemini.
+    import watchlist as _wl
+    saved_wl = (_wl.load, _wl.find, _wl.chapter_url, srv._enqueue_ingest,
+                srv._active_ingest_for_url, srv._validator.api_key)
+    queued = []
+    try:
+        _wl.load = lambda root: {}
+        _wl.find = lambda data, sid: {"title": "T"}
+        _wl.chapter_url = lambda s, key, ch: f"http://x/chapter/{ch}"
+        srv._active_ingest_for_url = lambda url: None
+        srv._enqueue_ingest = lambda url, fresh=False, engine="gemini": \
+            queued.append((url, engine)) or "job1"
+        srv._validator.api_key = lambda: "k"
+        srv.api_watchlist_ingest(srv.WLIngestIn(series_id="s", series_key="k", chapter="7"))
+        srv.api_watchlist_ingest(srv.WLIngestIn(series_id="s", series_key="k", chapter="8",
+                                                engine="claude"))
+        r.append(("tracker ingest defaults to Gemini and passes Claude through",
+                  queued == [("http://x/chapter/7", "gemini"), ("http://x/chapter/8", "claude")]))
+        try:
+            srv.api_watchlist_ingest(srv.WLIngestIn(series_id="s", series_key="k",
+                                                    chapter="9", engine="gpt"))
+            bad = False
+        except srv.HTTPException as e:
+            bad = e.status_code == 400
+        r.append(("...an unknown engine is refused before anything is queued",
+                  bad and len(queued) == 2))
+        srv._validator.api_key = lambda: ""
+        try:
+            srv.api_watchlist_ingest(srv.WLIngestIn(series_id="s", series_key="k",
+                                                    chapter="10", engine="claude"))
+            nokey = False
+        except srv.HTTPException as e:
+            nokey = "no Claude API key" in e.detail
+        r.append(("...and Claude with no key is refused up front, even when queued",
+                  nokey and len(queued) == 2))
+    finally:
+        (_wl.load, _wl.find, _wl.chapter_url, srv._enqueue_ingest,
+         srv._active_ingest_for_url, srv._validator.api_key) = saved_wl
 
     # ---- the controls must actually EXIST in the UI, not just as endpoints
     # A stop that is only reachable from the Logs tab is not a stop button on
@@ -155,6 +201,10 @@ def main():
                   "track again" in _html))
         r.append(("every stop confirms first rather than acting instantly",
                   _html.count("confirm(") >= 3))
+        r.append(("the Tracker chapter list offers the Gemini/Claude picker",
+                  'id="wleng_' in _html and '<option value="claude"' in _html))
+        r.append(("...and the tracker ingest sends the picked engine",
+                  "queue: true, engine}" in _html))
 
     # ---- render jobs refuse a broken timeline BEFORE rendering anything.
     # They used to call _rerender straight away and die on the renderer's own
@@ -168,7 +218,7 @@ def main():
                                      "would cut narration. seg 5: G2")
     try:
         srv._gate_timeline = bad_gate
-        srv._rerender = lambda seg: rendered.append(seg["seg_index"])
+        srv._rerender = lambda seg, workdir=None: rendered.append(seg["seg_index"])
         srv._persist_job = noop
         srv.load_segments = lambda: [{"seg_index": 5, "user_included": True}]
         srv.video_segments = lambda segs: segs
@@ -207,7 +257,7 @@ def main():
                                          "... repair_slices")
     try:
         srv._gate_timeline = gate_breaks_at_seg_2
-        srv._rerender = lambda seg: rendered.append(seg["seg_index"])
+        srv._rerender = lambda seg, workdir=None: rendered.append(seg["seg_index"])
         srv._write_segments = lambda segs: writes.append(1)
         srv._persist_job = noop
         srv.load_segments = lambda: [{"seg_index": i, "user_included": True}
@@ -229,6 +279,63 @@ def main():
         r.append(("the render job re-checks per clip and never writes back",
                   rendered == [0, 1] and writes == [] and
                   srv.JOBS["pr"]["status"] == "error"))
+    finally:
+        for k, v in saved.items():
+            setattr(srv, k, v)
+
+    # ---- option 1: clips render N at a time, and the scheduler keeps every
+    # between-clip guarantee (gate per clip, stop, first failure wins)
+    import threading as _th
+    saved = {k: getattr(srv, k) for k in ("_gate_timeline", "_rerender",
+             "load_segments", "active_project_dir", "_clip_parallel")}
+    live, peak, order, lock = [0], [0], [], _th.Lock()
+    def slow_render(seg, workdir=None):
+        with lock:
+            live[0] += 1; peak[0] = max(peak[0], live[0]); order.append(seg["seg_index"])
+        time.sleep(0.05)
+        with lock:
+            live[0] -= 1
+        if seg["seg_index"] == 5:
+            raise RuntimeError("seg 5 render failed")
+    try:
+        srv._gate_timeline = lambda segs, action: None
+        srv._rerender = slow_render
+        srv.load_segments = lambda: [{"seg_index": i} for i in range(8)]
+        srv.active_project_dir = lambda: "/nonexistent"
+        srv._clip_parallel = lambda: 3
+        done = []
+        srv._render_clips([0, 1, 2, 3], lambda si: None, done.append)
+        r.append(("clips render in parallel, never more than the limit",
+                  peak[0] == 3 and sorted(done) == [0, 1, 2, 3]))
+        r.append(("...and are started in timeline order", order == [0, 1, 2, 3]))
+        peak[0] = 0; order.clear(); done = []
+        try:
+            srv._render_clips([4, 5, 6, 7], lambda si: None, done.append); err = ""
+        except RuntimeError as e:
+            err = str(e)
+        r.append(("a failed clip is reported, and the others in flight still finish",
+                  err == "seg 5 render failed" and 4 in done and 5 not in done))
+        stops = [0]
+        def stop_after_two():
+            stops[0] += 1
+            if stops[0] > 2:
+                raise srv.JobCancelled("stopped by operator")
+        order.clear(); done = []
+        try:
+            srv._render_clips([0, 1, 2, 3], lambda si: None, done.append,
+                              control=stop_after_two); cancelled = False
+        except srv.JobCancelled:
+            cancelled = True
+        r.append(("stop is honoured before handing out the next clip",
+                  cancelled and order == [0, 1] and sorted(done) == [0, 1]))
+        srv._clip_parallel = saved["_clip_parallel"]
+        os.environ["RENDER_CLIP_PARALLEL"] = "1"
+        r.append(("RENDER_CLIP_PARALLEL=1 restores one-at-a-time (rollback)",
+                  srv._clip_parallel() == 1))
+        os.environ["RENDER_CLIP_PARALLEL"] = "junk"
+        r.append(("a bad RENDER_CLIP_PARALLEL falls back to the default",
+                  srv._clip_parallel() == 3))
+        os.environ.pop("RENDER_CLIP_PARALLEL", None)
     finally:
         for k, v in saved.items():
             setattr(srv, k, v)

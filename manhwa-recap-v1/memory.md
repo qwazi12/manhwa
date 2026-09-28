@@ -6792,3 +6792,67 @@ switch the owner's active project.
 **Pending:** (1) owner re-opens 358-lab-claude, clicks 🔧 repair timeline,
 then Approve; (2) render speed — options given to the owner, none chosen yet;
 (3) the story-writing changes; (4) Gemini/Claude picker in the tracker.
+
+### 2026-09-27 — faster rendering (parallel clips + browser-free renderer) and a Tracker engine picker
+
+**Asked:** render-speed options 1 and 2, tested; the Gemini/Claude choice in
+the Tracker. Writing changes come after this is deployed and logged.
+
+**Option 2 — `hyperframes/fast_render.py` (RENDERER=ffmpeg, now the DEFAULT).**
+Draws the same shot without headless Chrome, which screenshotted every frame.
+The static layers are built once per clip: the cover background (blur 42 /
+saturate .5 / brightness 1.08), the veil, and the card with its rounded
+corners and two-layer shadow. Each frame is then sub-pixel OpenCV warps plus
+`cv2.blendLinear` in uint8, piped as raw frames into ffmpeg. All three card
+shapes are covered (normal / planned sub-crop / tall scroll-pan), plus the
+entrance, the Ken Burns and the bg zoom, mirroring seg_html's GSAP values.
+- Shared helpers so the two renderers cannot drift: `card_regime()` (which
+  card shape) and `audio_plan()` (the "does not fit its window" refusal) —
+  seg_html now uses both too. `_panel_src()` is the one panel-path resolver.
+- Bugs found while matching: GSAP `power2.out` is CUBIC (I first used
+  quadratic, so the fade-in SSIM dipped to 0.94); ffmpeg's mono->stereo
+  upmix applies -3 dB (now `pan` at unity). With both fixed, levels are
+  within 0.1% on single-line clips. Known, accepted: HyperFrames plays
+  multi-line clips 0.4 dB quieter; fast_render keeps every clip at unity.
+- Evidence, swordmasters-youngest-son_1 (local, real panels/audio):
+  SSIM vs hyperframes 0.98–0.99 on every frame of normal/crop/tall clips;
+  speech onset identical to the millisecond; stream params identical
+  (h264 High yuv420p 30fps tb 1/15360, AAC-LC 48k stereo), and a MIXED
+  hf+ff concat stream-copies with no decode errors.
+- A failed render writes to `.part.mp4` and never replaces a clip.
+- Dockerfile: the build now runs `import cv2`, so a missing OpenCV fails the
+  BUILD (the old deploy keeps serving), not every render.
+- **Rollback: set `RENDERER=hyperframes` on Railway** (no deploy needed).
+
+**Option 1 — parallel clips.** `server._render_clips`: RENDER_CLIP_PARALLEL
+(default 3, clamped 1–8; 1 = old behaviour) clips in flight in the finalize
+and render jobs. Before EACH clip is handed out: pause/stop (render job),
+a fresh read of segments.json, and the per-clip timeline gate. The first
+failure stops new work; in-flight clips finish; then the error is raised.
+Made safe by: a per-clip hyperframes workdir, an atomic `copy()` into the
+shared assets/, and `_EPOCH_LOCK` around the epoch json.
+
+**Benchmark (10-core Mac, the same 12 real clips, 106 s of video):**
+| setup | time | s/clip |
+|---|---|---|
+| hyperframes x1 (old) | 87.7 s | 7.31 |
+| hyperframes x3 | 48.9 s | 4.08 |
+| ffmpeg x1 | 22.0 s | 1.84 |
+| ffmpeg x3 (new default) | 17.3 s | 1.44 — 5.1x |
+Parallel == serial: the ffmpeg clips are bit-identical (framemd5); hf
+parallel vs serial has SSIM >= 0.994 (hf is not byte-deterministic).
+Railway (32 vCPU) should gain more from parallelism — NOT yet measured there.
+
+**Tracker engine picker.** A Gemini/Claude select in each series' chapter
+list, Gemini pre-selected, with the manual drawer's extra Claude confirm.
+The choice is remembered across the "jump to #" re-render.
+**Bug fixed on the way:** the ingest QUEUE dropped the engine
+(`(job, url, fresh)`), and a queued ingest skipped engine validation. Every
+Tracker ingest queues, and so does the manual drawer's queue option, so
+"Claude" queued ingests silently ran Gemini. The engine is now validated
+before the queue branch and carried through `_enqueue_ingest` and the worker.
+
+**Tests:** new test_fast_render.py (14, including hf parity when the CLI is
+present); job_control 31 -> 43 (parallel scheduler x6, queue keeps engine,
+tracker route x3, picker in HTML x2). Full review_ui suite: 38 files pass.
+**Not verified yet:** a render on Railway itself.

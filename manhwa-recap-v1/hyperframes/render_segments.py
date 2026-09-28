@@ -25,6 +25,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 
 from segments import build_segments
 
@@ -109,6 +110,17 @@ RENDER_WORKERS = _int_env("RENDER_WORKERS", 4, 1, 8)
 # is opt-in: set RENDER_FPS=24 for a "faster render" pass.
 RENDER_FPS = _int_env("RENDER_FPS", 30, 12, 60)
 
+# Which renderer draws a segment clip: "ffmpeg" (fast_render.py — the same
+# shot drawn without a browser) or "hyperframes" (headless Chrome, one
+# screenshot per frame). Title cards always use hyperframes.
+# ffmpeg is the default since 2026-09-27: measured on 12 real clips, 4x faster
+# serially (7.31 -> 1.84 s/clip), SSIM 0.98-0.99 vs hyperframes on every
+# frame, identical stream params and sample-exact narration timing
+# (test_fast_render.py). Rollback without a deploy: RENDERER=hyperframes.
+RENDERER = os.environ.get("RENDERER", "ffmpeg").strip().lower()
+if RENDERER not in ("hyperframes", "ffmpeg"):
+    raise RuntimeError(f"RENDERER must be 'hyperframes' or 'ffmpeg', got {RENDERER!r}")
+
 
 def render_flags():
     """Profile flags appended to every hyperframes render invocation."""
@@ -130,10 +142,15 @@ def ffprobe_dur(path):
 
 
 def copy(src, dst):
+    """Atomic: parallel clip renders stage into one shared assets/ dir, and
+    two clips on the same panel would otherwise truncate the file under a
+    Chrome that is reading it. A reader now sees the old or the new file."""
     with open(src, "rb") as f:
         data = f.read()
-    with open(dst, "wb") as f:
+    tmp = f"{dst}.{os.getpid()}.{threading.get_ident()}.tmp"
+    with open(tmp, "wb") as f:
         f.write(data)
+    os.replace(tmp, dst)
 
 
 def _png_size(path):
@@ -166,6 +183,62 @@ COVER_TOL = 0.15
 # Must match storyboard_edit.COVER_TOL so guard and validator agree.
 
 
+def card_regime(seg, png_path):
+    """Which of the three card shapes a segment renders as, shared by BOTH
+    renderers so HyperFrames and fast_render can never disagree.
+    Returns (crop_or_None, has_crop, tall, pw, ph).
+
+    P4 (Session 25): a full-frame box ([0,0,1,1]) is NOT a crop — is_sub_crop()
+    is the shared test (also used by the editor preview). Measure the IMAGE
+    WE ARE ABOUT TO RENDER, not the manifest: Martial Genius Ch.1's
+    segments.json carried pre-resplit heights (manifest 900x2582, real file
+    900x811), so the manifest AR picked the wrong branch.
+    """
+    import sys
+    if RECAP not in sys.path:
+        sys.path.insert(0, RECAP)
+    from shot_planner import is_sub_crop, normalize_crop
+    crop = normalize_crop(seg.get("crop_bbox_norm"))
+    has_crop = is_sub_crop(crop)
+    pw, ph = _png_size(png_path)
+    if not (pw and ph) and seg.get("panel_file"):
+        pw, ph = _png_size(seg["panel_file"])
+    if not (pw and ph):
+        pw, ph = seg.get("width"), seg.get("height")
+    tall = bool((not has_crop) and pw and ph and (ph / pw) >= TALL_AR)
+    return (crop if has_crop else None), has_crop, tall, pw, ph
+
+
+def audio_plan(seg, audio_dir):
+    """The segment's narration as [(beat, fname, path, offset, seconds)].
+
+    P0 (Session 25): a composition is exactly `dur` long, so audio scheduled
+    outside it cannot exist in the mp4. This used to pass silently and simply
+    lose the sentence. Both renderers call this, so both fail loudly.
+    """
+    dur = seg["dur"]
+    plan = []
+    for b in seg["beats"]:
+        # A beat may carry an explicit "file" (storyboard edits slice a beat's
+        # mp3 when an image cut lands mid-sentence); default is index naming.
+        fname = b.get("file") or f"beat_{b['index']:03d}.mp3"
+        a = os.path.join(audio_dir, fname)
+        if not os.path.exists(a):
+            continue
+        off = round(b["start"] - seg["start"], 3)
+        adur = ffprobe_dur(a)
+        if off < -COVER_TOL or off + adur > dur + COVER_TOL:
+            raise RuntimeError(
+                f"seg {seg['seg_index']}: beat {b['index']} ({fname}) does not "
+                f"fit its {dur:.3f}s window — starts at {off:+.3f}s and runs "
+                f"{adur:.3f}s. Rendering would cut narration off. Fix the "
+                f"timeline (POST /api/storyboard/repair_slices re-binds "
+                f"swapped slices, collapses overlapping duplicates, and "
+                f"re-seats beats left outside their segment) before rendering.")
+        plan.append((b, fname, a, off, adur))
+    return plan
+
+
 def seg_html(seg, audio_dir):
     """Standalone HyperFrames composition for one segment: blurred blow-up
     background + aspect-preserved card + Ken Burns, with the segment's beat
@@ -196,24 +269,9 @@ def seg_html(seg, audio_dir):
     # which silently disabled the TALL_AR scroll-pan branch below and rendered
     # tall strips as ~18%-frame-width cards. is_sub_crop() is the shared test,
     # also used by the editor preview, so board and video agree.
-    import sys
-    if RECAP not in sys.path:
-        sys.path.insert(0, RECAP)
-    from shot_planner import get_crop_layout, is_sub_crop, normalize_crop
-    crop = normalize_crop(seg.get("crop_bbox_norm"))
-    has_crop = is_sub_crop(crop)
-    # Measure the IMAGE WE ARE ABOUT TO RENDER, not the manifest. On Martial
-    # Genius Ch.1 segments.json still carries pre-resplit heights for several
-    # panels (page020_panel_003_shot_03: manifest 900x2582, real file 900x811),
-    # so the manifest AR picks the wrong branch — harmless while any crop box
-    # suppressed `tall`, actively wrong once P4 lets full-box panels reach it.
     # stage_assets() has already copied the panel into ASSETS by this point.
-    pw, ph = _png_size(os.path.join(ASSETS, f"{pid}.png"))
-    if not (pw and ph) and seg.get("panel_file"):
-        pw, ph = _png_size(seg["panel_file"])
-    if not (pw and ph):
-        pw, ph = seg.get("width"), seg.get("height")
-    tall = (not has_crop) and pw and ph and (ph / pw) >= TALL_AR
+    crop, has_crop, tall, pw, ph = card_regime(seg, os.path.join(ASSETS, f"{pid}.png"))
+    from shot_planner import get_crop_layout   # card_regime put RECAP on the path
 
     if has_crop:
         layout = get_crop_layout(crop, pw, ph)
@@ -259,26 +317,7 @@ def seg_html(seg, audio_dir):
               f'{{ scale: 1.22, duration: {dur}, ease: "none" }}, 0);')
     tl.append('  tl.from("#card", { opacity: 0, scale: 0.94, duration: 0.4, '
               'ease: "power2.out" }, 0);')
-    for n, b in enumerate(seg["beats"]):
-        # A beat may carry an explicit "file" (storyboard edits slice a beat's
-        # mp3 when an image cut lands mid-sentence); default is index naming.
-        fname = b.get("file") or f"beat_{b['index']:03d}.mp3"
-        a = os.path.join(audio_dir, fname)
-        if not os.path.exists(a):
-            continue
-        off = round(b["start"] - seg["start"], 3)
-        adur = ffprobe_dur(a)
-        # P0 (Session 25): the composition is exactly `dur` long, so audio
-        # scheduled outside it cannot exist in the mp4. This used to pass
-        # silently and simply lose the sentence. Fail loudly instead.
-        if off < -COVER_TOL or off + adur > dur + COVER_TOL:
-            raise RuntimeError(
-                f"seg {seg['seg_index']}: beat {b['index']} ({fname}) does not "
-                f"fit its {dur:.3f}s window — starts at {off:+.3f}s and runs "
-                f"{adur:.3f}s. Rendering would cut narration off. Fix the "
-                f"timeline (POST /api/storyboard/repair_slices re-binds "
-                f"swapped slices, collapses overlapping duplicates, and "
-                f"re-seats beats left outside their segment) before rendering.")
+    for n, (b, fname, _path, off, adur) in enumerate(audio_plan(seg, audio_dir)):
         audio_layers.append(
             f'    <audio class="clip" id="a{b["index"]}_{n}" data-start="{off}" '
             f'data-duration="{adur}" data-track-index="9" data-volume="1" '
@@ -332,12 +371,7 @@ def stage_assets(seg, audio_dir):
     Kept separate from rendering so parallel mode (E6) can stage everything
     serially first — no concurrent writes to the same asset path."""
     pid = seg["panel_id"]
-    # Prefer the segment's own absolute panel_file (project-scoped crops);
-    # fall back to the legacy shared PANEL_DIR only when it's absent.
-    src_png = seg.get("panel_file") or ""
-    if not (src_png and os.path.isabs(src_png) and os.path.exists(src_png)):
-        src_png = os.path.join(PANEL_DIR, f"{pid}.png")
-    copy(src_png, os.path.join(ASSETS, f"{pid}.png"))
+    copy(_panel_src(seg), os.path.join(ASSETS, f"{pid}.png"))
     for b in seg["beats"]:
         fname = b.get("file") or f"beat_{b['index']:03d}.mp3"
         a = os.path.join(audio_dir, fname)
@@ -347,12 +381,39 @@ def stage_assets(seg, audio_dir):
             copy(a, dst)
 
 
-def render_segment(seg, audio_dir, workdir=None):
-    """Render one segment to clips/seg_NNN.mp4 via the hyperframes CLI.
+def _panel_src(seg):
+    """The segment's panel image: its own absolute panel_file (project-scoped
+    crops), else the legacy shared PANEL_DIR."""
+    src_png = seg.get("panel_file") or ""
+    if not (src_png and os.path.isabs(src_png) and os.path.exists(src_png)):
+        src_png = os.path.join(PANEL_DIR, f"{seg['panel_id']}.png")
+    return src_png
 
+
+def render_segment_fast(seg, audio_dir):
+    """RENDERER=ffmpeg: the same shot, drawn without a browser
+    (fast_render.py). Reads the panel and audio in place — no staging."""
+    import fast_render
+    src = _panel_src(seg)
+    crop, _has, tall, _pw, _ph = card_regime(seg, src)
+    plan = [(path, off) for _b, _f, path, off, _d in audio_plan(seg, audio_dir)]
+    os.makedirs(CLIPS, exist_ok=True)
+    dst = os.path.join(CLIPS, f"seg_{seg['seg_index']:03d}.mp4")
+    tmp = dst + ".part.mp4"
+    fast_render.render(seg, src, plan, tmp, crop=crop, tall=tall)
+    os.replace(tmp, dst)        # a failed render never leaves a half clip
+    return dst
+
+
+def render_segment(seg, audio_dir, workdir=None):
+    """Render one segment to clips/seg_NNN.mp4.
+
+    RENDERER=ffmpeg (fast_render.py, no browser) or hyperframes (the CLI).
     workdir: an isolated per-segment dir (parallel mode) with its own
     index.html + hyperframes.json and a symlink to the shared assets/;
-    default is the shared WORK dir (serial mode)."""
+    default is the shared WORK dir (serial mode). Hyperframes only."""
+    if RENDERER == "ffmpeg":
+        return render_segment_fast(seg, audio_dir)
     stage_assets(seg, audio_dir)
     wd = workdir or WORK
     if workdir:

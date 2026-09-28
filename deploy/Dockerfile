@@ -28,11 +28,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 # Lean, explicit deps — the review UI + ingestion need only these. (No torch /
 # sentence-transformers: the matcher uses Gemini embeddings, not local models.)
+# The last step proves OpenCV imports: the default segment renderer
+# (fast_render.py) draws with it (ultralytics installs it), so a missing lib
+# fails the BUILD — the old deployment keeps serving — not every render.
 RUN pip install --no-cache-dir \
       "fastapi" "uvicorn[standard]" "python-multipart" "pydantic>=2" \
       "google-genai>=1.0.0" "anthropic>=0.40" "numpy" "scipy" "Pillow" "certifi" \
     && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir "ultralytics"
+    && pip install --no-cache-dir "ultralytics" \
+    && python3 -c "import cv2, numpy; print('cv2', cv2.__version__)"
 
 COPY . /app
 # Reassemble the YOLO panel-detector weights (119MB — too big for one git

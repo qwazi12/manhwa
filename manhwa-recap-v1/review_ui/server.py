@@ -2206,16 +2206,23 @@ def needs_render(segs, pdir=None):
     return out
 
 
-def _rerender(seg):
-    """Re-render one segment's clip from the (edited) seg dict."""
+import threading  # also imported further down; needed here first
+_EPOCH_LOCK = threading.Lock()
+
+
+def _rerender(seg, workdir=None):
+    """Re-render one segment's clip from the (edited) seg dict.
+    workdir: an isolated dir for the hyperframes page when clips render in
+    parallel (they would otherwise share one index.html)."""
     import render_segments as rs
     rs.PANEL_DIR = _panel_dir()
     rs.WORK = active_project_dir()
     rs.CLIPS = os.path.join(rs.WORK, "clips")
     rs.ASSETS = os.path.join(rs.WORK, "assets")
     rs.ensure_project()
-    rs.render_segment(seg, AUDIO_DIR)
-    _stamp_epoch(seg["seg_index"])
+    rs.render_segment(seg, AUDIO_DIR, workdir=workdir)
+    with _EPOCH_LOCK:          # read-modify-write of one shared json
+        _stamp_epoch(seg["seg_index"])
     # thumbnail may be stale after a panel swap / re-crop — the filename is
     # keyed by framing, so clear EVERY thumb for this segment, not one name
     import glob
@@ -2747,6 +2754,63 @@ def _persist_job(job_id):
         pass
 
 
+# Clips rendered at once by the finalize and render jobs. Each clip is an
+# independent mp4, so they parallelise cleanly; the box is 32 vCPU / 32 GB and
+# a single clip peaked at ~5 vCPU (render_segments.py profile notes). Rollback
+# without a deploy: RENDER_CLIP_PARALLEL=1 restores one-at-a-time.
+def _clip_parallel():
+    try:
+        return max(1, min(8, int(os.environ.get("RENDER_CLIP_PARALLEL", 3))))
+    except ValueError:
+        return 3
+
+
+def _render_clips(seg_indices, on_start, on_done, control=None):
+    """Render clips up to _clip_parallel() at a time, in order.
+
+    Everything that used to happen between clips still happens before EACH
+    clip is handed out: the pause/stop gate, a fresh read of segments.json,
+    and the per-clip timeline gate. The first failure stops new work; clips
+    already rendering finish (their mp4s are valid), then the failure is
+    raised — so a stop or a broken timeline never strands a half clip.
+    """
+    import concurrent.futures as cf
+    n = _clip_parallel()
+    pending, running, error = list(seg_indices), {}, None
+    work = os.path.join(active_project_dir(), ".render_work")
+    with cf.ThreadPoolExecutor(max_workers=n) as ex:
+        while pending or running:
+            while pending and len(running) < n and error is None:
+                try:
+                    if control:
+                        control()
+                    si = pending[0]
+                    seg = next((x for x in load_segments() if x["seg_index"] == si), None)
+                    if seg is not None:
+                        _gate_timeline([si], "render")
+                except BaseException as e:   # stop / pause-then-stop / gate
+                    error = e
+                    break
+                pending.pop(0)
+                if seg is None:
+                    on_done(si)
+                    continue
+                on_start(si)
+                wd = os.path.join(work, f"seg_{si:03d}") if n > 1 else None
+                running[ex.submit(_rerender, seg, wd)] = si
+            if not running:
+                break
+            done, _ = cf.wait(running, return_when=cf.FIRST_COMPLETED)
+            for f in done:
+                si = running.pop(f)
+                if f.exception() is not None:
+                    error = error or f.exception()
+                else:
+                    on_done(si)
+    if error is not None:
+        raise error
+
+
 def _run_finalize_job(job_id):
     """The APPROVE chain (user contract): render every ticked-but-missing
     clip, then export the final narrated MP4 — one job, visible progress."""
@@ -2766,22 +2830,20 @@ def _run_finalize_job(job_id):
         # render time on the ones before it, and named only that one fault.
         _gate_timeline([s["seg_index"] for s in ticked], "render")
         j["total"] = len(missing)
-        for n, si in enumerate(missing, 1):
-            segs = load_segments()
-            seg = next((s for s in segs if s["seg_index"] == si), None)
-            if seg:
-                j["current_seg"] = si
-                _persist_job(job_id)
-                # Re-check THIS clip against the timeline as it is now: the
-                # board stays editable through a long render, so the gate
-                # at the start can be stale by the time a clip's turn comes.
-                _gate_timeline([si], "render")
-                _rerender(seg)
-                # No write-back: rendering never changes a segment, and
-                # writing the copy read before a ~13s render reverted any
-                # board edit saved meanwhile (358-lab-claude seg 66).
-            j["done"] = n
+        j["done"] = 0
+
+        def started(si):
+            j["current_seg"] = si
             _persist_job(job_id)
+
+        def finished(si):
+            j["done"] += 1
+            _persist_job(job_id)
+
+        # N clips at a time; each is gated against the timeline as it is
+        # when its turn comes, and nothing is written back (358-lab-claude
+        # seg 66: the old loop re-saved a stale copy after every clip).
+        _render_clips(missing, started, finished)
         j["stage"] = "export"
         j["current_seg"] = None
         _persist_job(job_id)
@@ -2804,14 +2866,12 @@ def _run_render_job(job_id, seg_indices):
     try:
         # Refuse up front with every timing fault, not mid-batch with one.
         _gate_timeline(seg_indices, "render")
-        for si in seg_indices:
-            _control_gate(JOBS, job_id, _persist_job)   # pause/stop between clips
-            segs = load_segments()
-            seg = next((s for s in segs if s["seg_index"] == si), None)
-            if seg:
-                _gate_timeline([si], "render")   # timeline may have changed
-                _rerender(seg)                   # no stale write-back
+        def finished(si):
             JOBS[job_id]["done"] += 1
+        # pause/stop + a fresh per-clip timeline gate before each clip;
+        # N at a time; no stale write-back.
+        _render_clips(seg_indices, lambda si: None, finished,
+                      control=lambda: _control_gate(JOBS, job_id, _persist_job))
         JOBS[job_id]["status"] = "done"
     except JobCancelled as e:
         JOBS[job_id]["status"] = "cancelled"
@@ -3223,25 +3283,28 @@ def _queue_worker():
             if not _QUEUE:
                 _QUEUE_RUNNING = False
                 return
-            job_id, url, fresh = _QUEUE.pop(0)
+            job_id, url, fresh, engine = _QUEUE.pop(0)
         rec = INGEST.get(job_id) or {}
         if rec.get("control") == "stop" or rec.get("status") == "cancelled":
             continue                       # dequeued before it ever started
         try:
-            _run_ingest_job(job_id, url, fresh)
+            _run_ingest_job(job_id, url, fresh, engine=engine)
         except Exception:                  # a worker crash must not kill the queue
             pass
 
 
-def _enqueue_ingest(url, fresh=False):
+def _enqueue_ingest(url, fresh=False, engine="gemini"):
     global _QUEUE_RUNNING
     job_id = uuid.uuid4().hex[:12]
     INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "waiting for its turn",
                       "status": "queued", "error": None, "project": None,
-                      "url": url, "ts": time.time(), "control": "run"}
+                      "url": url, "ts": time.time(), "control": "run",
+                      "engine": engine}
     _persist_ingest(job_id)
     with _QUEUE_LOCK:
-        _QUEUE.append((job_id, url, fresh))
+        # the engine rides with the job — it used to be dropped here, so any
+        # QUEUED ingest (every Tracker ingest) silently ran Gemini
+        _QUEUE.append((job_id, url, fresh, engine))
         start = not _QUEUE_RUNNING
         if start:
             _QUEUE_RUNNING = True
@@ -3345,16 +3408,19 @@ def start_ingest(body: IngestIn):
     existing = _active_ingest_for_url(url)
     if existing:
         return {"job": existing, "stages": ingest_stages(), "existing": True}
-    if body.queue:
-        job_id = _enqueue_ingest(url, body.fresh)
-        return {"job": job_id, "stages": ingest_stages(), "existing": False,
-                "fresh": body.fresh, "queued": True}
+    # Validate the engine BEFORE the queue branch: a queued ingest used to skip
+    # this check entirely (and then drop the engine), so it could neither be
+    # refused up front nor actually run on Claude.
     import ingest as _ing
     if body.engine not in _ing.ENGINES:
         raise HTTPException(400, f"engine must be one of {_ing.ENGINES}")
     if body.engine == "claude" and not _validator.api_key():
         raise HTTPException(400, "no Claude API key on this server — "
                                  "set CLAUDE_API_KEY or ANTHROPIC_API_KEY")
+    if body.queue:
+        job_id = _enqueue_ingest(url, body.fresh, body.engine)
+        return {"job": job_id, "stages": ingest_stages(), "existing": False,
+                "fresh": body.fresh, "queued": True, "engine": body.engine}
     job_id = uuid.uuid4().hex[:12]
     INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "queued",
                       "status": "queued", "error": None, "project": None,
@@ -3523,6 +3589,7 @@ class WLIngestIn(BaseModel):
     chapter: str
     fresh: bool = False
     queue: bool = True
+    engine: str = "gemini"   # same choice, default and checks as /api/ingest
 
 
 @app.get("/api/watchlist")
@@ -3653,7 +3720,8 @@ def api_watchlist_ingest(body: WLIngestIn):
         raise HTTPException(400, str(e))
     if not url:
         raise HTTPException(400, "this source cannot build a chapter URL yet")
-    res = start_ingest(IngestIn(url=url, fresh=body.fresh, queue=body.queue))
+    res = start_ingest(IngestIn(url=url, fresh=body.fresh, queue=body.queue,
+                                engine=body.engine))
     return dict(res, url=url, title=s["title"], chapter=body.chapter)
 
 

@@ -2509,6 +2509,11 @@ function wlChapRender(sid, key, showAll) {{
       ${{(!showAll && !filt && list.length > CAP)
         ? `<button class="mini" onclick="wlChapRender('${{sid}}','${{key}}',1)">show all ${{list.length}}</button>` : ''}}
       <button class="mini" onclick="document.getElementById('wlch_${{sid}}').innerHTML=''">close</button>
+      <label class="hint" style="font-size:11px" title="Which pipeline a chapter you click here goes through — the same choice as the manual Ingest drawer. Recorded on the project.">engine
+        <select id="wleng_${{sid}}" style="font-size:11px" onchange="WLENG[this.id.slice(6)]=this.value">
+          <option value="gemini">Gemini</option>
+          <option value="claude" ${{WLENG[sid] === 'claude' ? 'selected' : ''}}>Claude</option>
+        </select></label>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:3px;max-height:190px;overflow-y:auto">${{chips || '<span class="hint" style="font-size:11px">no match</span>'}}</div>
   </div>`;
@@ -2516,13 +2521,26 @@ function wlChapRender(sid, key, showAll) {{
   if (f && filt) {{ f.focus(); f.setSelectionRange(filt.length, filt.length); }}
 }}
 
+/* Engine chosen per series in the chapter list. Kept outside the DOM because
+   typing in "jump to #" re-renders that header, which would silently reset
+   the picker to Gemini. */
+const WLENG = {{}};
 async function wlIngest(sid, key, chapter) {{
   const sx = (WL.series || []).find(x => x.id === sid) || {{}};
-  if (!confirm(`Ingest ${{sx.title || sid}} chapter ${{chapter}}?\n\nThis spends Gemini/TTS credit and is queued behind any run already going.`)) return;
+  const sel = document.getElementById('wleng_' + sid);
+  const engine = sel ? sel.value : 'gemini';
+  const NL = String.fromCharCode(10);
+  const cost = engine === 'claude' ? 'Claude/TTS' : 'Gemini/TTS';
+  if (!confirm(`Ingest ${{sx.title || sid}} chapter ${{chapter}} with ${{engine === 'claude' ? 'CLAUDE' : 'Gemini'}}?` + NL + NL +
+               `This spends ${{cost}} credit and is queued behind any run already going.`)) return;
+  // Same second confirm as the manual Ingest drawer: Claude is the newer path.
+  if (engine === 'claude' && !confirm('Run this chapter through the CLAUDE engine?' + NL + NL +
+      'Gemini is the established path; Claude is newer and its cost profile differs.' + NL +
+      'The choice is recorded on the project.')) return;
   try {{
     const r = await j('/api/watchlist/ingest', {{method: 'POST',
       headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{series_id: sid, series_key: key, chapter: String(chapter), queue: true}})}});
+      body: JSON.stringify({{series_id: sid, series_key: key, chapter: String(chapter), queue: true, engine}})}});
     // Hand off to the SAME ingest console the manual path uses, so there is
     // one place to watch a run — no second progress UI to keep in sync.
     setActiveJob(r.job); toggleDrawer('ingest'); startIngestPoller();
