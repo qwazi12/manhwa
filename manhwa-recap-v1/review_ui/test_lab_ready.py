@@ -30,55 +30,45 @@ def check(name, ok):
 def main():
     import claude_lab as LAB
 
-    # ---- the validator reports honestly on a clean and a broken timeline
+    # ---- the validator reports honestly on a clean and a broken timeline.
+    # The logic now lives in storyboard_edit.check_and_repair (one copy, shared
+    # with the Gemini ingest); patch its collaborators on the REAL module.
+    import storyboard_edit as SE
     calls = {"repair": 0}
+    state = {"errors": 0}
+    saved = (SE.validate_timeline, SE.repair_all)
 
-    class FakeSE:
-        state = {"errors": 0}
+    def fake_validate(pdir, segs=None):
+        return {"errors": [{"seg": i} for i in range(state["errors"])]}
 
-        @staticmethod
-        def validate_timeline(pdir):
-            return {"errors": [{"seg": i} for i in range(FakeSE.state["errors"])]}
+    def fake_repair_all(pdir, dry_run=False):
+        calls["repair"] += 1
+        state["errors"] = 2          # repair fixes some, not all
+        return {"total": 3}
 
-        @staticmethod
-        def repair_shared_beats(pdir, dry_run=False):
-            calls["repair"] += 1
-            FakeSE.state["errors"] = 2          # repair fixes some, not all
-            return [{"seg": 1}, {"seg": 2}, {"seg": 3}]
-
-        @staticmethod
-        def repair_truncated_beats(pdir, dry_run=False):
-            calls["truncated"] = calls.get("truncated", 0) + 1
-            return []
-
-    real = sys.modules.get("storyboard_edit")
-    sys.modules["storyboard_edit"] = FakeSE
+    SE.validate_timeline, SE.repair_all = fake_validate, fake_repair_all
     try:
         pdir = tempfile.mkdtemp(prefix="ready_")
 
-        FakeSE.state["errors"] = 0
+        state["errors"] = 0
         r = LAB._validate_own_timeline(pdir)
         check("a clean timeline reports zero errors", r["errors"] == 0)
         check("...and is marked as actually checked", r["checked"])
         check("...and no repair is attempted when nothing is wrong",
               calls["repair"] == 0 and r["repaired"] == 0)
 
-        FakeSE.state["errors"] = 7
+        state["errors"] = 7
         r = LAB._validate_own_timeline(pdir)
         check("a broken timeline triggers the repair", calls["repair"] == 1)
         check("...reporting how many errors it started with",
               r["errors_before"] == 7)
-        check("...how many segments it repaired", r["repaired"] == 3)
-        check("...and also runs the truncation repair (audio longer than "
-              "its window), which the board could not fix by hand either",
-              calls.get("truncated") == 1)
+        check("...how many faults it repaired", r["repaired"] == 3)
         check("...and how many SURVIVED, rather than claiming success",
               r["errors"] == 2)
+        check("the lab and the Gemini ingest share ONE check-and-repair",
+              "check_and_repair" in open(os.path.join(HERE, "ingest.py")).read())
     finally:
-        if real is not None:
-            sys.modules["storyboard_edit"] = real
-        else:
-            sys.modules.pop("storyboard_edit", None)
+        SE.validate_timeline, SE.repair_all = saved
 
     # ---- the validator must never crash a finished build
     r = LAB._validate_own_timeline("/nonexistent/path/xyz")

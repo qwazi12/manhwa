@@ -6737,3 +6737,54 @@ the fix (28/28).
 **Post-deploy check:** 80ce8f4 auto-deployed (SUCCESS). /health 200. A live
 dry run of repair_slices now returns total 0 on the repaired project.
 Pending: the owner clicks Approve to re-render the 13 grown segments.
+
+### 2026-09-27 — why render errors kept coming back: stale write-back + unchecked sources
+
+**Input:** `seg 66: beat 57 ... does not fit its 17.190s window — starts at
++13.052s and runs 7.608s` on 358-lab-claude, after the earlier repair and
+deploy.
+
+**Evidence (live /api/jobs, times ET):** the finalize job started at 20:06 ON
+the code that has the up-front gate (334372f deployed 20:04). The gate passed.
+The job rendered 70 of 82 clips and failed at seg 66 at 20:22. So the timeline
+CHANGED DURING the 16-minute render. The project also went from 84 to 78
+segments, so it was being edited.
+
+**Root causes, ranked:**
+1. **Stale write-back race (the main one).** `_run_finalize_job` and
+   `_run_render_job` did load -> `_rerender` (~13s) -> `_write_segments(segs)`
+   for every clip. Rendering never changes a segment, so that write only ever
+   put back the copy read BEFORE the render, silently reverting any board
+   edit saved in those ~13s. Nothing blocks edits during a render.
+2. **The gate ran once**, at job start, so it was stale for later clips.
+3. **Edit floors read the json range, not the real mp3** (`_occupied`,
+   `_member_floor`; used by set_duration, rebalance_group, add_line,
+   resize_after_tts), so edits could shrink a window below its audio.
+4. **The Gemini ingest never checked its own timeline** (the lab did, with a
+   partial repair set).
+
+**Corrects my earlier answer:** I said the matcher / shot planner split
+sentences at image cuts. They do not. `build_timeline` makes one shot per beat
+and `plan_shots` never splits one, so a fresh Gemini timeline keeps each
+sentence inside one window.
+
+**Fixes:**
+- A: removed the write-back from both render loops.
+- B: `_gate_timeline([si])` before EVERY clip, so a timeline edited
+  mid-render stops at that clip with the gate's message (the board then
+  shows the repair hint).
+- C: `storyboard_edit.repair_all` (the one repair sequence) and
+  `check_and_repair` (check -> repair -> re-check, never raises). Used by
+  /api/storyboard/repair_slices, the Claude lab, AND now the Gemini ingest.
+  The ingest records the result as `project.json["timeline"]` and warns in
+  progress if faults survive.
+- D: `_beat_len(b, pdir)` = max(json range, real mp3). The floors and
+  add_line now use it.
+- E: tests — hardening +7 (54), job_control +3 (31; the 3 new ones FAIL on
+  the old server.py), lab_ready reworked onto the shared helper (15).
+
+**Verified:** full review_ui suite passes (37 suites). No running or queued
+jobs at deploy time.
+**Not verified live:** 358-lab-claude's current timeline. /api/validate only
+reads the ACTIVE project (358 gemini, 27 segs, 0 errors), and I did not
+switch the owner's active project.

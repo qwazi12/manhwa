@@ -423,6 +423,18 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         s["clip"] = f"clips/seg_{s['seg_index']:03d}.mp4"
     json.dump(segs, open(os.path.join(proj, "segments.json"), "w"), indent=2)
     os.makedirs(os.path.join(proj, "clips"), exist_ok=True)
+    # Check the timeline this ingest just built, repair what is mechanical,
+    # and record what survives — the same step the Claude lab ends with. A
+    # Gemini chapter used to reach the board unchecked, so a timing fault
+    # surfaced only when a render refused it minutes later.
+    import storyboard_edit
+    timeline = storyboard_edit.check_and_repair(proj)
+    if timeline.get("repaired"):
+        segs = storyboard_edit.load(proj)
+    if timeline.get("errors"):
+        progress("segment", f"\u26a0 {timeline['errors']} timing fault(s) the "
+                            "automatic repair could not fix — see the board "
+                            "before rendering", 99)
     series, chapter = parse_series_chapter(url)
     series_title = to_title_case(clean_series_slug(series))
     chapter_title = to_title_case(chapter)
@@ -432,6 +444,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             "series": series_title, "chapter": chapter_title,
             "match_method": match_method,
             "engine": "gemini",
+            "timeline": timeline,
             "split_coverage": split_coverage,
             # Persisted so the whole library stays auditable: a truncated
             # chapter is now visible in project.json / /api/projects instead

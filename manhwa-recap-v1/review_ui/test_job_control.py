@@ -190,6 +190,49 @@ def main():
         for k, v in saved.items():
             setattr(srv, k, v)
 
+    # ---- the gate is re-checked PER CLIP, and the loop never writes back.
+    # Live 358-lab-claude: the up-front gate passed, the board was edited
+    # during a 16-minute render, and seg 66 failed at clip 70/82 inside the
+    # renderer. The loop also wrote back the copy it read before each ~13s
+    # render, reverting any edit saved meanwhile.
+    rendered, writes = [], []
+    saved = {k: getattr(srv, k) for k in ("_gate_timeline", "_rerender",
+             "load_segments", "video_segments", "needs_render",
+             "active_project_dir", "_persist_job", "_do_export",
+             "_write_segments")}
+    def gate_breaks_at_seg_2(segs, action):
+        if segs == [2]:        # the timeline "was edited" before clip 2's turn
+            raise srv.HTTPException(400, f"{action} blocked — 1 timing error(s) "
+                                         "would cut narration. seg 2: G2 "
+                                         "... repair_slices")
+    try:
+        srv._gate_timeline = gate_breaks_at_seg_2
+        srv._rerender = lambda seg: rendered.append(seg["seg_index"])
+        srv._write_segments = lambda segs: writes.append(1)
+        srv._persist_job = noop
+        srv.load_segments = lambda: [{"seg_index": i, "user_included": True}
+                                     for i in range(4)]
+        srv.video_segments = lambda segs: segs
+        srv.needs_render = lambda ticked, pdir: [0, 1, 2, 3]
+        srv.active_project_dir = lambda: "/nonexistent"
+        srv._do_export = lambda: {}
+        srv.JOBS["pc"] = {"status": "queued"}
+        srv._run_finalize_job("pc")
+        r.append(("a timeline broken mid-render stops at THAT clip, not in the renderer",
+                  srv.JOBS["pc"]["status"] == "error" and rendered == [0, 1] and
+                  "render blocked" in srv.JOBS["pc"]["error"]))
+        r.append(("the finalize loop never writes a stale copy back over edits",
+                  writes == []))
+        rendered.clear()
+        srv.JOBS["pr"] = {"status": "queued", "done": 0}
+        srv._run_render_job("pr", [0, 1, 2, 3])
+        r.append(("the render job re-checks per clip and never writes back",
+                  rendered == [0, 1] and writes == [] and
+                  srv.JOBS["pr"]["status"] == "error"))
+    finally:
+        for k, v in saved.items():
+            setattr(srv, k, v)
+
     # ---- repair_slices reports 0 on a healthy timeline (it used to add the
     # 5 keys of repair_slice_binding's summary dict, so never showed "nothing")
     import json, tempfile

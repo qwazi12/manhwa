@@ -314,6 +314,48 @@ def main():
     r.append(("...and leaves a healthy timeline untouched",
               se.repair_truncated_beats(tmp4) == []))
 
+    # --------------- check_and_repair: the step BOTH engines now end with
+    tmp5 = tempfile.mkdtemp(prefix="car_")
+    _mp3(os.path.join(tmp5, "audio", "beat_000.mp3"), 6.168)
+    _write_raw(tmp5, [{"seg_index": 0, "start": 0.0, "end": 5.105, "dur": 5.105,
+                       "beats": [{"index": 0, "text": "x", "start": 0.0, "end": 5.0}]}])
+    car = se.check_and_repair(tmp5)
+    r.append(("check_and_repair finds the fault, repairs it, and re-checks",
+              car["checked"] and car["errors_before"] == 1 and
+              car["repaired"] == 1 and car["errors"] == 0))
+    r.append(("...and is a no-op on a healthy timeline",
+              se.check_and_repair(tmp5) == {"errors": 0, "repaired": 0,
+                                            "checked": True, "errors_before": 0}))
+    r.append(("check_and_repair never raises on a project with no timeline",
+              se.check_and_repair(tempfile.mkdtemp())["checked"] is False))
+
+    # --------------- edit floors use the REAL audio, not the json range
+    # json says the line is 3.0s, the file is 5.0s. The old floor (json)
+    # allowed a 4.0s window — which the renderer then refused.
+    tmp6 = tempfile.mkdtemp(prefix="floor_")
+    _mp3(os.path.join(tmp6, "audio", "beat_000.mp3"), 5.0)
+    _write_raw(tmp6, [{"seg_index": 0, "start": 0.0, "end": 6.0, "dur": 6.0,
+                       "clip": "clips/seg_000.mp4",
+                       "beats": [{"index": 0, "text": "x", "start": 0.0, "end": 3.0}]}])
+    try:
+        se.set_duration(tmp6, 0, 4.0); refused = False
+    except ValueError:
+        refused = True
+    r.append(("set_duration refuses a window shorter than the REAL audio",
+              refused and se.load(tmp6)[0]["dur"] == 6.0))
+    se.set_duration(tmp6, 0, 5.5)
+    r.append(("...but still allows one the audio fits in",
+              se.load(tmp6)[0]["dur"] == 5.5 and se.validate_timeline(tmp6)["ok"]))
+    seg6 = se.load(tmp6)[0]
+    r.append(("the group floor also measures the real file",
+              se._member_floor(seg6, [seg6], tmp6) >= 5.0 - 0.05 and
+              se._member_floor(seg6, [seg6]) < 3.1))
+    se.add_line(tmp6, 0, "after", lambda text, out: _mp3(out, 1.0))
+    seg6 = se.load(tmp6)[0]
+    r.append(("add_line starts a new line after the REAL end of the audio",
+              seg6["beats"][-1]["start"] >= 5.0 - 0.05 and
+              se.validate_timeline(tmp6)["ok"]))
+
     # --------------------------------------------------------------- dimensions
     _png(os.path.join(tmp, "crops", "stale.png"), 900, 811)
     r.append(("board geometry comes from the FILE, not the recorded numbers",

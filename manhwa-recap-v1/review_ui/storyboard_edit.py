@@ -274,11 +274,25 @@ def _pos(segs, si):
     raise ValueError(f"segment {si} not found")
 
 
-def _occupied(seg):
+def _beat_len(b, pdir=None):
+    """A beat's playing length: its json range, or the REAL mp3 when that is
+    longer. The renderer plays the file, so a floor computed from the json
+    alone let an edit shrink a window below its audio (G2) whenever the two
+    disagreed — a re-voiced line, TTS drift, a slice's encoder padding."""
+    rng = b["end"] - b["start"]
+    if pdir is None:
+        return rng
+    alen = _audio_len(os.path.join(
+        _audio_dir(pdir), b.get("file") or f"beat_{b['index']:03d}.mp3"))
+    return max(rng, alen) if alen is not None else rng
+
+
+def _occupied(seg, pdir=None):
     """Seconds of the segment's window actually covered by audio."""
     if not seg["beats"]:
         return 0.0
-    return round(max(b["end"] for b in seg["beats"]) - seg["start"], 3)
+    return round(max(b["start"] + _beat_len(b, pdir) for b in seg["beats"])
+                 - seg["start"], 3)
 
 
 def _ripple(segs):
@@ -378,7 +392,7 @@ def _get_narration_group(pdir, segs, pos):
     return group_segs, group_dur, indices
 
 
-def _member_floor(seg, group_segs):
+def _member_floor(seg, group_segs, pdir=None):
     """Smallest duration this image may take without cutting narration.
 
     Two shapes are legitimate inside a narration group:
@@ -405,7 +419,7 @@ def _member_floor(seg, group_segs):
             if shared:
                 break
         if not shared:
-            own += b["end"] - b["start"]
+            own += _beat_len(b, pdir)
     return round(max(MIN_SEG_DUR, own), 3)
 
 
@@ -442,7 +456,7 @@ def rebalance_group(pdir, segs, group_indices, group_dur, target_si=None, req_du
             # the sentence off at render (Session 24 probe: 2.0s window over
             # 3.0s of audio lost 1.0s of narration). MIN_SEG_DUR alone is not
             # enough; occupancy is the real floor.
-            floor = _member_floor(target_s, group_segs)
+            floor = _member_floor(target_s, group_segs, pdir)
             occ = round(floor - MIN_SEG_DUR, 3)
             if req_dur < floor:
                 raise ValueError(
@@ -462,7 +476,7 @@ def rebalance_group(pdir, segs, group_indices, group_dur, target_si=None, req_du
     if auto_segs:
         n_auto = len(auto_segs)
         # each auto sibling needs at least its OWN audio (or the floor)
-        floors = [_member_floor(s, group_segs) for s in auto_segs]
+        floors = [_member_floor(s, group_segs, pdir) for s in auto_segs]
         min_needed = round(sum(floors), 3)
         if rem_pool < min_needed:
             raise ValueError(
@@ -530,7 +544,7 @@ def set_duration(pdir, si, dur):
         _stale(pdir, [segs[i]["seg_index"] for i in group_indices])
         _log(pdir, "set_duration", seg=si, frm=old_dur, to=dur, mode="group_rebalance")
     else:
-        occ = _occupied(s)
+        occ = _occupied(s, pdir)
         if dur < max(MIN_SEG, occ):
             raise ValueError(
                 f"duration {dur}s is below the minimum for this segment "
@@ -1048,7 +1062,7 @@ def add_line(pdir, si, text, synth):
     out = os.path.join(_audio_dir(pdir), f"beat_{idx:03d}.mp3")
     synth(text, out)
     adur = _ffdur(out)
-    occ = _occupied(s)
+    occ = _occupied(s, pdir)   # after the REAL end of the audio already here
     bstart = round(s["start"] + (occ + GAP if occ else 0.0), 3)
     beat = {"index": idx, "text": text, "start": bstart,
             "end": round(bstart + adur, 3)}
@@ -1104,7 +1118,7 @@ def resize_after_tts(pdir, beat_index, new_dur):
                 for x in later:
                     x["start"] = round(x["start"] + diff, 3)
                     x["end"] = round(x["end"] + diff, 3)
-                s["dur"] = round(max(s["dur"] + diff, _occupied(s), MIN_SEG), 3)
+                s["dur"] = round(max(s["dur"] + diff, _occupied(s, pdir), MIN_SEG), 3)
                 _ripple(segs)
                 save(pdir, segs)
                 _stale(pdir, [s["seg_index"]])
@@ -1436,6 +1450,55 @@ def repair_slice_binding(pdir, dry_run=False):
     return {"repaired": fixed, "n": len(fixed),
             "overlaps_repaired": overlaps, "n_overlaps": len(overlaps),
             "dry_run": dry_run}
+
+
+def repair_all(pdir, dry_run=False):
+    """Every timeline repair, in the one order that is safe.
+
+    The single copy of this sequence — the board's repair button
+    (/api/storyboard/repair_slices), the Claude lab's post-build check and the
+    Gemini ingest all call it, so a repair added here reaches all three.
+    Shared-beat slicing runs before truncation so a line several segments
+    claim is sliced, not stretched.
+    """
+    bound = repair_slice_binding(pdir, dry_run=dry_run)
+    overlap = repair_overlapping_slices(pdir, dry_run=dry_run)
+    orphan = repair_orphaned_beats(pdir, dry_run=dry_run)
+    shared = repair_shared_beats(pdir, dry_run=dry_run)
+    truncated = repair_truncated_beats(pdir, dry_run=dry_run)
+    return {"rebound": bound, "overlaps": overlap, "orphaned": orphan,
+            "shared_beats": shared, "truncated": truncated,
+            "total": bound["n"] + len(overlap) + len(orphan) + len(shared)
+                     + len(truncated)}
+
+
+def check_and_repair(pdir):
+    """Check, repair, re-check a freshly built timeline. Never raises.
+
+    Both engines call this as their last step (Gemini ingest and the Claude
+    lab), so no chapter reaches the board in a state the renderer will
+    refuse. Faults the repairs cannot fix are REPORTED in the result, not
+    hidden. Returns {checked, errors_before, repaired, errors}.
+    """
+    out = {"errors": None, "repaired": 0, "checked": False}
+
+    def _count():
+        try:
+            return len(validate_timeline(pdir).get("errors") or [])
+        except Exception:
+            return None
+    before = _count()
+    if before is None:
+        return out
+    out["checked"] = True
+    out["errors_before"] = before
+    if before:
+        try:
+            out["repaired"] = repair_all(pdir)["total"]
+        except Exception:
+            out["repaired"] = 0
+    out["errors"] = _count()
+    return out
 
 
 # ------------------------------------------------- P0: hard timeline validation

@@ -985,46 +985,14 @@ def annotate_bubble_frac(descs, crops_dir):
 
 
 def _validate_own_timeline(pdir):
-    """Check, repair, re-check. Returns what the operator needs to know.
-
-    Runs the SAME repair set as POST /api/storyboard/repair_slices, in the same
-    order. It used to run only `repair_shared_beats` (352-lab-claude: 52 errors
-    to 20) and leave "a single panel whose window is shorter than its own
-    sentence" for the operator — but the board had no way to fix that either,
-    so the build shipped a timeline that could not render. repair_truncated_beats
-    now holds that panel long enough to keep every word. Anything still broken
-    afterwards is REPORTED.
-    """
-    out = {"errors": None, "repaired": 0, "checked": False}
+    """Check, repair, re-check — storyboard_edit.check_and_repair, the same
+    step the Gemini ingest ends with. It used to run only repair_shared_beats
+    (352-lab-claude: 52 errors to 20) and ship the rest unrenderable."""
     try:
         import storyboard_edit as SE
+        return SE.check_and_repair(pdir)
     except Exception:
-        return out
-    def _count():
-        try:
-            return len(SE.validate_timeline(pdir).get("errors") or [])
-        except Exception:
-            return None
-    before = _count()
-    if before is None:
-        return out
-    out["checked"] = True
-    out["errors_before"] = before
-    if before:
-        n = 0
-        for name in ("repair_slice_binding", "repair_overlapping_slices",
-                     "repair_orphaned_beats", "repair_shared_beats",
-                     "repair_truncated_beats"):
-            try:
-                res = getattr(SE, name)(pdir)
-            except Exception:
-                continue
-            # repair_slice_binding returns a summary dict (its own overlap
-            # pass is counted when repair_overlapping_slices runs next)
-            n += res.get("n", 0) if isinstance(res, dict) else len(res or [])
-        out["repaired"] = n
-    out["errors"] = _count()
-    return out
+        return {"errors": None, "repaired": 0, "checked": False}
 
 
 def _build_shots(crops, descs, beats, slots, crops_by_pid, build_segments,

@@ -2772,8 +2772,14 @@ def _run_finalize_job(job_id):
             if seg:
                 j["current_seg"] = si
                 _persist_job(job_id)
+                # Re-check THIS clip against the timeline as it is now: the
+                # board stays editable through a long render, so the gate
+                # at the start can be stale by the time a clip's turn comes.
+                _gate_timeline([si], "render")
                 _rerender(seg)
-                _write_segments(segs)
+                # No write-back: rendering never changes a segment, and
+                # writing the copy read before a ~13s render reverted any
+                # board edit saved meanwhile (358-lab-claude seg 66).
             j["done"] = n
             _persist_job(job_id)
         j["stage"] = "export"
@@ -2803,8 +2809,8 @@ def _run_render_job(job_id, seg_indices):
             segs = load_segments()
             seg = next((s for s in segs if s["seg_index"] == si), None)
             if seg:
-                _rerender(seg)
-                _write_segments(segs)
+                _gate_timeline([si], "render")   # timeline may have changed
+                _rerender(seg)                   # no stale write-back
             JOBS[job_id]["done"] += 1
         JOBS[job_id]["status"] = "done"
     except JobCancelled as e:
@@ -4590,22 +4596,9 @@ def sb_repair_slices(body: RepairIn):
         _snapshot()
     try:
         pdir = active_project_dir()
-        bound = storyboard_edit.repair_slice_binding(pdir, dry_run=body.dry_run)
-        overlap = storyboard_edit.repair_overlapping_slices(pdir, dry_run=body.dry_run)
-        orphan = storyboard_edit.repair_orphaned_beats(pdir, dry_run=body.dry_run)
-        # Several segments each claiming one whole sentence — the fault that
-        # blocked i-am-the-fated-villain_352 on 52 of 79 segments and that the
-        # three repairs above could not touch (they fixed 5).
-        shared = storyboard_edit.repair_shared_beats(pdir, dry_run=body.dry_run)
-        # Last: a lone beat whose real mp3 outruns its window (G2). Nothing
-        # above touches it because its json range fits (seg 5 / beat 4 case).
-        truncated = storyboard_edit.repair_truncated_beats(pdir, dry_run=body.dry_run)
-        return {"rebound": bound, "overlaps": overlap, "orphaned": orphan,
-                "shared_beats": shared, "truncated": truncated,
-                # bound is a summary dict — len() counted its 5 keys, so total
-                # was never 0 and the board's "nothing to repair" never showed
-                "total": bound["n"] + len(overlap) + len(orphan) + len(shared)
-                         + len(truncated)}
+        # One shared sequence (storyboard_edit.repair_all) — the lab and the
+        # Gemini ingest run the same one, so the three can never drift apart.
+        return storyboard_edit.repair_all(pdir, dry_run=body.dry_run)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
