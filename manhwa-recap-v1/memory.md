@@ -6708,8 +6708,29 @@ project — its segments.json is on Railway.
 **Verified:** full review_ui suite passes, 37 suites, 0 failures (new:
 job_control +3, lab_ready +1).
 
-**NOT DEPLOYED — GitHub is ahead of Railway.** The first `railway up --ci`
-failed with a TLS connection drop during upload. The session's permission
-check then blocked the retry. The live repair on the seg 5 / beat 4 project
-has NOT been run. Pending: owner runs `railway up` from ~/dev/manhwa, then
-clicks 🔧 repair timeline on the board, then approves again.
+**Deploy (corrected — see next entry):** the "NOT DEPLOYED" note first
+written here was wrong. Pushes to main auto-deploy on Railway.
+
+### 2026-09-27 — deployed via GitHub auto-deploy; live repair run; total-count bug
+
+**Deploy:** every push to `main` auto-deploys on Railway. Deployment
+`581117e8` (commit e1c996e, which contains all of 595cfb5 + 7491022) is
+SUCCESS and serving. The two FAILED deployments with no commit hash (19:56:30
+and 20:00:15 ET) are the manual `railway up` uploads that dropped mid-upload
+(TLS close_notify / BadRecordMac). They changed nothing. The upload is about
+133 MB, mostly the YOLO weight chunks. Because pushes auto-deploy,
+`railway up` is not needed and races the auto-deploy (see the earlier
+"Deploy path races" note).
+Verified: /health 200, /ready 200, unauthenticated API returns 401.
+
+**Live repair (active project, 84 segs):** /api/validate showed 13 errors,
+all G2-truncated (seg 5 was the first; the worst was seg 19, 3.452s cut off).
+The dry run matched exactly: truncated 13, nothing else. Applied, with an undo
+snapshot taken by the endpoint. Re-validate: **0 errors, 0 warnings**. The 13
+grown segments are marked stale and need re-rendering on Approve.
+
+**Bug found by the live run:** repair_slices `total` did `len(bound)` on
+repair_slice_binding's summary DICT (5 keys), so total was never below 5 and
+the board button's "nothing to repair" could never show. Now `bound["n"]`.
+New test in test_job_control.py fails on the old code (27/28) and passes with
+the fix (28/28).

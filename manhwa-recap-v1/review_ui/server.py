@@ -4602,7 +4602,9 @@ def sb_repair_slices(body: RepairIn):
         truncated = storyboard_edit.repair_truncated_beats(pdir, dry_run=body.dry_run)
         return {"rebound": bound, "overlaps": overlap, "orphaned": orphan,
                 "shared_beats": shared, "truncated": truncated,
-                "total": len(bound) + len(overlap) + len(orphan) + len(shared)
+                # bound is a summary dict — len() counted its 5 keys, so total
+                # was never 0 and the board's "nothing to repair" never showed
+                "total": bound["n"] + len(overlap) + len(orphan) + len(shared)
                          + len(truncated)}
     except ValueError as e:
         raise HTTPException(400, str(e))

@@ -190,6 +190,21 @@ def main():
         for k, v in saved.items():
             setattr(srv, k, v)
 
+    # ---- repair_slices reports 0 on a healthy timeline (it used to add the
+    # 5 keys of repair_slice_binding's summary dict, so never showed "nothing")
+    import json, tempfile
+    pdir = tempfile.mkdtemp(prefix="repair_total_")
+    json.dump([{"seg_index": 0, "start": 0.0, "end": 2.0, "dur": 2.0,
+                "silent_hold": True, "beats": []}],
+              open(os.path.join(pdir, "segments.json"), "w"))
+    saved_apd = srv.active_project_dir
+    try:
+        srv.active_project_dir = lambda: pdir
+        res = srv.sb_repair_slices(srv.RepairIn(dry_run=True))
+        r.append(("repair_slices totals 0 on a healthy timeline", res["total"] == 0))
+    finally:
+        srv.active_project_dir = saved_apd
+
     for name, ok in r:
         print(("PASS " if ok else "FAIL ") + name)
     n = sum(1 for _, ok in r if ok)
