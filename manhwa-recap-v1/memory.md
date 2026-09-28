@@ -6734,3 +6734,6 @@ repair_slice_binding's summary DICT (5 keys), so total was never below 5 and
 the board button's "nothing to repair" could never show. Now `bound["n"]`.
 New test in test_job_control.py fails on the old code (27/28) and passes with
 the fix (28/28).
+**Post-deploy check:** 80ce8f4 auto-deployed (SUCCESS). /health 200. A live
+dry run of repair_slices now returns total 0 on the repaired project.
+Pending: the owner clicks Approve to re-render the 13 grown segments.
