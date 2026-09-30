@@ -87,18 +87,33 @@ def segment_beats(script_text: str):
 
 def segment_beats_scenes(scenes):
     """Provenance-aware segmentation (B1): `scenes` is the structured script
-    [{"scene_id", "panel_ids", "text"}, ...] written by narrate. Each scene's
+    [{"scene_id", "panel_ids", "text", "silent"}, ...] written by narrate. Each scene's
     text is segmented independently, beats are re-indexed globally, and every
     beat carries its scene_id + panel_ids so the matcher can constrain
     placement to the panels the text was actually written about."""
     beats, idx = [], 0
     for sc in scenes:
-        for b in segment_beats(sc["text"]):
-            b["index"] = idx
-            b["scene_id"] = sc["scene_id"]
-            b["panel_ids"] = list(sc.get("panel_ids") or [])
-            beats.append(b)
+        pids = list(sc.get("panel_ids") or [])
+        txt = (sc.get("text") or "").strip()
+        is_silent = sc.get("silent", False) or not txt
+        if is_silent:
+            beats.append({
+                "index": idx,
+                "scene_id": sc["scene_id"],
+                "panel_ids": pids,
+                "text": "",
+                "word_count": 0,
+                "silent": True,
+            })
             idx += 1
+        else:
+            for b in segment_beats(txt):
+                b["index"] = idx
+                b["scene_id"] = sc["scene_id"]
+                b["panel_ids"] = pids
+                b["silent"] = False
+                beats.append(b)
+                idx += 1
     return beats
 
 

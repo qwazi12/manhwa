@@ -67,6 +67,9 @@ def build_segments(shots):
     for seg in segments:
         seg["dur"] = round(seg["end"] - seg["start"], 3)
         seg["clip"] = f"clips/seg_{seg['seg_index']:03d}.mp4"
+        seg["silent_hold"] = all(sh.get("silent") or not sh.get("text") for sh in seg.get("beats", []))
+        if "user_included" not in seg:
+            seg["user_included"] = not seg["silent_hold"]
     return segments
 
 

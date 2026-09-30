@@ -387,7 +387,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             progress_cb=lambda i, n, phase: progress(
                 "narrate", f"narration {phase} — unit {i}/{n}…",
                 60 + int(8 * i / max(n, 1))))
-        open(script_path, "w").write(script)
+        open(script_path, "w").write(narrate.strip_anchored_tags(script) if hasattr(narrate, "strip_anchored_tags") else script)
         direct_record = dict(narrate.LAST_DIRECT_SPEECH)
         json.dump(direct_record, open(ds_path, "w"), indent=1, ensure_ascii=False)
         scenes = narrate.provenance(results)
@@ -410,10 +410,13 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     import server as srv  # reuse the REST TTS helper (certifi CA, no SDK)
     t = 0.0
     for i, b in enumerate(beats):
-        out = os.path.join(audio, f"beat_{b['index']:03d}.mp3")
-        if not os.path.exists(out):
-            srv._synth_rest(b["text"], out)
-        d = _dur(out)
+        if b.get("silent") or not (b.get("text") or "").strip():
+            d = 1.0
+        else:
+            out = os.path.join(audio, f"beat_{b['index']:03d}.mp3")
+            if not os.path.exists(out):
+                srv._synth_rest(b["text"], out)
+            d = _dur(out)
         b["start"], b["end"] = round(t, 3), round(t + d, 3)
         # E3: scene-aware rhythm — a longer breath at scene boundaries,
         # tighter flow within a scene (flat 0.35s when no provenance).

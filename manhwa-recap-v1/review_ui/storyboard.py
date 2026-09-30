@@ -219,7 +219,8 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     # ticked AND not rejected. Stamped per segment so the row controls, the
     # counters and the dead-air chip can never disagree with the export.
     for s in segs:
-        s["in_video"] = bool(s.get("user_included")) and \
+        _inc_default = not s.get("silent_hold", False)
+        s["in_video"] = bool(s["user_included"] if "user_included" in s else _inc_default) and \
             review.get(str(s["seg_index"]), {}).get("status") != "rejected"
 
     # V1/V5 (Session 23 video review): every card used to show its slot on the

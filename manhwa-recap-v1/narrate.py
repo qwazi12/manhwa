@@ -338,7 +338,15 @@ STYLE CONTRACT (every rule mandatory):
 4b. Each scene continues where the previous narration left off — never re-introduce or re-tell events already covered (the chapter summary shows you where you are in the story). {style_rules.BRIDGE}
 5. Appearance, clothing, and setting details appear ONLY when plot-relevant or atmosphere-setting — one economical touch, not an inventory.
 6. Enrichment policy: infer motive, emotion, and subtext when the art or dialogue clearly implies it; smooth small gaps the way a recap narrator who knows the story would. NEVER invent names, numbers, backstory, or events without support in the panels. Refer to characters by rotating references — {NAME_HINT} — and never use a name the panels have not given.
-7. DENSITY IS EDITORIAL, NOT MECHANICAL: narrate the story, not the panels. A run of panels showing one continuous action gets ONE sentence. A filler/transition panel earns ZERO sentences. Only a true story peak earns 2-3 sentences. Never average "sentences per panel".
+7. PANEL-ANCHORED STORYTELLING: Every described panel in this scene represents an on-screen moment and must be accounted for. Retell the story smoothly while locking each beat to its corresponding panel:
+- For each panel, output a narration sentence prefixed by its ID:
+  [ID: <panel_id>] <one clear, flowing narrative sentence>
+- ACTION PAIRS: If two consecutive panels depict one rapid continuous action (e.g. blade drawn -> strike), you may link them as an action pair under a single sentence:
+  [ID: <panel_id_1>, <panel_id_2>] <one flowing sentence covering both visual beats>
+- TRANSITION / MOOD PANELS: If a panel is purely a background transition, establishing atmosphere, or drawn sound effect with no human action, write a brief atmospheric touch or mark:
+  [ID: <panel_id>] (silent)
+- DIALOGUE FIDELITY: Any panel with dialogue visible in its text block MUST be reflected in reported speech (or an approved direct quote). Never drop dialogue.
+- DYNAMIC PACING: Keep sentences punchy and continuous (~10-15 words per line) so the video has engaging, lively cuts (~4-5s per panel).
 {style_rules.rules(8)}
 
 VOICE ANCHOR (match this cadence — sentences that move, reported speech except for an approved direct line, zero scenery padding):
@@ -347,16 +355,16 @@ VOICE ANCHOR (match this cadence — sentences that move, reported speech except
 - "Somewhere in that laughter, something in him finally settled. He had needed the reminder, he thought, that he was no longer the man from those glory days."
 - The old man did not lower the crossbow. "One more step," he said, "and you leave through the window." Nobody moved.   <- an approved direct line: a short beat before, the words, a plain tag, a consequence after — the narrator's own voice throughout
 
-OUTPUT: only the raw storytelling text — no preamble, labels, or panel references.
-
 PANELS (in order):
 {panel_block}
 
 {direct_speech.scene_block(direct_lines)}
 
-STRICT LENGTH BUDGET: write AT MOST {budget or word_budget(len(scene_panels), dialogue_lines(scene_panels))} words for this ENTIRE scene — count them. Compress ruthlessly: pick only the events that move the story, fold the rest into them or skip them outright.
+OUTPUT FORMAT:
+Output each panel line prefixed by its ID, in order. Do not include conversational preamble or markdown headers. Every panel ID in the list must be accounted for:
+[ID: <panel_id>] <story sentence>
 
-Write the narration for this scene now, at story density (far fewer sentences than panels):"""
+Write the panel-anchored narration for this scene now:"""
 
 
 def generate_global_beatsheet(panels, model="gemini-3.5-flash"):
@@ -621,14 +629,88 @@ def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
     return full_script, results
 
 
+
+def parse_anchored_narrations(raw_text, scene_panels):
+    """Parse panel-anchored lines from model output.
+    Format: [ID: <panel_id>] <sentence> or [ID: <id1>, <id2>] <sentence>.
+    Falls back gracefully to sentence-by-sentence mapping if the model emitted raw prose."""
+    pids = [p["panel_id"] for p in scene_panels]
+    pid_set = set(pids)
+    items = []
+    seen = set()
+
+    lines = [ln.strip() for ln in raw_text.strip().splitlines() if ln.strip()]
+    has_tags = any(re.match(r"^\[(?:ID:)?\s*[^\]]+\]", ln, re.I) for ln in lines)
+
+    if has_tags:
+        for line in lines:
+            m = re.match(r"^\[(?:ID:)?\s*([^\]]+)\]\s*(.*)$", line, re.I)
+            if m:
+                raw_ids, txt = m.group(1), m.group(2).strip()
+                candidate_ids = [x.strip() for x in re.split(r"[, ]+", raw_ids) if x.strip() in pid_set]
+                if candidate_ids:
+                    is_silent = txt.lower() in ("(silent)", "[silent]", "silent", "(pause)", "")
+                    items.append({
+                        "panel_ids": candidate_ids,
+                        "text": "" if is_silent else txt,
+                        "silent": is_silent
+                    })
+                    seen.update(candidate_ids)
+                elif txt:
+                    if items:
+                        items[-1]["text"] = (items[-1]["text"] + " " + txt).strip()
+            else:
+                if items:
+                    items[-1]["text"] = (items[-1]["text"] + " " + line).strip()
+
+        for p in scene_panels:
+            pid = p["panel_id"]
+            if pid not in seen:
+                items.append({"panel_ids": [pid], "text": "", "silent": True})
+    else:
+        # Fallback: model returned untagged prose. Split into sentences and map to panels.
+        import beat_segmenter
+        sentences = [b["text"] for b in beat_segmenter.segment_beats(raw_text)]
+        if not sentences:
+            sentences = [raw_text.strip()]
+        for i, p in enumerate(scene_panels):
+            pid = p["panel_id"]
+            if i < len(sentences):
+                items.append({"panel_ids": [pid], "text": sentences[i], "silent": False})
+            else:
+                items.append({"panel_ids": [pid], "text": "", "silent": True})
+        if len(sentences) > len(scene_panels) and items:
+            extra = " ".join(sentences[len(scene_panels):])
+            items[-1]["text"] = (items[-1]["text"] + " " + extra).strip()
+
+    return items
+
+
+def strip_anchored_tags(text):
+    """Strip [ID: ...] tags from script text for clean reading and TTS."""
+    clean_lines = []
+    for line in text.splitlines():
+        line = re.sub(r"^\[(?:ID:)?\s*[^\]]+\]\s*", "", line.strip(), flags=re.I).strip()
+        if line and line.lower() not in ("(silent)", "[silent]", "silent", "(pause)"):
+            clean_lines.append(line)
+    return "\n\n".join(clean_lines)
+
+
 def provenance(results):
     """Structured script (B1): which panels each scene's text was written
-    about. Persisted as script.json so downstream stages never have to
-    reverse-engineer the panel<->narration mapping the narrator already knew."""
-    return [{"scene_id": i,
-             "panel_ids": [p["panel_id"] for p in scene_panels],
-             "text": text}
-            for i, (scene_panels, text) in enumerate(results)]
+    about. Now panel-anchored: parses [ID: ...] tags so every described panel
+    maps to its exact beat rather than guessing downstream."""
+    scenes = []
+    for i, (scene_panels, text) in enumerate(results):
+        items = parse_anchored_narrations(text, scene_panels)
+        for item in items:
+            scenes.append({
+                "scene_id": i,
+                "panel_ids": item["panel_ids"],
+                "text": item["text"],
+                "silent": item.get("silent", False),
+            })
+    return scenes
 
 
 if __name__ == "__main__":

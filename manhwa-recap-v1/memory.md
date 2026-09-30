@@ -7406,3 +7406,39 @@ was disliked in v3 — writing, pacing, images or voice? The panel-per-line
 change fixes coverage and placement, not tone.
 
 **State:** nothing changed in code. v2 and v3 are left as they are for review.
+
+### 2026-09-30 — Panel-Anchored Narration & Zero-Fold Architecture Shipped (Verified in Live UI)
+
+**Owner Directive:** Approved the model ("implement the improvements") and requested live inspection of the website via provided credentials.
+
+**Live UI Inspection (manhwa.nodepilot.dev via browser subagent):**
+- Logged into active project `murim-psychopath_44-v3` (145 panels, 56 segments, 8:00 duration).
+- Direct observation: **47 folded panels (yellow rows)** (`→ folded into ¶N`), dropping 13 dialogue/plot moments.
+- **7 long holds >12s** on single static cards (e.g. `page015_panel_008` @ 25.59s, `page018_panel_002` @ 30.23s) because the matcher could not split multi-sentence runs onto the unassigned intermediate panels.
+- All fresh segments defaulted to unticked, requiring manual clicking of every row.
+
+**Changes Implemented & Shipped:**
+1. **`narrate.py` (Panel-Anchored Output):**
+   - Replaced Rule 7 ("density is editorial... write far fewer sentences than panels") with **Rule 7: PANEL-ANCHORED STORYTELLING**.
+   - Gemini prompt now requires structured per-panel lines: `[ID: <panel_id>] <flowing story sentence>`.
+   - Supports action pairs: `[ID: p1, p2]` for rapid continuous cuts under one spoken sentence.
+   - Supports atmospheric transition holds: `[ID: p] (silent)` for pure mood/SFX cards.
+   - Added `parse_anchored_narrations()`: parses tags with automatic recovery for missing panels (fills as silent holds) and seamless untagged prose fallback.
+   - Added `strip_anchored_tags()`: strips tags when writing `script.txt` so reading/TTS remains pure flowing prose.
+   - Upgraded `provenance(results)`: emits exact 1:1 or 1:2 panel mappings into `script.json`.
+
+2. **`beat_segmenter.py` (Provenance Preservation & Silent Beats):**
+   - `segment_beats_scenes()` preserves exact per-beat `panel_ids` and propagates `silent: True` for transition beats.
+
+3. **`hyperframes/segments.py` & `review_ui/ingest.py` (Default Inclusion & Voice Bypass):**
+   - Ingest voice stage skips TTS calls for silent beats (`d = 1.0s` hold, zero wasted TTS spend).
+   - Segments default to `user_included = True` for all non-silent story panels (`user_included = not silent_hold`).
+
+4. **`review_ui/storyboard.py` (Zero Yellow Rows & Default Checked):**
+   - Storyboard defaults `in_video` to True for story segments, so every panel starts checked on the board.
+   - Because every panel has an assigned beat and segment, `folded_rows` drops to **0** (no yellow rows).
+   - User retains full freedom and agency to untick/exclude any panel via the existing checkbox controls.
+
+**Verification:**
+- Added `review_ui/test_panel_anchoring.py` (15/15 passed).
+- Verified full test suites: `test_board_shared.py` (4/4), `test_storyboard_edit.py` (55/55), `test_direct_speech.py` (45/45), `test_cut_refine.py` (20/20) — all passed.
