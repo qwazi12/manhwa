@@ -1,9 +1,8 @@
 # Craft reconciliation — storytelling guide × narration pipeline × current scripting
 
-**Status:** PROPOSAL, awaiting owner approval. Nothing in `narrate.py`,
-`claude_plus.py`, `describe.py`, `beat_segmenter.py`, the TTS path, or any test
-has been changed. Every code change below is written out so it can be reviewed
-in one pass; none is applied.
+**Status:** APPROVED 2026-09-29 with the owner's answers in §12 (they
+override anything earlier in this doc that disagrees). **P0 and P1 are
+implemented** (see §12). P2–P4 are not started.
 
 **Inputs reconciled**
 - `docs/storytelling-guide.md` and `docs/narration-pipeline.md` (the owner's
@@ -509,3 +508,67 @@ through the usage guardrail — needs a go-ahead.
    scene so the direct line can be *heard*.
 4. Everything logged to `manhwa-recap-v1/memory.md`; every push preceded by an
    in-flight job check.
+
+---
+
+## 12. Owner decisions (2026-09-29) and P0/P1 results
+
+### Decisions — these override the proposals above
+- **Q1 Tone:** follow the guide. No meta jokes, no asides, no questions to the
+  listener. The reference recap's tone is rejected. Rule 13 stands as written.
+- **Q2 Direct-speech cap: 2–3 lines per CHAPTER, not per scene** — the
+  reference's actual density — reserved for the most pivotal lines. Rule 3's
+  "at most TWO direct lines per scene" becomes: *"Direct speech is RARE: the
+  whole chapter gets two or three direct lines, no more, and only the most
+  pivotal ones — the line the chapter turns on. The chapter summary marks which
+  lines those are; every other line is reported."* Because the cap is
+  chapter-wide and scenes are written separately, it cannot be left to each
+  scene's writer: the beatsheet pass selects the 2–3 lines (by panel and
+  text), each scene prompt is told which of them fall in its scene, and a code
+  check counts quotes across the whole script. The eval check in §7a changes
+  from "at most 2 per scene" to "2–3 per chapter".
+- **Q3 Test chapter:** Murim Psychopath ch.44 (rerun if needed).
+- **Q4 Profanity:** keep mild profanity verbatim; soften or bleep harsher words
+  for platform safety. This needs a word list (mild/harsh) applied in the
+  `speakable()` step (§7g), so the script keeps the page's words while the
+  audio is safe. The list is to be proposed with P2.
+- **Q5 Listening test:** yes. Pause/pacing variants are played to the owner
+  before anything is kept.
+
+### P0 — implemented
+`manhwa-recap-v1/ocr_lines.py` (one module used by both engines and the
+reader): drawn non-English SFX never count toward the word budget, and the
+writer sees them as `[sound effect]`, never as glyphs. The Gemini reader
+(`describe.py`) and the Claude reader (`claude_plus.DESCRIBE_SYSTEM`) are told
+to describe such SFX in English instead of copying them. `ocr_text` no longer
+carries them.
+
+### P1 — implemented, and measured on real ch.44 art
+Both readers return `lines` (text, type, speaker, speaker_basis, lang),
+normalised by `ocr_lines.normalize_lines`. `ocr_text` is rebuilt from `lines`,
+so the two cannot disagree. Old projects without `lines` render exactly as
+before (tested). The writer's prompt now shows each bubble with its type,
+speaker and basis.
+
+Run of the new Gemini reader on 32 ch.44 panels (pages 2 and 13):
+- **SFX: every Korean sound effect came back as an English description**
+  ("whoosh of fire", "loud explosion", "heavy drum thud"). No glyphs.
+- **Speakers:** where a basis of `tail`/`position` was given, the speakers
+  checked against the art were correct or reasonable (e.g. a tail-less burst
+  bubble over the protagonist credited to him).
+- **Finding 1 — labels drift between panels.** The reader sees one panel at a
+  time, so the same man was "the wild-haired man", "the curly-haired man"
+  and possibly "the dark-haired warrior" on nearby pages. Labels are
+  descriptions, not identities. **Added guard for P2:** a line is quotable
+  only if its basis is `tail`/`position` AND its label can be matched to a
+  named character in the chapter summary. Otherwise it is reported. (A
+  chapter-level character list — the pipeline doc's "character bible" — is
+  the durable fix; it is deferred.)
+- **Finding 2 — a monologue split across panels gets inconsistent types.**
+  "HOW DID / YEON YOUNGHA KNOW / I'D PASS THROUGH / HERE?" came back as
+  sfx/caption/caption/shout, with no speaker. That is safe (none of it is
+  quotable), but it means `type` is advisory, not reliable.
+- **Type errors seen:** a normal speech bubble labelled `thought` (1 of 3 on
+  page 13).
+- Budget count: captions still count (as they did before); only sound effects
+  are excluded.

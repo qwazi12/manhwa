@@ -34,8 +34,14 @@ import json
 import os
 import re
 
+import sys
 import usage
 import validator
+
+_RECAP_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+if _RECAP_DIR not in sys.path:
+    sys.path.insert(0, _RECAP_DIR)
+import ocr_lines   # one parser for per-bubble lines, shared with narrate.py
 from claude_pipeline import (_Tally, _clean_crop, _image_block, _write, read,
                              out_dir, MODEL, EFFORT, PANELS_PER_CALL,
                              SCRIPT_CHUNK)
@@ -84,10 +90,11 @@ bottom). For each panel image you are given, return what an automated recap \
 pipeline needs to work from.
 
 OCR (`ocr`)
-- Transcribe EVERY piece of text visible in the panel exactly as written: \
-dialogue, narration boxes, sound effects, signs. Names, curses and sound \
-effects all matter — they are the sharpest signal for matching a line to a \
-panel later.
+- Transcribe EVERY piece of English text visible in the panel exactly as \
+written: dialogue, narration boxes, sound effects, signs. Names, curses and \
+sound effects all matter — they are the sharpest signal for matching a line to \
+a panel later. Do NOT copy sound-effect lettering drawn in Korean, Japanese or \
+Chinese script into `ocr` (see `lines`).
 - Join separate text blocks with " / " in reading order.
 - Keep punctuation-only bubbles as they are ("!!!", "ACK!!").
 - Empty string if the panel genuinely has no text.
@@ -124,6 +131,24 @@ plot or backstory.
 specific and correct. Lower it when the art is ambiguous, the subject is \
 unclear, or the best you can honestly write would fit many panels.
 
+LINES (`lines`) — one entry per speech bubble, thought bubble, narration box \
+and sound effect, in reading order (top to bottom, then left to right); an \
+empty list if the panel has no text.
+- `text`: the exact words of that one bubble or box.
+- `type` from the outline: smooth oval = "speech", spiky/burst = "shout", \
+dotted or tiny text = "whisper", cloud or inner-voice box = "thought", \
+rectangle = "caption", lettering drawn into the art = "sfx".
+- `speaker`: a name ONLY if these panels show it, otherwise a short visual label \
+("the old man"); "" for captions and sound effects.
+- `speaker_basis`: "tail" (the bubble's tail points to them), "position" (no \
+tail; the bubble sits beside them), "context" (inferred from what is said) or \
+"guess". Be honest — a wrong speaker is worse than an admitted guess.
+- `lang`: "en", "ko", "ja", "zh" or "other".
+- Sound effects drawn in Korean, Japanese or Chinese script: NEVER copy, \
+romanize or translate the characters. Set `lang` to the script's language and \
+put a two-to-four word English description of the sound in `text` \
+("heavy metal impact").
+
 Also return:
 - `is_credits` — true for a scanlation credits, watermark or advertising block.
 - `subject_type` — one of "character", "environment", "action", "text", \
@@ -151,10 +176,27 @@ DESCRIBE_SCHEMA = {
                     "subject_type": {"type": "string"},
                     "importance": {"type": "integer"},
                     "needs_review": {"type": "boolean"},
+                    "lines": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string"},
+                                "type": {"type": "string", "enum": list(ocr_lines.LINE_TYPES)},
+                                "speaker": {"type": "string"},
+                                "speaker_basis": {"type": "string",
+                                                  "enum": list(ocr_lines.SPEAKER_BASES)},
+                                "lang": {"type": "string"},
+                            },
+                            "required": ["text", "type", "speaker",
+                                         "speaker_basis", "lang"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "required": ["n", "ocr", "ocr_confidence", "description",
                              "desc_confidence", "is_credits", "subject_type",
-                             "importance", "needs_review"],
+                             "importance", "needs_review", "lines"],
                 "additionalProperties": False,
             },
         },
@@ -279,7 +321,12 @@ def describe_plus(pdir, panels, model=None, progress=None, on_batch=None,
             if rec is None:
                 continue                     # a panel we did not send is noise
             desc = (item.get("description") or "").strip()
+            lines = ocr_lines.normalize_lines(item.get("lines"))
             ocr = (item.get("ocr") or "").strip()
+            # same rule as describe.py: ocr_text is rebuilt from lines when
+            # present, else the reader's string minus drawn non-English SFX
+            ocr = (ocr_lines.ocr_from_lines(lines) if lines
+                   else " / ".join(ocr_lines.speech_segments(ocr)))
             is_cred = bool(item.get("is_credits"))
             # A panel with nothing at all is only acceptable when it is
             # explicitly a blank or a credits block; otherwise the read failed
@@ -292,6 +339,7 @@ def describe_plus(pdir, panels, model=None, progress=None, on_batch=None,
                 "width": rec.get("width"), "height": rec.get("height"),
                 "n": rec["_n"],
                 "ocr_text": ocr,
+                "lines": lines,
                 "ocr_confidence": _clamp01(item.get("ocr_confidence")),
                 "visual_description": desc,
                 "desc_confidence": _clamp01(item.get("desc_confidence")),
@@ -411,7 +459,7 @@ def chapter_map(descs, model=None, progress=None):
         progress(f"Claude mapping the chapter ({len(descs)} panels)")
     payload = json.dumps(
         [{"panel": d["n"], "shows": (d.get("visual_description") or "")[:220],
-          "text": (d.get("ocr_text") or "")[:140],
+          "text": ocr_lines.prompt_ocr(d.get("ocr_text"))[:140],
           "credits": bool(d.get("is_credits"))} for d in descs],
         ensure_ascii=False, indent=1)
     resp, meter, cost = validator._call_claude(
@@ -433,10 +481,12 @@ def chapter_map(descs, model=None, progress=None):
 
 # ====================================================== STAGE: SCRIPT
 def dialogue_lines(panels):
-    """Panels carrying a real utterance, not a grunt or a sound effect."""
+    """Panels carrying a real utterance, not a grunt or a sound effect.
+    Drawn non-English SFX never count (they used to: three Hangul syllables
+    passed the three-word test — docs/craft_reconciliation.md P0)."""
     n = 0
     for p in panels:
-        t = (p.get("ocr_text") or "").strip()
+        t = " ".join(ocr_lines.speech_segments(p.get("ocr_text")))
         if len(t.split()) >= 3 and not p.get("is_credits"):
             n += 1
     return n
@@ -540,8 +590,11 @@ def build_scene_prompt(scene, panels, cmap, budget, running_summary, tail):
     lines = []
     for p in panels:
         bits = [f"PANEL {p['n']}: {(p.get('visual_description') or '')[:240]}"]
-        if (p.get("ocr_text") or "").strip() and not p.get("is_credits"):
-            bits.append(f"  TEXT: {(p.get('ocr_text') or '')[:200]}")
+        if not p.get("is_credits"):
+            if p.get("lines"):
+                bits.append(ocr_lines.prompt_block(p))
+            elif ocr_lines.prompt_ocr(p.get("ocr_text")):
+                bits.append(f"  TEXT: {ocr_lines.prompt_ocr(p.get('ocr_text'))[:200]}")
         if p.get("is_credits"):
             bits.append("  (credits/watermark — carries no story)")
         lines.append("\n".join(bits))
@@ -725,8 +778,8 @@ def critique(units, descs, model=None, progress=None):
     for u in units:
         facts = " | ".join(
             (by_n[n].get("visual_description") or "")[:110]
-            + (f" [text: {(by_n[n].get('ocr_text') or '')[:60]}]"
-               if (by_n[n].get("ocr_text") or "").strip() else "")
+            + (f" [text: {ocr_lines.prompt_ocr(by_n[n].get('ocr_text'))[:60]}]"
+               if ocr_lines.prompt_ocr(by_n[n].get("ocr_text")) else "")
             for n in u.get("panel_numbers", []) if n in by_n)
         blocks.append(f"UNIT {u['scene_id']}\nPANEL FACTS: {facts}\n"
                       f"DRAFT: {u['text']}")

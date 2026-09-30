@@ -32,6 +32,7 @@ import re
 import sys
 
 import matcher
+import ocr_lines
 
 # Cost/abuse guardrails (review_ui/usage.py) — optional no-op if unavailable.
 _REVIEW_UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "review_ui")
@@ -283,12 +284,10 @@ def merge_into_units(scenes, max_panels=10):
 
 
 def dialogue_lines(panels):
-    """Count distinct dialogue utterances across panels (describe.py joins
-    bubbles with ' / ')."""
-    n = 0
-    for p in panels:
-        n += sum(1 for part in p.get("ocr_text", "").split("/") if part.strip())
-    return n
+    """Count distinct dialogue utterances across panels. Drawn non-English
+    sound effects are NOT dialogue — they used to be 23-29% of this count,
+    each padding the word budget by 7 words (docs/craft_reconciliation.md P0)."""
+    return sum(ocr_lines.dialogue_count(p) for p in panels)
 
 
 def word_budget(n_panels, n_dialogue=0):
@@ -305,8 +304,11 @@ def build_prompt(scene_panels, global_beatsheet=None, budget=None):
         desc = p.get("visual_description", "").strip()
         ocr = p.get("ocr_text", "").strip()
         entry = f"Panel {i} (ID: {p.get('panel_id')}): {desc}"
-        if ocr:
-            entry += f'\n  Dialogue/text visible in this panel: "{ocr}"'
+        # not gated on `ocr`: a panel whose only text is a drawn SFX has an
+        # empty ocr_text but still an [sfx] line the writer should see
+        text_block = ocr_lines.prompt_block(p)
+        if text_block:
+            entry += "\n" + text_block
         lines.append(entry)
     panel_block = "\n".join(lines)
 
@@ -362,6 +364,7 @@ def generate_global_beatsheet(panels, model="gemini-3.5-flash"):
         desc = p.get("visual_description", "").strip()
         ocr = p.get("ocr_text", "").strip()
         entry = f"Panel {i} ({p.get('panel_id')}): {desc}"
+        ocr = ocr_lines.prompt_ocr(ocr)
         if ocr:
             entry += f" [Dialogue: {ocr}]"
         lines.append(entry)
@@ -426,7 +429,8 @@ def critique_units(results, model, api_key):
         pids = ", ".join(p["panel_id"] for p in scene_panels)
         facts = " | ".join(
             f"{p.get('visual_description','')[:110]}"
-            + (f" [text: {p.get('ocr_text','')[:60]}]" if p.get("ocr_text") else "")
+            + (f" [text: {ocr_lines.prompt_ocr(p.get('ocr_text'))[:60]}]"
+               if ocr_lines.prompt_ocr(p.get("ocr_text")) else "")
             for p in scene_panels)
         lines.append(f"UNIT {i} (panels: {pids})\nPANEL FACTS: {facts}\nDRAFT: {text}")
     prompt = f"""You are a fact-checking script editor for a comic-recap narration. For each UNIT below, compare the DRAFT narration against the PANEL FACTS it was written from.

@@ -241,6 +241,7 @@ def act_redescribe(pdir, params):
     descs, rec, fresh = _describe(pdir, panel_id)
     before = rec.get("visual_description", "")
     rec["ocr_text"] = fresh.get("ocr_text", "")
+    rec["lines"] = fresh.get("lines", [])   # keep lines and ocr_text in step
     rec["visual_description"] = fresh.get("visual_description", "")
     rec["source"] = fresh.get("source", rec.get("source"))
     rec["ok"] = bool(fresh.get("ok"))
@@ -262,6 +263,7 @@ def act_reocr(pdir, params):
     descs, rec, fresh = _describe(pdir, panel_id)
     before = rec.get("ocr_text", "")
     rec["ocr_text"] = fresh.get("ocr_text", "")
+    rec["lines"] = fresh.get("lines", [])   # a stale lines list would contradict it
     _write_json(_descriptions(pdir), descs)
     return {"changed": "descriptions", "before": before,
             "after": rec["ocr_text"],

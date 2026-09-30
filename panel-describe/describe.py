@@ -9,6 +9,10 @@ For each clean panel image, produce:
       "height": int,
       "bbox": [0, 0, w, h],     # panel's own frame (full image here)
       "ocr_text": str,          # dialogue / bubble / caption text in the panel
+                                # (English; drawn non-English SFX left out)
+      "lines": [ {text, type, speaker, speaker_basis, lang} ],
+                                # one per bubble/caption/SFX, reading order —
+                                # see manhwa-recap-v1/ocr_lines.py
       "visual_description": str,# what is happening, who's in frame, mood, action
       "source": str,            # which engine produced this ("gemini" | "tesseract" | "none")
       "ok": bool                # whether description succeeded
@@ -48,12 +52,26 @@ try:
 except ImportError:
     usage = None
 
+# One canonical parser for the reader's per-bubble `lines`, shared with both
+# narration engines (manhwa-recap-v1/ocr_lines.py).
+_RECAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "manhwa-recap-v1")
+if os.path.isdir(_RECAP) and _RECAP not in sys.path:
+    sys.path.insert(0, _RECAP)
+import ocr_lines
+
 # ---- the instruction given to the vision model, per panel ----
 VISION_PROMPT = """You are analyzing a single panel from a manhwa/webtoon chapter.
 Return ONLY a JSON object (no markdown, no code fences) with exactly these keys:
 
 {
-  "ocr_text": "<ALL readable text in speech bubbles, captions, or sound effects, joined with ' / '. Transcribe EXACTLY as written — names, curses, sound effects all matter for matching. Empty string if none.>",
+  "ocr_text": "<ALL readable English text in speech bubbles, captions, or sound effects, joined with ' / '. Transcribe EXACTLY as written — names, curses, sound effects all matter for matching. Do NOT copy sound-effect lettering drawn in Korean, Japanese or Chinese script. Empty string if none.>",
+  "lines": [
+    {"text": "<the exact words of ONE bubble, caption or sound effect>",
+     "type": "<speech | shout | whisper | thought | caption | sfx>",
+     "speaker": "<who says it: a name ONLY if these panels show it, otherwise a short visual label like 'the old man' or 'the masked girl'; null for captions and sound effects>",
+     "speaker_basis": "<tail | position | context | guess — how you decided the speaker>",
+     "lang": "<en | ko | ja | zh | other>"}
+  ],
   "visual_description": "<Lead with the single concrete action happening in this exact panel (e.g. 'boy tumbling down a rocky cliff face', 'character collapsed on ground clutching injured leg', 'figure standing upright facing a row of cloaked enemies', 'extreme close-up of one wide shocked eye'). Then: who is in frame (name if visible), setting, shot type. MAX 50 words. Use specific action verbs — NEVER start with vague openers like 'a scene showing', 'a panel depicting', or 'the image features'.>"
 }
 
@@ -62,7 +80,11 @@ Rules:
 - OCR text is the highest-priority match signal — transcribe every word, name, and sound effect exactly.
 - If a bubble is only punctuation like '!!!' or 'ACK!!', include it as-is.
 - Describe only what is visibly in THIS panel. Do not invent plot.
-- Keep visual_description under 50 words."""
+- Keep visual_description under 50 words.
+- lines: one entry per speech bubble, thought bubble, caption box and sound effect, in reading order (top to bottom, then left to right). Empty list if the panel has no text.
+- type comes from the outline: smooth oval = speech, spiky/burst = shout, dotted or tiny text = whisper, cloud or inner-voice box = thought, rectangle = caption, lettering drawn into the art = sfx.
+- speaker: follow the bubble's tail to a mouth ("tail"); if there is no tail, use which character the bubble sits beside ("position"); if you can only infer it from what is said ("context") or cannot tell ("guess"), say so honestly — a wrong speaker is worse than an admitted guess.
+- Sound effects drawn in Korean, Japanese or Chinese script: NEVER copy, romanize or translate the characters. Set lang to the script's language and put a two-to-four word English description of the sound in text (e.g. "heavy metal impact", "footsteps on stone")."""
 
 
 def _panel_id_from_name(fname: str) -> str:
@@ -148,7 +170,7 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
 
 
 def describe_with_gemini(path: str, api_key: str, model: str):
-    """Single call: returns (ocr_text, visual_description). Raises on failure.
+    """Single call: returns (ocr_text, visual_description, raw_lines). Raises on failure.
 
     Routes to the Interactions API for new auth-key format (AQ.) models like
     gemini-3.5-flash, and falls back to the legacy generateContent API for
@@ -211,7 +233,8 @@ def describe_with_gemini(path: str, api_key: str, model: str):
         raw = raw.split("```", 2)[1] if "```" in raw[3:] else raw.strip("`")
         raw = raw.replace("json", "", 1).strip() if raw.lstrip().startswith("json") else raw
     data = json.loads(raw)
-    return data.get("ocr_text", "").strip(), data.get("visual_description", "").strip()
+    return (data.get("ocr_text", "").strip(), data.get("visual_description", "").strip(),
+            data.get("lines"))
 
 
 # --------------------------------------------------------------- Tesseract
@@ -234,13 +257,20 @@ def describe_panel(path: str, api_key: str | None, model: str):
         "file": os.path.basename(path),
         "width": w, "height": h,
         "bbox": [0, 0, w, h],
-        "ocr_text": "", "visual_description": "",
+        "ocr_text": "", "visual_description": "", "lines": [],
         "source": "none", "ok": False,
     }
     try:
         if api_key:
-            ocr, desc = describe_with_gemini(path, api_key, model)
-            rec.update(ocr_text=ocr, visual_description=desc, source="gemini", ok=True)
+            ocr, desc, raw_lines = describe_with_gemini(path, api_key, model)
+            lines = ocr_lines.normalize_lines(raw_lines)
+            # ocr_text stays the matcher's input. Rebuilt from lines when the
+            # reader returned them (so the two can never disagree); otherwise
+            # the reader's own string, with any drawn non-English SFX removed.
+            ocr = (ocr_lines.ocr_from_lines(lines) if lines
+                   else " / ".join(ocr_lines.speech_segments(ocr)))
+            rec.update(ocr_text=ocr, visual_description=desc, lines=lines,
+                       source="gemini", ok=True)
         else:
             ocr, desc = describe_with_tesseract(path)
             rec.update(ocr_text=ocr, visual_description=desc, source="tesseract",

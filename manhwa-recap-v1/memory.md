@@ -6944,3 +6944,64 @@ all untouched, per the owner.
   in server._synth_rest and tts.py.
 
 **Pending:** owner approval of the doc and answers to Q1–Q5.
+
+### 2026-09-29 — P0 (drawn-SFX fix) + P1 (per-bubble reading) implemented
+
+**Owner decisions (recorded in docs/craft_reconciliation.md §12):** follow the
+guide's tone (no asides or meta jokes); direct speech 2–3 per CHAPTER for the
+most pivotal lines (not per scene); test on Murim Psychopath ch.44; keep mild
+profanity verbatim and soften/bleep harsher words in the audio; run a
+listening test before keeping any pause/pacing change. Order: P0, then P1.
+
+**Code:**
+- NEW `manhwa-recap-v1/ocr_lines.py` — one module used by both engines and
+  the reader: is_foreign_sfx, speech_segments, prompt_ocr, normalize_lines,
+  ocr_from_lines, is_attributable (tail/position only), dialogue_count
+  (bubbles + captions, never SFX), prompt_block.
+- `panel-describe/describe.py` — prompt asks for `lines` and describes drawn
+  CJK SFX in English instead of copying them; describe_with_gemini returns a
+  3-tuple; the record stores `lines`; `ocr_text` is rebuilt from lines, or
+  the legacy string minus drawn SFX.
+- `narrate.py` — dialogue_lines via ocr_lines; build_prompt shows per-bubble
+  rows (not gated on ocr_text, so a SFX-only panel still shows the sound);
+  beatsheet and critique use prompt_ocr. The narration RULES are unchanged
+  (still reported speech) — rule 3 is P2.
+- `claude_plus.py` — reader prompt + strict schema gain `lines` (enums from
+  ocr_lines); the record stores `lines`; dialogue_lines, the chapter map, the
+  scene prompt and the critique all use the shared helpers.
+- `validator_actions.py` — the re-describe and re-OCR actions copy `lines`
+  along with ocr_text, so the two never disagree.
+- NEW test_ocr_lines.py (25). Full review_ui suite: 39 files pass;
+  eval/run_eval.py still passes both approved scripts.
+
+**Mistake caught before shipping:** the first dialogue_count excluded
+captions, which would have silently shrunk budgets for caption-heavy chapters
+(the old count included them). Fixed: only SFX are excluded.
+
+**Measured on real art (new Gemini reader, 32 ch.44 panels, pages 2 + 13,
+run locally with the Railway key; the live project was NOT touched):**
+- every Korean SFX came back as an English description; zero glyphs.
+- speakers with a tail/position basis checked against the art: correct or
+  reasonable.
+- labels DRIFT across panels for the same person ("wild-haired" /
+  "curly-haired" / "dark-haired warrior") — the reader sees one panel at a
+  time. P2 guard added: quote only if the label matches a named character in
+  the chapter summary.
+- a monologue split across panels got inconsistent types; `type` is advisory.
+- the local usage ledger showed ~$0.000 for 32 describe calls, so the price
+  estimate looks unpriced for this model locally — NOT a measured cost. Check
+  the live usage header after the next real ingest.
+
+**Effect in production:** new ingests (both engines) get `lines` and clean
+ocr_text. Existing projects are unchanged until they are re-described; their
+budgets change only by dropping drawn-SFX segments.
+
+**Pending:** P2 (rule 3 direct speech with the per-chapter cap, the label
+guard, profanity list, and every dependent fix in §7), P3 craft rules 8–14,
+P4 listening test. The ch.44 before/after needs a re-describe of ch.44 (paid).
+
+**Process fix:** `/api/jobs` lists only render/finalize records; ingests live
+in `/api/logs/ingest`. Every earlier "pre-push check" this session used only
+`/api/jobs`, so it could not have seen a running ingest (none was running when
+checked retroactively). The pre-push check now queries both. The ch.44 test
+push was preceded by: 0 in-flight ingests, 0 in-flight render jobs.
