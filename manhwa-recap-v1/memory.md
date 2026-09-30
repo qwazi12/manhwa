@@ -7191,3 +7191,33 @@ on unit membership, is removed. Verified on the real v2 data: old label 0
 (was ~40), true badges 2 (= sentence 6 on 2 images, the ground truth), 0
 images hiding their own sentence. NEW test_board_shared.py (4). Suite: 41
 files pass.
+
+### 2026-09-30 — checkpoint 2: panel-cutting and order audit of ch.44 (REPORT ONLY, nothing fixed)
+
+**Data:** v2's live crops are byte-identical to the downloaded ch.44 export
+(same md5 over all 154), so the audit ran locally on those.
+- Heights: median 480 px (dragged down by slivers), p10 74, p90 2,646, max
+  7,132. Over 2.5x the median: 52 crops — but most are ordinary tall webtoon
+  panels (width 900), so that threshold alone over-flags.
+- **Missed splits — three detectors, three answers:**
+  - strict (a blank band across the FULL width inside the crop): **7 crops**;
+  - art-block count (2+ separate art regions of 250 px+): **19 crops / 26
+    hidden panels**, but by eye it OVER-counts dark, bleeding art —
+    page011_panel_001 is one continuous splash plus a fade, counted as 4;
+  - confirmed BY EYE: page008_panel_008 = 2 panels (crowd "MORE... MORE!" +
+    protagonist "SHOW ME EVERYTHING…") whose gutter is crossed by a speech
+    bubble; page013_panel_001 (7,132 px) = 3–4 moments.
+  **Systematic blind spot:** the production rule "a break is a band that is
+  background across the FULL width" (splitlab, A1) can never cut a gutter a
+  speech bubble crosses — and webtoons do that routinely. The known recorded
+  cost when this splitter was adopted: about 18 missed gutters on Murim.
+- **Over-splitting:** 45 crops are under 150 px. Page 1 (promo/credits) is
+  mostly junk-filtered, correctly. Page 2's stylized monologue was cut ONE
+  LINE PER CROP ("HOW DID" / "YEON YOUNGHA KNOW" / "I'D PASS THROUGH" /
+  "HERE?"): 15 slivers sit in narration units, 6 are on screen.
+- **Reading order: OK** — 0 backward steps across v2's 58 on-screen images.
+
+**Assessment:** a real, systematic but bounded cutter failure — about 5–12%
+of crops hide extra panels, plus line-by-line over-splitting of text-only
+monologue. Pixel heuristics alone cannot count missed splits reliably on dark
+bleed art.
