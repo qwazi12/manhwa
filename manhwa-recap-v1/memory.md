@@ -7128,3 +7128,40 @@ beginning").
 
 **Not done by me (owner's to do in the UI):** Approve/render/export of v2.
 The v2 board has not been opened or rendered.
+
+### 2026-09-30 — diagnosis: description -> script -> placement disconnect (ch.44 v2), NO code changed
+
+**Input:** the owner sees many yellow "Script placement" cells and cards that
+repeat or share lines, asks whether System OCR is used at all, and wants the
+description to lead the script and the placement.
+
+**Measured on murim-psychopath_44-v2 (live data, downloaded read-only):**
+- 154 panels: 55 left out (junk), 99 in narration units, 56 on screen,
+  **43 FOLDED (yellow)** — 13 of those carry real dialogue or captions.
+- Units are 10 panels with about 5–11 sentences each. The matcher gives ONE
+  shot per sentence, so a unit with fewer sentences than panels folds the rest
+  BY CONSTRUCTION. ¶3: 10 panels, 2 on screen. ¶5: 8 panels, 1 on screen.
+- **Misplacement:** ¶5's "boulder" sentence landed on page013_panel_001 (a
+  7,132 px strip) while the boulder panel page011_panel_003 folded; its
+  "bystanders panic / a young boy pointed" sentence landed on page013_panel_002
+  in unit ¶6 while the boy's panel page011_panel_004 folded. The writer
+  already SAW those panels' lines ("I-IS THAT REALLY SAFE...?", "I DON'T THINK
+  THIS IS A PERFORMANCE...") and wrote them, then placement re-guessed by
+  embedding similarity and forward-only DP and picked other panels.
+- **"Shared lines" on the board are mostly a DISPLAY artefact:** actual data
+  has 68 beats over 58 segments with only ONE beat on 2 images. But
+  storyboard.py labels every on-screen panel after the first in a unit
+  "↳ shared narration ¶N (image k of n)" and HIDES that panel's own sentence.
+- **OCR IS used, but not for placement:** the writer sees per-bubble lines
+  with speakers (P1). The matcher embeds `visual_description + ocr_text` as
+  ONE string — no rule ties a sentence to the panel whose words it quotes.
+- 32 panels are near-empty black/white transition panels by description; 15
+  sit inside units, and 9 are on screen carrying narration.
+
+**Root cause:** the writer decides which panel each sentence is about but
+never SAYS so. It writes free prose for a 10-panel unit, and placement then
+re-infers the mapping. The description leads the script; nothing carries
+that decision into placement.
+
+**Proposed (awaiting owner approval):** panel-anchored writing — see the reply
+of 2026-09-30.
