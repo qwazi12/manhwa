@@ -153,6 +153,39 @@ def main():
     check("a quote with its tag stays one beat",
           len(BS.segment_beats('"Get down!" Mia screamed, already diving for the floor.')) == 1)
 
+    # ------------------------------------------------ the on/off switch
+    saved_env = os.environ.pop("DIRECT_SPEECH", None)
+    try:
+        check("direct speech is OFF by default (merging P2 changes no chapter)",
+              DS.enabled() is False)
+        os.environ["DIRECT_SPEECH"] = "on"
+        check("...the DIRECT_SPEECH env turns it on", DS.enabled() is True)
+        check("...and an ingest's own choice wins either way",
+              DS.enabled(False) is False and DS.enabled(True) is True)
+        os.environ["DIRECT_SPEECH"] = "0"
+        calls = []
+        saved = (narrate.generate_global_beatsheet, narrate.narrate_scene,
+                 narrate.critique_units, narrate.select_direct_lines)
+        narrate.generate_global_beatsheet = lambda panels, model: "summary"
+        narrate.narrate_scene = lambda *a, **k: "He left."
+        narrate.critique_units = lambda *a, **k: []
+        narrate.select_direct_lines = lambda *a, **k: calls.append(1) or []
+        try:
+            narrate.generate_narration([{"panel_id": "p1", "visual_description": "x"}],
+                                       verbose=False)
+            check("off -> no selection call is made at all", calls == [])
+            narrate.generate_narration([{"panel_id": "p1", "visual_description": "x"}],
+                                       verbose=False, direct=True)
+            check("an ingest asking for direct speech gets the selection", calls == [1])
+            check("the run records whether it was on", narrate.LAST_DIRECT_SPEECH.get("enabled") is True)
+        finally:
+            (narrate.generate_global_beatsheet, narrate.narrate_scene,
+             narrate.critique_units, narrate.select_direct_lines) = saved
+    finally:
+        os.environ.pop("DIRECT_SPEECH", None)
+        if saved_env is not None:
+            os.environ["DIRECT_SPEECH"] = saved_env
+
     # ------------------------------------------------------- both engines
     gem = narrate.build_prompt([{"panel_id": "a", "visual_description": "x", "ocr_text": ""}])
     check("both engines carry the SAME rule text",
@@ -160,6 +193,24 @@ def main():
     check("the rule forbids a second voice and a tonal costume, explicitly",
           "NEVER BY A SECOND VOICE" in DS.RULE_TEXT and "YOUR OWN" in DS.RULE_TEXT
           and "impression" in DS.RULE_TEXT and "accent" in DS.RULE_TEXT)
+    import style_rules as SR
+    check("the craft rules (P3) are in BOTH engines, one shared wording",
+          SR.rules(8) in gem and SR.rules(12) in PLUS.SCRIPT_SYSTEM
+          and SR.BRIDGE in gem and SR.BRIDGE in PLUS.SCRIPT_SYSTEM)
+    check("...with the owner's tone decision: no asides, no questions to the listener",
+          "no asides" in SR.rules(8) and "no questions to the audience" in SR.rules(8))
+    seen_prompts = []
+    saved_call = narrate.call_gemini_rest
+    narrate.call_gemini_rest = lambda model, prompt, key: seen_prompts.append(prompt) or "ok"
+    os.environ.setdefault("GEMINI_API_KEY", "test-key")
+    try:
+        narrate.generate_global_beatsheet([{"panel_id": "p", "visual_description": "d"}])
+    finally:
+        narrate.call_gemini_rest = saved_call
+    check("the chapter summary is asked to mark reveals and callbacks (rule PROTECT THE REVEALS)",
+          seen_prompts and SR.REVEALS_DIRECTIVE in seen_prompts[0])
+    check("rotating character references (NAME_HINT) finally reach the prompt",
+          narrate.NAME_HINT in gem)
     check("the old reported-speech-only ban is gone from both engines",
           "never quotation marks" not in gem and "NEVER use quotation" not in PLUS.SCRIPT_SYSTEM)
 

@@ -111,15 +111,19 @@ def main():
     srv.INGEST.clear(); srv._QUEUE.clear(); srv._QUEUE_RUNNING = False
     order, running = [], []
     engines = {}
-    def fake_run(job_id, url, fresh=False, engine="gemini"):
+    variants = {}
+    def fake_run(job_id, url, fresh=False, engine="gemini", variant="", direct=None):
         engines[url] = engine
+        variants[url] = (variant, direct)
         running.append(job_id)
         r.append(("only one queued ingest runs at a time", len(running) == 1)) if len(running) > 1 else None
         time.sleep(0.05); order.append(url); running.remove(job_id)
         srv.INGEST[job_id]["status"] = "done"
     srv._run_ingest_job = fake_run
     srv._persist_ingest = noop
-    ids = [srv._enqueue_ingest(f"http://x/chapter/{n}", engine=e)
+    ids = [srv._enqueue_ingest(f"http://x/chapter/{n}", engine=e,
+                               variant=("v2" if n == 3 else ""),
+                               direct=(True if n == 3 else None))
            for n, e in ((1, "gemini"), (2, "claude"), (3, "gemini"))]
     for _ in range(200):
         if all(srv.INGEST[i].get("status") == "done" for i in ids): break
@@ -127,6 +131,9 @@ def main():
     r.append(("every queued chapter runs", len(order) == 3))
     r.append(("...in the order they were queued",
               order == ["http://x/chapter/1", "http://x/chapter/2", "http://x/chapter/3"]))
+    r.append(("a queued ingest keeps its version and direct-speech choice",
+              variants.get("http://x/chapter/3") == ("v2", True)
+              and variants.get("http://x/chapter/1") == ("", None)))
     r.append(("a queued ingest keeps its engine (it used to be dropped -> Gemini)",
               engines == {"http://x/chapter/1": "gemini", "http://x/chapter/2": "claude",
                           "http://x/chapter/3": "gemini"}))
@@ -141,8 +148,8 @@ def main():
         _wl.load = lambda root: {}
         _wl.find = lambda data, sid: {"title": "T"}
         _wl.chapter_url = lambda s, key, ch: f"http://x/chapter/{ch}"
-        srv._active_ingest_for_url = lambda url: None
-        srv._enqueue_ingest = lambda url, fresh=False, engine="gemini": \
+        srv._active_ingest_for_url = lambda url, variant="": None
+        srv._enqueue_ingest = lambda url, fresh=False, engine="gemini", variant="", direct=None: \
             queued.append((url, engine)) or "job1"
         srv._validator.api_key = lambda: "k"
         srv.api_watchlist_ingest(srv.WLIngestIn(series_id="s", series_key="k", chapter="7"))
@@ -170,6 +177,32 @@ def main():
     finally:
         (_wl.load, _wl.find, _wl.chapter_url, srv._enqueue_ingest,
          srv._active_ingest_for_url, srv._validator.api_key) = saved_wl
+
+    # ---- saved versions ("ch.44 v2") and the per-ingest direct-speech switch
+    import ingest as _ingm
+    u44 = "https://asurascans.com/comics/murim-psychopath-05c7df14/chapter/44"
+    r.append(("a version is its own project folder beside the original",
+              _ingm.project_id(u44, "v2") == _ingm.project_id(u44) + "-v2"))
+    r.append(("the projects list labels the version distinctly",
+              _ingm._derive_series_chapter("x", {"url": u44, "variant": "v2"})[1] == "44 (v2)"
+              and _ingm._derive_series_chapter("x", {"url": u44})[1] == "44"))
+    for bad in ("V2!", "../x", "a" * 20):
+        try:
+            srv.start_ingest(srv.IngestIn(url=u44, variant=bad)); refused = False
+        except srv.HTTPException as e:
+            refused = e.status_code == 400
+        r.append((f"a bad version name is refused up front ({bad[:8]!r})", refused))
+    try:
+        srv.start_ingest(srv.IngestIn(url=u44, variant="v2", engine="claude")); refused = False
+    except srv.HTTPException as e:
+        refused = "Gemini-only" in e.detail
+    r.append(("a Claude ingest with a version is refused, not silently unversioned", refused))
+    srv.INGEST.clear()
+    srv.INGEST["orig"] = {"status": "running", "url": u44, "variant": ""}
+    r.append(("the original running does NOT block starting its v2",
+              srv._active_ingest_for_url(u44, "v2") is None
+              and srv._active_ingest_for_url(u44) == "orig"))
+    srv.INGEST.clear()
 
     # ---- the controls must actually EXIST in the UI, not just as endpoints
     # A stop that is only reachable from the Logs tab is not a stop button on

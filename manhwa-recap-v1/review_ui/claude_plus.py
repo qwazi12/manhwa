@@ -43,6 +43,7 @@ if _RECAP_DIR not in sys.path:
     sys.path.insert(0, _RECAP_DIR)
 import ocr_lines   # one parser for per-bubble lines, shared with narrate.py
 import direct_speech   # the 2-3-per-chapter direct-speech rule, shared too
+import style_rules     # craft rules 12-18, shared with narrate.py (8-14)
 from claude_pipeline import (_Tally, _clean_crop, _image_block, _write, read,
                              out_dir, MODEL, EFFORT, PANELS_PER_CALL,
                              SCRIPT_CHUNK)
@@ -555,7 +556,7 @@ may fold into a neighbouring sentence.
 "the image", "the frame", "close-up", "speed lines", "we see" — and never the \
 word "camera" in any form.
 6. Continue from where the previous scene's narration ended. Never re-introduce \
-or re-tell something already narrated.
+or re-tell something already narrated. """ + style_rules.BRIDGE + """
 7. Appearance, clothing and setting appear ONLY when plot-relevant or when they \
 set atmosphere — one economical touch, never an inventory.
 8. Infer motive, emotion and subtext when the art or dialogue clearly implies \
@@ -578,6 +579,7 @@ had been denied" carries a rank, a rivalry and a stake inside one action. \
 Carry world detail ONLY where the chapter supports it — never invent a rank, a \
 system, a place name or a rule the panels do not show, and never import \
 knowledge from elsewhere in the series.
+""" + style_rules.rules(12) + """
 
 VOICE — match this cadence: sentences that move, reported speech except for an \
 approved direct line, no scenery padding. Short declaratives for impact; a longer sentence to carry a turn.
@@ -650,7 +652,8 @@ def script_plus(descs, cmap, model=None, progress=None):
         return "".join(b.text for b in r.content if b.type == "text")
     try:
         cmap["direct_lines"] = direct_speech.select(
-            descs, json.dumps(cmap, ensure_ascii=False, default=str)[:8000], _ask)
+            descs, json.dumps(cmap, ensure_ascii=False, default=str)[:8000], _ask) \
+            if direct_speech.enabled() else []
     except usage.UsageCapExceeded:
         raise
     except Exception:
@@ -736,6 +739,8 @@ letters). Quoting an APPROVED DIRECT LINE is correct, not a violation.
 reported speech instead of quoted
 - misattributed_dialogue: a quoted line is credited to someone other than the \
 speaker the approved line names
+- spoiled_reveal: the unit hints at a twist, identity or ability that the \
+panels only reveal LATER
 - redundancy: re-tells events an EARLIER unit already narrated
 - over_compression: several distinct exchanges or a reveal AND its reaction \
 flattened into a single summary line, losing story the panels clearly carry
@@ -762,7 +767,8 @@ CRITIQUE_SCHEMA = {
                         "hallucination", "misorder", "missed_beat",
                         "style_violation", "redundancy", "over_compression",
                         "weak_dialogue_coverage", "missing_worldbuilding",
-                        "flat_dialogue", "misattributed_dialogue"]},
+                        "flat_dialogue", "misattributed_dialogue",
+                        "spoiled_reveal"]},
                     "problem": {"type": "string"},
                     "fix": {"type": "string"},
                 },

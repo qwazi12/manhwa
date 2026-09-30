@@ -38,6 +38,13 @@ BANNED = [
      r"(voice|growl|rasp|snarl|drawl)|"
      r"mimick\w*|impersonat\w*|quote|unquote)\b", 'second-voice / quote marker'),
     (r"\((?:whisper|shout|softly|loudly|pause|beat)[^)]*\)", 'stage direction in text'),
+    # owner decision Q1: the guide's tone — never speak to the listener
+    # "let's" alone is fine — "The hunters had a better idea: let's fight." is
+    # a character's own thought (free indirect, allowed by the guide); only the
+    # narrator-to-audience phrasings are banned
+    (r"\b(let'?s (see|find out|take a look|dive in|get into)|let us (see|find out)|"
+     r"as we all know|you already know|I know some of you|stay tuned|smash that)\b",
+     'aside to the listener'),
     (r"[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af\u3040-\u30ff\u4e00-\u9fff]",
      'untranslated sound-effect lettering'),
 ]

@@ -7050,3 +7050,47 @@ gemini-3.5-flash, so no dollar figure is claimed.
 **Pending (owner):** listen and pick A or C; approve merging
 p2-direct-speech to main (that deploys); review the profanity lists in
 speech_text.py. Then P3 (craft rules 8–14).
+
+### 2026-09-30 — P3 craft rules + versioned ingest ("ch.44 v2") + direct-speech switch; merged to main
+
+**Input:** the owner asked to see ch.44 v2 as a REAL project in the tool
+(Projects tab, board, render, export — "like any other ingested"), built with
+"the new style and ideas". Owner said go after reviewing the diff.
+
+**Honest state before this:** the earlier ch.44 test ran only describe +
+narrate + voicing ONE scene, locally. No match, segments, board or render.
+It was not in the tool.
+
+**Code:**
+- `style_rules.py` (NEW) — craft rules from the guide, one shared wording:
+  pace follows the pulse, one sense per new place, protect the reveals, SFX
+  are events not text, confident not cute (owner Q1: no asides, no "you", no
+  "let's", no meta, no questions to the audience), land the ending. Plus
+  BRIDGE (motion/time/sound, flashback time phrases) appended to the
+  continuity rule, and REVEALS_DIRECTIVE in the beatsheet prompt. narrate
+  numbers them 8–13, claude_plus 12–17. NAME_HINT is finally wired into rule 6.
+  `spoiled_reveal` critique type in both engines.
+- Versioned ingest: `ingest.project_id(url, variant)` -> `<chapter>-v2`, a
+  project beside the original, which is untouched. The Projects label shows
+  "44 (v2)" (applied in _derive_series_chapter, because that label is
+  re-derived on every listing). Version names are allowlisted
+  (^[a-z0-9][a-z0-9-]{0,15}$). Duplicate detection matches on (chapter,
+  version). The queue carries variant + direct. A Claude ingest with a
+  version or a direct-speech choice is REFUSED (Gemini-only for now), never
+  silently unversioned.
+- Direct-speech switch: `direct_speech.enabled(override)` — the ingest's
+  choice, else the DIRECT_SPEECH env, OFF by default. So merging P2 changes
+  no chapter until it is asked for. Off = no selection call at all
+  (tested). The record says whether it was on.
+- Ingest drawer: a "Save as version" box and a "Direct speech" checkbox (an
+  unticked box sends nothing, so the server default applies).
+- eval: an "aside to the listener" check — narrowed after it flagged the
+  APPROVED fixture's free-indirect "The hunters had a better idea: let's
+  fight." (a character's thought, allowed by the guide).
+- test_engine_merge's source-text check updated for the new worker call.
+- Listening test: the owner did not pick, so v2 ships variant A (plain
+  delivery, my recommendation). Variant C is not wired into production.
+
+**Verified:** full suite 40 files pass (test_direct_speech 45,
+test_job_control 51); eval passes both approved scripts; the pre-existing
+SyntaxWarning in storyboard.py is unchanged (present on main before).

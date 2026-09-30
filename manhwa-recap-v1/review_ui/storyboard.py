@@ -815,6 +815,12 @@ a {{ color:var(--accent); }}
     </select>
     <span style="opacity:.75">Gemini is the established path. Claude is
       opt-in per ingest and recorded on the project.</span></label>
+  <label class="hint" style="display:flex;gap:8px;align-items:center;margin:6px 0"
+    title="Build this chapter as a separate project beside the original (e.g. v2 -> 'Chapter 44 (v2)'). The original project is not touched. Leave empty for the chapter's own project.">
+    Save as version <input class="field" id="ingvariant" placeholder="e.g. v2" maxlength="16"
+      style="flex:0 0 90px"/>
+    <input type="checkbox" id="ingdirect"> Direct speech
+    <span style="opacity:.75">(2–3 pivotal lines quoted, in the narrator's own voice — Gemini only)</span></label>
   <button class="primary" onclick="runIngest()">▶ Run ingest</button>
   <div id="ingprog" style="margin-top:12px"></div>
 </div>
@@ -2174,10 +2180,17 @@ async function runIngest() {{
   if (!/^https?:\\/\\//.test(url)) {{ alert('Paste a full http(s) chapter URL'); return; }}
   const fresh = document.getElementById('ingfresh').checked;
   const engine = document.getElementById('ingengine').value;
+  const variant = (document.getElementById('ingvariant').value || '').trim().toLowerCase();
+  const direct = document.getElementById('ingdirect').checked;
   if (fresh && !confirm('Fresh re-ingest regenerates narration, TTS audio and the timeline for this chapter (cached descriptions and unchanged TTS lines are still reused). Continue?')) return;
   if (engine === 'claude' && !confirm('Run this chapter through the CLAUDE engine?' + String.fromCharCode(10) + String.fromCharCode(10) + 'Gemini is the established path; Claude is newer and its cost profile differs.' + String.fromCharCode(10) + 'The choice is recorded on the project.')) return;
   try {{
-    const r = await j('/api/ingest', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{url, fresh, engine}})}});
+    // direct_speech is only sent when ticked, so an unticked box keeps the
+    // server's default (DIRECT_SPEECH env, off) instead of forcing it off
+    const body = {{url, fresh, engine}};
+    if (variant) body.variant = variant;
+    if (direct) body.direct_speech = true;
+    const r = await j('/api/ingest', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(body)}});
     setActiveJob(r.job); startIngestPoller();
   }} catch (e) {{ alert(e.message); }}
 }}

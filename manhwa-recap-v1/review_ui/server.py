@@ -3231,19 +3231,21 @@ def _sweep_orphaned_ingest_jobs():
 _sweep_orphaned_ingest_jobs()
 
 
-def _active_ingest_for_url(url):
+def _active_ingest_for_url(url, variant=""):
     """Return the job_id of a running/queued job for this URL's project, if any
     — so submitting the same chapter twice reuses the one job (no double spend,
-    no folder race)."""
-    slug = _ingest_mod._slug(url)
+    no folder race). A saved version is a different project folder, so it is
+    matched on (chapter, version), not the chapter alone."""
+    pid = _ingest_mod.project_id(url, variant)
     for jid, j in INGEST.items():
         if j.get("status") in ("queued", "running") and \
-                _ingest_mod._slug(j.get("url", "")) == slug:
+                _ingest_mod.project_id(j.get("url", ""), j.get("variant", "")) == pid:
             return jid
     return None
 
 
-def _run_ingest_job(job_id, url, fresh=False, engine="gemini"):
+def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
+                    direct=None):
     import ingest
     INGEST[job_id]["status"] = "running"
     _persist_ingest(job_id)
@@ -3256,7 +3258,7 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini"):
 
     try:
         meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh,
-                                 engine=engine)
+                                 engine=engine, variant=variant, direct=direct)
         INGEST[job_id].update(status="done", project=meta, pct=100)
     except JobCancelled as e:
         INGEST[job_id].update(status="cancelled", error=str(e))
@@ -3288,28 +3290,29 @@ def _queue_worker():
             if not _QUEUE:
                 _QUEUE_RUNNING = False
                 return
-            job_id, url, fresh, engine = _QUEUE.pop(0)
+            job_id, url, fresh, engine, variant, direct = _QUEUE.pop(0)
         rec = INGEST.get(job_id) or {}
         if rec.get("control") == "stop" or rec.get("status") == "cancelled":
             continue                       # dequeued before it ever started
         try:
-            _run_ingest_job(job_id, url, fresh, engine=engine)
+            _run_ingest_job(job_id, url, fresh, engine=engine,
+                            variant=variant, direct=direct)
         except Exception:                  # a worker crash must not kill the queue
             pass
 
 
-def _enqueue_ingest(url, fresh=False, engine="gemini"):
+def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None):
     global _QUEUE_RUNNING
     job_id = uuid.uuid4().hex[:12]
     INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "waiting for its turn",
                       "status": "queued", "error": None, "project": None,
                       "url": url, "ts": time.time(), "control": "run",
-                      "engine": engine}
+                      "engine": engine, "variant": variant, "direct_speech": direct}
     _persist_ingest(job_id)
     with _QUEUE_LOCK:
         # the engine rides with the job — it used to be dropped here, so any
         # QUEUED ingest (every Tracker ingest) silently ran Gemini
-        _QUEUE.append((job_id, url, fresh, engine))
+        _QUEUE.append((job_id, url, fresh, engine, variant, direct))
         start = not _QUEUE_RUNNING
         if start:
             _QUEUE_RUNNING = True
@@ -3401,6 +3404,12 @@ class IngestIn(BaseModel):
     # newer. The choice is recorded per project so the two can be compared
     # like-for-like later.
     engine: str = "gemini"
+    # Save as a VERSION beside the original ("v2" -> <chapter>-v2), leaving the
+    # original project untouched. Empty = the chapter's own project, as before.
+    variant: str = ""
+    # Direct speech for this ingest: True/False, or None = the DIRECT_SPEECH
+    # env default (off). docs/craft_reconciliation.md P2.
+    direct_speech: bool | None = None
 
 
 @app.post("/api/ingest")
@@ -3410,7 +3419,15 @@ def start_ingest(body: IngestIn):
         raise HTTPException(400, "please paste a full chapter URL (http/https)")
     # DEDUPE: if this chapter is already ingesting, return that job — do not
     # start a second one (avoids a folder race + doubled Gemini/TTS spend).
-    existing = _active_ingest_for_url(url)
+    variant = (body.variant or "").strip().lower()
+    import ingest as _ing_v
+    if variant and not _ing_v.VARIANT_RE.match(variant):
+        raise HTTPException(400, "version must be 1-16 lowercase letters, "
+                                 "digits or dashes (e.g. v2)")
+    if body.engine == "claude" and (variant or body.direct_speech is not None):
+        raise HTTPException(400, "saving a version / choosing direct speech is "
+                                 "Gemini-only for now")
+    existing = _active_ingest_for_url(url, variant)
     if existing:
         return {"job": existing, "stages": ingest_stages(), "existing": True}
     # Validate the engine BEFORE the queue branch: a queued ingest used to skip
@@ -3423,17 +3440,20 @@ def start_ingest(body: IngestIn):
         raise HTTPException(400, "no Claude API key on this server — "
                                  "set CLAUDE_API_KEY or ANTHROPIC_API_KEY")
     if body.queue:
-        job_id = _enqueue_ingest(url, body.fresh, body.engine)
+        job_id = _enqueue_ingest(url, body.fresh, body.engine, variant,
+                                 body.direct_speech)
         return {"job": job_id, "stages": ingest_stages(), "existing": False,
                 "fresh": body.fresh, "queued": True, "engine": body.engine}
     job_id = uuid.uuid4().hex[:12]
     INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "queued",
                       "status": "queued", "error": None, "project": None,
                       "url": url, "ts": time.time(), "control": "run",
-                      "engine": body.engine}
+                      "engine": body.engine, "variant": variant,
+                      "direct_speech": body.direct_speech}
     _persist_ingest(job_id)
     threading.Thread(target=_run_ingest_job,
-                     args=(job_id, url, body.fresh, body.engine),
+                     args=(job_id, url, body.fresh, body.engine, variant,
+                           body.direct_speech),
                      daemon=True).start()
     return {"job": job_id, "stages": ingest_stages(), "existing": False,
             "fresh": body.fresh, "engine": body.engine}

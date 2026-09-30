@@ -23,9 +23,21 @@ scene's writer. Instead:
 Both engines use this module, so they cannot drift apart.
 """
 import json
+import os
 import re
 
 import ocr_lines
+
+
+def enabled(override=None):
+    """Is direct speech ON for this run? An ingest's explicit choice wins;
+    otherwise the DIRECT_SPEECH env var (Railway), OFF unless set to 1/true/on.
+    Off means no lines are selected, every scene is told to quote nothing, and
+    the chapter is narrated in reported speech exactly as before P2 — so
+    merging P2 changes no chapter until the owner turns it on (rule 36)."""
+    if override is not None:
+        return bool(override)
+    return os.environ.get("DIRECT_SPEECH", "").strip().lower() in ("1", "true", "on", "yes")
 
 # The rule both engines' style contracts include VERBATIM (narrate.py rule 3,
 # claude_plus.SCRIPT_SYSTEM rule 4). One copy, so the engines cannot drift.

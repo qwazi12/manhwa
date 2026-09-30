@@ -69,7 +69,8 @@ def main():
           "engine must be one of" in srv)
     check("...and refuses claude with no key rather than failing mid-run",
           "no Claude API key on this server" in srv)
-    check("the engine reaches the worker", "engine=engine)" in srv)
+    check("the engine reaches the worker (with the version and direct-speech choice)",
+          "engine=engine, variant=variant, direct=direct)" in srv)
 
     sb = open(os.path.join(HERE, "storyboard.py"), encoding="utf-8").read()
     check("the board offers the choice", 'id="ingengine"' in sb)

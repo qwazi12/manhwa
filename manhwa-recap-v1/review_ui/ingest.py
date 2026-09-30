@@ -139,8 +139,17 @@ def _run_claude_engine(url, progress, job_id=None, fresh=False):
     return meta
 
 
+VARIANT_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,15}$")
+
+
+def project_id(url, variant=""):
+    """The project folder for a chapter, or for a saved VERSION of it
+    ("murim-psychopath_44-v2") that lives beside the original, untouched."""
+    return _slug(url) + (f"-{variant}" if variant else "")
+
+
 def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
-               engine="gemini"):
+               engine="gemini", variant="", direct=None):
     """Run the pipeline for one chapter URL. `progress(stage, msg, pct)` is
     called as it advances. Returns the finished project dict.
 
@@ -157,7 +166,13 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     without it the script cache happily replays the old cut."""
     if engine not in ENGINES:
         raise ValueError(f"engine must be one of {ENGINES}")
+    if variant and not VARIANT_RE.match(variant):
+        raise ValueError("version must be 1-16 lowercase letters, digits or dashes")
     if engine == "claude":
+        if variant or direct is not None:
+            # refuse, rather than silently building an unversioned Claude run
+            raise ValueError("saving a version / choosing direct speech per "
+                             "ingest is Gemini-only for now")
         return _run_claude_engine(url, progress, job_id=job_id, fresh=fresh)
 
     sys.path.insert(0, RECAP)
@@ -168,7 +183,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     job_id = job_id or "unknown"
     usage.set_job(job_id)
 
-    proj_id = _slug(url)
+    proj_id = project_id(url, variant)
     proj = os.path.join(PROJECTS, proj_id)
     pages = os.path.join(proj, "pages")
     crops = os.path.join(proj, "crops")
@@ -364,7 +379,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         panels = narrate.load_panels(desc_path)
         # D2: per-unit progress so a long narrate is visible, not a silent 60%
         script, results = narrate.generate_narration(
-            panels, verbose=False,
+            panels, verbose=False, direct=direct,
             progress_cb=lambda i, n, phase: progress(
                 "narrate", f"narration {phase} — unit {i}/{n}…",
                 60 + int(8 * i / max(n, 1))))
@@ -455,6 +470,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             "series": series_title, "chapter": chapter_title,
             "match_method": match_method,
             "engine": "gemini",
+            "variant": variant,
             "timeline": timeline,
             # P2: which 2-3 lines were quoted, and whether any quote strayed
             "direct_speech": direct_record,
@@ -494,7 +510,13 @@ def _derive_series_chapter(pid, data):
     url = data.get("url")
     if url and url not in ("loaded",) and "/" in url:
         s, c = parse_series_chapter(url)
-        return to_title_case(clean_series_slug(s)), to_title_case(c)
+        chapter = to_title_case(c)
+        # a saved VERSION of a chapter ("ch.44 v2") must stay distinguishable
+        # from the original in the projects list — this label is re-derived on
+        # every listing, so the version has to be applied here, not stored
+        if data.get("variant"):
+            chapter = f"{chapter} ({data['variant']})"
+        return to_title_case(clean_series_slug(s)), chapter
     parts = pid.split("_")
     series = to_title_case(clean_series_slug(parts[0]))
     chapter = to_title_case(parts[1]) if len(parts) > 1 else pid

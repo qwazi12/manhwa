@@ -21,7 +21,7 @@ Style rules enforced in the prompt (from the reference sample):
   - character references rotate (the protagonist / the guy / his name / his
     title) rather than repeating one name every sentence
   - short, sequential, one-action-or-thought-per-sentence
-  - no scene headers, no markdown, no metaphor/embellishment
+  - no scene headers, no markdown; texture only where style_rules allows it
   - literal: describe only what the panels show — never invent plot, lore, or
     backstory the panels don't depict
 """
@@ -34,6 +34,7 @@ import sys
 import direct_speech
 import matcher
 import ocr_lines
+import style_rules
 
 # Cost/abuse guardrails (review_ui/usage.py) — optional no-op if unavailable.
 _REVIEW_UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "review_ui")
@@ -334,10 +335,11 @@ STYLE CONTRACT (every rule mandatory):
 2b. DIALOGUE FIDELITY: every meaningful exchange in the panels gets its own sentence — direct speech for the line rule 3 names, reported speech for the rest — collapsing a whole conversation into one summary line is a contract violation. Only trivial fillers (grunts, one-word reactions, repeated shouts) may fold into a neighbouring sentence.
 3. {direct_speech.RULE_TEXT}
 4. No panel/framing/camera/art language, ever: never "the panel/image/frame shows", "close-up", "speed lines", "we see" — and NEVER the word "camera" in any form.
-4b. Each scene continues where the previous narration left off — never re-introduce or re-tell events already covered (the chapter summary shows you where you are in the story).
+4b. Each scene continues where the previous narration left off — never re-introduce or re-tell events already covered (the chapter summary shows you where you are in the story). {style_rules.BRIDGE}
 5. Appearance, clothing, and setting details appear ONLY when plot-relevant or atmosphere-setting — one economical touch, not an inventory.
-6. Enrichment policy: infer motive, emotion, and subtext when the art or dialogue clearly implies it; smooth small gaps the way a recap narrator who knows the story would. NEVER invent names, numbers, backstory, or events without support in the panels.
+6. Enrichment policy: infer motive, emotion, and subtext when the art or dialogue clearly implies it; smooth small gaps the way a recap narrator who knows the story would. NEVER invent names, numbers, backstory, or events without support in the panels. Refer to characters by rotating references — {NAME_HINT} — and never use a name the panels have not given.
 7. DENSITY IS EDITORIAL, NOT MECHANICAL: narrate the story, not the panels. A run of panels showing one continuous action gets ONE sentence. A filler/transition panel earns ZERO sentences. Only a true story peak earns 2-3 sentences. Never average "sentences per panel".
+{style_rules.rules(8)}
 
 VOICE ANCHOR (match this cadence — sentences that move, reported speech except for an approved direct line, zero scenery padding):
 - "The war with the labyrinth had raged for decades — humanity against the things that boiled up from below, soldiers emptying their guns into biomechanical horrors while monsters charged in roaring hordes."
@@ -386,6 +388,7 @@ Your outline must:
 3. Define the narrative tone progression (e.g., starts in high tension/flight, shifts to mystery/lore, ends in determination).
 4. Summarize the overall narrative arc so that scene-by-scene script generators know how each local moment fits into the larger story.
 5. Mark PACING explicitly: name the story peaks that deserve detailed narration, and name the filler/transition stretches (repeated action panels, establishing shots, promo/credits cards) that the narration should compress to one sentence or pass over entirely. The final video should feel like a tight 6-10 minute recap, not a panel-by-panel caption track.
+{style_rules.REVEALS_DIRECTIVE}
 
 PANELS SEQUENCE:
 {chapter_block}
@@ -464,7 +467,7 @@ def critique_units(results, model, api_key, direct_by_unit=None):
     """A3 pass 1: ONE reviewer call over the whole draft. Returns issue list
     [{"unit": int, "type": ..., "problem": ..., "fix": ...}]. Types:
     hallucination | misorder | missed_beat | style_violation | redundancy |
-    flat_dialogue | misattributed_dialogue."""
+    flat_dialogue | misattributed_dialogue | spoiled_reveal."""
     direct_by_unit = direct_by_unit or {}
     lines = []
     for i, (scene_panels, text) in enumerate(results):
@@ -481,7 +484,7 @@ def critique_units(results, model, api_key, direct_by_unit=None):
     prompt = f"""You are a fact-checking script editor for a comic-recap narration. For each UNIT below, compare the DRAFT narration against the PANEL FACTS it was written from.
 
 Report ONLY real problems, as a JSON array (empty array if none):
-[{{"unit": <int>, "type": "hallucination|misorder|missed_beat|style_violation|redundancy|flat_dialogue|misattributed_dialogue", "problem": "<what is wrong>", "fix": "<how to fix in one sentence>"}}]
+[{{"unit": <int>, "type": "hallucination|misorder|missed_beat|style_violation|redundancy|flat_dialogue|misattributed_dialogue|spoiled_reveal", "problem": "<what is wrong>", "fix": "<how to fix in one sentence>"}}]
 
 - hallucination: names, numbers, events, or motives with NO support in the panel facts
 - misorder: events narrated in a different order than the panels
@@ -490,6 +493,7 @@ Report ONLY real problems, as a JSON array (empty array if none):
 - redundancy: the unit re-tells events an EARLIER unit already narrated (recaps must never repeat themselves)
 - flat_dialogue: an APPROVED DIRECT LINE for this unit is missing, or is retold in reported speech instead of quoted
 - misattributed_dialogue: a quoted line is credited to someone other than the speaker the approved line names
+- spoiled_reveal: the unit hints at a twist, identity or ability that the panels only reveal LATER
 
 Output the JSON array only.
 
@@ -529,16 +533,20 @@ def revise_unit(scene_panels, draft, unit_issues, model, global_beatsheet, api_k
 
 
 def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
-                       progress_cb=None):
+                       progress_cb=None, direct=None):
     """Run the full pipeline over `panels` (already filtered/ordered) and
-    return (full_script_text, [(scene_panels, scene_text), ...])."""
+    return (full_script_text, [(scene_panels, scene_text), ...]).
+
+    direct: True/False forces direct speech on/off for this chapter; None
+    defers to direct_speech.enabled() (the DIRECT_SPEECH env var, off)."""
     # Pass 1: Generate global pacing beatsheet for the entire chapter
     if verbose:
         print(f"Generating global pacing beatsheet using {model}...", file=sys.stderr)
     global_beatsheet = generate_global_beatsheet(panels, model)
     # P2: the chapter's 2-3 direct-speech lines, chosen once for the whole
     # chapter (scenes are written separately, so the cap cannot live in them)
-    approved = select_direct_lines(panels, global_beatsheet, model)
+    approved = (select_direct_lines(panels, global_beatsheet, model)
+                if direct_speech.enabled(direct) else [])
     if verbose:
         print(f"direct speech: {len(approved)} line(s) approved "
               f"{[a['speaker'] + ': ' + a['text'][:40] for a in approved]}", file=sys.stderr)
@@ -602,7 +610,7 @@ def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
 
     left, summary = _audit()
     LAST_DIRECT_SPEECH.clear()
-    LAST_DIRECT_SPEECH.update(summary, approved_lines=[
+    LAST_DIRECT_SPEECH.update(summary, enabled=direct_speech.enabled(direct), approved_lines=[
         {k: a[k] for k in ("panel_id", "speaker", "text", "why")} for a in approved],
         unresolved=[i["problem"] for i in left])
     if left:
