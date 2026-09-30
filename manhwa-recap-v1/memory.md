@@ -7165,3 +7165,29 @@ that decision into placement.
 
 **Proposed (awaiting owner approval):** panel-anchored writing — see the reply
 of 2026-09-30.
+
+### 2026-09-30 — plan-before-prose programme approved; checkpoints 0 and 1
+
+**Approved (owner):** Gemini first; ch.44 rebuilt as v3 in a SEPARATE copy (v2
+untouched) and compared against v2 before anything becomes a default. Order:
+0 close P2 → 1 board display → 2 audit panel cutting and order (REPORT before
+fixing) → 3 transition panels by pixels → silent beats (a viewing/listening
+test before keeping) → 4 plan before prose (cover/group/skip + reason, then
+tagged sentences; dialogue/caption panels enforced) → 5 matcher = safety
+check only (flag, never reassign) → 6 timing and motion follow the tag (pan to
+speaker/bubble) → 7 v2 vs v3 metrics plus the owner watching one scene.
+
+**Checkpoint 0 — P2 closed:** clean tree; the line-count fix
+(lines_quoted = used + stray) is on main AND in the running container
+(deployed a73ab0a); p2-direct-speech is fully merged. Nothing stacked.
+Link noted for step 4: a sentence that quotes an approved line must be tagged
+to that bubble's panel.
+
+**Checkpoint 1 — board display fix (storyboard.py):** each on-screen image
+shows ITS OWN sentence(s). A "↔ shared sentence" badge appears only when a
+beat plays on 2+ images (computed from segments.json, with a tooltip naming
+the other images). The old "↳ shared narration ¶N (image k of n)" rule, keyed
+on unit membership, is removed. Verified on the real v2 data: old label 0
+(was ~40), true badges 2 (= sentence 6 on 2 images, the ground truth), 0
+images hiding their own sentence. NEW test_board_shared.py (4). Suite: 41
+files pass.
