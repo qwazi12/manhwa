@@ -7362,3 +7362,47 @@ allow single quoted terms. Plus: the 0 dB peaks.
 this v3 is today's state; that one will be v4.
 
 **Evidence:** ch44-v3-full-run-2026-09-30, cutter-refinement-2026-09-30
+
+### 2026-09-30 — owner rejects v3; proposes "one narration per described panel, owner chooses inclusion" — ADVICE ONLY, awaiting approval
+
+**Owner:** "I don't like the v3 at all. If there is a System description then
+there should be a narration, and I should have the choice and freedom to
+include it in the video or not. Why are you still doing folds — isn't that
+what leads to the gaps and loads of yellow boxes?" Asked for review and
+advice only: NO action without approval. Then: "just log and save to
+memory.md and GitHub while I review."
+
+**Why folds exist (answered):** three older decisions — style rule 7
+("narrate the story, not the panels"; it was added after a 19k-word /
+roughly one-hour chapter), the word budget (about 12 words/panel forces fewer
+sentences than panels), and the matcher's one-sentence-per-image rule. The
+leftover panels fold, and that is exactly the yellow rows. Folds leave no
+timeline gaps, but they leave STORYTELLING gaps (13 dialogue panels dropped
+on ch.44). My own step-4 plan still had "group/skip" = folding with a reason.
+
+**The owner's proposal, as advised:**
+- Pros: 0 yellow by construction; dialogue panels can't vanish; placement
+  becomes deterministic (the matcher's re-guessing goes); timing and crop
+  follow each image's own line; similar length (about 98 usable panels x ~12
+  words = ~1,150–1,200 words vs v3's 1,238, ~7–8 min), with faster cuts
+  (~5 s vs ~8.6 s per image).
+- Cons/risks + mitigations: choppy "caption track" (write each unit in ONE
+  pass, return one line per panel); forced filler on black transitions / SFX
+  / credits (a silent pause instead of a line — plan step 3); excluding a plot
+  panel breaks the story (the board warns on dialogue/reveal before exclude;
+  its audio is dropped, never moved); ~98 rows to review (default ALL ticked
+  except transitions/credits — today a fresh ingest starts with NONE
+  ticked); small cost (more writing calls, same TTS words, render ~3–4 min).
+
+**Recommended revision of step 4 (NOT started):** drop group/skip; one line
+per described panel, enforced in code; silent pauses for transition/SFX-only
+panels; default ticked except transitions/credits, with an exclusion warning;
+the matcher removed from placement (a warning flag only); direct speech
+unchanged (2–3/chapter, now panel-anchored).
+
+**Open questions put to the owner:** (1) approve this model, or e.g.
+transitions default UNTICKED instead of silent pauses? (2) What specifically
+was disliked in v3 — writing, pacing, images or voice? The panel-per-line
+change fixes coverage and placement, not tone.
+
+**State:** nothing changed in code. v2 and v3 are left as they are for review.
