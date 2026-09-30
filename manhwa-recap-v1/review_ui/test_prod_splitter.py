@@ -45,7 +45,10 @@ def main():
           '"engine": "background-registration"' in src)
 
     if not os.path.isdir(FIXTURE):
-        check("fixture present", False)
+        # Scraped pages are NOT in git (public repo; CLAUDE.md: internal
+        # R&D only) — they live on the developer machine. Skip, loudly.
+        print("SKIP fixture checks: fixtures/murim_ch43/pages is not on this "
+              "machine (scraped content is kept out of the public repo)")
     else:
         pages = [os.path.join(FIXTURE, f) for f in sorted(os.listdir(FIXTURE))]
         out = tempfile.mkdtemp(prefix="prodsplit_")

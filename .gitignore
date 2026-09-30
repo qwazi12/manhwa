@@ -72,3 +72,13 @@ manhwa-recap-v1/review_ui/projects/
 # --- Test artifacts ---
 panel-split/test_dummy_page.jpg
 panel-split/test_output*/
+
+# Scraped chapter content (pages, page-derived images, verbatim dialogue).
+# The GitHub repo is PUBLIC and CLAUDE.md limits this content to internal
+# R&D, so it is kept on the developer machine only, never committed
+# (removed from tracking 2026-09-30). Tests that need it skip cleanly
+# when it is absent.
+fixtures/murim_ch43/pages/
+fixtures/murim_ch43/cutmaps/
+panel-split/test_fixtures/
+manhwa-recap-v1/eval/fixtures/*/descriptions.json

@@ -7308,3 +7308,27 @@ content is internal R&D only. Owner to decide: make the repo private, or
 move the fixtures.
 
 **Evidence:** cutter-refinement-2026-09-30, ch44-direct-speech-listening
+
+### 2026-09-30 — scraped fixtures removed from the PUBLIC repo (tracking only)
+
+**Owner:** "remove the fixtures". The GitHub repo is public (the
+unauthenticated API answers 200), and CLAUDE.md limits scraped content to
+internal R&D.
+
+**Done:** `git rm --cached` for all 26 tracked scraped images —
+fixtures/murim_ch43/pages (20), fixtures/murim_ch43/cutmaps (3, page-derived)
+and panel-split/test_fixtures (3) — plus
+eval/fixtures/dungeon-odyssey-ch1/descriptions.json (verbatim chapter
+dialogue). All are .gitignored. **The files are KEPT on the developer
+machine**, so the tests still run locally. The approved narration scripts
+(our own writing) and fixtures/murim_ch43/README.md stay tracked.
+test_prod_splitter and test_split_baseline now SKIP LOUDLY when the fixture
+is absent, instead of failing (verified by hiding it). test_split_coverage
+already says to re-fetch with fetch_fixtures.py. Suite: 43 files pass.
+
+**NOT done — needs the owner:** git HISTORY still contains these files, so
+anyone can still get them from old commits of a public repo. The effective
+fix is making the repo private (GitHub Settings -> Danger zone; not
+available to the agent — no gh CLI or token for it). Purging history (git
+filter-repo + force-push) is destructive and would not remove existing
+forks or clones — only with the owner's explicit say-so.
