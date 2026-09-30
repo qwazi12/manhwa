@@ -7332,3 +7332,33 @@ fix is making the repo private (GitHub Settings -> Danger zone; not
 available to the agent — no gh CLI or token for it). Purging history (git
 filter-repo + force-push) is destructive and would not remove existing
 forks or clones — only with the owner's explicit say-so.
+
+### 2026-09-30 — ch.44 v3: full live run (ingest -> render -> export) with everything shipped so far
+
+**Owner:** "run everything… I want to see it on the site… give me the output
+so I can check and verify and confirm."
+
+**Run (all through the live system):** ingest job d06891f3f870 (version v3,
+direct speech on) with the NEW cutter refinement → 56 segments, 480.8 s, 0
+timeline errors. Then activated v3 (the site now opens on it), ticked all 56
+(the fresh-ingest default is none ticked), and approved → render + export job
+abc0c10f9316 on the NEW fast renderer: **56 clips + final export in 122 s**.
+Export `final_Sep30_12.11PM.mp4`: 487.6 s, 1080p30 h264 + AAC 48 kHz, 121 MB,
+mean -20.8 dB. Peaks reach 0.0 dB — check by ear for clipping.
+
+**v2 vs v3:** oversized crops on screen 8 -> 5; transition panels narrated
+6 -> 3 (a pixel test: std < 12 and mean < 30 or > 225); 8 cuts / 25 merges.
+**Not improved:** yellow 43 -> 47, dialogue panels folded 13 -> 13 — the
+placement disconnect, fixed only by step 4 (plan before prose), which is
+not built. Correct splits add panels but no sentences.
+
+**Direct-speech follow-ups found:** (1) the approved line "You know he's..."
+is a FRAGMENT (one sentence split across two bubbles) — reject fragments or
+join same-speaker bubbles; (2) the "stray quote" is a quoted TERM ("Elder") —
+allow single quoted terms. Plus: the 0 dB peaks.
+
+**Tests:** full suite 43/43 files + eval 2/2 (output uploaded as evidence).
+**v2 was not touched.** The earlier "v3 = after plan-before-prose" is renamed:
+this v3 is today's state; that one will be v4.
+
+**Evidence:** ch44-v3-full-run-2026-09-30, cutter-refinement-2026-09-30
