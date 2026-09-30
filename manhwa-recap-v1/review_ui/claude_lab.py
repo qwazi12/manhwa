@@ -701,10 +701,15 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
             _absorb("critique", cst)
             # Under-spend is arithmetic the pipeline already has, so it is
             # raised in code rather than asked of the reviewer.
-            iss = iss + PLUS.underspend_issues(units)
+            iss = PLUS.direct_speech_issues(units, cmap) + iss + PLUS.underspend_issues(units)
             rev, rst = PLUS.revise(units, iss, descs, cmap, model=model,
                                    progress=lambda m: _prog("critique", m))
-            return {"units": rev, "issues": iss}, rst
+            # re-audit AFTER revision: this is the record the project keeps
+            left = PLUS.direct_speech_issues(rev, cmap)
+            return {"units": rev, "issues": iss,
+                    "direct_speech": dict(cmap.get("direct_speech_audit") or {},
+                                          approved_lines=cmap.get("direct_lines") or [],
+                                          unresolved=[i["problem"] for i in left])}, rst
 
         # Cached as ONE unit: revised lines without the critique that produced
         # them is not a state worth resuming from.
@@ -714,6 +719,7 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
             _prog("critique", "critique + revision reused from the earlier run")
         _absorb("revise", st)
         units = blob["units"]
+        man["direct_speech"] = blob.get("direct_speech", {})
         issues = blob["issues"]
         man["diagnostics"]["critique_issues"] = issues
 

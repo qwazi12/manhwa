@@ -22,7 +22,8 @@ GAP_SEC = 0.35               # small breath between beats
 def _clean_for_tts(text: str) -> str:
     """Remove bracketed cues like [music] and collapse whitespace."""
     text = re.sub(r"\[[^\]]*\]", "", text)
-    return " ".join(text.split()).strip()
+    import speech_text     # no quotation marks, harsher profanity softened
+    return speech_text.speakable(" ".join(text.split()))
 
 
 def synth_beat(text: str, out_path: str, client):

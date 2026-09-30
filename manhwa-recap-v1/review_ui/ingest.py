@@ -180,7 +180,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         import glob as _glob
         import shutil as _shutil
         progress("scrape", "fresh=1 — clearing derived artifacts…", 2)
-        for f in ("script.txt", "script.json", "segments.json", "review.json",
+        for f in ("script.txt", "script.json", "direct_speech.json",
+                  "segments.json", "review.json",
                   "storyboard.json", "edits.log.jsonl", "beatsheet.json"):
             try:
                 os.remove(os.path.join(proj, f))
@@ -342,9 +343,17 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     prov_path = os.path.join(proj, "script.json")
     _cached_script = open(script_path).read().strip() if os.path.exists(script_path) else ""
     scenes = None
+    # P2 record lives beside the script it describes, so a cached-script
+    # rerun reports THIS chapter's lines, never the previous run's module state
+    ds_path = os.path.join(proj, "direct_speech.json")
+    direct_record = {}
     if _cached_script:
         progress("narrate", "Script exists, loading cached narration…", 60)
         script = _cached_script
+        try:
+            direct_record = json.load(open(ds_path))
+        except (OSError, json.JSONDecodeError):
+            direct_record = {"note": "script reused from cache; written before direct speech was recorded"}
         if os.path.exists(prov_path):
             try:
                 scenes = json.load(open(prov_path))
@@ -360,6 +369,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
                 "narrate", f"narration {phase} — unit {i}/{n}…",
                 60 + int(8 * i / max(n, 1))))
         open(script_path, "w").write(script)
+        direct_record = dict(narrate.LAST_DIRECT_SPEECH)
+        json.dump(direct_record, open(ds_path, "w"), indent=1, ensure_ascii=False)
         scenes = narrate.provenance(results)
         json.dump(scenes, open(prov_path, "w"), indent=1)
     if scenes:
@@ -445,6 +456,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             "match_method": match_method,
             "engine": "gemini",
             "timeline": timeline,
+            # P2: which 2-3 lines were quoted, and whether any quote strayed
+            "direct_speech": direct_record,
             "split_coverage": split_coverage,
             # Persisted so the whole library stays auditable: a truncated
             # chapter is now visible in project.json / /api/projects instead

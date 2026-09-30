@@ -31,6 +31,7 @@ import os
 import re
 import sys
 
+import direct_speech
 import matcher
 import ocr_lines
 
@@ -298,7 +299,9 @@ def word_budget(n_panels, n_dialogue=0):
     return max(40, min(220, 12 * n_panels + 7 * n_dialogue))
 
 
-def build_prompt(scene_panels, global_beatsheet=None, budget=None):
+def build_prompt(scene_panels, global_beatsheet=None, budget=None, direct_lines=None):
+    """direct_lines: the chapter's approved direct-speech lines that fall in
+    this scene (direct_speech.for_panels). None or [] = quote nothing."""
     lines = []
     for i, p in enumerate(scene_panels, 1):
         desc = p.get("visual_description", "").strip()
@@ -328,23 +331,26 @@ Here is the overall storyline outline and emotional pacing flow for the entire c
 STYLE CONTRACT (every rule mandatory):
 1. Third-person, past tense, story-first: retell events as one flowing narrative.
 2. Every sentence must carry an EVENT, REACTION, REALIZATION, INTENTION, or CONSEQUENCE. A sentence that only describes how something looks gets cut, or its detail folded into an action.
-2b. DIALOGUE FIDELITY: every meaningful exchange in the panels gets its own reported-speech sentence — collapsing a whole conversation into one summary line is a contract violation. Only trivial fillers (grunts, one-word reactions, repeated shouts) may fold into a neighbouring sentence.
-3. Convert all visible dialogue/text into reported narration — never quotation marks (panel text "Who are you?" becomes: he demanded to know who the stranger was).
+2b. DIALOGUE FIDELITY: every meaningful exchange in the panels gets its own sentence — direct speech for the line rule 3 names, reported speech for the rest — collapsing a whole conversation into one summary line is a contract violation. Only trivial fillers (grunts, one-word reactions, repeated shouts) may fold into a neighbouring sentence.
+3. {direct_speech.RULE_TEXT}
 4. No panel/framing/camera/art language, ever: never "the panel/image/frame shows", "close-up", "speed lines", "we see" — and NEVER the word "camera" in any form.
 4b. Each scene continues where the previous narration left off — never re-introduce or re-tell events already covered (the chapter summary shows you where you are in the story).
 5. Appearance, clothing, and setting details appear ONLY when plot-relevant or atmosphere-setting — one economical touch, not an inventory.
 6. Enrichment policy: infer motive, emotion, and subtext when the art or dialogue clearly implies it; smooth small gaps the way a recap narrator who knows the story would. NEVER invent names, numbers, backstory, or events without support in the panels.
 7. DENSITY IS EDITORIAL, NOT MECHANICAL: narrate the story, not the panels. A run of panels showing one continuous action gets ONE sentence. A filler/transition panel earns ZERO sentences. Only a true story peak earns 2-3 sentences. Never average "sentences per panel".
 
-VOICE ANCHOR (match this cadence — sentences that move, reported speech, zero scenery padding):
+VOICE ANCHOR (match this cadence — sentences that move, reported speech except for an approved direct line, zero scenery padding):
 - "The war with the labyrinth had raged for decades — humanity against the things that boiled up from below, soldiers emptying their guns into biomechanical horrors while monsters charged in roaring hordes."
 - "The plea did no good. The club came down anyway, and the man who had once been the ninth-ranked warrior alive could do nothing but shield his head and take it."
 - "Somewhere in that laughter, something in him finally settled. He had needed the reminder, he thought, that he was no longer the man from those glory days."
+- The old man did not lower the crossbow. "One more step," he said, "and you leave through the window." Nobody moved.   <- an approved direct line: a short beat before, the words, a plain tag, a consequence after — the narrator's own voice throughout
 
 OUTPUT: only the raw storytelling text — no preamble, labels, or panel references.
 
 PANELS (in order):
 {panel_block}
+
+{direct_speech.scene_block(direct_lines)}
 
 STRICT LENGTH BUDGET: write AT MOST {budget or word_budget(len(scene_panels), dialogue_lines(scene_panels))} words for this ENTIRE scene — count them. Compress ruthlessly: pick only the events that move the story, fold the rest into them or skip them outright.
 
@@ -399,13 +405,47 @@ Write the story outline and pacing beat sheet now. Plain text only, no formattin
         return _call()
 
 
-def narrate_scene(scene_panels, model="gemini-3.5-flash", global_beatsheet=None):
+def _gated_call(model, prompt, api_key):
+    if usage:
+        with usage.gate("gemini", 1, model=model) as _m:
+            out = call_gemini_rest(model, prompt, api_key)
+            _m.tokens(LAST_USAGE.get("prompt", 0), LAST_USAGE.get("output", 0),
+                      LAST_USAGE.get("cached", 0))
+            return out
+    return call_gemini_rest(model, prompt, api_key)
+
+
+def select_direct_lines(panels, global_beatsheet, model="gemini-3.5-flash"):
+    """P2: pick the chapter's 2-3 direct-speech lines (direct_speech.select).
+    One call, only when the reader found attributable lines. Never a
+    job-killer: on any failure other than a usage cap, the chapter simply
+    quotes nothing and is narrated in reported speech as before."""
+    api_key = os.environ.get("GEMINI_API_KEY")
+    try:
+        return direct_speech.select(
+            panels, global_beatsheet or "",
+            lambda prompt: _gated_call(model, prompt, api_key))
+    except (usage.UsageCapExceeded if usage else ()):
+        raise
+    except Exception as e:
+        print(f"direct-speech selection skipped: {e}", file=sys.stderr)
+        return []
+
+
+# The last run's direct-speech record, for project.json (same idiom as
+# LAST_USAGE): which lines were approved and what the final audit found.
+LAST_DIRECT_SPEECH = {}
+
+
+def narrate_scene(scene_panels, model="gemini-3.5-flash", global_beatsheet=None,
+                  direct_lines=None):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.exit("GEMINI_API_KEY not set")
 
     def _call():
-        return call_gemini_rest(model, build_prompt(scene_panels, global_beatsheet), api_key)
+        return call_gemini_rest(model, build_prompt(scene_panels, global_beatsheet,
+                                                    direct_lines=direct_lines), api_key)
 
     if usage:
         with usage.gate("gemini", 1, model=model) as _m:
@@ -420,10 +460,12 @@ def narrate_scene(scene_panels, model="gemini-3.5-flash", global_beatsheet=None)
 MAX_REVISED_UNITS = 3   # A3: cap revision calls per chapter
 
 
-def critique_units(results, model, api_key):
+def critique_units(results, model, api_key, direct_by_unit=None):
     """A3 pass 1: ONE reviewer call over the whole draft. Returns issue list
     [{"unit": int, "type": ..., "problem": ..., "fix": ...}]. Types:
-    hallucination | misorder | missed_beat | style_violation."""
+    hallucination | misorder | missed_beat | style_violation | redundancy |
+    flat_dialogue | misattributed_dialogue."""
+    direct_by_unit = direct_by_unit or {}
     lines = []
     for i, (scene_panels, text) in enumerate(results):
         pids = ", ".join(p["panel_id"] for p in scene_panels)
@@ -432,17 +474,22 @@ def critique_units(results, model, api_key):
             + (f" [text: {ocr_lines.prompt_ocr(p.get('ocr_text'))[:60]}]"
                if ocr_lines.prompt_ocr(p.get("ocr_text")) else "")
             for p in scene_panels)
-        lines.append(f"UNIT {i} (panels: {pids})\nPANEL FACTS: {facts}\nDRAFT: {text}")
+        approved = "; ".join(f'{a["speaker"]}: "{a["text"]}"'
+                             for a in direct_by_unit.get(i, [])) or "none"
+        lines.append(f"UNIT {i} (panels: {pids})\nPANEL FACTS: {facts}\n"
+                     f"APPROVED DIRECT LINES: {approved}\nDRAFT: {text}")
     prompt = f"""You are a fact-checking script editor for a comic-recap narration. For each UNIT below, compare the DRAFT narration against the PANEL FACTS it was written from.
 
 Report ONLY real problems, as a JSON array (empty array if none):
-[{{"unit": <int>, "type": "hallucination|misorder|missed_beat|style_violation", "problem": "<what is wrong>", "fix": "<how to fix in one sentence>"}}]
+[{{"unit": <int>, "type": "hallucination|misorder|missed_beat|style_violation|redundancy|flat_dialogue|misattributed_dialogue", "problem": "<what is wrong>", "fix": "<how to fix in one sentence>"}}]
 
 - hallucination: names, numbers, events, or motives with NO support in the panel facts
 - misorder: events narrated in a different order than the panels
 - missed_beat: a clearly major story event in the facts that the draft skips entirely
-- style_violation: quoted dialogue, present tense, or ANY mention of the camera/panel/image/frame ("the camera pans", "the panel shows")
+- style_violation: present tense, ANY mention of the camera/panel/image/frame or other layout language ("the camera pans", "the panel shows"), a stage direction in parentheses, or dialogue written as a character impression ("in a deep growl", an accent, stretched letters). Quoting an APPROVED DIRECT LINE is correct, not a violation.
 - redundancy: the unit re-tells events an EARLIER unit already narrated (recaps must never repeat themselves)
+- flat_dialogue: an APPROVED DIRECT LINE for this unit is missing, or is retold in reported speech instead of quoted
+- misattributed_dialogue: a quoted line is credited to someone other than the speaker the approved line names
 
 Output the JSON array only.
 
@@ -463,12 +510,13 @@ Output the JSON array only.
         return []
 
 
-def revise_unit(scene_panels, draft, unit_issues, model, global_beatsheet, api_key):
+def revise_unit(scene_panels, draft, unit_issues, model, global_beatsheet, api_key,
+                direct_lines=None):
     """A3 pass 2: regenerate ONE flagged unit with the reviewer's notes
     appended — provenance (unit -> panels) is preserved by construction."""
     notes = "\n".join(f"- {i['type']}: {i['problem']} FIX: {i['fix']}"
                       for i in unit_issues)
-    prompt = (build_prompt(scene_panels, global_beatsheet)
+    prompt = (build_prompt(scene_panels, global_beatsheet, direct_lines=direct_lines)
               + f"\n\nEDITOR NOTES on the previous draft (you MUST fix these):\n{notes}"
               + f"\n\nPREVIOUS DRAFT:\n{draft}\n\nRewrite the narration for this scene now:")
     if usage:
@@ -488,7 +536,13 @@ def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
     if verbose:
         print(f"Generating global pacing beatsheet using {model}...", file=sys.stderr)
     global_beatsheet = generate_global_beatsheet(panels, model)
-    
+    # P2: the chapter's 2-3 direct-speech lines, chosen once for the whole
+    # chapter (scenes are written separately, so the cap cannot live in them)
+    approved = select_direct_lines(panels, global_beatsheet, model)
+    if verbose:
+        print(f"direct speech: {len(approved)} line(s) approved "
+              f"{[a['speaker'] + ': ' + a['text'][:40] for a in approved]}", file=sys.stderr)
+
     # Pass 2: scene grouping -> NARRATION UNITS (merged scenes, <=10 panels)
     # with a hard per-unit word budget — the structural density control.
     scenes = merge_into_units(group_into_scenes(panels))
@@ -500,8 +554,17 @@ def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
                   file=sys.stderr)
         if progress_cb:
             progress_cb(i, len(scenes), "draft")
-        text = narrate_scene(scene, model, global_beatsheet)
+        text = narrate_scene(scene, model, global_beatsheet,
+                             direct_lines=direct_speech.for_panels(approved, ids))
         results.append((scene, text))
+
+    def _direct(u):
+        return direct_speech.for_panels(approved, [p["panel_id"] for p in results[u][0]])
+
+    def _audit():
+        return direct_speech.audit(
+            [{"unit": u, "text": t, "panel_ids": [p["panel_id"] for p in sc]}
+             for u, (sc, t) in enumerate(results)], approved)
 
     # A3: critique-and-revise — one reviewer call over the whole draft, then
     # regenerate at most MAX_REVISED_UNITS flagged units with editor notes.
@@ -509,17 +572,24 @@ def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
     try:
         if progress_cb:
             progress_cb(len(scenes), len(scenes), "review")
-        issues = critique_units(results, model, api_key)
+        # Stray quotes are FACTS computed in code, not a reviewer's opinion,
+        # so they are raised here and revised first.
+        code_issues, _ = _audit()
+        issues = code_issues + critique_units(
+            results, model, api_key,
+            direct_by_unit={u: _direct(u) for u in range(len(results))})
         if issues:
             by_unit = {}
             for it in issues:
                 by_unit.setdefault(it["unit"], []).append(it)
-            worst = sorted(by_unit, key=lambda u: -len(by_unit[u]))[:MAX_REVISED_UNITS]
+            coded = {it["unit"] for it in code_issues}
+            worst = sorted(by_unit, key=lambda u: (u not in coded, -len(by_unit[u])))[:MAX_REVISED_UNITS]
             for u in worst:
                 if 0 <= u < len(results):
                     scene, draft = results[u]
                     fixed = revise_unit(scene, draft, by_unit[u], model,
-                                        global_beatsheet, api_key)
+                                        global_beatsheet, api_key,
+                                        direct_lines=_direct(u))
                     if fixed and fixed.strip():
                         results[u] = (scene, fixed.strip())
             print(f"critique: {len(issues)} issue(s), revised "
@@ -529,6 +599,15 @@ def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
     except Exception as e:
         # The review pass is a quality net, never a job-killer.
         print(f"critique pass skipped: {e}", file=sys.stderr)
+
+    left, summary = _audit()
+    LAST_DIRECT_SPEECH.clear()
+    LAST_DIRECT_SPEECH.update(summary, approved_lines=[
+        {k: a[k] for k in ("panel_id", "speaker", "text", "why")} for a in approved],
+        unresolved=[i["problem"] for i in left])
+    if left:
+        print(f"direct speech: {len(left)} issue(s) left after revision: "
+              f"{[i['problem'][:60] for i in left]}", file=sys.stderr)
 
     full_script = "\n\n".join(text for _, text in results)
     return full_script, results

@@ -27,9 +27,12 @@ def _restore(text: str) -> str:
 
 
 def split_sentences(text: str):
-    """Split on . ! ? followed by whitespace, keeping the punctuation."""
+    """Split on . ! ? (optionally closed by a quotation mark) followed by
+    whitespace, keeping the punctuation. The closing-quote case matters since
+    rule 3 allows direct speech: `He ran. "Go!" She followed.` must break
+    after `"Go!"`, not glue it to the next sentence."""
     text = _protect_abbreviations(" ".join(text.split()))
-    parts = re.split(r"(?<=[.!?])\s+", text)
+    parts = re.split(r'(?<=[.!?])\s+|(?<=[.!?]["”])\s+', text)
     return [_restore(p).strip() for p in parts if p.strip()]
 
 
@@ -40,6 +43,14 @@ def _clause_split(sentence: str):
     seams = re.split(r"(?<=;)\s+|\s+—\s+|(?<=,)\s+(?=and\b|but\b|so\b)", sentence)
     seams = [s.strip() for s in seams if s.strip()]
     return seams if len(seams) > 1 else [sentence]
+
+
+def _join(a: str, b: str) -> str:
+    """Glue a short fragment to its neighbour WITHOUT losing punctuation.
+    The old `rstrip(".!?") + ". "` turned a shouted line into a flat one and
+    produced `"Get down!". Mia…` once direct speech arrived."""
+    a = a.rstrip()
+    return a + ("" if a[-1:] in '.!?"\u201d' else ".") + " " + b
 
 
 def segment_beats(script_text: str):
@@ -62,12 +73,12 @@ def segment_beats(script_text: str):
     merged = []
     for s in raw:
         if merged and len(s.split()) < MIN_BEAT_WORDS:
-            merged[-1] = merged[-1].rstrip(".!?") + ". " + s
+            merged[-1] = _join(merged[-1], s)
         else:
             merged.append(s)
     # also merge a too-short FIRST beat forward
     if len(merged) >= 2 and len(merged[0].split()) < MIN_BEAT_WORDS:
-        merged[1] = merged[0].rstrip(".!?") + ". " + merged[1]
+        merged[1] = _join(merged[0], merged[1])
         merged.pop(0)
 
     return [{"index": i, "text": t, "word_count": len(t.split())}

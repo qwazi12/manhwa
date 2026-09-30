@@ -26,14 +26,27 @@ FIXTURE = os.path.join(HERE, "fixtures", "dungeon-odyssey-ch1")
 
 # ---- style-contract checks (structural, zero API) -------------------------
 BANNED = [
-    (r'"[^"]{3,}"', 'quoted dialogue (contract: reported speech only)'),
+    # The blanket "quoted dialogue" ban is gone: rule 3 now REQUIRES 2-3 direct
+    # lines per chapter (docs/craft_reconciliation.md P2). What stays banned is
+    # anything that makes a quote sound like a second voice, and layout talk.
     (r"\b(the panel|this panel|the image|the frame|the camera|on screen|"
-     r"in the foreground|in the background of the panel)\b",
-     'panel/camera language'),
-    (r"\b(speed lines|sound effect|sfx|speech bubble|text box)\b",
-     'comic-mechanics language'),
+     r"in the foreground|in the background of the panel|the page|the caption|"
+     r"speech bubble|the scene shifts|cut to|next image)\b", 'layout language'),
+    (r"\b(speed lines|sound effect|sfx|text box)\b", 'comic-mechanics language'),
     (r"\bwe (see|watch|observe)\b", 'viewer language'),
+    (r"\b(in an? (deep|squeaky|high|low|gravelly|booming|shrill|raspy) "
+     r"(voice|growl|rasp|snarl|drawl)|"
+     r"mimick\w*|impersonat\w*|quote|unquote)\b", 'second-voice / quote marker'),
+    (r"\((?:whisper|shout|softly|loudly|pause|beat)[^)]*\)", 'stage direction in text'),
+    (r"[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af\u3040-\u30ff\u4e00-\u9fff]",
+     'untranslated sound-effect lettering'),
 ]
+MAX_QUOTED_LINES = 3      # per CHAPTER (owner decision, §12 Q2)
+
+
+def quote_count(text):
+    return len(re.findall(r'["\u201c][^"\u201d]{1,400}["\u201d]', text))
+
 
 def check_script(text, name):
     fails = []
@@ -43,6 +56,11 @@ def check_script(text, name):
         hits = re.findall(pat, text, re.I)
         if hits:
             fails.append(f"{why}: {len(hits)}x e.g. {str(hits[0])[:60]!r}")
+    # the per-chapter cap, counted as quote spans (an approved line split
+    # around its tag is two spans, so allow one extra span per line)
+    spans = quote_count(text)
+    if spans > 2 * MAX_QUOTED_LINES:
+        fails.append(f"{spans} quoted spans — the chapter cap is {MAX_QUOTED_LINES} lines")
     if words < 150:
         fails.append(f"suspiciously short ({words} words) — empty/truncated output?")
     # past-tense heuristic: present-tense narration openers are contract breaks

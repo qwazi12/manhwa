@@ -42,6 +42,7 @@ _RECAP_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file
 if _RECAP_DIR not in sys.path:
     sys.path.insert(0, _RECAP_DIR)
 import ocr_lines   # one parser for per-bubble lines, shared with narrate.py
+import direct_speech   # the 2-3-per-chapter direct-speech rule, shared too
 from claude_pipeline import (_Tally, _clean_crop, _image_block, _write, read,
                              out_dir, MODEL, EFFORT, PANELS_PER_CALL,
                              SCRIPT_CHUNK)
@@ -545,12 +546,11 @@ STYLE CONTRACT — every rule is mandatory:
 CONSEQUENCE. A sentence that only says how something looks is cut, or its \
 detail folded into an action.
 3. DIALOGUE FIDELITY: every meaningful exchange in these panels gets its own \
-reported-speech sentence. Collapsing a whole conversation into one summary line \
-is a contract violation. Only trivial filler — grunts, one-word reactions, \
-repeated shouts — may fold into a neighbouring sentence.
-4. Convert all visible dialogue into reported narration. NEVER use quotation \
-marks. Panel text "Who are you?" becomes: he demanded to know who the stranger \
-was.
+sentence — direct speech for the line rule 4 names, reported speech for the \
+rest. Collapsing a whole conversation into one summary line is a contract \
+violation. Only trivial filler — grunts, one-word reactions, repeated shouts — \
+may fold into a neighbouring sentence.
+4. """ + direct_speech.RULE_TEXT + """
 5. NO panel, framing, camera or art language, ever. Never "the panel shows", \
 "the image", "the frame", "close-up", "speed lines", "we see" — and never the \
 word "camera" in any form.
@@ -579,14 +579,15 @@ Carry world detail ONLY where the chapter supports it — never invent a rank, a
 system, a place name or a rule the panels do not show, and never import \
 knowledge from elsewhere in the series.
 
-VOICE — match this cadence: sentences that move, reported speech, no scenery \
-padding. Short declaratives for impact; a longer sentence to carry a turn.
+VOICE — match this cadence: sentences that move, reported speech except for an \
+approved direct line, no scenery padding. Short declaratives for impact; a longer sentence to carry a turn.
 
 OUTPUT: only the narration prose for this scene. No preamble, no labels, no \
 panel references."""
 
 
-def build_scene_prompt(scene, panels, cmap, budget, running_summary, tail):
+def build_scene_prompt(scene, panels, cmap, budget, running_summary, tail,
+                       direct_lines=None):
     lines = []
     for p in panels:
         bits = [f"PANEL {p['n']}: {(p.get('visual_description') or '')[:240]}"]
@@ -609,6 +610,7 @@ def build_scene_prompt(scene, panels, cmap, budget, running_summary, tail):
             f"[{scene.get('phase','')}]\n{scene.get('summary','')}\n"
             + ctx
             + "\nPANELS IN ORDER:\n" + "\n".join(lines)
+            + "\n\n" + direct_speech.scene_block(direct_lines)
             + f"\n\nLENGTH — THIS IS A TARGET RANGE, NOT JUST A CEILING.\n"
               f"Write between {int(budget * TARGET_MIN_FRAC)} and "
               f"{int(budget * TARGET_MAX_FRAC)} words for this scene. "
@@ -633,6 +635,29 @@ def script_plus(descs, cmap, model=None, progress=None):
     running, tail = "", ""
 
     scenes = sorted(cmap.get("scenes") or [], key=lambda s: s.get("first_panel", 0))
+
+    # P2: the chapter's 2-3 direct-speech lines, chosen once for the whole
+    # chapter from the reader's attributable lines (direct_speech.select). The
+    # speaker must be a name the chapter map uses. Stored on cmap so revise()
+    # reuses the same set. A failure here narrates the chapter in reported
+    # speech rather than killing the run.
+    def _ask(prompt):
+        r, m, c = validator._call_claude(
+            client, model=model, max_tokens=2000,
+            output_config={"effort": EFFORT},
+            messages=[{"role": "user", "content": prompt}])
+        tally.add(m, c)
+        return "".join(b.text for b in r.content if b.type == "text")
+    try:
+        cmap["direct_lines"] = direct_speech.select(
+            descs, json.dumps(cmap, ensure_ascii=False, default=str)[:8000], _ask)
+    except usage.UsageCapExceeded:
+        raise
+    except Exception:
+        cmap["direct_lines"] = []
+    if progress and cmap["direct_lines"]:
+        progress(f"Direct speech: {len(cmap['direct_lines'])} line(s) chosen")
+
     for si, scene in enumerate(scenes, start=1):
         lo = scene.get("first_panel", 0)
         hi = scene.get("last_panel", 0)
@@ -653,7 +678,9 @@ def script_plus(descs, cmap, model=None, progress=None):
                      "cache_control": {"type": "ephemeral"}}],
             output_config={"effort": EFFORT},
             messages=[{"role": "user", "content": build_scene_prompt(
-                scene, panels, cmap, budget, running, tail)}])
+                scene, panels, cmap, budget, running, tail,
+                direct_lines=direct_speech.for_panels(
+                    cmap["direct_lines"], [p["panel_id"] for p in panels]))}])
         tally.add(meter, cost)
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
         if not text:
@@ -669,6 +696,8 @@ def script_plus(descs, cmap, model=None, progress=None):
                       "budget": budget, "base_budget": base,
                       "words": words, "spend_frac": round(spend, 3),
                       "dialogue_lines": n_d,
+                      "direct_lines": direct_speech.for_panels(
+                          cmap["direct_lines"], [p["panel_id"] for p in panels]),
                       # A content-rich scene written far under its range has
                       # been flattened, not economised. It is a failure state
                       # and is sent back for regeneration.
@@ -699,8 +728,14 @@ Report ONLY real problems. Types:
 - hallucination: names, numbers, events or motives with NO support in the facts
 - misorder: events narrated in a different order than the panels
 - missed_beat: a clearly major story event in the facts the draft skips entirely
-- style_violation: quoted dialogue, present tense, or ANY mention of the \
-camera / panel / image / frame
+- style_violation: present tense, ANY mention of the camera / panel / image / \
+frame or other layout language, a stage direction in parentheses, or dialogue \
+written as a character impression (an accent, "in a deep growl", stretched \
+letters). Quoting an APPROVED DIRECT LINE is correct, not a violation.
+- flat_dialogue: an APPROVED DIRECT LINE for this unit is missing, or retold in \
+reported speech instead of quoted
+- misattributed_dialogue: a quoted line is credited to someone other than the \
+speaker the approved line names
 - redundancy: re-tells events an EARLIER unit already narrated
 - over_compression: several distinct exchanges or a reveal AND its reaction \
 flattened into a single summary line, losing story the panels clearly carry
@@ -726,7 +761,8 @@ CRITIQUE_SCHEMA = {
                     "type": {"type": "string", "enum": [
                         "hallucination", "misorder", "missed_beat",
                         "style_violation", "redundancy", "over_compression",
-                        "weak_dialogue_coverage", "missing_worldbuilding"]},
+                        "weak_dialogue_coverage", "missing_worldbuilding",
+                        "flat_dialogue", "misattributed_dialogue"]},
                     "problem": {"type": "string"},
                     "fix": {"type": "string"},
                 },
@@ -765,6 +801,17 @@ def underspend_issues(units):
     return out
 
 
+def direct_speech_issues(units, cmap):
+    """Stray quotes and a chapter over the 2-3 cap are FACTS computed in code
+    (direct_speech.audit) — raised here like underspend_issues, not asked of
+    the reviewer."""
+    issues, summary = direct_speech.audit(
+        [{"unit": u["scene_id"], "text": u["text"], "panel_ids": u["panel_ids"]}
+         for u in units], cmap.get("direct_lines") or [])
+    cmap["direct_speech_audit"] = summary
+    return issues
+
+
 def critique(units, descs, model=None, progress=None):
     """One reviewer call over the whole draft. Returns typed issues."""
     model = model or MODEL
@@ -781,7 +828,10 @@ def critique(units, descs, model=None, progress=None):
             + (f" [text: {ocr_lines.prompt_ocr(by_n[n].get('ocr_text'))[:60]}]"
                if ocr_lines.prompt_ocr(by_n[n].get("ocr_text")) else "")
             for n in u.get("panel_numbers", []) if n in by_n)
+        approved = "; ".join(f'{a["speaker"]}: "{a["text"]}"'
+                             for a in u.get("direct_lines") or []) or "none"
         blocks.append(f"UNIT {u['scene_id']}\nPANEL FACTS: {facts}\n"
+                      f"APPROVED DIRECT LINES: {approved}\n"
                       f"DRAFT: {u['text']}")
 
     resp, meter, cost = validator._call_claude(
@@ -818,7 +868,11 @@ def revise(units, issues, descs, cmap, model=None, progress=None):
     scenes = {s.get("scene"): s for s in (cmap.get("scenes") or [])}
     revised = 0
     out = list(units)
-    for uid in sorted(by_unit)[:MAX_REVISIONS]:
+    # units with a code-computed fault (a stray quote, the chapter cap) are
+    # revised first — they are facts; review opinions come after
+    coded = {i["unit"] for i in issues
+             if i.get("type") in ("unapproved_quote", "chapter_quote_cap")}
+    for uid in sorted(by_unit, key=lambda u: (u not in coded, u))[:MAX_REVISIONS]:
         u = next((x for x in out if x["scene_id"] == uid), None)
         if u is None:
             continue
@@ -831,7 +885,8 @@ def revise(units, issues, descs, cmap, model=None, progress=None):
             progress(f"Claude revising unit {uid} "
                      f"({len(by_unit[uid])} issue(s))")
         base = build_scene_prompt(scenes.get(u.get("scene"), {}), panels, cmap,
-                                  u["budget"], "", "")
+                                  u["budget"], "", "",
+                                  direct_lines=u.get("direct_lines"))
         resp, meter, cost = validator._call_claude(
             client, model=model, max_tokens=8000,
             system=[{"type": "text", "text": SCRIPT_SYSTEM,

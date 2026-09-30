@@ -2371,6 +2371,11 @@ def _synth_rest(text, out_path):
     (beat-index filenames shift on any insertion; the content hash doesn't),
     and identical text across re-ingests costs zero TTS chars."""
     import base64, hashlib, shutil, ssl, urllib.request
+    import speech_text
+    # What the narrator SAYS: no quotation marks, harsher profanity softened
+    # (docs/craft_reconciliation.md §7g, owner decision Q4). Done before the
+    # cache key, so a quote-only change to the script costs no new TTS.
+    text = speech_text.speakable(text)
     os.makedirs(_TTS_CACHE_DIR, exist_ok=True)
     ck = hashlib.sha1(f"{_TTS_VOICE}|{text}".encode()).hexdigest()
     cached = os.path.join(_TTS_CACHE_DIR, f"{ck}.mp3")

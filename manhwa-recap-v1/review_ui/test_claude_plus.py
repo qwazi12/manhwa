@@ -405,8 +405,13 @@ def main():
     check("...and the ban on camera/panel language",
           "never the word \\\"camera\\\"" in PLUS.SCRIPT_SYSTEM
           or "camera" in PLUS.SCRIPT_SYSTEM)
-    check("...and the reported-speech requirement",
-          "NEVER use quotation marks" in PLUS.SCRIPT_SYSTEM)
+    check("...and the single-narrator direct-speech rule (shared text)",
+          "NEVER BY A SECOND VOICE" in PLUS.SCRIPT_SYSTEM
+          and "removes them before" in PLUS.SCRIPT_SYSTEM
+          and "NEVER use quotation marks" not in PLUS.SCRIPT_SYSTEM)
+    check("...and the reviewer no longer bans correct direct speech",
+          "style_violation: quoted dialogue" not in PLUS.CRITIQUE_SYSTEM
+          and "flat_dialogue" in PLUS.CRITIQUE_SYSTEM)
     check("...and dialogue fidelity",
           "DIALOGUE FIDELITY" in PLUS.SCRIPT_SYSTEM)
 
