@@ -116,7 +116,8 @@ def _stash_usage(res):
         LAST_USAGE.clear()
 
 
-def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, certifi_path: str | None = None) -> str:
+def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, certifi_path: str | None = None,
+                           prompt: str | None = None) -> str:
     """Call the new Interactions API (/v1beta/interactions) with a multimodal input.
     Returns raw response text.
 
@@ -139,7 +140,7 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
                 "type": "user_input",
                 "content": [
                     {"type": "image", "data": img_b64, "mime_type": mime},
-                    {"type": "text", "text": VISION_PROMPT},
+                    {"type": "text", "text": prompt or VISION_PROMPT},
                 ]
             }
         ]
@@ -235,6 +236,42 @@ def describe_with_gemini(path: str, api_key: str, model: str):
     data = json.loads(raw)
     return (data.get("ocr_text", "").strip(), data.get("visual_description", "").strip(),
             data.get("lines"))
+
+
+def ask_image(img_bytes: bytes, mime: str, prompt: str, api_key: str, model: str) -> str:
+    """One vision question about one image, through the same client, key
+    handling and usage gate as describe_with_gemini. Used by the panel cutter
+    to confirm candidate cuts (splitlab.refine_crops). Returns the raw text."""
+    img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+    if api_key.startswith("AQ."):
+        try:
+            import certifi
+            cp = certifi.where()
+        except ImportError:
+            cp = None
+        call = lambda: _call_interactions_api(api_key, model, img_b64, mime, cp, prompt=prompt)
+        if usage:
+            with usage.gate("gemini", 1, model=model) as _m:
+                raw = call()
+                _m.tokens(LAST_USAGE.get("prompt", 0), LAST_USAGE.get("output", 0),
+                          LAST_USAGE.get("cached", 0))
+                return raw
+        return call()
+    from google import genai
+    from google.genai import types
+    client = genai.Client(api_key=api_key)
+    call = lambda: client.models.generate_content(
+        model=model,
+        contents=[types.Part.from_bytes(data=img_bytes, mime_type=mime),
+                  types.Part(text=prompt)],
+        config=types.GenerateContentConfig(temperature=0.0))
+    if usage:
+        with usage.gate("gemini", 1, model=model) as _m:
+            resp = call()
+            _m.from_response(resp)
+    else:
+        resp = call()
+    return (resp.text or "").strip()
 
 
 # --------------------------------------------------------------- Tesseract

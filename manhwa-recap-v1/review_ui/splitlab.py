@@ -230,6 +230,257 @@ def _save_panel(img, path, blur):
         return None
 
 
+# ================================================================ refinement
+# A post-pass over the crops the gutter rule produced, for EVERY ingest
+# (2026-09-30, ch.44 audit — manhwa-recap-v1/memory.md "checkpoint 2"):
+#
+#  1. MISSED SPLITS. The rule above cuts only on a band that is background
+#     across the FULL width, so it can never cut a gutter a speech bubble
+#     crosses — and webtoons do that routinely (ch.44 page008_panel_008: crowd
+#     "MORE... MORE!" + protagonist "SHOW ME EVERYTHING…" came out as one
+#     crop). Pixels find CANDIDATES (blank at BOTH edges, real art above and
+#     below); one vision call per tall crop decides which candidates are real
+#     boundaries, picking them BY NUMBER from lines drawn on the image, so it
+#     can confirm but never invent a cut. Pixels alone were measured to fail
+#     both ways: a strict test missed most, an art-block count chopped
+#     continuous splashes (page011_panel_001, one action splash, read as 4).
+#     No key, a failure, or the per-chapter cap = no extra cut (the old
+#     behaviour), never a guessed one.
+#  2. OVER-SPLIT MONOLOGUE. Stylised inner monologue set line by line in
+#     white space was cut one line per crop ("HOW DID" / "YEON YOUNGHA KNOW"
+#     / "I'D PASS THROUGH" / "HERE?"). Consecutive thin text-only crops are
+#     merged back into one card, so one thought is one unit downstream.
+REFINE_TALL_PX = int(os.environ.get("SPLIT_REFINE_TALL_PX", 1200))
+GUTTER_EDGE_FRAC = 0.06      # both outer 6% of the width must be blank
+GUTTER_MIN_ROWS = 12         # a real gutter is at least this tall
+ART_ROW_FRAC = 0.55          # a row is ARTWORK when >=55% of it is not blank
+ART_MIN_PX = 250             # a panel needs at least this much art height
+TEXT_SLIVER_MAX_H = 200      # monologue lines are thin crops...
+TEXT_INK_MAX = 0.22          # ...with little ink and no artwork rows
+MAX_VISION_CHECKS = int(os.environ.get("SPLIT_MAX_VISION_CHECKS", 60))
+VISION_MODEL = os.environ.get("SPLIT_VISION_MODEL",
+                              os.environ.get("DESCRIBE_MODEL", "gemini-3.5-flash"))
+
+
+def _blank_frac(a):
+    """Per row: share of pixels that are flat white or flat black (the two
+    gutter colours webtoons use)."""
+    return np.maximum((a > 238).mean(axis=1), (a < 18).mean(axis=1))
+
+
+def candidate_gutters(gray):
+    """Bands where a gutter may hide: blank at BOTH edges for at least
+    GUTTER_MIN_ROWS rows (a bubble may cross the middle), with at least
+    ART_MIN_PX rows of real artwork above AND below. Returns [(a, b)]."""
+    a = gray.astype(np.int16)
+    h, w = a.shape
+    e = max(4, int(w * GUTTER_EDGE_FRAC))
+    edge_blank = (_blank_frac(a[:, :e]) >= 0.95) & (_blank_frac(a[:, -e:]) >= 0.95)
+    art = (1.0 - _blank_frac(a)) >= ART_ROW_FRAC
+    art_cum = np.concatenate([[0], np.cumsum(art)])
+    bands, st = [], None
+    for i, v in enumerate(list(edge_blank) + [False]):
+        if v and st is None:
+            st = i
+        elif not v and st is not None:
+            if i - st >= GUTTER_MIN_ROWS:
+                bands.append((st, i))
+            st = None
+    out, last = [], 0
+    for b0, b1 in bands:
+        above = art_cum[b0] - art_cum[last]
+        below = art_cum[h] - art_cum[b1]
+        if above >= ART_MIN_PX and below >= ART_MIN_PX:
+            out.append((b0, b1))
+            last = b1
+    return out
+
+
+def cut_row(gray, band):
+    """Where to cut inside a candidate band so a crossing bubble stays WHOLE.
+    A fully blank row wins; otherwise cut in the larger blank margin beside
+    the bubble, so the bubble goes intact with one panel."""
+    b0, b1 = band
+    seg = gray[b0:b1].astype(np.int16)
+    ink = seg.shape[1] - np.round(_blank_frac(seg) * seg.shape[1])
+    zero = np.where(ink == 0)[0]
+    if zero.size:
+        runs = np.split(zero, np.where(np.diff(zero) > 1)[0] + 1)
+        best = max(runs, key=len)
+        return b0 + int(best[len(best) // 2])
+    inked = np.where(ink > 0)[0]
+    top, bot = int(inked[0]), int(inked[-1])
+    above, below = top, (b1 - b0 - 1) - bot
+    if above >= below:
+        return b0 + max(0, above // 2)
+    return b0 + bot + 1 + below // 2
+
+
+_CUT_PROMPT = """This is one crop from a webtoon/manhwa chapter. Red numbered lines mark places where it MIGHT be split into separate panels.
+
+A line is a real boundary ONLY if the artwork above it and the artwork below it are two DIFFERENT panels — a different shot, moment or framing, separated by a gutter. A line that runs through ONE continuous image (the same scene continuing, a splash, a fade to black, a background that simply continues) is NOT a boundary. Speech bubbles may cross a real boundary; that alone does not make it one.
+
+Answer with JSON only: {"boundaries": [<the line numbers that ARE boundaries>]}"""
+
+
+def _marked_png(img, ys):
+    """The crop, downscaled for the model, with numbered red lines at ys."""
+    from PIL import ImageDraw
+    w, h = img.size
+    s = min(1.0, 3000.0 / h)
+    im = img.convert("RGB").resize((max(1, int(w * s)), max(1, int(h * s))))
+    d = ImageDraw.Draw(im)
+    for n, y in enumerate(ys, 1):
+        yy = int(y * s)
+        d.line([(0, yy), (im.width, yy)], fill=(255, 0, 0), width=4)
+        d.rectangle([4, yy - 16, 44, yy + 16], fill=(255, 255, 255), outline=(255, 0, 0))
+        d.text((14, yy - 8), str(n), fill=(255, 0, 0))
+    import io
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def confirm_cuts(img, ys, ask):
+    """ask(png_bytes, prompt) -> text. Returns the subset of ys the model
+    confirms, chosen BY NUMBER. Anything unparseable confirms nothing."""
+    if not ys:
+        return []
+    raw = ask(_marked_png(img, ys), _CUT_PROMPT) or ""
+    import re as _re
+    m = _re.search(r"\{.*\}", raw, _re.S)
+    try:
+        nums = json.loads(m.group(0)).get("boundaries", []) if m else []
+    except (ValueError, AttributeError):
+        return []
+    keep = set()
+    for n in nums if isinstance(nums, list) else []:
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= n <= len(ys):
+            keep.add(n)
+    return [ys[n - 1] for n in sorted(keep)]
+
+
+def _default_ask():
+    """The production vision client (describe.ask_image, usage-gated), or
+    None when no key is configured — in which case no extra cut is made."""
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key or os.environ.get("SPLIT_VISION_CUTS", "1").lower() in ("0", "false", "off"):
+        return None
+    pd = os.path.join(ROOT, "panel-describe")
+    if pd not in sys.path:
+        sys.path.insert(0, pd)
+    import describe as _d
+    return lambda png, prompt: _d.ask_image(png, "image/png", prompt, key, VISION_MODEL)
+
+
+TEXT_MIDTONE_MAX = 0.18     # text is two-tone: few pixels between dark and light
+TEXT_CHROMA_MAX = 30        # ...and colourless (max-min channel spread)
+
+
+def _is_text_sliver(img):
+    """A thin crop of lettering, not art. Measured on ch.44's monologue
+    ("HOW DID", 82 px): bold webp lettering trimmed tight has anti-aliased
+    strokes over most of each row, so an "is the row mostly blank?" test
+    wrongly called it artwork. The reliable signal is TONE: lettering is
+    two-tone and colourless, artwork has colour and mid-tones."""
+    if img.height > TEXT_SLIVER_MAX_H:
+        return False
+    rgb = np.array(img.convert("RGB"), dtype=np.int16)
+    g = rgb.mean(axis=2)
+    midtone = ((g > 60) & (g < 200)).mean()
+    chroma = np.percentile(rgb.max(axis=2) - rgb.min(axis=2), 95)
+    return midtone <= TEXT_MIDTONE_MAX and chroma <= TEXT_CHROMA_MAX
+
+
+def _vstack(imgs):
+    """Stack text strips into one card, padded with the PAGE background.
+    The background is read from the strips' corners, not their average: bold
+    black lettering drags the average dark (ch.44's monologue card came out
+    padded black on a white page)."""
+    w = max(i.width for i in imgs)
+    corners = []
+    for i in imgs:
+        a = np.array(i.convert("L"))
+        corners += [a[0, 0], a[0, -1], a[-1, 0], a[-1, -1]]
+    fill = (0, 0, 0) if float(np.median(corners)) < 128 else (255, 255, 255)
+    out = Image.new("RGB", (w, sum(i.height for i in imgs)), fill)
+    y = 0
+    for i in imgs:
+        out.paste(i.convert("RGB"), ((w - i.width) // 2, y))
+        y += i.height
+    return out
+
+
+def refine_crops(crops, ask="default", on_progress=None, budget=None):
+    """The post-pass. crops: PIL images in reading order. Returns
+    (refined_crops, stats). ask="default" uses the production client (or
+    none without a key); tests pass their own."""
+    if ask == "default":
+        ask = _default_ask()
+    budget = MAX_VISION_CHECKS if budget is None else budget
+    st = {"text_slivers_merged": 0, "tall_checked": 0, "candidates": 0,
+          "cuts": 0, "no_vision": 0, "vision_errors": 0, "capped": 0}
+    # 1. merge runs of consecutive thin text-only crops
+    merged, run = [], []
+    for c in crops + [None]:
+        if c is not None and _is_text_sliver(c):
+            run.append(c)
+            continue
+        if len(run) >= 2:
+            merged.append(_vstack(run))
+            st["text_slivers_merged"] += len(run)
+        else:
+            merged.extend(run)
+        run = []
+        if c is not None:
+            merged.append(c)
+    # 2. split tall crops at confirmed gutters
+    out = []
+    for c in merged:
+        if c.height < REFINE_TALL_PX:
+            out.append(c)
+            continue
+        g = np.array(c.convert("L"))
+        bands = candidate_gutters(g)
+        if not bands:
+            out.append(c)
+            continue
+        st["candidates"] += len(bands)
+        ys = [cut_row(g, b) for b in bands]
+        if ask is None:
+            st["no_vision"] += 1
+            out.append(c)
+            continue
+        if st["tall_checked"] >= budget:
+            st["capped"] += 1
+            out.append(c)
+            continue
+        st["tall_checked"] += 1
+        try:
+            keep = confirm_cuts(c, ys, ask)
+        except Exception as e:
+            try:
+                import usage as _u
+                if isinstance(e, _u.UsageCapExceeded):
+                    raise
+            except ImportError:
+                pass
+            st["vision_errors"] += 1
+            keep = []
+        cuts = [0] + keep + [c.height]
+        parts = [(a, b) for a, b in zip(cuts, cuts[1:]) if b - a >= MIN_PANEL_PX]
+        st["cuts"] += max(0, len(parts) - 1)
+        for a, b in parts:
+            out.append(c.crop((0, a, c.width, b)))
+        if on_progress and keep:
+            on_progress(f"split a {c.height}px crop into {len(parts)} panels")
+    return out, st
+
+
 def split_into(pages, crops_dir, slug="", on_progress=None):
     """Split `pages` into `crops_dir` using PRODUCTION's filename convention.
 
@@ -245,6 +496,17 @@ def split_into(pages, crops_dir, slug="", on_progress=None):
     FLAT_STD = flat_std_for(slug)
     strip = is_strip(pages)
     made, per_page = 0, []
+    ask = _default_ask()            # None without a key -> no extra cuts
+    refine_total = {}
+
+    def _refine(crops):
+        """Run the post-pass; accumulate its stats for the whole chapter."""
+        budget = MAX_VISION_CHECKS - refine_total.get("tall_checked", 0)
+        out, stt = refine_crops(crops, ask=ask, on_progress=on_progress,
+                                budget=max(0, budget))
+        for k, v in stt.items():
+            refine_total[k] = refine_total.get(k, 0) + v
+        return out
 
     if strip:
         # A scroll is one continuous image chopped into CDN tiles; register
@@ -264,6 +526,7 @@ def split_into(pages, crops_dir, slug="", on_progress=None):
         bg, tol, ethr = register(rows, edge)
         rn = breaks(rows, edge, bg, tol, ethr)
         sp = _spans(rn, rows.size)
+        canvases = []
         for i, (a, b) in enumerate(sp, 1):
             parts = []
             for p, o, hh in zip(pages, offs, hs):
@@ -278,6 +541,8 @@ def split_into(pages, crops_dir, slug="", on_progress=None):
             yy = 0
             for x in parts:
                 canvas.paste(x, (0, yy)); yy += x.height
+            canvases.append(canvas)
+        for i, canvas in enumerate(_refine(canvases), 1):
             canvas.save(os.path.join(crops_dir, "page001_panel_%03d.png" % i))
             made += 1
         per_page.append({"page": "(scroll)", "bg": round(bg, 1),
@@ -292,6 +557,7 @@ def split_into(pages, crops_dir, slug="", on_progress=None):
                         gray=g if FLAT_STD > 0 else None)
             sp = _spans(rn, g.shape[0])
             n_here = 0
+            page_crops = []
             for i, (a, b) in enumerate(sp, 1):
                 band = g[a:b]
                 nb = np.abs(band.astype(np.int16) - bg) > tol
@@ -306,17 +572,19 @@ def split_into(pages, crops_dir, slug="", on_progress=None):
                     x0, x1 = 0, g.shape[1]
                     if (y1 - y0) < MIN_PANEL_PX:
                         continue
+                page_crops.append(im.crop((x0, y0, x1, y1)))
+            for c in _refine(page_crops):
                 n_here += 1
-                im.crop((x0, y0, x1, y1)).save(
-                    os.path.join(crops_dir,
-                                 "page%03d_panel_%03d.png" % (pi, n_here)))
+                c.save(os.path.join(crops_dir,
+                                    "page%03d_panel_%03d.png" % (pi, n_here)))
                 made += 1
             per_page.append({"page": os.path.basename(p), "bg": round(bg, 1),
                              "gaps": len(rn), "panels": n_here})
             if on_progress:
                 on_progress(f"{os.path.basename(p)}: {n_here} panels")
     return made, {"format": "strip" if strip else "page",
-                  "pages": len(pages), "panels": made, "per_page": per_page}
+                  "pages": len(pages), "panels": made, "per_page": per_page,
+                  "refine": refine_total}
 
 
 def run(slug, pages, on_progress=None, blur=False):

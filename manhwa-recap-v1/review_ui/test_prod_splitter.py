@@ -49,7 +49,19 @@ def main():
     else:
         pages = [os.path.join(FIXTURE, f) for f in sorted(os.listdir(FIXTURE))]
         out = tempfile.mkdtemp(prefix="prodsplit_")
-        n, st = SL.split_into(pages, out, slug="murim-psychopath_43")
+        # Rule 12: a test never calls a real service. The vision cut check is
+        # switched off here even where a GEMINI key is set (e.g. the Railway
+        # container); refine_crops' own behaviour is covered by
+        # test_cut_refine.py with a stubbed client.
+        _saved_vc = os.environ.get("SPLIT_VISION_CUTS")
+        os.environ["SPLIT_VISION_CUTS"] = "0"
+        try:
+            n, st = SL.split_into(pages, out, slug="murim-psychopath_43")
+        finally:
+            if _saved_vc is None:
+                os.environ.pop("SPLIT_VISION_CUTS", None)
+            else:
+                os.environ["SPLIT_VISION_CUTS"] = _saved_vc
         names = sorted(f for f in os.listdir(out) if f.endswith(".png"))
 
         check("it produces panels", n > 0)
@@ -60,9 +72,15 @@ def main():
         check("page-format input is detected as pages", st["format"] == "page")
         check("stats carry per-page detail for the record",
               len(st.get("per_page") or []) == len(pages))
-        check("count lands within the band of the recorded 125 baseline",
-              abs(n - 125) <= 0.15 * 125)
-        print("   %d crops from %d pages (baseline 125, band +/-15%%)"
+        # Baseline 106 (was 125), re-recorded 2026-09-30 WITH EVIDENCE: the
+        # cutter before the refinement pass gave 115 on this fixture (the
+        # recorded 125 had already drifted 8%); the new pass merges 13
+        # line-by-line monologue/credit strips into 4 cards (115 - 9 = 106),
+        # listed in manhwa-recap-v1/memory.md. With vision on, 10 bubble-
+        # crossed gutters are also cut (116) — checked by eye on a cut sheet.
+        check("count lands within the band of the recorded 106 baseline",
+              abs(n - 106) <= 0.15 * 106)
+        print("   %d crops from %d pages (baseline 106, band +/-15%%)"
               % (n, len(pages)))
 
         # A strip source must take the scroll path, not the page path.

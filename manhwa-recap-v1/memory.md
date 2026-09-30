@@ -7221,3 +7221,56 @@ files pass.
 of crops hide extra panels, plus line-by-line over-splitting of text-only
 monologue. Pixel heuristics alone cannot count missed splits reliably on dark
 bleed art.
+
+### 2026-09-30 — cutter refinement pass shipped (for ALL future ingests)
+
+**Owner:** "fixes aren't just for this chapter — for all future ingests; make
+the fixes and do the needed tests." Clarified in chat: this ADDS a post-pass
+to the Sept-23 background-registration cutter (splitlab.split_into); its
+gutter rule is unchanged, and the legacy YOLO cutter stays as the fallback.
+Both engines use this cutter (handbook B1), so both get the pass.
+
+**Code:**
+- `splitlab.refine_crops` (runs inside split_into on page AND scroll formats):
+  1) missed splits: candidate_gutters (blank at BOTH edges >= 12 rows, 250 px+
+     of artwork above AND below) -> cut_row (a fully blank row, else the larger
+     margin beside the bubble, so the bubble stays whole) -> confirm_cuts:
+     numbered red lines drawn on a downscaled crop; Gemini returns
+     {"boundaries":[n]}, and only listed numbers are accepted. No key, a
+     failure, garbage, or MAX_VISION_CHECKS (60/chapter) = no extra cut.
+  2) consecutive thin text-only strips (<= 200 px, two-tone and colourless)
+     merge into one card, padded with the page background (read from the
+     corners).
+- `describe.ask_image` — a generic, usage-gated image question sharing the
+  reader's client (`_call_interactions_api` gained an optional prompt).
+- Knobs (env): SPLIT_VISION_CUTS (on), SPLIT_MAX_VISION_CHECKS (60),
+  SPLIT_REFINE_TALL_PX (1200), SPLIT_VISION_MODEL. Stats go in
+  split_into()["refine"].
+
+**Bugs found while building (mine):** (1) the first text-strip test called
+bold, tightly trimmed webp lettering "artwork" (strokes fill most of each
+row) — switched to tone (few mid-tones, no colour); (2) merged cards were
+padded BLACK because bold lettering drags the average dark — now read from
+the corners.
+
+**Measured (real Gemini checks, before = the same cutter with the pass off):**
+| chapter | before | after | cuts | strips merged | vision errors |
+|---|---|---|---|---|---|
+| Murim ch.44 | 154 | 145 | 8 | 25 | 0 |
+| Murim ch.43 (pinned) | 115 | 116 | 10 | 13 | 0 |
+| Swordmaster's Youngest Son ch.1 | 200 | 198 | 11 | 23 | 0 |
+Checked BY EYE on cut sheets (confirmed = red, rejected = blue) for ch.43 and
+Swordmasters: confirmed cuts sit between separate panels; rejected candidates
+run through continuous images. The ch.44 ground truth holds:
+page008_panel_008 -> 2, the 7,132 px strip -> 3, page011_panel_001 (a splash)
+left whole, page 2 monologue -> 1 card.
+
+**Baseline re-recorded with evidence:** test_prod_splitter 125 -> 106. The
+cutter already gave 115 before the pass (the 125 had drifted 8%); the pass
+merges 13 strips into 4 cards (-9). The test now forces SPLIT_VISION_CUTS=0
+(rule 12: no real service in a test — it would otherwise have called Gemini
+in the Railway container). test_split_baseline (legacy, 151) is unchanged.
+
+**Tests:** NEW test_cut_refine.py (20, stubbed vision). Full suite: 42 files pass.
+**Not yet done:** steps 3–7 of the plan (transition panels -> silent beats,
+plan before prose, matcher as safety check, motion follows tag, v2 vs v3).
