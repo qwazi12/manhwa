@@ -7005,3 +7005,92 @@ in `/api/logs/ingest`. Every earlier "pre-push check" this session used only
 `/api/jobs`, so it could not have seen a running ingest (none was running when
 checked retroactively). The pre-push check now queries both. The ch.44 test
 push was preceded by: 0 in-flight ingests, 0 in-flight render jobs.
+
+### 2026-09-30 — P2 direct speech built on branch `p2-direct-speech` (NOT deployed) + ch.44 before/after
+
+**Input:** the owner said "go ahead with P2 and the ch.44 re-describe".
+
+**Code (commit d105ac7, plus the fixes below):** direct_speech.py (shared
+RULE_TEXT for both engines; candidates only from tail/position lines; one model
+call picks by NUMBER; speaker must be a character the chapter summary names;
+max 3 per CHAPTER; per-scene prompt block; code audit — a split line counts
+once), speech_text.speakable() (quotes stripped, mild profanity kept, harsh
+softened, slurs dropped, stutter prefixes dropped; applied before the TTS cache
+key in server._synth_rest and in tts.py), beat_segmenter (split after closing
+quotes; merges keep ! and ?), critique types flat_dialogue and
+misattributed_dialogue in both engines (stray quotes revised first), a
+per-project direct_speech.json + project.json record (a cached-script rerun
+reads the project's own file, never the previous run's module state; fresh
+re-ingest deletes it), eval harness (voice-costume, stage-direction,
+untranslated-lettering, per-chapter cap), test_claude_plus updated,
+test_direct_speech.py (35). Full suite: 40 files pass.
+
+**Why a branch:** the owner wanted to HEAR a direct line before this goes
+further. Pushing to main auto-deploys. The branch push was confirmed NOT to
+deploy (Railway builds main only; the latest deploy is still 9dea88c).
+
+**ch.44:** re-read 154/154 panels locally with the P1 reader (scratch copy; the
+live project is untouched). First after-run approved 0 lines — MY guard bug
+(compound speaker labels; this chapter names almost nobody). Fixed; the rerun
+approved 3, used 3, 0 stray. Full results and the listening-test table are in
+docs/craft_reconciliation.md §13.
+
+**Listening files for the owner:** ~/Downloads/ch44_direct_speech_listening/
+(1_before_scene, 2_after_scene, 3A flat, 3B markup pause, 3C SSML pause+95%).
+Measured: B backfires (markup speeds up the whole delivery); C adds +0.33 s
+before the line and +4% duration; A already has a natural 0.87 s gap.
+
+**Audio defect found and fixed:** "C-Cursed" was voiced as roughly "see,
+Cursed"; speakable drops the stutter prefix for the audio only.
+
+**Spend:** ~154 describe calls, ~70 narration calls, ~40 TTS calls, all
+through usage.gate on the LOCAL ledger. The local ledger does not price
+gemini-3.5-flash, so no dollar figure is claimed.
+
+**Pending (owner):** listen and pick A or C; approve merging
+p2-direct-speech to main (that deploys); review the profanity lists in
+speech_text.py. Then P3 (craft rules 8–14).
+
+### 2026-09-30 — P3 craft rules + versioned ingest ("ch.44 v2") + direct-speech switch; merged to main
+
+**Input:** the owner asked to see ch.44 v2 as a REAL project in the tool
+(Projects tab, board, render, export — "like any other ingested"), built with
+"the new style and ideas". Owner said go after reviewing the diff.
+
+**Honest state before this:** the earlier ch.44 test ran only describe +
+narrate + voicing ONE scene, locally. No match, segments, board or render.
+It was not in the tool.
+
+**Code:**
+- `style_rules.py` (NEW) — craft rules from the guide, one shared wording:
+  pace follows the pulse, one sense per new place, protect the reveals, SFX
+  are events not text, confident not cute (owner Q1: no asides, no "you", no
+  "let's", no meta, no questions to the audience), land the ending. Plus
+  BRIDGE (motion/time/sound, flashback time phrases) appended to the
+  continuity rule, and REVEALS_DIRECTIVE in the beatsheet prompt. narrate
+  numbers them 8–13, claude_plus 12–17. NAME_HINT is finally wired into rule 6.
+  `spoiled_reveal` critique type in both engines.
+- Versioned ingest: `ingest.project_id(url, variant)` -> `<chapter>-v2`, a
+  project beside the original, which is untouched. The Projects label shows
+  "44 (v2)" (applied in _derive_series_chapter, because that label is
+  re-derived on every listing). Version names are allowlisted
+  (^[a-z0-9][a-z0-9-]{0,15}$). Duplicate detection matches on (chapter,
+  version). The queue carries variant + direct. A Claude ingest with a
+  version or a direct-speech choice is REFUSED (Gemini-only for now), never
+  silently unversioned.
+- Direct-speech switch: `direct_speech.enabled(override)` — the ingest's
+  choice, else the DIRECT_SPEECH env, OFF by default. So merging P2 changes
+  no chapter until it is asked for. Off = no selection call at all
+  (tested). The record says whether it was on.
+- Ingest drawer: a "Save as version" box and a "Direct speech" checkbox (an
+  unticked box sends nothing, so the server default applies).
+- eval: an "aside to the listener" check — narrowed after it flagged the
+  APPROVED fixture's free-indirect "The hunters had a better idea: let's
+  fight." (a character's thought, allowed by the guide).
+- test_engine_merge's source-text check updated for the new worker call.
+- Listening test: the owner did not pick, so v2 ships variant A (plain
+  delivery, my recommendation). Variant C is not wired into production.
+
+**Verified:** full suite 40 files pass (test_direct_speech 45,
+test_job_control 51); eval passes both approved scripts; the pre-existing
+SyntaxWarning in storyboard.py is unchanged (present on main before).

@@ -572,3 +572,42 @@ Run of the new Gemini reader on 32 ch.44 panels (pages 2 and 13):
   page 13).
 - Budget count: captions still count (as they did before); only sound effects
   are excluded.
+
+---
+
+## 13. P2 results on Murim ch.44 (2026-09-30) — branch `p2-direct-speech`, NOT deployed
+
+**Setup:** all 154 ch.44 panels re-read with the P1 reader (154/154 ok), into a
+scratch copy — the live project was not touched. "Before" = production
+`narrate.py` (main @ 9dea88c), "after" = the P2 branch, both on the SAME new
+panel reads.
+
+**First run found a guard bug (mine):** 0 lines approved. The model picked 3
+good lines but wrote speakers as compound labels ("The Masked Ninja (The
+Spy)"), and the guard needed the whole string in the summary. This chapter
+also never names most of its cast — its own summary says "the protagonist",
+"a spy". Fix: the speaker passes when ANY part of it is a character the
+summary refers to; bare generic nouns ("man", "woman") never pass.
+
+**Second run:** 3 lines approved, 3 used, 0 stray quotes, 0 unresolved:
+- The Protagonist: "Is this the only option I have...?" — muttered, reaching into the void
+- The Spy: "C-Cursed Killing Star? Why are you...?" — stammered
+- The Cursed Killing Star: "You were looking at that man rather strangely just now, weren't you?" — asked
+All three in the narrator's voice: a plain tag and one action, no costume.
+Word count 1,178 → 1,238. The eval passes both scripts.
+
+**Listening test (P4), measured with silence detection + Whisper:**
+| Variant | Gap before the line | Quoted words | Verdict |
+|---|---|---|---|
+| A plain | 0.87 s (natural) | 2.92 s | already a clear beat |
+| B `[pause short]` markup | 0.39 s | 2.22 s (−24%) | **backfires** — markup mode speeds up the whole delivery |
+| C SSML `<break 300ms>` + `<prosody rate=95%>` on the quote only | 1.20 s | 3.04 s (+4%) | works as designed; subtle |
+No variant dropped words or spoke "quote". Owner to choose A or C by ear.
+
+**Audio defect found and fixed:** a written stutter "C-Cursed" was voiced
+as roughly "see, Cursed". `speakable()` now drops a stuttered letter-prefix
+for the AUDIO only (the script keeps it); real hyphenated words are
+untouched. Re-voiced and confirmed: the stray "see" is gone.
+
+**Existing projects:** a project read before P1 has no `lines`, so it has no
+candidates and quotes nothing (identical to today) until it is re-read.
