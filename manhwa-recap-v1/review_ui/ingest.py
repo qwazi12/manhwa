@@ -297,7 +297,11 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         split_coverage = {"engine": "background-registration",
                           "format": split_stats.get("format"),
                           "pages": split_stats.get("pages"),
-                          "panels": split_stats.get("panels")}
+                          "panels": split_stats.get("panels"),
+                          # the refinement pass (bubble-crossed cuts, merged
+                          # monologue strips) — shown on the board's
+                          # "built with" line so its effect is visible
+                          "refine": split_stats.get("refine") or {}}
     try:
         pj = json.load(open(os.path.join(crops, "panels.json")))
         covs = [(pg["prefix"], pg.get("coverage", {}).get("coverage_final"))

@@ -3488,6 +3488,49 @@ def logs_usage(n: int = 100):
     return {"calls": lines, "summary": usage.daily_summary()}
 
 
+# ------------------------------------------------------------ Work log
+# The owner must SEE the work without asking (2026-09-30). worklog.py reads
+# memory.md (deployed with the code, so never stale) and serves evidence
+# from the persistent volume — never from git (the repo is public).
+@app.get("/api/worklog")
+def api_worklog(limit: int = 60):
+    import worklog as _wl
+    es = _wl.entries(max(1, min(limit, 200)))
+    for e in es:
+        e["evidence_files"] = {s: _wl.evidence_files(s) for s in e["evidence"]}
+    return {"deployed_commit": _wl.deployed_commit(), "entries": es}
+
+
+@app.get("/api/evidence/{slug}/{name}")
+def api_evidence_get(slug: str, name: str):
+    import worklog as _wl
+    p = _wl.evidence_path(slug, name)
+    if not p or not os.path.isfile(p):
+        raise HTTPException(404, "no such evidence file")
+    return FileResponse(p, media_type=_wl.media_type(name))
+
+
+@app.post("/api/evidence/{slug}/{name}")
+async def api_evidence_put(slug: str, name: str, request: Request):
+    """Store one evidence file (raw request body). Allowlisted names and
+    types, 20 MB cap, overwrite-in-place — an agent or the owner can attach
+    proof to a Work log entry through the API, like any other capability."""
+    import worklog as _wl
+    p = _wl.evidence_path(slug, name)
+    if not p:
+        raise HTTPException(400, "evidence names: letters, digits, . _ - ; "
+                                 "png/jpg/webp/mp3/wav/txt/md/json only")
+    body = await request.body()
+    if not body or len(body) > _wl.MAX_BYTES:
+        raise HTTPException(400, f"file must be 1 byte to {_wl.MAX_BYTES // 2**20} MB")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = p + ".part"
+    with open(tmp, "wb") as f:
+        f.write(body)
+    os.replace(tmp, p)
+    return {"ok": True, "slug": slug, "name": name, "bytes": len(body)}
+
+
 @app.get("/api/logs/ingest")
 def logs_ingest():
     """Every ingest job (durable across restarts), newest first."""

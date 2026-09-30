@@ -153,6 +153,41 @@ def _et_label():
         return "ET n/a"
 
 
+def _built_with(meta):
+    """One line saying HOW this project was built, so old and new work can be
+    told apart at a glance (2026-09-30: the owner could not see which
+    improvements a chapter had). Only facts recorded in project.json."""
+    import html as _h
+    bits = []
+    eng = meta.get("engine")
+    if eng:
+        bits.append(f"engine <b>{_h.escape(str(eng))}</b>")
+    if meta.get("variant"):
+        bits.append(f"version <b>{_h.escape(str(meta['variant']))}</b>")
+    sc = meta.get("split_coverage") or {}
+    rf = sc.get("refine") if isinstance(sc, dict) else None
+    if rf:
+        bits.append(f"cutter refinement: <b>{rf.get('cuts', 0)}</b> missed splits cut, "
+                    f"<b>{rf.get('text_slivers_merged', 0)}</b> text strips merged")
+    elif sc:
+        bits.append("cutter: before the refinement pass")
+    ds = meta.get("direct_speech") or {}
+    if ds.get("enabled"):
+        bits.append(f"direct speech <b>on</b> ({ds.get('lines_quoted', 0)} line(s) quoted, "
+                    f"{ds.get('quotes_unapproved', 0)} stray)")
+    elif ds:
+        bits.append("direct speech off")
+    tl = meta.get("timeline") or {}
+    if tl.get("checked"):
+        bits.append(f"timeline check: <b>{tl.get('errors', 0)}</b> error(s)"
+                    + (f", {tl.get('repaired')} repaired" if tl.get("repaired") else ""))
+    if not bits:
+        return ""
+    return ('<div id="builtwith" class="hint" style="margin:0 14px 8px;font-size:11px" '
+            'title="Recorded in this project\'s project.json when it was built">🧱 built with: '
+            + " · ".join(bits) + "</div>")
+
+
 def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     descs = _load(os.path.join(pdir, "descriptions.json"), [])
     descs.sort(key=lambda r: _natural(r["panel_id"]))
@@ -804,6 +839,7 @@ a {{ color:var(--accent); }}
   <button class="navbtn" data-d="projects" onclick="toggleDrawer('projects')"><span class="ic">📚</span>Projects</button>
   <button class="navbtn" data-d="tracker" onclick="toggleDrawer('tracker')"><span class="ic">📡</span>Tracker</button>
   <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
+  <button class="navbtn" data-d="work" onclick="toggleDrawer('work')" title="Everything that has been changed in the system, newest first, with its evidence"><span class="ic">🗒</span>Work</button>
   <!-- ARCHIVED 2026-09-23. Both features graduated into Ingest: the Claude
        engine is now an engine choice, and the background-registration
        splitter is the production split path. The drawers and their routes
@@ -997,6 +1033,13 @@ a {{ color:var(--accent); }}
   <div class="hint" style="margin-bottom:8px">Every exported MP4 for the active project. Click to watch / download.</div>
   <div id="exportlist">loading…</div>
 </div>
+<div class="drawer wide" id="d_work">
+  <h3 style="margin-bottom:4px">WORK LOG <span id="workstamp" class="hint" style="font-weight:400;font-size:11px"></span></h3>
+  <div class="hint" style="margin-bottom:8px">Every change made to the system, newest first — what changed, why,
+  what was tested, and the evidence (cut sheets, listening clips, before/after tables). It is read from the
+  project log that ships with each deploy, so it always matches what is live.</div>
+  <div id="worklist" style="font-size:12px">loading…</div>
+</div>
 <div class="drawer" id="d_logs">
   <h3 style="margin-bottom:4px">JOBS <span id="logstamp" class="hint" style="font-weight:400;font-size:11px"></span></h3>
   <div class="hint" style="margin-bottom:6px">Every ingest, render and export — newest first. Pause and stop take effect at
@@ -1037,6 +1080,7 @@ a {{ color:var(--accent); }}
 </header>
 <div id="sentback" style="display:none;margin:0 14px 10px;padding:11px 14px;border-radius:8px;
   background:var(--warnb-bg);border-left:3px solid var(--warn);color:var(--warnb-ink);font-size:13px"></div>
+{_built_with(meta)}
 <div id="pipebar">
   <span id="st_tick">① ticked <b>{n_included}/{n_segs}</b></span>
   <span id="st_appr">② approved <b>{'✓' if approved else '—'}</b></span>
@@ -1219,6 +1263,45 @@ async function saveEdit() {{
 }}
 async function setStatus(i, st) {{
   await post(`/api/segments/${{i}}/status`, {{status: st, note: ''}});
+}}
+/* ---- Work log: the system's own record of every change, with evidence ---- */
+function workMd(t) {{
+  const e = String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return e.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+}}
+function workEvidence(files) {{
+  let h = '';
+  for (const slug in files) {{
+    for (const f of files[slug]) {{
+      const u = '/api/evidence/' + encodeURIComponent(slug) + '/' + encodeURIComponent(f);
+      if (/\.(png|jpe?g|webp)$/i.test(f))
+        h += `<a href="${{u}}" target="_blank"><img src="${{u}}" loading="lazy" title="${{f}}" style="max-width:100%;max-height:360px;margin:6px 6px 0 0;border:1px solid var(--line);border-radius:4px"></a>`;
+      else if (/\.(mp3|wav)$/i.test(f))
+        h += `<div style="margin-top:6px"><span class="hint">${{f}}</span><br><audio controls preload="none" src="${{u}}" style="width:100%"></audio></div>`;
+      else
+        h += `<div><a href="${{u}}" target="_blank">📄 ${{f}}</a></div>`;
+    }}
+  }}
+  return h;
+}}
+async function loadWork() {{
+  const box = document.getElementById('worklist');
+  try {{
+    const d = await j('/api/worklog');
+    document.getElementById('workstamp').textContent =
+      (d.deployed_commit ? 'live build ' + d.deployed_commit + ' · ' : '') + d.entries.length + ' most recent entries';
+    box.innerHTML = d.entries.map(function (e, i) {{
+      const nd = /NOT (yet )?deployed/.test(e.body);
+      const ev = workEvidence(e.evidence_files || {{}});
+      return `<details ${{i === 0 ? 'open' : ''}} style="border-bottom:1px solid var(--line);padding:6px 0">
+        <summary style="cursor:pointer"><b>${{workMd(e.title)}}</b>
+          ${{nd ? '<span class="b" style="background:var(--warn);color:#1a1205;padding:1px 5px;border-radius:3px;font-size:10px;margin-left:6px">mentions not-deployed work</span>' : ''}}
+          ${{ev ? '<span class="b" style="background:var(--sa-bg);color:var(--sa-ink);padding:1px 5px;border-radius:3px;font-size:10px;margin-left:6px">📎 evidence</span>' : ''}}</summary>
+        <div style="white-space:pre-wrap;margin:6px 0 0 12px;line-height:1.45">${{workMd(e.body)}}</div>
+        ${{ev ? '<div style="margin:4px 0 0 12px">' + ev + '</div>' : ''}}
+      </details>`;
+    }}).join('') || '<i>no entries</i>';
+  }} catch (e) {{ box.textContent = 'Could not load the work log: ' + e.message; }}
 }}
 async function toggleApproval() {{
   if (APPROVED && !confirm('Project is already approved. Approve again to re-render ticked clips and re-export the final video?')) return;
@@ -1419,7 +1502,7 @@ setInterval(refreshUsage, 15000);
 {theme.SHARED_JS}
 
 function toggleDrawer(name) {{
-  for (const d of ['ingest','projects','tracker','validate','logs','exports','test','split']) {{
+  for (const d of ['ingest','projects','tracker','validate','logs','work','exports','test','split']) {{
     const el = document.getElementById('d_' + d);
     const btn = document.querySelector(`.navbtn[data-d="${{d}}"]`);
     const show = d === name && el.style.display !== 'block';
@@ -1429,6 +1512,7 @@ function toggleDrawer(name) {{
   if (name === 'projects') loadProjects();
   if (name === 'tracker') trkTab('watch');   // planning first; 'New chapters' is a click away
   if (name === 'logs') loadLogs();
+  if (name === 'work') loadWork();
   if (name === 'exports') loadExports();
   if (name === 'validate') loadValidation();
   if (name === 'test') loadLab();

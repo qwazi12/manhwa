@@ -7274,3 +7274,37 @@ in the Railway container). test_split_baseline (legacy, 151) is unchanged.
 **Tests:** NEW test_cut_refine.py (20, stubbed vision). Full suite: 42 files pass.
 **Not yet done:** steps 3–7 of the plan (transition panels -> silent beats,
 plan before prose, matcher as safety check, motion follows tag, v2 vs v3).
+
+### 2026-09-30 — Work log in the website: every change visible without asking
+
+**Owner:** "you are doing all this work but I can't see it in the website… I
+need to always see the work you do so I don't have to come and ask you."
+
+**Why it was invisible:** the work since v2 changes how FUTURE chapters are
+built (cutter, narration rules, direct speech); existing projects are
+deliberately untouched; and the evidence (cut sheets, counts, listening clips)
+lived on the agent's machine and in memory.md, nowhere in the site.
+
+**Built:**
+- A **🗒 Work** drawer (storyboard.py) — this log, newest first, with the live
+  build commit, a badge on any entry that mentions not-deployed work, and
+  evidence shown inline (images, playable audio). It reads memory.md, which
+  ships with every deploy, so it can never drift from what is live.
+- `worklog.py` + `GET /api/worklog`, `GET/POST /api/evidence/{slug}/{name}`:
+  evidence lives on the Railway VOLUME (projects/_evidence/), NOT in git —
+  **the GitHub repo is public** and evidence is scraped chapter art.
+  Allowlisted names and types (png/jpg/webp/mp3/wav/txt/md/json), a 20 MB
+  cap, no path traversal (tested). Entries link evidence with an
+  `**Evidence:**` line.
+- A **🧱 built with** line on every board, from project.json: engine,
+  version, cutter refinement (cuts / strips merged, or "before the refinement
+  pass"), direct speech on/off with quoted/stray counts, timeline check.
+  ingest now records the refine stats in split_coverage.
+- test_worklog.py (21). Suite: 43 files pass.
+
+**Flagged to the owner, NOT changed:** the repo is public and already holds
+scraped chapter pages (fixtures/murim_ch43/pages) — CLAUDE.md says this
+content is internal R&D only. Owner to decide: make the repo private, or
+move the fixtures.
+
+**Evidence:** cutter-refinement-2026-09-30, ch44-direct-speech-listening
