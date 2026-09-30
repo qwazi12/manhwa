@@ -94,6 +94,29 @@ CANDIDATE LINES (number. [type] panel label: "words"):
 Answer with JSON only: {{"picks": [{{"n": <number>, "speaker": "<name from the summary>", "why": "<one short clause>"}}]}}"""
 
 
+# A speaker part that is only one of these words identifies nobody — it would
+# "match" any summary — so it never satisfies the guard on its own.
+_GENERIC = {"man", "woman", "boy", "girl", "person", "figure", "guy", "he",
+            "she", "they", "someone", "character", "people", "crowd"}
+
+
+def _speaker_in_summary(name, summary):
+    """The label guard. Models write compound speakers — "The Masked Ninja
+    (The Spy)", "Hector / the old hunter" — and a chapter may never give its
+    cast real names (Murim ch.44's own summary says "the protagonist", "a
+    spy"). So: accept the speaker when ANY part of it is a character the
+    summary refers to, ignoring a leading article and bare generic nouns.
+    Returns the matched part (used as the attribution name) or None."""
+    parts = [name] + re.split(r"\s*[()/]\s*|\s+or\s+|,\s*", name)
+    for part in parts:
+        core = re.sub(r"^(the|a|an)\s+", "", part.strip(), flags=re.I).strip()
+        if len(core) < 3 or core.lower() in _GENERIC:
+            continue
+        if re.search(r"\b" + re.escape(core.lower()) + r"\b", summary):
+            return part.strip()
+    return None
+
+
 def validate(raw_picks, cands, chapter_summary):
     """Keep only picks that exist, are named from the summary, max 3, in
     chapter order, one per candidate."""
@@ -112,10 +135,11 @@ def validate(raw_picks, cands, chapter_summary):
         if c is None or n in seen or len(name) < 2:
             continue
         # the label guard: the speaker must be a character the summary names
-        if not re.search(r"\b" + re.escape(name.lower()) + r"\b", summary):
+        matched = _speaker_in_summary(name, summary)
+        if not matched:
             continue
         seen.add(n)
-        kept.append(dict(c, speaker=name, why=str(p.get("why") or "")[:160]))
+        kept.append(dict(c, speaker=matched, why=str(p.get("why") or "")[:160]))
     kept.sort(key=lambda c: c["n"])
     return kept[:MAX_PER_CHAPTER]
 

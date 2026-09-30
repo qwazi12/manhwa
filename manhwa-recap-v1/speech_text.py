@@ -55,9 +55,17 @@ def soften(text):
     return text
 
 
+# A written stutter — "C-Cursed", "WH-WHAT", "I-IS" — is voiced letter by
+# letter: Chirp read "C-Cursed Killing Star" as roughly "see, Cursed…" on the
+# ch.44 listening test. The prefix is dropped for the audio; the script keeps
+# it. (Only when the prefix really repeats the word's opening letters.)
+_STUTTER = re.compile(r"\b([A-Za-z]{1,2})-(?=\1)", re.I)
+
+
 def speakable(text):
     """The words the voice should say for one beat of script text."""
     t = soften((text or "").translate(_QUOTES))
+    t = _STUTTER.sub("", t)
     t = re.sub(r"\s+([,.!?;:])", r"\1", t)     # tidy a dropped word's gap
     t = re.sub(r"[,;:]+([.!?])", r"\1", t)      # "Shut up, <dropped>." -> "Shut up."
     return re.sub(r"\s{2,}", " ", t).strip()

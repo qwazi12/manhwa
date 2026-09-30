@@ -71,6 +71,14 @@ def main():
     check("the speaker is the NAME from the summary", v[0]["speaker"] == "Hector")
     check("the text is the reader's exact text, never the model's",
           v[0]["text"] == "One more step and you leave through the window.")
+    # live ch.44: the model wrote compound speakers and the chapter names nobody
+    bs44 = "the protagonist uses his inventory. a spy on the rooftops. the Cursed Killing Star faction"
+    comp = DS.validate([{"n": 2, "speaker": "The Masked Ninja (The Spy)"},
+                        {"n": 3, "speaker": "The Cursed Killing Star (The Assassin Duo)"}], c, bs44)
+    check("a compound speaker passes when any part is a character the summary names",
+          [(x["n"], x["speaker"]) for x in comp] == [(2, "The Spy"), (3, "The Cursed Killing Star")])
+    check("...but a bare generic noun never does",
+          DS.validate([{"n": 2, "speaker": "the man (the guy)"}], c, "a man and a guy") == [])
     many = [{"n": n, "speaker": "Hector"} for n in (1, 2, 3, 4)]
     check("never more than 3 per chapter", len(DS.validate(many, c, SUMMARY)) == 3)
     check("a name that only appears inside another word does not count",
@@ -126,6 +134,10 @@ def main():
           ST.speakable("Damn it, you bastard, what the hell.") == "Damn it, you bastard, what the hell.")
     check("harsher words are softened, keeping case",
           ST.speakable("What the fuck? Fucking hell. SHIT.") == "What the hell? Freaking hell. CRAP.")
+    check("a written stutter is voiced as the clean word (ch.44 'C-Cursed' -> 'see')",
+          ST.speakable('"C-Cursed Killing Star? WH-WHAT? I-IS it?"') == "Cursed Killing Star? WHAT? IS it?")
+    check("...but a real hyphenated word is untouched",
+          ST.speakable("A well-known ex-soldier.") == "A well-known ex-soldier.")
     check("slurs are dropped, and the gap tidied",
           ST.speakable("Shut up, retard.") == "Shut up.")
     import tts

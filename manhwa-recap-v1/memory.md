@@ -7005,3 +7005,48 @@ in `/api/logs/ingest`. Every earlier "pre-push check" this session used only
 `/api/jobs`, so it could not have seen a running ingest (none was running when
 checked retroactively). The pre-push check now queries both. The ch.44 test
 push was preceded by: 0 in-flight ingests, 0 in-flight render jobs.
+
+### 2026-09-30 — P2 direct speech built on branch `p2-direct-speech` (NOT deployed) + ch.44 before/after
+
+**Input:** the owner said "go ahead with P2 and the ch.44 re-describe".
+
+**Code (commit d105ac7, plus the fixes below):** direct_speech.py (shared
+RULE_TEXT for both engines; candidates only from tail/position lines; one model
+call picks by NUMBER; speaker must be a character the chapter summary names;
+max 3 per CHAPTER; per-scene prompt block; code audit — a split line counts
+once), speech_text.speakable() (quotes stripped, mild profanity kept, harsh
+softened, slurs dropped, stutter prefixes dropped; applied before the TTS cache
+key in server._synth_rest and in tts.py), beat_segmenter (split after closing
+quotes; merges keep ! and ?), critique types flat_dialogue and
+misattributed_dialogue in both engines (stray quotes revised first), a
+per-project direct_speech.json + project.json record (a cached-script rerun
+reads the project's own file, never the previous run's module state; fresh
+re-ingest deletes it), eval harness (voice-costume, stage-direction,
+untranslated-lettering, per-chapter cap), test_claude_plus updated,
+test_direct_speech.py (35). Full suite: 40 files pass.
+
+**Why a branch:** the owner wanted to HEAR a direct line before this goes
+further. Pushing to main auto-deploys. The branch push was confirmed NOT to
+deploy (Railway builds main only; the latest deploy is still 9dea88c).
+
+**ch.44:** re-read 154/154 panels locally with the P1 reader (scratch copy; the
+live project is untouched). First after-run approved 0 lines — MY guard bug
+(compound speaker labels; this chapter names almost nobody). Fixed; the rerun
+approved 3, used 3, 0 stray. Full results and the listening-test table are in
+docs/craft_reconciliation.md §13.
+
+**Listening files for the owner:** ~/Downloads/ch44_direct_speech_listening/
+(1_before_scene, 2_after_scene, 3A flat, 3B markup pause, 3C SSML pause+95%).
+Measured: B backfires (markup speeds up the whole delivery); C adds +0.33 s
+before the line and +4% duration; A already has a natural 0.87 s gap.
+
+**Audio defect found and fixed:** "C-Cursed" was voiced as roughly "see,
+Cursed"; speakable drops the stutter prefix for the audio only.
+
+**Spend:** ~154 describe calls, ~70 narration calls, ~40 TTS calls, all
+through usage.gate on the LOCAL ledger. The local ledger does not price
+gemini-3.5-flash, so no dollar figure is claimed.
+
+**Pending (owner):** listen and pick A or C; approve merging
+p2-direct-speech to main (that deploys); review the profanity lists in
+speech_text.py. Then P3 (craft rules 8–14).
