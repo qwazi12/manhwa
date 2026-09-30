@@ -6900,3 +6900,47 @@ no code changed.
   approved script, and run_eval.py exists.
 - The SSML answer for Chirp 3 HD is still OPEN — needs checking against
   Google's docs before any claim.
+
+### 2026-09-29 — docs/craft_reconciliation.md written (proposal only, awaiting approval)
+
+**Input:** the owner approved writing the reconciliation doc, with adjustments:
+per-bubble reading is the prerequisite for direct speech; direct speech must be
+the ONE narrator's delivery (a tag, a pacing beat, the words), never a second
+voice or a tonal costume; every dependent file gets a written proposed fix;
+the SSML question gets verified against Google's docs; the SFX transliteration
+risk is its own line item; check for in-flight jobs BEFORE every
+auto-deploying push. The owner also supplied a reference recap transcript
+(recap-script-clean-notimestamps.txt, third party — NOT committed).
+
+**Done:** `docs/craft_reconciliation.md`. Copied storytelling-guide.md and
+narration-pipeline.md into `docs/`. NO code or test changed — narrate.py,
+claude_plus.py, describe.py, beat_segmenter.py, the TTS path and the tests are
+all untouched, per the owner.
+
+**Findings recorded in the doc:**
+- Reference recap (41,655 words): 129 reported-speech verbs vs 2 real direct
+  quotes, both punchlines. So the doc proposes a cap of 2 direct lines per
+  scene (open question Q2). The reference also uses asides and meta jokes the
+  guide bans (Q1).
+- SSML, verified at docs.cloud.google.com/text-to-speech/docs/chirp3-hd (page
+  updated 2026-09-24): Chirp 3 HD supports SSML in PREVIEW, synchronous
+  requests only; `<prosody>` (pitch/rate/volume) and `<break>` are listed,
+  with no documented values for this voice. Separate Preview controls:
+  `speaking_rate` 0.25–2x, and `[pause short]`/`[pause]`/`[pause long]` in the
+  `markup` field (lengths not fixed; may be ignored). Our TTS is synchronous
+  plain text. Recommendation: ship direct speech flat; a pause/rate listening
+  test is optional (P4); never `<voice>`; pitch is excluded unless the owner
+  approves it by ear.
+- LIVE DEFECT (P0): describe.py copies Korean SFX lettering into ocr_text.
+  23–29% of the segments dialogue_lines() counts are Korean-only SFX
+  (dungeon-odyssey-ch1 77/265, swordmasters_1 52/223), which inflates the word
+  budget by 7 words each and adds noise to the matcher's OCR signal. No Korean
+  has reached a finished script (0 characters in swordmasters script.txt).
+- beat_segmenter: `rstrip(".!?")` in the short-fragment merge strips a
+  shouted line's `!`/`?`; the split does not break after a closing quote.
+- Dependent breaks, with proposed diffs in the doc: eval/run_eval.py BANNED,
+  narrate critique_units + claude_plus CRITIQUE_SYSTEM + its enum,
+  claude_plus SCRIPT_SYSTEM rule 4, test_claude_plus.py:409, TTS `speakable()`
+  in server._synth_rest and tts.py.
+
+**Pending:** owner approval of the doc and answers to Q1–Q5.
