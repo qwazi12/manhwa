@@ -6865,3 +6865,38 @@ UI is the live test. If it misbehaves, set `RENDERER=hyperframes` (and/or
 `RENDER_CLIP_PARALLEL=1`) on Railway to roll back.
 **Pending:** owner — repair + Approve 358-lab-claude (the first live fast
 render); then the story-writing changes.
+
+### 2026-09-29 — review: storytelling-guide.md + narration-pipeline.md vs the current scripting
+
+**Input:** two new docs on the owner's Desktop (not yet in the repo), plus a
+pasted spec: switch rule 3 to direct speech, investigate SSML, write
+docs/craft_reconciliation.md and stop before editing narrate.py. The owner
+asked for a comparison, a rating, the gaps and improvements. Analysis only —
+no code changed.
+
+**Findings recorded here:**
+- The guide assumes a multi-voice performer with verbatim page text and
+  bubble types. We have ONE TTS voice (Chirp3-HD-Charon), panel-level OCR
+  joined with " / " (no speaker, no bubble type, no line IDs), and a recap
+  that compresses on purpose. The craft rules transfer; the performance
+  model mostly does not.
+- Reported speech was the OWNER's original rule (memory ~L560, from their
+  reference script, itself all reported speech). The planned direct-speech
+  switch reverses it deliberately. Direct speech needs, before or with it:
+  speaker attribution in the read stage (a mis-attributed direct line is
+  worse than a reported one), a deterministic verbatim check against the OCR,
+  quotes stripped before TTS, and a beat_segmenter check (a "'Get down!'"
+  fragment is under MIN_BEAT_WORDS and merges into the PREVIOUS sentence).
+- Places that will break on the switch: eval/run_eval.py BANNED quoted
+  dialogue; the critique "style_violation: quoted dialogue";
+  test_claude_plus.py:409 asserts "NEVER use quotation marks"; the Claude
+  engine's SCRIPT_SYSTEM rule 4 (a separate copy of the contract).
+- Small defects found in narrate.py: NAME_HINT is defined and never used in
+  any prompt; the critique's JSON type list omits "redundancy" although it
+  defines it; the module docstring still says "no metaphor".
+- Test fixture: fixtures/murim_ch43 holds pages only (a split fixture — no
+  descriptions), so a narration test there needs a paid describe first.
+  eval/fixtures/dungeon-odyssey-ch1 already HAS descriptions.json plus an
+  approved script, and run_eval.py exists.
+- The SSML answer for Chirp 3 HD is still OPEN — needs checking against
+  Google's docs before any claim.
