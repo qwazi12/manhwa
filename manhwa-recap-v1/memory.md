@@ -7094,3 +7094,37 @@ It was not in the tool.
 **Verified:** full suite 40 files pass (test_direct_speech 45,
 test_job_control 51); eval passes both approved scripts; the pre-existing
 SyntaxWarning in storyboard.py is unchanged (present on main before).
+
+### 2026-09-30 — ch.44 v2 built THROUGH THE LIVE SYSTEM (merge 1ab37c5 deployed)
+
+**How:** after the pre-deploy check (0 ingests, 0 renders in flight), merged
+p2-direct-speech into main and deployed (SUCCESS, /health 200). Then
+POST /api/ingest {url: …/murim-psychopath-05c7df14/chapter/44, variant: "v2",
+direct_speech: true} — exactly what the Ingest drawer sends. Job
+bf40deac4241 ran every stage on Railway: scrape, split (154 panels), describe
+(P1 reader, 154/154 ok), narrate (P2 + P3 rules), voice (68 beats through
+speakable), match, crops, segment, check_and_repair.
+
+**Result:** project `murim-psychopath_44-v2`, listed as "Murim Psychopath /
+Chapter 44 (v2)" beside the untouched original (57 segs, 491.4 s).
+- 57 segments, 479.9 s, 1,277 words.
+- Timeline: errors 0, repaired 0 — renderable as-is.
+- Direct speech: enabled, 2 approved, 2 used, 0 stray, 0 unresolved
+  (the Cursed Killing Star: "You were looking at that man rather strangely
+  just now, weren't you?" / the spy: "He's the man Lord Mubon has been
+  searching for!").
+- Eval: PASS, after narrowing a FALSE POSITIVE — "the wild-haired girl
+  excitedly mimicked the flurry of the sword fight" is an action the art
+  shows (the "SWORDS WERE GOING LIKE THIS" panel), not a voice impression.
+  The mimic pattern now needs "mimicked his/her voice|tone|accent".
+
+**Not caught — follow-up filed:** the ending breaks rule "LAND THE ENDING":
+the last paragraph is a flashback-looking panel run and closes on a teaser
+("A hidden war was already brewing, waiting for a single spark to ignite.").
+The critique has no ending check, and the eval does not test endings.
+Candidate fix: a code or critique check on the final unit for teaser
+phrasing ("waiting for", "little did", "what will happen", "was only the
+beginning").
+
+**Not done by me (owner's to do in the UI):** Approve/render/export of v2.
+The v2 board has not been opened or rendered.

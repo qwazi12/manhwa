@@ -36,7 +36,10 @@ BANNED = [
     (r"\bwe (see|watch|observe)\b", 'viewer language'),
     (r"\b(in an? (deep|squeaky|high|low|gravelly|booming|shrill|raspy) "
      r"(voice|growl|rasp|snarl|drawl)|"
-     r"mimick\w*|impersonat\w*|quote|unquote)\b", 'second-voice / quote marker'),
+     # voice-costume only: "the girl mimicked the sword fight" (ch.44 v2) is an
+     # action the art shows, not a narrator doing an impression
+     r"(mimick\w*|impersonat\w*) (his|her|their|the \w+'s) (voice|tone|accent)|"
+     r"quote|unquote)\b", 'second-voice / quote marker'),
     (r"\((?:whisper|shout|softly|loudly|pause|beat)[^)]*\)", 'stage direction in text'),
     # owner decision Q1: the guide's tone — never speak to the listener
     # "let's" alone is fine — "The hunters had a better idea: let's fight." is
