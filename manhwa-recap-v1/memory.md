@@ -7442,3 +7442,47 @@ change fixes coverage and placement, not tone.
 **Verification:**
 - Added `review_ui/test_panel_anchoring.py` (15/15 passed).
 - Verified full test suites: `test_board_shared.py` (4/4), `test_storyboard_edit.py` (55/55), `test_direct_speech.py` (45/45), `test_cut_refine.py` (20/20) — all passed.
+
+### 2026-10-01 — catch-up review of e1ffe77 (panel-anchored narration) and v4 — REVIEW ONLY, nothing changed
+
+**Context:** another session shipped e1ffe77 (panel-anchored narration,
+zero-fold, default inclusion) after the owner approved, and it is LIVE
+(Railway SUCCESS 2026-09-30 23:29 UTC). This session read memory.md and
+checked the claims.
+
+**Verified:**
+- Full suite: 42/44 files pass. **2 FAIL, not mentioned in e1ffe77's entry:**
+  test_claude_plus ("segments are born unticked, as ingest leaves them") and
+  test_claude_experiment ("…born UNTICKED…"). STALE tests, not broken
+  behaviour: segments.py now sets user_included = not silent_hold for BOTH
+  engines (the Claude lab included), which the owner wanted. The tests
+  should be updated to assert the new default — not done, awaiting the owner.
+- eval: both approved scripts PASS.
+- **ch.44 v4 exists live and is NOT logged anywhere in memory.md**
+  (presumably built by that session with the new model). Not rendered (no
+  exports).
+
+**v2 / v3 / v4 measured (same script; transitions = pixel test, spoken text only):**
+| metric | v2 | v3 | v4 |
+|---|---|---|---|
+| on screen | 56 | 51 | 100 |
+| YELLOW (folded) | 43 | 47 | **4** |
+| dialogue/caption panels folded | 13 | 13 | **0** |
+| transition panels with SPOKEN narration | 6 | 3 | **10** (+4 as silent pauses) |
+| crops > 3000 px on screen | 8 | 5 | 6 |
+| words | ~1.24k | 1,284 | **1,984 (+55%)** |
+| duration | 480 s | 481 s | **747 s (12.5 min)** |
+| ticked by default | 0 | 0 | 96 of 100 |
+| direct lines / stray | 2/0 | 3/1 | 3/0 |
+
+**Findings for the owner:**
+1. Coverage goal met: 0 dialogue panels folded and 4 yellow (not 0 — 4 still fold).
+2. **Length +55%:** per-panel lines average ~20 words, not the ~12 my
+   advice estimated (so my "~7–8 min" was wrong). The word budget did not
+   scale down per line.
+3. **Transitions:** 10 transition panels still get SPOKEN lines; the silent
+   path is model-chosen ("(silent)" tag), not the pixel test the plan
+   specified, so it misses most of them.
+4. Stale tests (see above).
+
+**Nothing was changed in code by this session.**
