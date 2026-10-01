@@ -256,7 +256,7 @@ async function load(name, proj) {
     var r1 = await Promise.all([
       api(u),
       api('/api/exports?cb=' + Date.now()).catch(function () { return {}; }),
-      api('/api/outstand/status?cb=' + Date.now()).catch(function () { return null; })
+      api('/api/publishing/status?cb=' + Date.now()).catch(function () { return null; })
     ]);
     DATA = r1[0];
     ALL = (r1[1] || {}).exports || [];
@@ -266,8 +266,8 @@ async function load(name, proj) {
     var qs = (DATA.project ? '&project=' + encodeURIComponent(DATA.project) : '') +
              (DATA.name ? '&name=' + encodeURIComponent(DATA.name) : '');
     var r2 = await Promise.all([
-      api('/api/outstand/eligibility?cb=' + Date.now() + qs).catch(function () { return null; }),
-      api('/api/outstand/publish/status?cb=' + Date.now() + qs).catch(function () { return null; }),
+      api('/api/publishing/eligibility?cb=' + Date.now() + qs).catch(function () { return null; }),
+      api('/api/publishing/publish/status?cb=' + Date.now() + qs).catch(function () { return null; }),
       api('/api/publish?cb=' + Date.now() + qs).catch(function () { return null; })
     ]);
     ELIG = r2[0]; PUBST = r2[1]; PUB = r2[2];
@@ -363,7 +363,7 @@ function render() {
       publishCard() +
       publishNowCard() +
       historyCard(rv) +
-    '</div><div>' + outstandCard() + qcCard(d, qc) + '</div></div>';
+    '</div><div>' + accountsCard() + qcCard(d, qc) + '</div></div>';
 }
 
 function publishCard() {
@@ -921,7 +921,7 @@ async function savePublish() {
     // refresh it here — otherwise picking an account leaves Publish disabled.
     var qs = '&project=' + encodeURIComponent(DATA.project) +
              '&name=' + encodeURIComponent(DATA.name);
-    try { ELIG = await api('/api/outstand/eligibility?cb=' + Date.now() + qs); }
+    try { ELIG = await api('/api/publishing/eligibility?cb=' + Date.now() + qs); }
     catch (e9) { /* keep the previous eligibility on screen */ }
     render();
     var e2 = document.getElementById('p_saved');
@@ -945,7 +945,8 @@ function publishNowCard() {
 
   var resultRows = results.map(function (x) {
     var cls = x.status === 'published' ? 'p-ok'
-            : (x.status === 'failed' ? 'p-bad' : 'p-neutral');
+            : (x.status === 'failed' ? 'p-bad'
+            : (x.status === 'submitted' ? 'p-blue' : 'p-neutral'));
     var link = x.url
       ? ' <a href="' + esc(x.url) + '" target="_blank">open</a>'
       : '';
@@ -960,7 +961,7 @@ function publishNowCard() {
   var targetSection = '<div style="margin:10px 0">' +
     '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px">' +
     '<span class="hint" style="font-weight:700">Target Accounts</span>' +
-    '<button class="mini" type="button" onclick="refreshOutstand()">↻ Refresh Accounts</button>' +
+    '<button class="mini" type="button" onclick="refreshAccounts()">↻ Refresh Accounts</button>' +
     '</div>' +
     targetPicker(md, '') +
     '</div>';
@@ -1003,7 +1004,7 @@ async function pollPublish() {
   try {
     var qs = '&project=' + encodeURIComponent(DATA.project) +
              '&name=' + encodeURIComponent(DATA.name);
-    PUBST = await api('/api/outstand/publish/status?cb=' + Date.now() + qs);
+    PUBST = await api('/api/publishing/publish/status?cb=' + Date.now() + qs);
     render();
     var st = ((PUBST || {}).publish || {}).status;
     if (st === 'in_progress') { setTimeout(pollPublish, 5000); return; }
@@ -1025,7 +1026,7 @@ async function doPublish() {
   var btn = document.querySelector('.card .ok');
   if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
   try {
-    await api('/api/outstand/publish', {
+    await api('/api/publishing/publish', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ project: DATA.project, name: DATA.name })
     });
@@ -1055,11 +1056,9 @@ function historyCard(rv) {
   }).join('') + '</div>';
 }
 
-function backendLabel() {
-  return ((OS || {}).backend === 'outstand') ? 'Outstand' : 'Upload-Post';
-}
+function backendLabel() { return 'Upload-Post'; }
 
-function outstandCard() {
+function accountsCard() {
   if (!OS) return '';
   var accounts = OS.accounts || [];
   var body = '', actions = '';
@@ -1084,8 +1083,8 @@ function outstandCard() {
         '>' + esc(n) + '</option>';
     }).join('');
     actions = '<select id="os_net" style="max-width:150px">' + nets + '</select>' +
-      '<button onclick="connectOutstand()">Connect</button>' +
-      '<button onclick="refreshOutstand()">Refresh</button>';
+      '<button onclick="connectAccount()">Connect</button>' +
+      '<button onclick="refreshAccounts()">Refresh</button>';
   }
 
   var badge = !OS.configured ? pill('not set up', 'p-neutral')
@@ -1097,14 +1096,14 @@ function outstandCard() {
     '</div>';
 }
 
-function connectOutstand() {
+function connectAccount() {
   var n = (document.getElementById('os_net') || {}).value || 'youtube';
-  location.href = '/api/outstand/connect?network=' + encodeURIComponent(n);
+  location.href = '/api/publishing/connect?network=' + encodeURIComponent(n);
 }
 
-async function refreshOutstand() {
+async function refreshAccounts() {
   try {
-    OS = await api('/api/outstand/refresh', { method: 'POST' });
+    OS = await api('/api/publishing/refresh', { method: 'POST' });
     render();
   } catch (e) { alert('Could not refresh: ' + e.message); }
 }
@@ -1112,7 +1111,7 @@ async function refreshOutstand() {
 async function disconnectAcct(id) {
   if (!confirm('Remove this account from the tool? It stays linked inside ' + backendLabel() + '.')) return;
   try {
-    await api('/api/outstand/disconnect', {
+    await api('/api/publishing/disconnect', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ account_id: id })
     });

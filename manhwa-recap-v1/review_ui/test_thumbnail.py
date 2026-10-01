@@ -119,14 +119,14 @@ def main():
     check("a traversing export name cannot write outside the project",
           not os.path.exists(os.path.join(root, "escape.mp4.jpg")))
 
-    # ---- the honesty note: Outstand documents no thumbnail field
+    # ---- the honesty note: Upload-Post sends the "thumbnail" field
     n0 = tb.publish_note(False)
     n1 = tb.publish_note(True)
     check("with no thumbnail, the note says YouTube picks a frame",
           n0["sent_with_post"] is False and "auto-pick" in n0["detail"])
-    check("with a thumbnail, the note STILL says it is not sent",
-          n1["sent_with_post"] is False)
-    check("...and says where to set it instead",
+    check("with a thumbnail, the note says it is sent with the post",
+          n1["sent_with_post"] is True)
+    check("...and says where to check it",
           "YouTube Studio" in n1["detail"])
 
     # ---- endpoints
@@ -152,8 +152,8 @@ def main():
 
     out = post(img())
     check("POST stores and returns the record", out["thumbnail"]["width"] == 1280)
-    check("...and returns the not-sent note with it",
-          out["note"]["sent_with_post"] is False)
+    check("...and returns the sent-with-post note with it",
+          out["note"]["sent_with_post"] is True)
 
     check("POST without an export name is a 400",
           status(lambda: post(img(), name="")) == 400)
@@ -180,8 +180,8 @@ def main():
           (pay.get("thumbnail") or {}).get("width") == 1280)
     check("...its limits, so the UI states them without hardcoding",
           pay["thumbnail_limits"]["max_bytes"] == tb.MAX_BYTES)
-    check("...and the not-sent note",
-          pay["thumbnail_note"]["sent_with_post"] is False)
+    check("...and the sent-with-post note",
+          pay["thumbnail_note"]["sent_with_post"] is True)
 
     for name, ok in R:
         print(("PASS " if ok else "FAIL ") + name)

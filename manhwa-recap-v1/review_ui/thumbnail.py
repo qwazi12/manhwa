@@ -1,19 +1,10 @@
 """Custom thumbnails for a rendered export.
 
-WHAT THIS DOES AND DOES NOT DO — read before wiring anything to it.
-
-Outstand's YouTube configuration object documents exactly six fields: isShort,
-categoryId, privacyStatus, madeForKids, tags, title. There is NO thumbnail,
-cover, or poster field, and no documented way to attach one through
-containers[].media either. Their docs quote YouTube's thumbnail rules (JPEG or
-PNG, up to 2 MB) without saying how to supply the file.
-
-So this module stores, validates and serves a thumbnail; it does not publish
-one. Guessing a field name is precisely what broke the first publish attempt
-("Outstand did not return an upload URL"), and inventing one here would fail
-the same way but silently — the post would succeed with the wrong image. The
-UI therefore says plainly that the file is held for manual upload, and
-`publish_note()` is the single place to change when Outstand documents a field.
+Stores, validates and serves a thumbnail for an export. At publish time the
+saved file (exports/_thumbs/) is sent to Upload-Post as the multipart
+"thumbnail" field (documented: JPG/PNG, max 2 MB; YouTube only applies custom
+thumbnails on verified channels). `publish_note()` is the single place that
+tells the operator what happens to it.
 
 Limits are YouTube's own, so a thumbnail accepted here is one YouTube accepts.
 """
@@ -21,7 +12,7 @@ import json
 import os
 import time
 
-# YouTube's published limits, which Outstand's docs also cite.
+# YouTube's published limits (Upload-Post documents the same 2 MB cap).
 MAX_BYTES = 2 * 1024 * 1024
 ALLOWED = ("JPEG", "PNG")
 MIN_WIDTH = 640                     # YouTube rejects narrower
@@ -184,18 +175,13 @@ def delete(pdir, export_name):
 
 # ------------------------------------------------------------------ truth
 def publish_note(has_thumb):
-    """What the operator is told about this thumbnail at publish time.
-
-    Deliberately blunt. Outstand documents no thumbnail field, so an uploaded
-    image is NOT sent with the post; saying anything softer would let someone
-    publish believing the thumbnail went with it.
-    """
+    """What the operator is told about this thumbnail at publish time."""
     if not has_thumb:
         return {"sent_with_post": False,
                 "detail": "No custom thumbnail. YouTube will auto-pick a frame."}
     return {
-        "sent_with_post": False,
-        "detail": ("Saved with this export, but NOT sent to YouTube: Outstand's "
-                   "API documents no thumbnail field. Download it and set it in "
-                   "YouTube Studio once the video is up."),
+        "sent_with_post": True,
+        "detail": ("Sent with the post via Upload-Post. YouTube applies custom "
+                   "thumbnails only on verified channels — check it in YouTube "
+                   "Studio once the video is up."),
     }

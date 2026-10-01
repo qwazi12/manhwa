@@ -176,6 +176,13 @@ def sync_accounts(root, cfg=None, _http=None):
     return accts
 
 
+def upload_status(request_id, cfg=None, _http=None):
+    """What happened to an async upload: {"status": "completed"|..., "results":
+    [{"profile_username", "platform", "success", "post_url", "error_message"}]}"""
+    return _request("GET", "/uploadposts/status?request_id="
+                    + urllib.parse.quote(str(request_id)), cfg=cfg, _http=_http)
+
+
 def get_connect_jwt_url(username, cfg=None, _http=None):
     cfg = cfg or config()
     body = {

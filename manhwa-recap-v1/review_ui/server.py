@@ -1515,9 +1515,8 @@ def api_seo_apply(body: SeoApplyIn):
 
 # ====================================================================
 #  Custom thumbnails for an export
-#  Stored and served here; NOT published. Outstand documents no thumbnail
-#  field, so the UI says the file is held for manual upload rather than
-#  implying it ships with the post. See thumbnail.py.
+#  Stored and served here, and sent with the Upload-Post publish as the
+#  "thumbnail" file field. See thumbnail.py.
 # ====================================================================
 @app.post("/api/thumbnail")
 async def thumbnail_upload(request: Request, project: str = "", name: str = ""):
@@ -1694,7 +1693,7 @@ def yt_eligibility(project: str = "", name: str = ""):
 
 
 # ====================================================================
-#  PHASE C — publishing accounts via Upload-Post (and legacy Outstand)
+#  PHASE C — publishing accounts via Upload-Post
 # ====================================================================
 def _os_root():
     import ingest as _ing
@@ -1702,20 +1701,19 @@ def _os_root():
 
 
 def _get_publish_backend():
+    # Upload-Post is the only publisher. When it is not configured,
+    # accounts_status() says so and eligibility blocks publishing.
     import upload_post as _up
-    import outstand as _os
-    if _up.config()["configured"]:
-        return "upload_post", _up
-    return "outstand", _os
+    return "upload_post", _up
 
 
-@app.get("/api/outstand/status")
+@app.get("/api/publishing/status")
 def os_status():
     backend_name, mod = _get_publish_backend()
     return {**mod.accounts_status(_os_root()), "backend": backend_name}
 
 
-@app.get("/api/outstand/connect")
+@app.get("/api/publishing/connect")
 def os_connect(network: str = "youtube"):
     backend_name, mod = _get_publish_backend()
     from fastapi.responses import RedirectResponse
@@ -1723,47 +1721,15 @@ def os_connect(network: str = "youtube"):
     if not cfg["configured"]:
         raise HTTPException(503, f"{backend_name} is not configured: missing "
                                  + ", ".join(cfg["missing"]))
-    if backend_name == "upload_post":
-        try:
-            url = mod.get_connect_jwt_url("", cfg=cfg)
-            if not url:
-                # If hosted connect JWT is not enabled on account, redirect to dashboard
-                url = "https://app.upload-post.com/manage-users"
-            return RedirectResponse(url)
-        except Exception as e:
-            # Fallback to direct dashboard connect
-            return RedirectResponse("https://app.upload-post.com/manage-users")
-    else:
-        try:
-            url = mod.connect_url(network, mod.new_state(_os_root()), cfg)
-        except mod.OutstandError as e:
-            raise HTTPException(400, str(e))
-        return RedirectResponse(url)
-
-
-@app.get("/api/outstand/callback")
-def os_callback(success: str = "", error: str = "", account_id: str = "",
-                network_unique_id: str = "", username: str = "",
-                network: str = "", state: str = ""):
-    """Outstand redirects here after the operator links an account."""
-    import outstand as _os
-    from fastapi.responses import RedirectResponse
-    if error:
-        raise HTTPException(400, f"Could not link account: {error}")
-    if not _os.check_state(_os_root(), state):
-        raise HTTPException(400, "connection state did not match — start again from Connect")
-    if success and success.lower() not in ("1", "true", "yes"):
-        raise HTTPException(400, "Reported connection was not successful")
     try:
-        _os.record_connection(_os_root(), account_id, network=network or None,
-                              username=username or None,
-                              network_unique_id=network_unique_id or None)
-    except _os.OutstandError as e:
-        raise HTTPException(400, str(e))
-    return RedirectResponse("/review?connected=1")
+        url = mod.get_connect_jwt_url("", cfg=cfg)
+    except Exception:
+        url = ""
+    # Hosted connect not enabled on the account -> the Upload-Post dashboard.
+    return RedirectResponse(url or "https://app.upload-post.com/manage-users")
 
 
-@app.post("/api/outstand/refresh")
+@app.post("/api/publishing/refresh")
 def os_refresh():
     """Reconcile local records with provider account list."""
     backend_name, mod = _get_publish_backend()
@@ -1778,12 +1744,12 @@ def os_refresh():
     return mod.accounts_status(_os_root(), cfg)
 
 
-class OutstandDelIn(BaseModel):
+class AccountDelIn(BaseModel):
     account_id: str
 
 
-@app.post("/api/outstand/disconnect")
-def os_disconnect(body: OutstandDelIn):
+@app.post("/api/publishing/disconnect")
+def os_disconnect(body: AccountDelIn):
     """Forget an account locally."""
     backend_name, mod = _get_publish_backend()
     removed = mod.remove_account(_os_root(), body.account_id)
@@ -1885,6 +1851,49 @@ def _publish_record(pdir, name, **fields):
     save_publishes(pdir, pubs)
 
 
+def _publish_overall(results):
+    if any(r.get("status") == "submitted" for r in results):
+        return "in_progress"
+    ok = [r for r in results if r.get("status") == "published"]
+    return ("published" if results and len(ok) == len(results)
+            else ("partial" if ok else "failed"))
+
+
+def _resolve_upload_results(mod, results):
+    """Ask Upload-Post what the platform did with each submitted target.
+    A target stays "submitted" until its request is reported completed."""
+    by_req = {}
+    for r in results:
+        if r.get("status") != "submitted":
+            continue
+        rid = r.get("request_id")
+        if rid not in by_req:
+            try:
+                by_req[rid] = mod.upload_status(rid)
+            except Exception:
+                by_req[rid] = None
+        st = by_req[rid]
+        if not st or st.get("status") != "completed":
+            continue
+        prof, _, net = r["account_id"].partition(":")
+        if not net:
+            prof, net = "", prof
+        hit = next((x for x in (st.get("results") or [])
+                    if x.get("platform") == net
+                    and (not prof or x.get("profile_username") == prof)), None)
+        if hit is None:
+            r.update(status="failed",
+                     error="Upload-Post finished but reported no result for this channel")
+        elif hit.get("success"):
+            r.update(status="published", url=hit.get("post_url"),
+                     platform_post_id=hit.get("platform_post_id"),
+                     published_at=time.time(), error=None)
+        else:
+            r.update(status="failed",
+                     error=hit.get("error_message") or "the platform rejected the upload")
+    return results
+
+
 def _run_publish_job(job_id, pdir, name):
     backend_name, mod = _get_publish_backend()
     try:
@@ -1904,87 +1913,66 @@ def _run_publish_job(job_id, pdir, name):
         targets = list(md.get("targets") or [])
         video = os.path.join(pdir, "exports", os.path.basename(name))
 
-        # Check for generated custom thumbnail
-        thumb_dir = os.path.join(pdir, "thumbnails")
-        thumb_file = None
-        if os.path.exists(thumb_dir):
-            for ext in (".jpg", ".jpeg", ".png"):
-                cand = os.path.join(thumb_dir, f"{os.path.splitext(os.path.basename(name))[0]}{ext}")
-                if os.path.exists(cand):
-                    thumb_file = cand
-                    break
+        # The custom thumbnail saved for this export (exports/_thumbs/), if any.
+        import thumbnail as _tb
+        thumb_file = _tb.path_for(pdir, name) or None
 
-        if backend_name == "upload_post":
-            # One Upload-Post request carries ONE profile ("user"). Targets on
-            # different profiles (mk:youtube + default:youtube) must be separate
-            # uploads, or only the last profile receives the video.
-            groups = {}
-            for t in targets:
-                groups.setdefault(t.split(":", 1)[0] if ":" in t else "", []).append(t)
-            results, post_id = [], None
-            for prof, group in groups.items():
-                step("uploading video to Upload-Post (%s)" % ", ".join(group), 1)
-                try:
-                    created = mod.upload_video_post(
-                        video, md, group, thumbnail_path=thumb_file,
-                        on_step=lambda m: step(m, 1)
-                    )
-                except Exception as e:
-                    created = {"success": False, "error": str(e)}
-                pid_ = created.get("post_id") or created.get("id") or created.get("request_id") or str(uuid.uuid4())
-                post_id = post_id or pid_
-                for t in group:
-                    results.append({
-                        "account_id": t,
-                        "status": "published" if created.get("success") else "failed",
-                        "post_id": pid_,
-                        "published_at": time.time(),
-                        "error": created.get("error") if not created.get("success") else None
-                    })
-            ok = [r for r in results if r["status"] == "published"]
-            overall = ("published" if len(ok) == len(results)
-                       else ("partial" if ok else "failed"))
-            _publish_record(pdir, name, status=overall, results=results,
-                            post_id=post_id, ended_at=time.time(), stage="done")
-            JOBS[job_id].update(status="done", stage=overall, done=4)
-            _persist_job(job_id)
-        else:
-            # Fallback legacy Outstand flow
-            step("uploading the video to Outstand", 1)
-            media = mod.upload_media(video, "video/mp4", on_step=lambda m: step(m, 1))
-            step("creating the post", 2)
-            yt = mod.build_youtube_config(md, force_private=False)
-            containers = [{"content": md.get("description") or md.get("title") or "",
-                           "media": [{"url": media["url"], "filename": media["filename"]}]}]
-            created = mod.create_post(containers, targets,
-                                      scheduled_at=(md.get("publish_at") or None),
-                                      youtube=yt)
-            _publish_record(pdir, name, post_id=created["post_id"],
-                            targets=targets, youtube=yt,
-                            media_url=media["url"], status="in_progress",
-                            results=created["results"], started_at=time.time())
+        # One Upload-Post request carries ONE profile ("user"). Targets on
+        # different profiles (mk:youtube + default:youtube) must be separate
+        # uploads, or only the last profile receives the video.
+        groups = {}
+        for t in targets:
+            groups.setdefault(t.split(":", 1)[0] if ":" in t else "", []).append(t)
+        names = {x.get("account_id"): x for x in
+                 (elig.get("accounts") or {}).get("accounts") or []}
+        results = []
+        for prof, group in groups.items():
+            step("uploading video to Upload-Post (%s)" % ", ".join(group), 1)
+            try:
+                created = mod.upload_video_post(
+                    video, md, group, thumbnail_path=thumb_file,
+                    on_step=lambda m: step(m, 1)
+                )
+            except Exception as e:
+                created = {"success": False, "error": str(e)}
+            rid = created.get("request_id")
+            for t in group:
+                a = names.get(t) or {}
+                r = {"account_id": t, "request_id": rid, "error": None,
+                     "network": a.get("network") or t.partition(":")[2] or t,
+                     "username": a.get("username") or t}
+                if not created.get("success"):
+                    r.update(status="failed",
+                             error=created.get("error") or created.get("message")
+                             or "Upload-Post rejected the upload")
+                elif rid:
+                    # Accepted only. The platform's verdict comes from status.
+                    r.update(status="submitted")
+                else:
+                    r.update(status="published", published_at=time.time(),
+                             note="accepted; Upload-Post returned no request_id to verify")
+                results.append(r)
+        _publish_record(pdir, name, status=_publish_overall(results),
+                        results=results, stage="waiting for the platform")
 
-            step("waiting for confirmation", 3)
-            final = created
-            for _ in range(10):
-                _control_gate(JOBS, job_id, _persist_job)
-                time.sleep(6)
-                try:
-                    final = mod.post_status(created["post_id"])
-                except Exception:
-                    continue
-                if final["results"] and all(r.get("status") in ("published", "failed") for r in final["results"]):
-                    break
-
-            published = [r for r in final["results"] if r.get("status") == "published"]
-            failed = [r for r in final["results"] if r.get("status") == "failed"]
-            overall = ("published" if published and not failed else
-                       "partial" if published and failed else
-                       "failed" if failed else "pending")
-            _publish_record(pdir, name, status=overall, results=final["results"],
-                            post_id=final["post_id"], ended_at=time.time(), stage="done")
-            JOBS[job_id].update(status="done", stage=overall, done=4)
-            _persist_job(job_id)
+        # Wait for the platform's real result (bounded: ~15 min).
+        step("waiting for YouTube to confirm", 3)
+        for _ in range(90):
+            if not any(r["status"] == "submitted" for r in results):
+                break
+            _control_gate(JOBS, job_id, _persist_job)
+            time.sleep(10)
+            results = _resolve_upload_results(mod, results)
+        overall = _publish_overall(results)
+        _publish_record(pdir, name, status=overall, results=results,
+                        post_id=next((r.get("request_id") for r in results
+                                      if r.get("request_id")), None),
+                        stage=("done" if overall != "in_progress" else
+                               "still processing on the platform — this page re-checks"),
+                        checked_at=time.time(),
+                        **({"ended_at": time.time()} if overall != "in_progress" else {}))
+        JOBS[job_id].update(status="done", stage=overall, done=4)
+        _persist_job(job_id)
 
     except JobCancelled as e:
         _publish_record(pdir, name, status="cancelled", stage=str(e), ended_at=time.time())
@@ -2000,7 +1988,7 @@ class PublishNowIn(BaseModel):
     name: str = ""
 
 
-@app.post("/api/outstand/publish")
+@app.post("/api/publishing/publish")
 def os_publish(body: PublishNowIn):
     """Start a publish. Refuses unless every eligibility condition holds."""
     pdir = project_dir_for(body.project)
@@ -2028,17 +2016,29 @@ def os_publish(body: PublishNowIn):
             "privacy": (load_publish(pdir).get(name) or {}).get("privacy", "private")}
 
 
-@app.get("/api/outstand/publish/status")
+@app.get("/api/publishing/publish/status")
 def os_publish_status(project: str = "", name: str = ""):
     pdir = project_dir_for(project)
     pid = os.path.basename(pdir.rstrip("/"))
     if not name:
         name, pid = latest_export(project or pid)
     rec = (load_publishes(pdir) or {}).get(name) or {}
+    job = JOBS.get(rec.get("job") or "") or {}
+    if (rec.get("status") == "in_progress" and job.get("status") not in ("queued", "running")
+            and any(r.get("status") == "submitted" for r in rec.get("results") or [])
+            and time.time() - (rec.get("checked_at") or 0) > 15):
+        _b, mod = _get_publish_backend()
+        results = _resolve_upload_results(mod, rec["results"])
+        overall = _publish_overall(results)
+        _publish_record(pdir, name, status=overall, results=results,
+                        checked_at=time.time(),
+                        **({"stage": "done", "ended_at": time.time()}
+                           if overall != "in_progress" else {}))
+        rec = (load_publishes(pdir) or {}).get(name) or {}
     return {"project": pid, "name": name, "publish": rec or None}
 
 
-@app.get("/api/outstand/eligibility")
+@app.get("/api/publishing/eligibility")
 def os_eligibility(project: str = "", name: str = ""):
     pdir = project_dir_for(project)
     pid = os.path.basename(pdir.rstrip("/"))

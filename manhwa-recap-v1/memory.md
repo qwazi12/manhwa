@@ -7633,3 +7633,41 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
 
 **Still unverified:** a real end-to-end upload. That is outward-facing, so it was left to the owner's first publish. Check that both channels show their own result row.
 **Evidence:** publish-targets-2026-10-01
+
+### 2026-10-01 — First Upload-Post publish verified; Outstand removed completely; migration guide
+**The owner's publish (verified live, read-only):**
+- What went out: Murim Psychopath ch.44 v5, `final_Oct01_01.32PM.mp4`, published public to `mk:youtube` (Flamingo Remix) only. That is the channel the owner picked.
+- Upload-Post `GET /uploadposts/status`: `status: completed`, `success: true`, 179 MB.
+- Live video: https://www.youtube.com/watch?v=mUEMbhWHL6E
+- For comparison, the last Outstand publish (v4, Sep 30) failed with YouTube 429: quota `defaultVideoInsertPerDayPerProject=100` on Outstand's shared Google project.
+
+**Gaps found and fixed:**
+1. **"Accepted" was recorded as "published".**
+   - `async_upload=true` returns `success` when the upload is queued, before YouTube decides.
+   - Targets are now `submitted` with a `request_id`. The job polls `upload_post.upload_status()` (bounded, ~15 min) and records per channel `published` + `url`, or `failed` + the platform's `error_message`.
+   - If the upload is still processing, the record stays `in_progress`, and `/api/publishing/publish/status` re-checks it (throttled to 15 s).
+   - Result rows now show the channel name and an "open" link.
+2. **The custom thumbnail was never sent.**
+   - The job looked in `<project>/thumbnails/`, but thumbnails are saved in `exports/_thumbs/`. It now uses `thumbnail.path_for()`.
+   - Upload-Post documents the multipart field `thumbnail` (JPG/PNG ≤ 2 MB; YouTube needs a verified channel).
+   - The thumbnail note now says it is sent; the old Outstand-era "NOT sent" copy is gone.
+3. **Outstand removed.**
+   - Deleted `outstand.py`, `test_outstand_connect.py`, `test_outstand_publish.py`, the OAuth callback route and the fallback publish branch.
+   - `_get_publish_backend()` returns Upload-Post only. When unconfigured it blocks publishing with a reason; there is no silent fallback.
+   - Routes renamed `/api/outstand/*` → `/api/publishing/*` in server and UI.
+   - Guard tests assert: no outstand routes, module not importable, no "outstand" text in the review page.
+   - `.env.example` documents `UPLOADPOST_API_KEY` / `UPLOADPOST_PROFILE`.
+4. **Migration guide:** `docs/UPLOAD_POST_MIGRATION.md` covers the steps taken, the API facts, the bugs and a checklist for other projects.
+
+**Tests:** all pass, with mocked HTTP only.
+- `test_publish_targets` 13/13
+- `test_publish_backend`
+- `test_thumbnail` 35/35 (2 checks updated for the new note)
+- `test_upload_post`, `test_upload_post_full`, `test_mk_profile`
+- Review page JS passes `node --check`.
+
+**Still open:**
+- `publish_at` (scheduling) and playlist are NOT sent to Upload-Post; publishing is immediate.
+- The old `_outstand_*.json` files on the volume are left in place (inert).
+- Revoking the Outstand API key in Outstand's dashboard is the owner's step.
+**Evidence:** upload-post-migration-2026-10-01
