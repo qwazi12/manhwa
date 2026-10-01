@@ -7486,3 +7486,41 @@ checked the claims.
 4. Stale tests (see above).
 
 **Nothing was changed in code by this session.**
+
+### 2026-10-01 — full review of the ch.44 v4 export (12:09) — REVIEW ONLY, nothing changed
+
+**Owner:** "I have exported the v4, can you please watch all 12:09 of it and
+give a review/feedback?" (export final_Sep30_10.13PM.mp4: 93 of v4's 100
+segments ticked, plus the intro/outro cards).
+
+**Method:** downloaded the export (189 MB, intact); an exact clip timeline
+from the server's per-clip durations (95 clips, sum 729.83 s = video length);
+one frame per clip with its narration in 8 contact sheets, all viewed in
+order; a Whisper "small" transcript (the first attempt hit an SSL cert error
+downloading the model — fixed with SSL_CERT_FILE=certifi); ffmpeg loudness,
+silence and scene analysis. (The video-analysis MCP was down this session.)
+
+**Verdict:** coverage and sync are fixed; pacing and the ending are not.
+- WORKS: every dialogue panel is on screen with its own line; the v2 ¶5
+  misplacement is fixed (5:54 / 6:06); direct speech lands on its panels; the
+  climax 9:20–10:55 is strong; heard = written at 99.2%; no dead air.
+- PROBLEMS: (1) **repeated images: 5 runs / 12 clips / 86 s (12%)**, 4 of
+  them in the last 90 s (11:24 x3 for 19 s, 11:43 x3 for 23.9 s) — several
+  sentences on a panel, one segment each; (2) **12:09 vs ~8:00**: ~20-word
+  lines, fights at 6–9 s per image; (3) black frames narrated (7:22, 7:36),
+  and the 0:03 opening is an 8 s promo strip from the credits page; (4)
+  writing: list-like fights, the smell detail over-applied, "festive night
+  began" re-openers mid-fight (3:21, 5:39); (5) peaks at 0 dB (possible
+  crackle); check by ear "Mubon" / "Sinjung".
+- RETRACTED: my earlier "4:30 misattributed to a woman" — the speaker is
+  the wild-haired woman spectator; v4 was right, and the cutter audit's
+  "protagonist" label for that crop was wrong.
+
+**Candidate fixes (awaiting the owner):** merge consecutive same-panel
+sentences into one segment (or spread them over adjacent crops); per-panel
+word caps by panel type (action short, dialogue medium) with an ~8-min chapter
+target; the pixel-based silent pause for black/white panels plus a thin-strip
+filter for credits pages; prompt fixes (sense detail only on a NEW place, no
+re-introductions, vary nouns); export loudness normalisation to -1 dBTP.
+
+**Evidence:** ch44-v4-review-2026-10-01
