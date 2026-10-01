@@ -336,13 +336,25 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         progress("split", f"{n_crops} panel crops.", 30)
 
     # 3. describe ---------------------------------------------------------
+    # Resolve Series Bible (character cheat-sheet, setting tropes, costume vs monster rules)
+    series_raw, _ = parse_series_chapter(url)
+    import series_bible
+    bible = series_bible.load_series_bible(series_raw, pdir=proj)
+    bible_path = os.path.join(proj, "series_bible.json")
+    if bible and not os.path.exists(bible_path):
+        series_bible.save_series_bible(series_raw, bible, pdir=proj)
+
     progress("describe", "Describing panels (Gemini vision)…", 35)
     desc_log = os.path.join(proj, "describe.log")
+    desc_cmd = [PY, os.path.join(ROOT, "panel-describe", "run.py"),
+                "--input", crops, "--out", desc_path, "--model", "gemini-3.5-flash",
+                "--merge"]
+    if os.path.exists(bible_path):
+        desc_cmd.extend(["--series-bible", bible_path])
+
     with open(desc_log, "w", encoding="utf-8") as f_log:
         desc_p = subprocess.run(
-            [PY, os.path.join(ROOT, "panel-describe", "run.py"),
-             "--input", crops, "--out", desc_path, "--model", "gemini-3.5-flash",
-             "--merge"],
+            desc_cmd,
             cwd=os.path.join(ROOT, "panel-describe"),
             env=subp_env, stdout=f_log, stderr=f_log)
     if desc_p.returncode != 0:
@@ -386,7 +398,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             panels, verbose=False, direct=direct,
             progress_cb=lambda i, n, phase: progress(
                 "narrate", f"narration {phase} — unit {i}/{n}…",
-                60 + int(8 * i / max(n, 1))))
+                60 + int(8 * i / max(n, 1))),
+            series_bible_data=bible)
         open(script_path, "w").write(narrate.strip_anchored_tags(script) if hasattr(narrate, "strip_anchored_tags") else script)
         direct_record = dict(narrate.LAST_DIRECT_SPEECH)
         json.dump(direct_record, open(ds_path, "w"), indent=1, ensure_ascii=False)

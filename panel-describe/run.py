@@ -45,9 +45,30 @@ def main():
                     help="force Tesseract OCR-only, ignore GEMINI_API_KEY")
     ap.add_argument("--force-rerun", action="store_true",
                     help="re-describe all panels, ignoring any existing output file")
-    ap.add_argument("--merge", action="store_true",
+    ap.add_argument("--series-bible", default="",
+                    help="path to series_bible.json or series slug")
+    ap.add_argument("--merge", action="store_true", 
                     help="merge new descriptions into existing output file (keeps unchanged panels)")
     args = ap.parse_args()
+
+    bible_data = None
+    if args.series_bible:
+        if os.path.isfile(args.series_bible):
+            try:
+                with open(args.series_bible, encoding="utf-8") as f:
+                    bible_data = json.load(f)
+            except Exception as e:
+                print(f"Warning: could not load series bible from {args.series_bible}: {e}")
+        else:
+            # Try loading as series slug
+            _RECAP = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "manhwa-recap-v1"))
+            if _RECAP not in sys.path:
+                sys.path.insert(0, _RECAP)
+            try:
+                import series_bible as _sb
+                bible_data = _sb.load_series_bible(args.series_bible)
+            except Exception as e:
+                print(f"Warning: could not load series bible for slug {args.series_bible}: {e}")
 
     api_key = None if args.no_ai else os.environ.get("GEMINI_API_KEY")
     if not api_key and not args.no_ai:
@@ -120,7 +141,7 @@ def main():
             print(f"[{i:>3}/{len(files)}] {fname:32} skipped (sliver {_w}x{_h})")
             continue
         try:
-            rec = describe.describe_panel(path, api_key, args.model)
+            rec = describe.describe_panel(path, api_key, args.model, series_bible=bible_data)
         except UsageCapExceeded as e:
             # Save whatever we already have before exiting, so partial
             # progress isn't lost, then stop the run with a clear reason.

@@ -22,6 +22,7 @@ import os
 import re
 import time
 import collections
+import sys
 
 SEO_NAME = "seo.json"
 CHANNEL_HANDLE = "@FlamingoRemix"
@@ -111,6 +112,27 @@ def truth_card(pdir):
     # cutoff would have found no characters at all in a short recap.
     characters = [w for w, c in caps.most_common(12) if c >= 2
                   and w.lower() not in skip][:6]
+
+    # Series Bible integration: inject canonical characters and aliases
+    bible_data = _read(os.path.join(pdir, "series_bible.json"))
+    if not bible_data and series:
+        _RECAP = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        if _RECAP not in sys.path:
+            sys.path.insert(0, _RECAP)
+        try:
+            import series_bible as _sb
+            bible_data = _sb.load_series_bible(series)
+        except Exception:
+            bible_data = None
+
+    if bible_data:
+        bible_chars = [c.get("name") for c in bible_data.get("characters", []) if c.get("name")]
+        for bc in reversed(bible_chars):
+            if bc and bc not in characters:
+                characters.insert(0, bc)
+        for al in bible_data.get("aliases", []):
+            if al and al not in aliases:
+                aliases.append(al)
 
     # Genre from vocabulary actually present, so it is evidence not vibes.
     genre = _genre(narration, visual)

@@ -170,7 +170,7 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
     raise ValueError(f"No model_output text found in steps. Step types: {[s.get('type') for s in data.get('steps', [])]}")
 
 
-def describe_with_gemini(path: str, api_key: str, model: str):
+def describe_with_gemini(path: str, api_key: str, model: str, prompt: str | None = None):
     """Single call: returns (ocr_text, visual_description, raw_lines). Raises on failure.
 
     Routes to the Interactions API for new auth-key format (AQ.) models like
@@ -191,7 +191,7 @@ def describe_with_gemini(path: str, api_key: str, model: str):
             certifi_path = None
 
         def _call():
-            raw = _call_interactions_api(api_key, model, img_b64, mime, certifi_path)
+            raw = _call_interactions_api(api_key, model, img_b64, mime, certifi_path, prompt=prompt)
             return raw
 
         if usage:
@@ -214,7 +214,7 @@ def describe_with_gemini(path: str, api_key: str, model: str):
                 model=model,
                 contents=[
                     types.Part.from_bytes(data=base64.b64decode(img_b64), mime_type=mime),
-                    types.Part(text=VISION_PROMPT),
+                    types.Part(text=prompt or VISION_PROMPT),
                 ],
                 config=types.GenerateContentConfig(temperature=0.0),
             )
@@ -287,7 +287,7 @@ def describe_with_tesseract(path: str):
 
 # ------------------------------------------------------------------ driver
 
-def describe_panel(path: str, api_key: str | None, model: str):
+def describe_panel(path: str, api_key: str | None, model: str, series_bible: dict | None = None):
     w, h = Image.open(path).size
     rec = {
         "panel_id": _panel_id_from_name(path),
@@ -299,7 +299,20 @@ def describe_panel(path: str, api_key: str | None, model: str):
     }
     try:
         if api_key:
-            ocr, desc, raw_lines = describe_with_gemini(path, api_key, model)
+            custom_prompt = None
+            if series_bible:
+                import sys
+                _RECAP = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "manhwa-recap-v1"))
+                if _RECAP not in sys.path:
+                    sys.path.insert(0, _RECAP)
+                try:
+                    import series_bible as _sb
+                    b_txt = _sb.format_for_vision(series_bible)
+                    if b_txt:
+                        custom_prompt = b_txt + "\n\n" + VISION_PROMPT
+                except Exception:
+                    custom_prompt = None
+            ocr, desc, raw_lines = describe_with_gemini(path, api_key, model, prompt=custom_prompt)
             lines = ocr_lines.normalize_lines(raw_lines)
             # ocr_text stays the matcher's input. Rebuilt from lines when the
             # reader returned them (so the two can never disagree); otherwise

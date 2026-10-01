@@ -1338,6 +1338,39 @@ def _seo_state(pdir, name):
             "youtube_configured": __import__("yt_api").configured()}
 
 
+@app.get("/api/series_bible")
+def api_get_series_bible(project: str = "", series: str = ""):
+    import sys
+    _RECAP = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if _RECAP not in sys.path:
+        sys.path.insert(0, _RECAP)
+    import series_bible
+    pdir = project_dir_for(project) if project else active_project_dir()
+    series_id = series
+    if not series_id and pdir and os.path.isdir(pdir):
+        meta = load_meta(pdir)
+        series_id = meta.get("series") or os.path.basename(pdir).split("_")[0]
+    bible = series_bible.load_series_bible(series_id, pdir=pdir)
+    return {"ok": bool(bible), "series_id": series_id, "bible": bible}
+
+
+@app.post("/api/series_bible")
+def api_save_series_bible(body: dict):
+    import sys
+    _RECAP = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if _RECAP not in sys.path:
+        sys.path.insert(0, _RECAP)
+    import series_bible
+    project = body.get("project", "")
+    pdir = project_dir_for(project) if project else active_project_dir()
+    bible = body.get("bible") or body
+    series_id = body.get("series_id") or bible.get("series_id")
+    if not series_id:
+        raise HTTPException(400, "series_id is required")
+    saved_path = series_bible.save_series_bible(series_id, bible, pdir=pdir)
+    return {"ok": True, "path": saved_path, "bible": bible}
+
+
 @app.get("/api/seo")
 def api_seo(project: str = "", name: str = ""):
     pdir = project_dir_for(project)

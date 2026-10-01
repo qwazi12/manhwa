@@ -449,4 +449,15 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
             except Exception:
                 pass
 
+    # 3. Prevent frozen stills: for panels with multiple beats, introduce dynamic punch-in variation
+    for pid, pshots in panel_to_shots.items():
+        if len(pshots) > 1:
+            for idx, s in enumerate(pshots):
+                if idx > 0 and (not s.get("crop_bbox_norm") or s["crop_bbox_norm"] == [0.0, 0.0, 1.0, 1.0]):
+                    zoom = 0.08 if idx % 2 == 1 else 0.12
+                    s["crop_bbox_norm"] = [round(zoom, 3), round(zoom, 3), round(1.0 - zoom, 3), round(1.0 - zoom, 3)]
+                    s["focus_source"] = "multi_beat_punchin"
+                    s["focus_reason"] = f"dynamic framing variation for beat {idx+1} of multi-beat panel hold"
+                    s["focus_confidence"] = 1.0
+
     return shots

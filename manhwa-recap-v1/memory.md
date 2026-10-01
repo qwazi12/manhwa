@@ -7524,3 +7524,27 @@ filter for credits pages; prompt fixes (sense detail only on a NEW place, no
 re-introductions, vary nouns); export loudness normalisation to -1 dBTP.
 
 **Evidence:** ch44-v4-review-2026-10-01
+
+### 2026-10-01 — Series Bible Architecture & Interconnected Pipeline (v5 foundation)
+
+**Owner Directive:**
+Approved implementation of all phases:
+1. Series Bible (canonical cast, visual markers, pronouns, world setting, costume vs monster rules).
+2. Vision stage (`panel-describe`) integration: character visual cheat-sheet and costume-vs-monster directives injected into Gemini prompt.
+3. Narration stage (`narrate.py`) integration: canonical names, pronouns, and setting rules; elimination of generic rotating references ("the guy / the boy") and mid-scene restarts.
+4. Pacing & visual dynamics (`shot_planner.py`): eliminated 20s+ frozen stills by generating dynamic punch-in variations for multi-beat panel holds.
+5. Packaging & SEO (`seo.py`): `truth_card(pdir)` enriched directly with canonical characters, aliases, and high-volume keywords from the Series Bible.
+6. Ingest & Review UI (`ingest.py`, `server.py`): automatic bible resolution during chapter ingest; `/api/series_bible` GET/POST endpoints.
+
+**Code Changes:**
+- `manhwa-recap-v1/series_bible.py`: New canonical module with persistence under `projects/_series_bibles/<slug>.json`, seed data for Murim Psychopath (Yu Shin, Cursed Killing Star, festival costume rules), and formatters for vision, narration, and SEO.
+- `panel-describe/describe.py` & `panel-describe/run.py`: Added `--series-bible` CLI argument; passes character visual cues and stage-prop rules into vision prompt so Gemini tags canonical names and does not mistake festival lion-dance puppets for real monsters.
+- `manhwa-recap-v1/narrate.py`: Ingests `series_bible_data`; updates prompt and Rule 6 to mandate canonical character names, correct pronouns, and accurate prop descriptions.
+- `manhwa-recap-v1/shot_planner.py`: Added multi-beat punch-in pass in `plan_shots` so subsequent beats on the same panel receive dynamic framing variations ([0.08, 0.08, 0.92, 0.92]), creating natural camera cuts on sentence transitions instead of 20s+ frozen images.
+- `manhwa-recap-v1/review_ui/seo.py`: `truth_card` enriches character names and aliases from `series_bible.json` with 100% confidence.
+- `manhwa-recap-v1/review_ui/ingest.py`: Auto-resolves Series Bible during chapter scrape, passes to describe and narrate, and saves to project folder.
+- `manhwa-recap-v1/review_ui/server.py`: Added `/api/series_bible` GET and POST endpoints.
+- `manhwa-recap-v1/test_series_bible.py`: 7/7 comprehensive unit tests passing.
+- `manhwa-recap-v1/review_ui/test_seo.py`: 159/159 tests passing.
+- `manhwa-recap-v1/review_ui/test_panel_anchoring.py`: 15/15 tests passing.
+- `manhwa-recap-v1/review_ui/test_edge_routes.py`: 43/43 tests passing.

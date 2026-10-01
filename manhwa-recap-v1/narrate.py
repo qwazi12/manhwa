@@ -33,6 +33,10 @@ import sys
 
 import direct_speech
 import matcher
+try:
+    import series_bible
+except ImportError:
+    series_bible = None
 import ocr_lines
 import style_rules
 
@@ -300,7 +304,7 @@ def word_budget(n_panels, n_dialogue=0):
     return max(40, min(220, 12 * n_panels + 7 * n_dialogue))
 
 
-def build_prompt(scene_panels, global_beatsheet=None, budget=None, direct_lines=None):
+def build_prompt(scene_panels, global_beatsheet=None, budget=None, direct_lines=None, series_bible_data=None):
     """direct_lines: the chapter's approved direct-speech lines that fall in
     this scene (direct_speech.for_panels). None or [] = quote nothing."""
     lines = []
@@ -325,9 +329,19 @@ Here is the overall storyline outline and emotional pacing flow for the entire c
 ------------------------------------------------
 """
 
+    bible_block = ""
+    if series_bible_data and series_bible:
+        bible_block = series_bible.format_for_narrator(series_bible_data)
+
+    if series_bible_data:
+        rule_6 = "6. CANONICAL CAST & WORLD ACCURACY: Refer to characters using their canonical names and correct pronouns from the Series Bible. Do NOT invent names or use generic references like 'the guy' when a canonical name is provided. In festival, celebration, or performance scenes, do NOT call dragon/lion costumes or performers 'monsters', 'golems', or 'beasts' — retell them accurately as festival performers and martial stage props."
+    else:
+        rule_6 = f"6. Enrichment policy: infer motive, emotion, and subtext when the art or dialogue clearly implies it; smooth small gaps the way a recap narrator who knows the story would. NEVER invent names, numbers, backstory, or events without support in the panels. Refer to characters by rotating references — {NAME_HINT} — and never use a name the panels have not given."
+
     return f"""You are a master comic-recap narrator writing the voiceover script for a recap video. You retell the chapter as one smooth story — you are NOT captioning images.
 
 {global_context_block}
+{bible_block}
 
 STYLE CONTRACT (every rule mandatory):
 1. Third-person, past tense, story-first: retell events as one flowing narrative.
@@ -337,7 +351,7 @@ STYLE CONTRACT (every rule mandatory):
 4. No panel/framing/camera/art language, ever: never "the panel/image/frame shows", "close-up", "speed lines", "we see" — and NEVER the word "camera" in any form.
 4b. Each scene continues where the previous narration left off — never re-introduce or re-tell events already covered (the chapter summary shows you where you are in the story). {style_rules.BRIDGE}
 5. Appearance, clothing, and setting details appear ONLY when plot-relevant or atmosphere-setting — one economical touch, not an inventory.
-6. Enrichment policy: infer motive, emotion, and subtext when the art or dialogue clearly implies it; smooth small gaps the way a recap narrator who knows the story would. NEVER invent names, numbers, backstory, or events without support in the panels. Refer to characters by rotating references — {NAME_HINT} — and never use a name the panels have not given.
+{rule_6}
 7. PANEL-ANCHORED STORYTELLING: Every described panel in this scene represents an on-screen moment and must be accounted for. Retell the story smoothly while locking each beat to its corresponding panel:
 - For each panel, output a narration sentence prefixed by its ID:
   [ID: <panel_id>] <one clear, flowing narrative sentence>
@@ -449,14 +463,15 @@ LAST_DIRECT_SPEECH = {}
 
 
 def narrate_scene(scene_panels, model="gemini-3.5-flash", global_beatsheet=None,
-                  direct_lines=None):
+                  direct_lines=None, series_bible_data=None):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.exit("GEMINI_API_KEY not set")
 
     def _call():
         return call_gemini_rest(model, build_prompt(scene_panels, global_beatsheet,
-                                                    direct_lines=direct_lines), api_key)
+                                                    direct_lines=direct_lines,
+                                                    series_bible_data=series_bible_data), api_key)
 
     if usage:
         with usage.gate("gemini", 1, model=model) as _m:
@@ -541,7 +556,7 @@ def revise_unit(scene_panels, draft, unit_issues, model, global_beatsheet, api_k
 
 
 def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
-                       progress_cb=None, direct=None):
+                       progress_cb=None, direct=None, series_bible_data=None):
     """Run the full pipeline over `panels` (already filtered/ordered) and
     return (full_script_text, [(scene_panels, scene_text), ...]).
 
@@ -571,7 +586,8 @@ def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
         if progress_cb:
             progress_cb(i, len(scenes), "draft")
         text = narrate_scene(scene, model, global_beatsheet,
-                             direct_lines=direct_speech.for_panels(approved, ids))
+                             direct_lines=direct_speech.for_panels(approved, ids),
+                             series_bible_data=series_bible_data)
         results.append((scene, text))
 
     def _direct(u):
