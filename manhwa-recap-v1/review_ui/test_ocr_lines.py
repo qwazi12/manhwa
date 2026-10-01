@@ -111,7 +111,7 @@ def main():
     # ------------------------------------------ the reader's record (no API)
     saved = describe.describe_with_gemini
     try:
-        describe.describe_with_gemini = lambda path, key, model: (
+        describe.describe_with_gemini = lambda path, key, model, prompt=None: (
             "탕 / GET OUT!", "old man shouting", raw)
         tmp = tempfile.mkdtemp()
         img = os.path.join(tmp, "page001_panel_001.png")
@@ -123,7 +123,7 @@ def main():
         check("...and derives ocr_text from them, with no drawn SFX",
               rec["ocr_text"] == OL.ocr_from_lines(rec["lines"])
               and not HANGUL.search(rec["ocr_text"]))
-        describe.describe_with_gemini = lambda path, key, model: (
+        describe.describe_with_gemini = lambda path, key, model, prompt=None: (
             "탕 / GET OUT!", "old man shouting", None)
         rec = describe.describe_panel(img, "k", "m")
         check("a reply without lines still strips drawn SFX from ocr_text",

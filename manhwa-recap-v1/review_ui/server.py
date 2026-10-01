@@ -2470,9 +2470,13 @@ def _synth_rest(text, out_path):
         audio = _call()
     with open(out_path, "wb") as f:
         f.write(audio)
-    try:  # populate the content-hash cache (best effort)
-        with open(cached, "wb") as f:
+    try:  # populate the content-hash cache (best effort). Atomic: voice
+        # lines are synthesized in parallel, and another thread may be
+        # copying this same cache file at this moment.
+        tmp = "%s.%d.%d.tmp" % (cached, os.getpid(), threading.get_ident())
+        with open(tmp, "wb") as f:
             f.write(audio)
+        os.replace(tmp, cached)
     except OSError:
         pass
 

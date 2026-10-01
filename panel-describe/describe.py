@@ -37,7 +37,10 @@ for real use.
 import base64
 import json
 import os
+import random
 import sys
+import threading
+import time
 import mimetypes
 from PIL import Image
 
@@ -99,7 +102,45 @@ def _encode_image(path: str):
 
 # ------------------------------------------------------------------ Gemini
 
-LAST_USAGE = {}
+class _ThreadUsage:
+    """Per-thread token stash. run.py describes several panels at once, and a
+    shared dict would let one panel's token counts be billed to another."""
+    _tl = threading.local()
+
+    def _d(self):
+        d = getattr(self._tl, "d", None)
+        if d is None:
+            d = self._tl.d = {}
+        return d
+
+    def clear(self):
+        self._d().clear()
+
+    def update(self, *a, **k):
+        self._d().update(*a, **k)
+
+    def get(self, k, default=None):
+        return self._d().get(k, default)
+
+
+LAST_USAGE = _ThreadUsage()
+
+# Transient failures worth another try: timeouts, dropped connections, 429
+# rate limits and 5xx. Bounded, exponential with jitter.
+DESCRIBE_RETRIES = int(os.environ.get("DESCRIBE_RETRIES", "3"))
+
+
+def _transient(e):
+    import urllib.error
+    import socket
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code == 429 or e.code >= 500
+    if isinstance(e, (TimeoutError, socket.timeout, ConnectionError,
+                      urllib.error.URLError)):
+        return True
+    msg = str(e).lower()
+    return any(k in msg for k in ("timed out", "429", "resource_exhausted",
+                                  "503", "unavailable", "deadline"))
 
 
 def _stash_usage(res):
@@ -312,7 +353,16 @@ def describe_panel(path: str, api_key: str | None, model: str, series_bible: dic
                         custom_prompt = b_txt + "\n\n" + VISION_PROMPT
                 except Exception:
                     custom_prompt = None
-            ocr, desc, raw_lines = describe_with_gemini(path, api_key, model, prompt=custom_prompt)
+            for attempt in range(DESCRIBE_RETRIES + 1):
+                try:
+                    ocr, desc, raw_lines = describe_with_gemini(
+                        path, api_key, model, prompt=custom_prompt)
+                    break
+                except Exception as e:
+                    if (usage and isinstance(e, usage.UsageCapExceeded)) \
+                            or attempt == DESCRIBE_RETRIES or not _transient(e):
+                        raise
+                    time.sleep(min(30, 2 ** attempt * 2) + random.uniform(0, 1))
             lines = ocr_lines.normalize_lines(raw_lines)
             # ocr_text stays the matcher's input. Rebuilt from lines when the
             # reader returned them (so the two can never disagree); otherwise

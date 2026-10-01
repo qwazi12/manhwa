@@ -421,6 +421,22 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     # 5. voice (TTS each beat via REST; recompute timeline) --------------
     progress("voice", f"Synthesizing {len(beats)} beats (TTS)…", 72)
     import server as srv  # reuse the REST TTS helper (certifi CA, no SDK)
+    # Record the lines several at a time (each call is still usage-gated);
+    # the timeline below then reads the finished files in story order.
+    # TTS_WORKERS=1 restores one-at-a-time.
+    todo = [(b, os.path.join(audio, f"beat_{b['index']:03d}.mp3")) for b in beats
+            if not b.get("silent") and (b.get("text") or "").strip()]
+    todo = [(b, out) for b, out in todo if not os.path.exists(out)]
+    if todo:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        n_w = max(1, int(os.environ.get("TTS_WORKERS", "4")))
+        with ThreadPoolExecutor(max_workers=n_w) as ex:
+            futs = [ex.submit(srv._synth_rest, b["text"], out) for b, out in todo]
+            for k, fut in enumerate(as_completed(futs), 1):
+                fut.result()      # first failure (incl. a usage cap) stops the job
+                if k % 10 == 0:
+                    progress("voice", f"recorded {k}/{len(todo)} lines",
+                             72 + int(12 * k / len(todo)))
     t = 0.0
     for i, b in enumerate(beats):
         if b.get("silent") or not (b.get("text") or "").strip():

@@ -117,8 +117,7 @@ def main():
     print(f"Describing {len(files)} panels "
           f"({'Gemini: ' + args.model if api_key else 'Tesseract OCR-only'})...\n")
 
-    records = []
-    for i, fname in enumerate(files, 1):
+    def _one(fname):
         path = os.path.join(args.input, fname)
         # Pre-describe junk gate: sliver crops (stray gutter lines, cut-off
         # SFX fragments) can never carry a narration beat — the matcher's
@@ -133,29 +132,53 @@ def main():
         except Exception:
             _w = _h = 0
         if _w and _h and (min(_w, _h) < 40 or _w * _h < 10000):
-            rec = {"panel_id": os.path.splitext(fname)[0], "file": fname,
-                   "width": _w, "height": _h, "bbox": [0, 0, _w, _h],
-                   "ocr_text": "", "visual_description": "",
-                   "source": "size-filter", "ok": True}
-            records.append(rec)
-            print(f"[{i:>3}/{len(files)}] {fname:32} skipped (sliver {_w}x{_h})")
-            continue
-        try:
-            rec = describe.describe_panel(path, api_key, args.model, series_bible=bible_data)
-        except UsageCapExceeded as e:
-            # Save whatever we already have before exiting, so partial
-            # progress isn't lost, then stop the run with a clear reason.
-            if records:
-                with open(args.out, "w", encoding="utf-8") as f:
-                    json.dump(records, f, indent=2, ensure_ascii=False)
-                print(f"\nSaved {len(records)} panels described before the cap tripped.")
-            sys.exit(f"\nUSAGE CAP EXCEEDED — stopping: {e}")
-        records.append(rec)
-        status = "ok" if rec["ok"] else f"FAILED ({rec.get('error','')[:60]})"
-        ocr_preview = (rec["ocr_text"][:40] + "…") if len(rec["ocr_text"]) > 40 else rec["ocr_text"]
-        print(f"[{i:>3}/{len(files)}] {fname:32} {status:8} text: {ocr_preview!r}")
-        if api_key:
-            time.sleep(0.5)  # gentle pacing for free-tier rate limits
+            return {"panel_id": os.path.splitext(fname)[0], "file": fname,
+                    "width": _w, "height": _h, "bbox": [0, 0, _w, _h],
+                    "ocr_text": "", "visual_description": "",
+                    "source": "size-filter", "ok": True,
+                    "_note": f"skipped (sliver {_w}x{_h})"}
+        return describe.describe_panel(path, api_key, args.model, series_bible=bible_data)
+
+    # Panels are independent, so several are described at once. Each call is
+    # still gated by usage.gate (cross-process lock), so caps hold exactly.
+    # DESCRIBE_WORKERS=1 restores the old one-at-a-time behaviour.
+    from concurrent.futures import ThreadPoolExecutor
+    workers = max(1, int(os.environ.get("DESCRIBE_WORKERS", "6"))) if api_key else 1
+    by_name, done_n, cap_err = {}, 0, None
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_one, f): f for f in files}
+        from concurrent.futures import as_completed
+        for fut in as_completed(futs):
+            fname = futs[fut]
+            if fut.cancelled():      # dropped after a usage cap tripped
+                continue
+            try:
+                rec = fut.result()
+            except Exception as e:
+                if UsageCapExceeded and isinstance(e, UsageCapExceeded):
+                    cap_err = cap_err or e
+                    for other in futs:
+                        other.cancel()
+                    continue
+                raise
+            by_name[fname] = rec
+            done_n += 1
+            if rec.pop("_note", None):
+                status = "skipped"
+            else:
+                status = "ok" if rec["ok"] else f"FAILED ({rec.get('error','')[:60]})"
+            ocr_preview = (rec["ocr_text"][:40] + "…") if len(rec["ocr_text"]) > 40 else rec["ocr_text"]
+            print(f"[{done_n:>3}/{len(files)}] {fname:32} {status:8} text: {ocr_preview!r}",
+                  flush=True)
+    records = [by_name[f] for f in files if f in by_name]   # original order
+    if cap_err is not None:
+        # Save whatever we already have before exiting, so partial
+        # progress isn't lost, then stop the run with a clear reason.
+        if records:
+            with open(args.out, "w", encoding="utf-8") as f:
+                json.dump(records, f, indent=2, ensure_ascii=False)
+            print(f"\nSaved {len(records)} panels described before the cap tripped.")
+        sys.exit(f"\nUSAGE CAP EXCEEDED — stopping: {cap_err}")
 
     # If merging, overlay new records on top of existing ones
     # CRITICAL: only replace existing record with new one if new run succeeded
