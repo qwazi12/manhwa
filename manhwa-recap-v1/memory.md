@@ -7671,3 +7671,8 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
 - The old `_outstand_*.json` files on the volume are left in place (inert).
 - Revoking the Outstand API key in Outstand's dashboard is the owner's step.
 **Evidence:** upload-post-migration-2026-10-01
+- **Follow-up (live checks after deploy of 95e8dc3, 18:26 UTC):**
+  - `/api/publishing/status` returns 200 (upload_post, 2 accounts); `/api/outstand/status` returns 404.
+  - The review page has 0 "outstand" mentions. v5 eligibility correctly blocks a re-publish.
+  - Railway vars `OUTSTAND_API_KEY`, `OUTSTAND_ORG_ID` and `OUTSTAND_REDIRECT_URI` were deleted. Only `UPLOADPOST_API_KEY` remains.
+  - The deletion did not trigger a redeploy. The running container still holds the old values in its env, but no code reads them, and the next deploy drops them.
