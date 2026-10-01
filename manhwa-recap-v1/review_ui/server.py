@@ -1712,7 +1712,7 @@ def _get_publish_backend():
 @app.get("/api/outstand/status")
 def os_status():
     backend_name, mod = _get_publish_backend()
-    return mod.accounts_status(_os_root())
+    return {**mod.accounts_status(_os_root()), "backend": backend_name}
 
 
 @app.get("/api/outstand/connect")
@@ -1915,22 +1915,35 @@ def _run_publish_job(job_id, pdir, name):
                     break
 
         if backend_name == "upload_post":
-            step("uploading video directly to Upload-Post", 1)
-            created = mod.upload_video_post(
-                video, md, targets, thumbnail_path=thumb_file,
-                on_step=lambda m: step(m, 1)
-            )
-            post_id = created.get("post_id") or created.get("id") or str(uuid.uuid4())
-            results = []
+            # One Upload-Post request carries ONE profile ("user"). Targets on
+            # different profiles (mk:youtube + default:youtube) must be separate
+            # uploads, or only the last profile receives the video.
+            groups = {}
             for t in targets:
-                results.append({
-                    "account_id": t,
-                    "status": "published" if created.get("success") else "failed",
-                    "post_id": post_id,
-                    "published_at": time.time(),
-                    "error": created.get("error") if not created.get("success") else None
-                })
-            overall = "published" if created.get("success") else "failed"
+                groups.setdefault(t.split(":", 1)[0] if ":" in t else "", []).append(t)
+            results, post_id = [], None
+            for prof, group in groups.items():
+                step("uploading video to Upload-Post (%s)" % ", ".join(group), 1)
+                try:
+                    created = mod.upload_video_post(
+                        video, md, group, thumbnail_path=thumb_file,
+                        on_step=lambda m: step(m, 1)
+                    )
+                except Exception as e:
+                    created = {"success": False, "error": str(e)}
+                pid_ = created.get("post_id") or created.get("id") or created.get("request_id") or str(uuid.uuid4())
+                post_id = post_id or pid_
+                for t in group:
+                    results.append({
+                        "account_id": t,
+                        "status": "published" if created.get("success") else "failed",
+                        "post_id": pid_,
+                        "published_at": time.time(),
+                        "error": created.get("error") if not created.get("success") else None
+                    })
+            ok = [r for r in results if r["status"] == "published"]
+            overall = ("published" if len(ok) == len(results)
+                       else ("partial" if ok else "failed"))
             _publish_record(pdir, name, status=overall, results=results,
                             post_id=post_id, ended_at=time.time(), stage="done")
             JOBS[job_id].update(status="done", stage=overall, done=4)

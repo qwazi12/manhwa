@@ -442,7 +442,8 @@ function targetPicker(md, dis) {
   if (!accounts.length) {
     return '<div class="hint" style="padding:8px 0">No connected channels found. Click <b>Refresh Accounts</b> above or link a channel in Upload-Post.</div>';
   }
-  var chosen = (md && md.targets && md.targets.length) ? md.targets : accounts.map(function(a){ return a.account_id; });
+  // Nothing is pre-ticked: the operator picks every channel deliberately.
+  var chosen = (md && md.targets) ? md.targets : [];
   return '<div class="target-grid" style="display:flex; flex-direction:column; gap:6px; margin:8px 0">' +
     accounts.map(function (a) {
       var on = chosen.indexOf(a.account_id) !== -1;
@@ -1012,10 +1013,14 @@ async function pollPublish() {
 
 async function doPublish() {
   var priv = (ELIG || {}).effective_privacy || 'private';
-  var who = ((OS || {}).accounts || []).filter(function (a) { return a.active; })
+  // Name only the channels actually picked — the server publishes to these.
+  var picked = (ELIG || {}).targets || [];
+  var who = ((OS || {}).accounts || []).filter(function (a) {
+      return picked.indexOf(a.account_id) !== -1; })
     .map(function (a) { return a.username || a.account_id; }).join(', ');
+  if (!who) { alert('Pick at least one channel to publish to.'); return; }
   if (!confirm('Publish this video to ' + who + ' as ' + priv +
-      '? It will be uploaded to Outstand and posted. Confirm you have the right ' +
+      '? It will be uploaded to ' + backendLabel() + ' and posted. Confirm you have the right ' +
       'to publish this artwork.')) return;
   var btn = document.querySelector('.card .ok');
   if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
@@ -1050,6 +1055,10 @@ function historyCard(rv) {
   }).join('') + '</div>';
 }
 
+function backendLabel() {
+  return ((OS || {}).backend === 'outstand') ? 'Outstand' : 'Upload-Post';
+}
+
 function outstandCard() {
   if (!OS) return '';
   var accounts = OS.accounts || [];
@@ -1059,7 +1068,7 @@ function outstandCard() {
     body = '<div class="hint">' + esc(OS.detail) + '</div>' +
       '<div class="hint" style="margin-top:7px">Missing: <b>' +
       esc((OS.missing || []).join(', ')) + '</b></div>';
-    actions = '<button disabled title="configure Outstand first">Connect an account</button>';
+    actions = '<button disabled title="configure ' + backendLabel() + ' first">Connect an account</button>';
   } else {
     body = accounts.length
       ? accounts.map(function (a) {
@@ -1101,7 +1110,7 @@ async function refreshOutstand() {
 }
 
 async function disconnectAcct(id) {
-  if (!confirm('Remove this account from the tool? It stays linked inside Outstand.')) return;
+  if (!confirm('Remove this account from the tool? It stays linked inside ' + backendLabel() + '.')) return;
   try {
     await api('/api/outstand/disconnect', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

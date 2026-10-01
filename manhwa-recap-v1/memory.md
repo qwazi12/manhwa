@@ -7596,3 +7596,40 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
 - Auto-checks active connected channels by default so the user is never blocked by an accidental empty selection.
 - Moved the channel selection section directly into the **Publish** card right above the **▶ Publish now** button, along with a quick **↻ Refresh Accounts** button.
 - Verified test suites pass.
+
+### 2026-10-01 — Publishing: owner picks channels; Upload-Post migration audited and fixed
+**Owner report:** every channel was pre-ticked, and the confirm dialog said "It will be uploaded to Outstand" when publishing to Flamingo Remix and Screen Central.
+
+**Verified live, read-only. No publish was triggered.**
+- `GET /api/outstand/status` → backend Upload-Post, profile mk, 2 active accounts:
+  - `mk:youtube` (Flamingo Remix)
+  - `default:youtube` (Screen Central)
+- Both are real Upload-Post accounts, so the backend switch (`_get_publish_backend`) is live. The "Outstand" wording was only stale text in `review_page.py`.
+
+**Bugs found and fixed:**
+1. **Channels pre-ticked.**
+   - The Session 31 auto-check ticked every account when none had been saved.
+   - It also saved them all on the first change to any field.
+   - Now nothing is ticked by default, and Publish stays blocked ("Pick at least one connected account") until the owner ticks one.
+   - Choices saved by the old auto-check are kept on existing exports; untick to change.
+2. **The confirm dialog listed every active account, not the picked ones**, and hardcoded "Outstand".
+   - It now names only the picked targets and the active backend.
+   - The remove-account dialog wording follows the backend too.
+3. **Real publish bug: two profiles collapsed into one upload.**
+   - `upload_video_post` sends one `user` per request. With `mk:youtube` and `default:youtube` both ticked it sent ONE request, to profile `default` only.
+   - Flamingo Remix would not have received the video, yet both were recorded "published". Reproduced with a mocked HTTP: 1 request, `user=default`.
+   - `_run_publish_job` now makes one upload per profile and records each target's real result.
+   - Overall status is published, partial or failed.
+4. `/api/outstand/status` now returns `backend`, so the UI names the right service.
+
+**Not changed:**
+- Route names stay `/api/outstand/*`. They are internal and dispatch to Upload-Post.
+- The Outstand fallback code is unchanged.
+
+**Tests:**
+- New `review_ui/test_publish_targets.py`: 8/8 pass, mocked uploader with no network calls.
+- Existing passing: `test_publish_backend`, `test_upload_post`, `test_upload_post_full`, `test_mk_profile`.
+- Review page JS passes `node --check`.
+
+**Still unverified:** a real end-to-end upload. That is outward-facing, so it was left to the owner's first publish. Check that both channels show their own result row.
+**Evidence:** publish-targets-2026-10-01
