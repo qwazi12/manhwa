@@ -46,11 +46,21 @@ def env_any_case(name):
 
 
 def config():
-    key = env_any_case("UPLOAD_POST_API_KEY")
-    user_profile = env_any_case("UPLOAD_POST_PROFILE") or env_any_case("UPLOAD_POST_USER") or "default"
+    key = (
+        env_any_case("UPLOADPOST_API_KEY")
+        or env_any_case("UPLOAD_POST_API_KEY")
+        or env_any_case("UPLOADPOST_KEY")
+    )
+    user_profile = (
+        env_any_case("UPLOAD_POST_PROFILE")
+        or env_any_case("UPLOADPOST_PROFILE")
+        or env_any_case("UPLOAD_POST_USER")
+        or env_any_case("UPLOADPOST_USER")
+        or "mk"
+    )
     missing = []
     if not key:
-        missing.append("UPLOAD_POST_API_KEY")
+        missing.append("UPLOADPOST_API_KEY")
     return {
         "configured": not missing,
         "api_key": key,
@@ -64,7 +74,7 @@ def config():
 def _request(method, path, cfg=None, body=None, headers=None, _http=None):
     cfg = cfg or config()
     if not cfg["api_key"]:
-        raise UploadPostError("UPLOAD_POST_API_KEY is not set")
+        raise UploadPostError("UPLOADPOST_API_KEY is not set")
     url = API_BASE + path if path.startswith("/") else f"{API_BASE}/{path}"
     if _http is not None:
         return _http(method, url, body, cfg)
@@ -188,7 +198,7 @@ def accounts_status(root, cfg=None):
             "accounts": [],
             "n_active": 0,
             "can_publish": False,
-            "detail": "Upload-Post is not configured. Missing UPLOAD_POST_API_KEY.",
+            "detail": "Upload-Post is not configured. Missing UPLOADPOST_API_KEY.",
         }
     return {
         "state": "connected" if active else "no_accounts",
@@ -245,7 +255,7 @@ def _encode_multipart_formdata(fields, files):
 def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=None, _http=None, on_step=None):
     cfg = cfg or config()
     if not cfg["api_key"]:
-        raise UploadPostError("UPLOAD_POST_API_KEY is not set")
+        raise UploadPostError("UPLOADPOST_API_KEY is not set")
     if not os.path.exists(video_path):
         raise UploadPostError(f"Video file not found: {video_path}")
 

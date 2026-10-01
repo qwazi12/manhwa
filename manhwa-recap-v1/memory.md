@@ -7585,3 +7585,8 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
      - `test_upload_post.py` & `test_upload_post_full.py`: 100% passing tests for config, multipart encoding, and mock video publishing.
      - `test_publish_backend.py`: verified seamless backend selection.
      - Retained 100% pass on all 86 Phase C and 26 Phase D publishing tests (`test_outstand_connect.py`, `test_outstand_publish.py`).
+
+### Session 31 Update — Profile "mk" & "UPLOADPOST_API_KEY" Environment Support
+- Updated `upload_post.py` config to look up `UPLOADPOST_API_KEY` (and `UPLOAD_POST_API_KEY`) and default profile to `"mk"`.
+- Updated `review_page.py` card instructions to reflect Upload-Post profile `mk`.
+- Verified tests pass (`test_mk_profile.py`, `test_upload_post_full.py`).

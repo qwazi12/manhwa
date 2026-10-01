@@ -1074,9 +1074,7 @@ function outstandCard() {
 
   return '<div class="card"><h2>Publishing accounts ' + badge + '</h2>' + body +
     '<div class="actions">' + actions + '</div>' +
-    '<div class="hint" style="margin-top:8px">Accounts are linked through Outstand, ' +
-    'so this tool never stores a YouTube password or token. Direct publishing is ' +
-    'available once an account is connected and an export is approved.</div>' +
+    '<div class="hint" style="margin-top:8px">Publishing is powered by Upload-Post (Profile: mk) with direct video streaming. Connect your channels or click Refresh to sync.</div>' +
     '</div>';
 }
 
