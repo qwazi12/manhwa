@@ -416,7 +416,7 @@ function publishCard() {
         esc((md.tags || []).join(', ')) + '" onchange="savePublish()"' + dis + '>') +
     fld('Category', '<select id="p_cat" onchange="savePublish()"' + dis + '>' + cats + '</select>') +
     fld('Privacy', '<select id="p_priv" onchange="savePublish()"' + dis + '>' + privs + '</select>') +
-    fld('Publish to — hold ⌘ or Ctrl to pick several', targetPicker(md, dis)) +
+    
     fld('Schedule — optional, private only',
         '<input id="p_at" placeholder="2026-09-20T15:00:00Z" value="' +
         esc(md.publish_at || '') + '" onchange="savePublish()"' + dis + '>') +
@@ -438,22 +438,21 @@ function publishCard() {
 }
 
 function targetPicker(md, dis) {
-  // A multi-select, not checkboxes: the list grows as accounts are added and a
-  // dropdown stays the same size whether there is one account or twenty.
   var accounts = ((OS || {}).accounts || []).filter(function (a) { return a.active; });
   if (!accounts.length) {
-    return '<div class="hint">No connected accounts yet — link one in ' +
-      '<b>Publishing accounts</b> above.</div>';
+    return '<div class="hint" style="padding:8px 0">No connected channels found. Click <b>Refresh Accounts</b> above or link a channel in Upload-Post.</div>';
   }
-  var chosen = md.targets || [];
-  var opts = accounts.map(function (a) {
-    var on = chosen.indexOf(a.account_id) !== -1;
-    return '<option value="' + esc(a.account_id) + '"' + (on ? ' selected' : '') + '>' +
-      esc(a.network || '?') + ' · ' + esc(a.username || a.account_id) + '</option>';
-  }).join('');
-  return '<select id="p_targets" class="os_target" multiple size="' +
-    Math.min(Math.max(accounts.length, 2), 6) + '" onchange="savePublish()"' + dis +
-    ' style="width:100%">' + opts + '</select>';
+  var chosen = (md && md.targets && md.targets.length) ? md.targets : accounts.map(function(a){ return a.account_id; });
+  return '<div class="target-grid" style="display:flex; flex-direction:column; gap:6px; margin:8px 0">' +
+    accounts.map(function (a) {
+      var on = chosen.indexOf(a.account_id) !== -1;
+      return '<label style="display:flex; align-items:center; gap:8px; padding:7px 10px; background:var(--panel2); border:1px solid var(--rule); border-radius:6px; cursor:pointer">' +
+        '<input type="checkbox" name="pub_target" value="' + esc(a.account_id) + '"' + (on ? ' checked' : '') +
+        ' onchange="savePublish()"' + dis + '>' +
+        '<span>' + pill(a.network || 'channel', 'p-blue') + ' <b>' + esc(a.username || a.nickname || a.account_id) + '</b></span>' +
+        '</label>';
+    }).join('') +
+    '</div>';
 }
 
 function fld(label, control) {
@@ -896,9 +895,13 @@ function collectPublish() {
     playlist: (document.getElementById('p_play') || {}).value || '',
     made_for_kids: !!(document.getElementById('p_kids') || {}).checked,
     synthetic_disclosure: !!(document.getElementById('p_synth') || {}).checked,
-    targets: Array.from(
-      ((document.getElementById('p_targets') || {}).selectedOptions) || []
-    ).map(function (o) { return o.value; }),
+    targets: (function() {
+      var cbs = Array.from(document.querySelectorAll('input[name="pub_target"]:checked'));
+      if (cbs.length) return cbs.map(function(c) { return c.value; });
+      var sel = document.getElementById('p_targets');
+      if (sel && sel.selectedOptions) return Array.from(sel.selectedOptions).map(function(o) { return o.value; });
+      return [];
+    })(),
     thumbnail: (t === '' || t == null) ? null
       : { type: 'segment', seg_index: parseInt(t, 10) }
   };
@@ -952,6 +955,14 @@ function publishNowCard() {
   }).join('');
 
   var body = '', actions = '';
+  var md = (PUB || {}).metadata || {};
+  var targetSection = '<div style="margin:10px 0">' +
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px">' +
+    '<span class="hint" style="font-weight:700">Target Accounts</span>' +
+    '<button class="mini" type="button" onclick="refreshOutstand()">↻ Refresh Accounts</button>' +
+    '</div>' +
+    targetPicker(md, '') +
+    '</div>';
 
   if (st === 'failed' || st === 'cancelled') {
     body = '<div class="banner b-bad" style="margin:0 0 10px"><b>' +
@@ -969,14 +980,13 @@ function publishNowCard() {
       '<div class="hint" style="margin-top:7px">Overall: <b>' + esc(st || '?') + '</b></div>';
     actions = '<button disabled title="already published from this export">Published</button>';
   } else if (!ELIG.ready) {
-    body = '<div class="banner b-warn" style="margin:0">' +
+    body = targetSection + '<div class="banner b-warn" style="margin:10px 0 0">' +
       (ELIG.blockers || []).map(esc).join('<br>') + '</div>';
-    actions = '<button disabled>Publish</button>';
+    actions = '<button disabled style="opacity:0.6; cursor:not-allowed">Publish</button>';
   } else {
-    body = '<div class="hint">Ready. This will upload the video to Outstand and ' +
-      'post it to the selected account(s) as <b>' + esc(ELIG.effective_privacy || 'private') +
-      '</b>.</div>';
-    actions = '<button class="ok big" onclick="doPublish()">▶ Publish now</button>';
+    body = targetSection + '<div class="hint" style="margin-top:8px">Ready. Direct multipart video upload to selected channel(s) as <b>' +
+      esc(ELIG.effective_privacy || 'private') + '</b>.</div>';
+    actions = '<button class="ok big" style="width:100%; font-size:15px; padding:12px 18px" onclick="doPublish()">▶ Publish now</button>';
   }
 
   var badge = st === 'published' ? pill('published', 'p-ok')

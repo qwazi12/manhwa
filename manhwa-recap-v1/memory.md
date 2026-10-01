@@ -7590,3 +7590,9 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
 - Updated `upload_post.py` config to look up `UPLOADPOST_API_KEY` (and `UPLOAD_POST_API_KEY`) and default profile to `"mk"`.
 - Updated `review_page.py` card instructions to reflect Upload-Post profile `mk`.
 - Verified tests pass (`test_mk_profile.py`, `test_upload_post_full.py`).
+
+### Session 31 UX Polish — Channel Checklists & Intuitive Publishing Placement
+- Replaced the clunky `<select multiple>` box with clean, clickable channel cards with checkboxes (`input[type=checkbox]`).
+- Auto-checks active connected channels by default so the user is never blocked by an accidental empty selection.
+- Moved the channel selection section directly into the **Publish** card right above the **▶ Publish now** button, along with a quick **↻ Refresh Accounts** button.
+- Verified test suites pass.
