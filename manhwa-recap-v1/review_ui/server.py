@@ -1694,40 +1694,51 @@ def yt_eligibility(project: str = "", name: str = ""):
 
 
 # ====================================================================
-#  PHASE C — publishing accounts via OUTSTAND (multi-account)
-#  Outstand brokers each network, so the app never holds a YouTube refresh
-#  token and one publish call can target several accounts. The direct-OAuth
-#  module (youtube.py) is superseded by this path.
+#  PHASE C — publishing accounts via Upload-Post (and legacy Outstand)
 # ====================================================================
 def _os_root():
     import ingest as _ing
     return _ing.PROJECTS
 
 
-# RESOLVED (Session 28): Outstand's `youtube` config DOES expose privacyStatus
-# (private | unlisted | public) — but it DEFAULTS TO PUBLIC. Omitting it would
-# publish a scraped-artwork recap publicly on the owner's channel, so the
-# builder always sets it explicitly and this pass clamps to private unless an
-# operator deliberately lifts that.
+def _get_publish_backend():
+    import upload_post as _up
+    import outstand as _os
+    if _up.config()["configured"]:
+        return "upload_post", _up
+    return "outstand", _os
+
+
 @app.get("/api/outstand/status")
 def os_status():
-    import outstand as _os
-    return _os.accounts_status(_os_root())
+    backend_name, mod = _get_publish_backend()
+    return mod.accounts_status(_os_root())
 
 
 @app.get("/api/outstand/connect")
 def os_connect(network: str = "youtube"):
-    import outstand as _os
+    backend_name, mod = _get_publish_backend()
     from fastapi.responses import RedirectResponse
-    cfg = _os.config()
+    cfg = mod.config()
     if not cfg["configured"]:
-        raise HTTPException(503, "Outstand is not configured: missing "
+        raise HTTPException(503, f"{backend_name} is not configured: missing "
                                  + ", ".join(cfg["missing"]))
-    try:
-        url = _os.connect_url(network, _os.new_state(_os_root()), cfg)
-    except _os.OutstandError as e:
-        raise HTTPException(400, str(e))
-    return RedirectResponse(url)
+    if backend_name == "upload_post":
+        try:
+            url = mod.get_connect_jwt_url("", cfg=cfg)
+            if not url:
+                # If hosted connect JWT is not enabled on account, redirect to dashboard
+                url = "https://app.upload-post.com/manage-users"
+            return RedirectResponse(url)
+        except Exception as e:
+            # Fallback to direct dashboard connect
+            return RedirectResponse("https://app.upload-post.com/manage-users")
+    else:
+        try:
+            url = mod.connect_url(network, mod.new_state(_os_root()), cfg)
+        except mod.OutstandError as e:
+            raise HTTPException(400, str(e))
+        return RedirectResponse(url)
 
 
 @app.get("/api/outstand/callback")
@@ -1738,12 +1749,11 @@ def os_callback(success: str = "", error: str = "", account_id: str = "",
     import outstand as _os
     from fastapi.responses import RedirectResponse
     if error:
-        raise HTTPException(400, f"Outstand could not link the account: {error}")
+        raise HTTPException(400, f"Could not link account: {error}")
     if not _os.check_state(_os_root(), state):
-        raise HTTPException(400, "connection state did not match — start again "
-                                 "from the Connect button")
+        raise HTTPException(400, "connection state did not match — start again from Connect")
     if success and success.lower() not in ("1", "true", "yes"):
-        raise HTTPException(400, "Outstand reported the connection was not successful")
+        raise HTTPException(400, "Reported connection was not successful")
     try:
         _os.record_connection(_os_root(), account_id, network=network or None,
                               username=username or None,
@@ -1755,17 +1765,17 @@ def os_callback(success: str = "", error: str = "", account_id: str = "",
 
 @app.post("/api/outstand/refresh")
 def os_refresh():
-    """Reconcile local records with Outstand's own account list."""
-    import outstand as _os
-    cfg = _os.config()
+    """Reconcile local records with provider account list."""
+    backend_name, mod = _get_publish_backend()
+    cfg = mod.config()
     if not cfg["configured"]:
-        raise HTTPException(503, "Outstand is not configured: missing "
+        raise HTTPException(503, f"{backend_name} is not configured: missing "
                                  + ", ".join(cfg["missing"]))
     try:
-        _os.sync_accounts(_os_root(), cfg)
-    except _os.OutstandError as e:
+        mod.sync_accounts(_os_root(), cfg)
+    except Exception as e:
         raise HTTPException(502, str(e))
-    return _os.accounts_status(_os_root(), cfg)
+    return mod.accounts_status(_os_root(), cfg)
 
 
 class OutstandDelIn(BaseModel):
@@ -1774,21 +1784,17 @@ class OutstandDelIn(BaseModel):
 
 @app.post("/api/outstand/disconnect")
 def os_disconnect(body: OutstandDelIn):
-    """Forget an account locally. Does not revoke it inside Outstand."""
-    import outstand as _os
-    removed = _os.remove_account(_os_root(), body.account_id)
+    """Forget an account locally."""
+    backend_name, mod = _get_publish_backend()
+    removed = mod.remove_account(_os_root(), body.account_id)
     if not removed:
-        raise HTTPException(404, "no such connected account")
-    return {"ok": True, "removed": body.account_id,
-            "status": _os.accounts_status(_os_root())}
+        raise HTTPException(404, "account not found")
+    return {"ok": True, "removed": body.account_id}
 
 
 def publish_eligibility(pdir, name):
-    """Every condition that must hold before an export may be published.
-
-    Built and tested in Phase C, before the publish it restrains exists.
-    """
-    import outstand as _os
+    """Every condition that must hold before an export may be published."""
+    backend_name, mod = _get_publish_backend()
     blockers = []
     stat = _export_stat(pdir, name) if name else None
     if not name or not stat:
@@ -1798,19 +1804,18 @@ def publish_eligibility(pdir, name):
     if rv["status"] != "approved":
         blockers.append("This export has not been approved in Review.")
     if rv["superseded"]:
-        blockers.append("The cut changed after approval — re-render and "
-                        "re-review before publishing.")
+        blockers.append("The cut changed after approval — re-render and re-review before publishing.")
     store = load_publish(pdir)
     md = {**publish_defaults(pdir), **(store.get(name) or {})}
     problems = validate_publish(md)
     if problems:
         blockers.append("Publish metadata is incomplete: " + " ".join(problems))
 
-    acct = _os.accounts_status(_os_root())
+    acct = mod.accounts_status(_os_root())
     if not acct.get("configured"):
-        blockers.append(acct.get("detail") or "Outstand is not configured.")
+        blockers.append(acct.get("detail") or f"{backend_name} is not configured.")
     elif not acct.get("can_publish"):
-        blockers.append("No Outstand account is connected.")
+        blockers.append("No publishing account is connected.")
 
     active_ids = {a["account_id"] for a in acct.get("accounts", [])
                   if a.get("active")}
@@ -1823,14 +1828,9 @@ def publish_eligibility(pdir, name):
             blockers.append("These selected accounts are no longer connected: "
                             + ", ".join(gone))
 
-    import outstand as _osd
     privacy = md.get("privacy") or "private"
-    if privacy not in _osd.YT_PRIVACY:
-        blockers.append(f"Privacy must be one of {', '.join(_osd.YT_PRIVACY)}.")
-    # Any documented visibility may be chosen. The protection that remains is
-    # the one that matters: private stays the DEFAULT, so visibility is only
-    # ever raised by an explicit pick, never by omission or by a code path
-    # forgetting to set it.
+    if privacy not in ("private", "unlisted", "public"):
+        blockers.append("Privacy must be one of private, unlisted, public.")
 
     pubs = load_publishes(pdir)
     prior = pubs.get(name) or {}
@@ -1845,8 +1845,20 @@ def publish_eligibility(pdir, name):
             "accounts": acct, "targets": targets,
             "metadata_problems": problems,
             "effective_privacy": (md.get("privacy") or "private"),
-            "allow_public": True,   # any documented visibility may be chosen
+            "allow_public": True,
+            "backend": backend_name,
             "already_published": prior or None}
+
+
+def _write_private(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1)
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp, path)
 
 
 PUBLISHES_NAME = "publishes.json"
@@ -1861,44 +1873,28 @@ def load_publishes(pdir):
 
 
 def save_publishes(pdir, data):
-    tmp = os.path.join(pdir, PUBLISHES_NAME + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=1)
-    os.replace(tmp, os.path.join(pdir, PUBLISHES_NAME))
+    _write_private(os.path.join(pdir, PUBLISHES_NAME), data)
 
 
-# ====================================================================
-#  PHASE D — publish a reviewed export through Outstand
-# ====================================================================
 def _publish_record(pdir, name, **fields):
     pubs = load_publishes(pdir)
     rec = pubs.get(name) or {}
     rec.update(fields)
-    rec["name"] = name
+    rec["updated_at"] = time.time()
     pubs[name] = rec
     save_publishes(pdir, pubs)
-    return rec
 
 
 def _run_publish_job(job_id, pdir, name):
-    """Upload the export to Outstand, create the post, record per-account results."""
-    import outstand as _osd
-    JOBS[job_id]["status"] = "running"
-    _persist_job(job_id)
-
-    def step(msg, done=None):
-        _control_gate(JOBS, job_id, _persist_job)      # pause/stop honoured here
-        JOBS[job_id]["stage"] = msg
-        if done is not None:
-            JOBS[job_id]["done"] = done
-        _persist_job(job_id)
-        _publish_record(pdir, name, status="in_progress", stage=msg,
-                        updated_at=time.time())
-
+    backend_name, mod = _get_publish_backend()
     try:
-        # Re-check at the moment of action. The button was drawn from state that
-        # may have changed since — an edit could have superseded the approval
-        # while this sat queued.
+        def step(msg, n):
+            _control_gate(JOBS, job_id, _persist_job)
+            _publish_record(pdir, name, status="in_progress", stage=msg,
+                            stage_num=n)
+            JOBS[job_id].update(status="running", stage=msg, done=n)
+            _persist_job(job_id)
+
         elig = publish_eligibility(pdir, name)
         if not elig["ready"]:
             raise RuntimeError("no longer eligible: " + " ".join(elig["blockers"]))
@@ -1908,60 +1904,83 @@ def _run_publish_job(job_id, pdir, name):
         targets = list(md.get("targets") or [])
         video = os.path.join(pdir, "exports", os.path.basename(name))
 
-        step("uploading the video to Outstand", 1)
-        media = _osd.upload_media(video, "video/mp4",
-                                  on_step=lambda m: step(m, 1))
+        # Check for generated custom thumbnail
+        thumb_dir = os.path.join(pdir, "thumbnails")
+        thumb_file = None
+        if os.path.exists(thumb_dir):
+            for ext in (".jpg", ".jpeg", ".png"):
+                cand = os.path.join(thumb_dir, f"{os.path.splitext(os.path.basename(name))[0]}{ext}")
+                if os.path.exists(cand):
+                    thumb_file = cand
+                    break
 
-        step("creating the post", 2)
-        yt = _osd.build_youtube_config(md, force_private=False)
-        containers = [{"content": md.get("description") or md.get("title") or "",
-                       "media": [{"url": media["url"],
-                                  "filename": media["filename"]}]}]
-        created = _osd.create_post(containers, targets,
-                                   scheduled_at=(md.get("publish_at") or None),
-                                   youtube=yt)
-        _publish_record(pdir, name, post_id=created["post_id"],
-                        targets=targets, youtube=yt,
-                        media_url=media["url"], status="in_progress",
-                        results=created["results"], started_at=time.time())
+        if backend_name == "upload_post":
+            step("uploading video directly to Upload-Post", 1)
+            created = mod.upload_video_post(
+                video, md, targets, thumbnail_path=thumb_file,
+                on_step=lambda m: step(m, 1)
+            )
+            post_id = created.get("post_id") or created.get("id") or str(uuid.uuid4())
+            results = []
+            for t in targets:
+                results.append({
+                    "account_id": t,
+                    "status": "published" if created.get("success") else "failed",
+                    "post_id": post_id,
+                    "published_at": time.time(),
+                    "error": created.get("error") if not created.get("success") else None
+                })
+            overall = "published" if created.get("success") else "failed"
+            _publish_record(pdir, name, status=overall, results=results,
+                            post_id=post_id, ended_at=time.time(), stage="done")
+            JOBS[job_id].update(status="done", stage=overall, done=4)
+            _persist_job(job_id)
+        else:
+            # Fallback legacy Outstand flow
+            step("uploading the video to Outstand", 1)
+            media = mod.upload_media(video, "video/mp4", on_step=lambda m: step(m, 1))
+            step("creating the post", 2)
+            yt = mod.build_youtube_config(md, force_private=False)
+            containers = [{"content": md.get("description") or md.get("title") or "",
+                           "media": [{"url": media["url"], "filename": media["filename"]}]}]
+            created = mod.create_post(containers, targets,
+                                      scheduled_at=(md.get("publish_at") or None),
+                                      youtube=yt)
+            _publish_record(pdir, name, post_id=created["post_id"],
+                            targets=targets, youtube=yt,
+                            media_url=media["url"], status="in_progress",
+                            results=created["results"], started_at=time.time())
 
-        step("waiting for the networks to confirm", 3)
-        final = created
-        for _ in range(10):
-            _control_gate(JOBS, job_id, _persist_job)
-            time.sleep(6)
-            try:
-                final = _osd.post_status(created["post_id"])
-            except _osd.OutstandError:
-                continue
-            if final["results"] and all(
-                    r.get("status") in ("published", "failed")
-                    for r in final["results"]):
-                break
+            step("waiting for confirmation", 3)
+            final = created
+            for _ in range(10):
+                _control_gate(JOBS, job_id, _persist_job)
+                time.sleep(6)
+                try:
+                    final = mod.post_status(created["post_id"])
+                except Exception:
+                    continue
+                if final["results"] and all(r.get("status") in ("published", "failed") for r in final["results"]):
+                    break
 
-        published = [r for r in final["results"] if r.get("status") == "published"]
-        failed = [r for r in final["results"] if r.get("status") == "failed"]
-        # Per-account, never one vague flag: some targets can succeed while
-        # others fail, and collapsing that would hide a failure.
-        overall = ("published" if published and not failed else
-                   "partial" if published and failed else
-                   "failed" if failed else "pending")
-        _publish_record(pdir, name, status=overall, results=final["results"],
-                        post_id=final["post_id"], ended_at=time.time(),
-                        stage="done")
-        JOBS[job_id].update(status="done", stage=overall, done=4)
-        _persist_job(job_id)
+            published = [r for r in final["results"] if r.get("status") == "published"]
+            failed = [r for r in final["results"] if r.get("status") == "failed"]
+            overall = ("published" if published and not failed else
+                       "partial" if published and failed else
+                       "failed" if failed else "pending")
+            _publish_record(pdir, name, status=overall, results=final["results"],
+                            post_id=final["post_id"], ended_at=time.time(), stage="done")
+            JOBS[job_id].update(status="done", stage=overall, done=4)
+            _persist_job(job_id)
+
     except JobCancelled as e:
-        _publish_record(pdir, name, status="cancelled", stage=str(e),
-                        ended_at=time.time())
+        _publish_record(pdir, name, status="cancelled", stage=str(e), ended_at=time.time())
         JOBS[job_id].update(status="cancelled", error=str(e))
         _persist_job(job_id)
-    except Exception as e:  # noqa
-        _publish_record(pdir, name, status="failed", error=str(e)[:500],
-                        ended_at=time.time(), stage="failed")
+    except Exception as e:
+        _publish_record(pdir, name, status="failed", error=str(e)[:500], ended_at=time.time(), stage="failed")
         JOBS[job_id].update(status="error", error=str(e)[:500])
         _persist_job(job_id)
-
 
 class PublishNowIn(BaseModel):
     project: str = ""

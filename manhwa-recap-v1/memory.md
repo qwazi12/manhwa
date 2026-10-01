@@ -7567,3 +7567,21 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
    - In v5, longest unsplit hold is only 12.6s (median holds ~6-7s), and multi-sentence panels cut dynamically with the punch-in pass.
 4. **Transition Hygiene:**
    - Final panels Seg 96 & Seg 97 are clean 1.25s silent pauses rather than voiced black frames.
+
+## Session 31 — Upload-Post (upload-post.com) Multi-Platform Publishing Integration
+- **Objective:** Replace frail/lacking Outstand publishing workflow with direct, video-first multi-platform distribution using Upload-Post (`https://docs.upload-post.com/api/upload-video`).
+- **Implementation:**
+  1. Created `upload_post.py`:
+     - Base URL: `https://api.upload-post.com/api`
+     - Auth: `Authorization: Apikey <UPLOAD_POST_API_KEY>`
+     - Direct multipart video upload to `POST /upload` streaming bytes from disk with boundary headers.
+     - Multi-network targeting: YouTube, TikTok, Instagram, Twitter (X), Facebook, Threads, LinkedIn, Pinterest, Bluesky, Discord, Telegram.
+     - Platform deep-features: YouTube title/description/tags/privacy/madeForKids/synthetic media; TikTok title/privacy/is_aigc/first_comment; Instagram Reels/is_ai_generated.
+     - Account synchronization with `GET /uploadposts/users` and hosted connect generation via `POST /uploadposts/users/generate-jwt`.
+  2. Updated `server.py`:
+     - Introduced `_get_publish_backend()` dynamic selector: if `UPLOAD_POST_API_KEY` is present in the environment (e.g. Railway), the studio automatically routes publishing and account sync to Upload-Post while preserving backward compatibility with legacy Outstand mock fallbacks.
+     - Added automatic thumbnail file attachment (`.jpg`/`.png` from `thumbnails/`) directly to the multipart upload payload.
+  3. Added test suites:
+     - `test_upload_post.py` & `test_upload_post_full.py`: 100% passing tests for config, multipart encoding, and mock video publishing.
+     - `test_publish_backend.py`: verified seamless backend selection.
+     - Retained 100% pass on all 86 Phase C and 26 Phase D publishing tests (`test_outstand_connect.py`, `test_outstand_publish.py`).
