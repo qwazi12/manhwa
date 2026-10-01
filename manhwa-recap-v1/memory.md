@@ -7676,3 +7676,16 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
   - The review page has 0 "outstand" mentions. v5 eligibility correctly blocks a re-publish.
   - Railway vars `OUTSTAND_API_KEY`, `OUTSTAND_ORG_ID` and `OUTSTAND_REDIRECT_URI` were deleted. Only `UPLOADPOST_API_KEY` remains.
   - The deletion did not trigger a redeploy. The running container still holds the old values in its env, but no code reads them, and the next deploy drops them.
+
+### 2026-10-01 — Operator SOP written (hand-off guide for a new user)
+- "Manhwa Recap Studio — SOP" is a Claude Docs doc: https://claude.ai/code/artifact/dd1ecaa1-fccc-4fb9-8872-9c8f2624759b. It is private until the owner shares it.
+- Contents:
+  - At a glance and sidebar map
+  - Before you start
+  - The five steps: Ingest → Board → Render → Review → Publish
+  - Troubleshooting table and rules
+- How it was checked:
+  - Written from a read-only walk through the live UI (Ingest, Check, Exports, Projects, Tracker, Review). Nothing was clicked that changes data.
+  - Timings come from real jobs: ingest 22–27 min (v2–v5), finalize/render 2–4 min.
+  - The claim that saving an unchanged narration re-records the voice was checked against `server.py` and is wrong: TTS only re-runs when the text changes. The SOP says so.
+- The SOP states the known gaps: Schedule and Playlist are not sent to Upload-Post, and exports expire after 7 days.
