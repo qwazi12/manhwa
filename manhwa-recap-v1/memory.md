@@ -7548,3 +7548,22 @@ Approved implementation of all phases:
 - `manhwa-recap-v1/review_ui/test_seo.py`: 159/159 tests passing.
 - `manhwa-recap-v1/review_ui/test_panel_anchoring.py`: 15/15 tests passing.
 - `manhwa-recap-v1/review_ui/test_edge_routes.py`: 43/43 tests passing.
+
+### 2026-10-01 — Chapter 44 v5 Ingest Complete & Verified Live
+
+**Action:**
+Ingested `murim-psychopath` Chapter 44 fresh as `v5` (`murim-psychopath_44-v5`) on Railway (Job ID `9968be66c54c`).
+Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini vision with `--series-bible`), narrate (104 beats with canonical cast & Rule 6 accuracy), voice (104 beats synthesized), match + shot_planner (multi-beat punch-in pass), segment (100 segments, 727.6s duration).
+
+**Findings & Verifications (Live vs v4):**
+1. **Character Identity & Gender Accuracy:**
+   - Cursed Killing Star correctly identified as a female martial artist/assassin throughout (e.g. Seg 85: "The manic woman hummed quietly to herself, her fingers tracing the fresh blood splattered across her face", Seg 93: "The Cursed Killing Star turned her back to the carnage..."). Zero misgendering.
+   - Protagonist recognized as Yu Shin; spy and assassin motivations aligned.
+2. **Creature vs. Costume Resolution:**
+   - In v4, lion-dance puppets were escalated into "demonic beasts, golems, and four-legged monsters".
+   - In v5, Seg 1 correctly narrates: "Down in the brick courtyard, the festive rhythm of a massive lion dance echoed through the night as a warrior stood on high alert", Seg 2: "...the dancers were actually facing deadly enemies", Seg 3: "...the grand public spectacle had to carry on to keep the crowd entertained." Lion dance costumes and performers are accurately preserved as martial performers/props.
+3. **Pacing & Freeze Elimination:**
+   - In v4, 86 seconds of repeated images occurred with 19–24s holds at the end.
+   - In v5, longest unsplit hold is only 12.6s (median holds ~6-7s), and multi-sentence panels cut dynamically with the punch-in pass.
+4. **Transition Hygiene:**
+   - Final panels Seg 96 & Seg 97 are clean 1.25s silent pauses rather than voiced black frames.
