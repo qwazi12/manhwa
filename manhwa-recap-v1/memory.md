@@ -7880,3 +7880,4 @@ The owner chose to keep Gemini 3.8 Flash TTS going forward ("fix the wiring so w
 - Full review_ui suite passes.
 
 **Checked locally:** desktop (Ingest, Tracker and Exports as pages; Back returns; Board item returns) and 390px (☰ → Exports page, no ✕, no sideways scroll; review page).
+- Live check after ec513fa deployed (23:01 UTC; the push was held until the fog-land-9299_2 render finished at 23:01, done → final_Oct02_07.00PM.mp4): #exports is a page with the panel header and no ✕; /review for v5 shows every card with a panel header bar and no console errors; at 390px, ☰ → Check is the Check page under the ☰ bar, with no ✕ and no sideways scroll.
