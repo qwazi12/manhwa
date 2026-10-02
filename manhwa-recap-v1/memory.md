@@ -7915,3 +7915,9 @@ Owner (phone screenshot of /review with an empty "No Options" picker): "why does
 - Full suite passes; board scripts pass `node --check`.
 
 **Checked locally:** two real series added to a local watchlist (WEBTOON Stellar Swordmaster: 10 dates and cover; Asura Murim Psychopath: 46 dates and cover); the calendar renders at desktop width and 390px. The local test data was removed afterwards.
+- **Live check after c66034c deployed (23:46 UTC):**
+  - /review opened directly at 390px shows Fog Land Ch.2 with 5 videos in the picker; it no longer says "No Options".
+  - Ingest shows 31 voices with "Charon ★ default".
+  - `refresh_all` checked 14/14 series in 5.8 s: every one has dates and a cover (Asura full history, WEBTOON latest 10).
+  - The Tracker calendar shows Jun–Oct month chips and real cover art (cover proxy 0.12–0.38 s on first fetch, then cached).
+- **Open, observed but not fixed:** WEBTOON `episode_no` is the site's internal sequence, not the displayed episode. Fog Land's `episode_no=2` is "Ep. 1 – Locked Up", which is why the owner sent that export back ("this is chapter 1 not chapter 2"). Project labels, and the calendar's "Ch.N" for WEBTOON, use `episode_no`, so they can be off by one where a series has a prologue/notice entry.
