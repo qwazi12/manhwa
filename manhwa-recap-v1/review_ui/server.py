@@ -2101,6 +2101,81 @@ def web_manifest():
     }, media_type="application/manifest+json")
 
 
+# ---- narrator voice: options, studio default, previews -----------------
+_PREVIEW_LINE = ("Yu Shin kept his head down, already feeling the cold pressure "
+                 "of a hostile gaze. Then he smiled.")
+
+
+@app.get("/api/voices")
+def api_voices():
+    import gemini_tts as _gt
+    import ingest as _ing
+    cur = _gt.get_tts_engine_config(_ing.PROJECTS)
+    return {"voices": _gt.voice_options(),
+            "styles": [{"style": st, "label": lb} for st, lb in _gt.STYLE_PRESETS],
+            "default": {"id": _gt.choice_id(cur), "style": cur.get("style", ""),
+                        "saved": bool(_gt.load_default(_ing.PROJECTS))}}
+
+
+class VoiceIn(BaseModel):
+    voice: str
+    style: str | None = None
+
+
+@app.post("/api/voices/default")
+def api_voices_default(body: VoiceIn):
+    import gemini_tts as _gt
+    import ingest as _ing
+    try:
+        rec = _gt.save_default(_ing.PROJECTS, body.voice, body.style)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "default": {"id": _gt.choice_id(rec), "style": rec.get("style", "")}}
+
+
+@app.post("/api/voices/preview")
+def api_voices_preview(body: VoiceIn):
+    """Record the sample line in one voice + style (cached, so replaying a
+    preview is free) and return where to play it from."""
+    import hashlib as _h
+    import gemini_tts as _gt
+    import ingest as _ing
+    try:
+        rec = _gt.parse_choice(body.voice, body.style)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    key = _gt.env_any_case("TTS_API_KEY" if rec["provider"] == "chirp" else "GEMINI_API_KEY")
+    if not key:
+        raise HTTPException(503, "that voice's API key is not configured")
+    eng = (_gt._chirp_cfg(key) if rec["provider"] == "chirp" else
+           {"provider": "gemini", "api_key": key, "model": rec["model"],
+            "voice": rec["voice"], "style": rec["style"]})
+    d = os.path.join(_ing.PROJECTS, "_voice_previews")
+    os.makedirs(d, exist_ok=True)
+    name = _h.sha1(("%s|%s|%s" % (body.voice, rec["style"], _PREVIEW_LINE)).encode()).hexdigest()[:20] + ".mp3"
+    out = os.path.join(d, name)
+    if not os.path.exists(out):
+        try:
+            _synth_rest(_PREVIEW_LINE, out, style=rec["style"], engine=eng)
+        except usage.UsageCapExceeded as e:
+            raise HTTPException(429, str(e))
+        except Exception as e:
+            raise HTTPException(502, f"could not record the preview: {type(e).__name__}")
+    return {"url": f"/api/voices/preview/{name}", "text": _PREVIEW_LINE}
+
+
+@app.get("/api/voices/preview/{name}")
+def api_voices_preview_file(name: str):
+    import re as _re
+    import ingest as _ing
+    if not _re.fullmatch(r"[0-9a-f]{20}\.mp3", name):
+        raise HTTPException(404, "not found")
+    p = os.path.join(_ing.PROJECTS, "_voice_previews", name)
+    if not os.path.exists(p):
+        raise HTTPException(404, "not found")
+    return FileResponse(p, media_type="audio/mpeg")
+
+
 @app.get("/review")
 def review_page():
     import review_page as _rp
@@ -3561,6 +3636,11 @@ class IngestIn(BaseModel):
     # Direct speech for this ingest: True/False, or None = the DIRECT_SPEECH
     # env default (off). docs/craft_reconciliation.md P2.
     direct_speech: bool | None = None
+    # Narrator voice for this chapter ("gemini:Puck", "chirp:Charon"); empty =
+    # the studio default. Applies when the chapter is first voiced or on a
+    # fresh re-ingest — a voiced chapter keeps its voice.
+    voice: str = ""
+    voice_style: str | None = None
 
 
 @app.post("/api/ingest")
@@ -3587,6 +3667,13 @@ def start_ingest(body: IngestIn):
     import ingest as _ing
     if body.engine not in _ing.ENGINES:
         raise HTTPException(400, f"engine must be one of {_ing.ENGINES}")
+    if body.voice:
+        import gemini_tts as _gt
+        try:
+            _gt.save_choice(os.path.join(_ing.PROJECTS, _ing.project_id(url, variant)),
+                            body.voice, body.voice_style)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
     if body.engine == "claude" and not _validator.api_key():
         raise HTTPException(400, "no Claude API key on this server — "
                                  "set CLAUDE_API_KEY or ANTHROPIC_API_KEY")
@@ -3918,6 +4005,65 @@ def api_watchlist_chapters(series_id: str, series_key: str, refresh: int = 0):
             "support": m["support"],
             "chapters": [{"id": c, "ingested": str(c) in have}
                          for c in m.get("chapters", [])]}
+
+
+@app.post("/api/watchlist/refresh_all")
+def api_watchlist_refresh_all():
+    """Check every series' preferred (else best) mirror: chapters, release
+    dates and cover. Sequential and bounded — one page per series."""
+    import watchlist as _wl
+    data = _wl.load(_wl_root())
+    done, failed = 0, []
+    for srs in data["series"][:60]:
+        key = srs.get("preferred_mirror") or (_wl.best_mirror(srs) or {}).get("series_key")
+        if not key:
+            continue
+        m = _wl.refresh_mirror(_wl_root(), srs["id"], key)
+        if m.get("status") == "ok":
+            done += 1
+        else:
+            failed.append({"series": srs["title"], "error": m.get("error")})
+    return {"checked": done, "failed": failed}
+
+
+@app.get("/api/watchlist/cover/{series_id}")
+def api_watchlist_cover(series_id: str):
+    """A series' cover, fetched once from its own site (with that site as
+    referer — WEBTOON's image CDN refuses hotlinks) and cached on the volume."""
+    import re as _re
+    import urllib.parse as _up
+    import urllib.request as _ur
+    import watchlist as _wl
+    import providers as _pv
+    if not _re.fullmatch(r"[a-z0-9-]{1,120}", series_id):
+        raise HTTPException(404, "not found")
+    d = os.path.join(_wl_root(), "_covers")
+    os.makedirs(d, exist_ok=True)
+    for ext, mt in (("jpg", "image/jpeg"), ("png", "image/png"), ("webp", "image/webp")):
+        p = os.path.join(d, f"{series_id}.{ext}")
+        if os.path.exists(p) and time.time() - os.path.getmtime(p) < 7 * 86400:
+            return FileResponse(p, media_type=mt, headers={"Cache-Control": "public, max-age=86400"})
+    srs = _wl.find(_wl.load(_wl_root()), series_id)
+    if srs is None:
+        raise HTTPException(404, "not on the watchlist")
+    m = next((x for x in srs.get("mirrors", []) if x.get("cover")), None)
+    if m is None:
+        raise HTTPException(404, "no cover yet — check the series first")
+    cover, page = m["cover"], m["series_url"]
+    ch, ph = _up.urlparse(cover).hostname or "", _up.urlparse(page).hostname or ""
+    same_site = ".".join(ch.split(".")[-2:]) == ".".join(ph.split(".")[-2:])
+    if _up.urlparse(cover).scheme != "https" or not (same_site or ch.endswith(".pstatic.net")):
+        raise HTTPException(404, "cover is not on the series' own site")
+    req = _ur.Request(cover, headers={"User-Agent": _pv.UA, "Referer": page})
+    try:
+        with _ur.urlopen(req, timeout=20, context=_pv._ctx()) as r:
+            data, mt = r.read(8_000_000), (r.headers.get_content_type() or "image/jpeg")
+    except Exception:
+        raise HTTPException(502, "could not fetch the cover")
+    ext = {"image/png": "png", "image/webp": "webp"}.get(mt, "jpg")
+    with open(os.path.join(d, f"{series_id}.{ext}"), "wb") as f:
+        f.write(data)
+    return Response(data, media_type=mt, headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.post("/api/watchlist/ingest")

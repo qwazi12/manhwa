@@ -7881,3 +7881,37 @@ The owner chose to keep Gemini 3.8 Flash TTS going forward ("fix the wiring so w
 
 **Checked locally:** desktop (Ingest, Tracker and Exports as pages; Back returns; Board item returns) and 390px (☰ → Exports page, no ✕, no sideways scroll; review page).
 - Live check after ec513fa deployed (23:01 UTC; the push was held until the fog-land-9299_2 render finished at 23:01, done → final_Oct02_07.00PM.mp4): #exports is a page with the panel header and no ✕; /review for v5 shows every card with a panel header bar and no console errors; at 390px, ☰ → Check is the Check page under the ☰ bar, with no ✕ and no sideways scroll.
+
+### 2026-10-02 — Review opens directly, voice choice, Logs+Work merged, Tracker release calendar
+Owner (phone screenshot of /review with an empty "No Options" picker): "why doesn't Review populate unless I go through Exports … what AI voice is the default, I need a choice — I don't like the Fog Land voice … merge Work and Logs … Tracker can benefit from the calendar set up in the scrapper."
+
+1. **Review opened directly.**
+   - Cause: /review shows the ACTIVE project, and when that project has no export, `render()` blanked the picker even though other projects had videos. Via Exports it worked because that link names a project and file.
+   - Now the picker always lists every export (labelled "Series Ch.N (vX) · file"), and with no export for the active project it opens the newest video from any project.
+2. **Voice.**
+   - Fog Land (pinned 21:41 UTC) was Gemini 3.8 Flash TTS voice "Charon" with style "dramatic, engaging manhwa recap narrator", the default since 2e3b544. Earlier chapters used Google Chirp 3 HD Charon.
+   - New on the Ingest page, a "Narrator voice" picker with 31 options: classic Chirp Charon plus 30 Gemini voices. Puck, Algenib and Sadaltager were confirmed live; an unknown name returns a 400.
+   - It has a style preset (natural, dramatic, calm storyteller, cinematic trailer, energetic host), a ▶ Preview that records one sample line (cached; usage-gated), and "Make this the default".
+   - API: `GET /api/voices`, `POST /api/voices/default` (projects/_voice_default.json), `POST /api/voices/preview` and `GET /api/voices/preview/<hash>.mp3`. `/api/ingest` accepts `voice` and `voice_style` and writes `tts_choice.json` into the chapter folder.
+   - `engine_for_project` resolution order: an existing pin, then recorded audio (legacy Chirp), then the pick at ingest, then the studio default, then env.
+   - A voiced chapter never switches voice; a fresh re-ingest takes the new choice. Tracker-started ingests use the default.
+3. **Logs & Activity:** the Work page is merged into Logs as a "What changed" tab beside "Jobs & usage". Old #work links land on that tab, and the sidebar lost one item.
+4. **Tracker release calendar (Scrapper StudioPanel calendar):**
+   - `providers.release_info` reads chapter release dates and the og:image cover from the series page the watchlist check already downloads (memoised; one fetch).
+   - WEBTOON gives exact dates for the latest ~10 episodes. Asura gives exact dates for older chapters; "3 days ago" and "last week" are stored as approximate (≈), and an exact date is never overwritten by an approximate one.
+   - Covers come through `/api/watchlist/cover/{id}`: fetched once with the series page as referer (WEBTOON's CDN refuses hotlinks), only from the series' own site or pstatic.net, and cached 7 days.
+   - `POST /api/watchlist/refresh_all` checks every series (one page each, no AI cost).
+   - The UI is the Tracker's first tab, "📅 Release calendar": month chips, Made / Not made chips, month headings, cover cards (title, Ch · date · source, status), and a green "Ingest Ch.N" button. Cards use data- attributes, not quoted arguments.
+
+**Bugs caught before deploy:**
+- The calendar's onclick quoting (the same `\'`-eaten-by-Python bug as the jobs bar).
+- A missing `esc()` on the board.
+- The "Check all series" button stretched by the `.drawer button.primary` rule.
+
+**Tests:**
+- New `test_release_calendar` 12/12 (synthetic HTML, no scraped pages).
+- `test_gemini_tts_config` 32/32 (pick, default, keep-pinned, API with mocked synth).
+- `test_mobile_layout` 38/38, `test_worklog` 22/22.
+- Full suite passes; board scripts pass `node --check`.
+
+**Checked locally:** two real series added to a local watchlist (WEBTOON Stellar Swordmaster: 10 dates and cover; Asura Murim Psychopath: 46 dates and cover); the calendar renders at desktop width and 390px. The local test data was removed afterwards.

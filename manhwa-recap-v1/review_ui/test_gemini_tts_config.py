@@ -205,6 +205,62 @@ def main():
             else:
                 os.environ[k] = v
 
+    # ---- the operator's choice: per chapter, and a studio default
+    os.environ["GEMINI_API_KEY"] = "mock_gemini"; os.environ["TTS_API_KEY"] = "mock_chirp"
+    root = tempfile.mkdtemp(prefix="vroot_")
+    ch = os.path.join(root, "series_1")
+    gemini_tts.save_choice(ch, "gemini:Puck", "calm, clear storyteller, steady pace")
+    e = gemini_tts.engine_for_project(ch)
+    check("a voice picked at ingest is used for a new chapter",
+          e["voice"] == "Puck" and e["style"].startswith("calm"))
+    ch2 = os.path.join(root, "series_2")
+    gemini_tts.save_default(root, "chirp:Charon")
+    check("without a pick, a new chapter gets the saved studio default",
+          gemini_tts.engine_for_project(ch2)["provider"] == "chirp")
+    ch3 = os.path.join(root, "series_3"); os.makedirs(os.path.join(ch3, "audio"))
+    json.dump({"provider": "gemini", "model": "gemini-3.8-flash-tts", "voice": "Charon",
+               "style": ""}, open(os.path.join(ch3, "tts.json"), "w"))
+    gemini_tts.save_choice(ch3, "gemini:Algenib")
+    check("a chapter that already has a voice keeps it (no mixed narrators)",
+          gemini_tts.engine_for_project(ch3)["voice"] == "Charon")
+    try:
+        gemini_tts.parse_choice("gemini:NotAVoice")
+        check("an unknown voice is refused", False)
+    except ValueError:
+        check("an unknown voice is refused", True)
+    check("31 voices are offered: classic Chirp Charon + 30 Gemini voices",
+          len(gemini_tts.voice_options()) == 31
+          and gemini_tts.voice_options()[0]["id"] == "chirp:Charon")
+
+    # ---- the API, against a temporary projects root
+    import ingest as _ing
+    from fastapi.testclient import TestClient
+    saved_root = _ing.PROJECTS
+    _ing.PROJECTS = root
+    try:
+        c = TestClient(server.app)
+        v = c.get("/api/voices").json()
+        check("/api/voices lists the voices and the current default",
+              len(v["voices"]) == 31 and v["default"]["id"] == "chirp:Charon")
+        r = c.post("/api/voices/default", json={"voice": "gemini:Algenib", "style": ""})
+        check("Make default saves the studio default",
+              r.status_code == 200 and c.get("/api/voices").json()["default"]["id"] == "gemini:Algenib")
+        check("a bad voice is a 400", c.post("/api/voices/default", json={"voice": "x:y"}).status_code == 400)
+        calls = []
+        real = server._synth_rest
+        server._synth_rest = lambda text, out, style=None, engine=None: (
+            calls.append(engine["voice"]), open(out, "wb").write(b"mp3"))
+        try:
+            p1 = c.post("/api/voices/preview", json={"voice": "gemini:Puck", "style": ""}).json()
+            c.post("/api/voices/preview", json={"voice": "gemini:Puck", "style": ""})
+        finally:
+            server._synth_rest = real
+        check("a preview is recorded once, then served from cache",
+              calls == ["Puck"] and c.get(p1["url"]).status_code == 200)
+        check("preview file names are validated", c.get("/api/voices/preview/..%2Fx.mp3").status_code == 404)
+    finally:
+        _ing.PROJECTS = saved_root
+
     src = open(os.path.join(HERE, "ingest.py"), encoding="utf-8").read()
     fresh = src[src.index("if fresh:"):src.index("desc_path = os.path.join(proj")]
     check("a fresh re-ingest drops the voice pin (all lines are re-recorded)",

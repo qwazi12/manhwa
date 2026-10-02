@@ -232,13 +232,33 @@ def refresh_mirror(root, series_id, series_key, _fetcher=None):
         raise WatchlistError("that mirror is not attached to this series")
 
     prov = providers.by_name(m["source"])
+    # One download serves both the chapter list and the release dates/cover.
+    _pages = {}
+
+    def _memo(url, _f=_fetcher or providers.fetch):
+        if url not in _pages:
+            _pages[url] = _f(url)
+        return _pages[url]
     try:
-        found = prov.discover_chapters(m["series_url"], _fetcher=_fetcher)
+        found = prov.discover_chapters(m["series_url"], _fetcher=_memo)
         m["chapters"] = [c for c, _ in found]
         m["chapter_count"] = len(found)
         m["latest"] = found[-1][0] if found else None
         m["status"] = "ok"
         m["error"] = None
+        try:
+            rel = providers.release_info(prov, _memo(m["series_url"]))
+            dates = dict(m.get("release_dates") or {})
+            for cid, (day, approx) in rel["dates"].items():
+                old = dates.get(cid)
+                # an exact date is never replaced by an approximate one
+                if not old or old[1] or not approx:
+                    dates[cid] = [day, approx]
+            m["release_dates"] = dates
+            if rel["cover"]:
+                m["cover"] = rel["cover"]
+        except Exception:
+            pass                       # dates are a bonus; never fail a check
     except Exception as e:
         m["status"] = "error"
         m["error"] = str(e)[:300]

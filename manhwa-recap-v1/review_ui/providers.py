@@ -357,3 +357,68 @@ def describe(url):
     return {"source": p.name, "label": p.label, "support": p.support,
             "series_url": p.normalize_series_url(url),
             "series_key": p.series_key(url)}
+
+
+# ------------------------------------------------------------------ releases
+# When each chapter came out, and the series cover — read from the SAME
+# series page discover_chapters already fetched (the watchlist passes a
+# memoised fetcher), so the release calendar costs no extra request.
+#   WEBTOON: '<span class="date">Sep 29, 2026</span>' per episode (page 1 =
+#            the latest ~10 episodes).
+#   Asura:   absolute dates for older chapters ('Sep 1, 2026'), relative
+#            ones for recent ('3 days ago', 'last week') — those are stored
+#            as APPROXIMATE and replaced once the site shows the real date.
+_MONTHS = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+
+def _parse_date(text, today=None):
+    """-> (YYYY-MM-DD, approx) or None."""
+    import datetime as _dt
+    t = re.sub(r"\s+", " ", (text or "").strip().lower())
+    today = today or _dt.datetime.utcnow().date()
+    m = re.match(r"([a-z]{3})[a-z]*\.? (\d{1,2})(?:st|nd|rd|th)?,? (\d{4})$", t)
+    if m and m.group(1) in _MONTHS:
+        try:
+            return _dt.date(int(m.group(3)), _MONTHS[m.group(1)], int(m.group(2))).isoformat(), False
+        except ValueError:
+            return None
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", t)
+    if m:
+        return "%s-%s-%s" % m.groups(), False
+    if t in ("just now", "today") or re.match(r"(an?|\d+) (second|minute|hour)s? ago$", t):
+        return today.isoformat(), True
+    if t == "yesterday":
+        return (today - _dt.timedelta(days=1)).isoformat(), True
+    rel = {"day": 1, "week": 7, "month": 30, "year": 365}
+    m = re.match(r"(\d+|an?|last) (day|week|month|year)s?(?: ago)?$", t)
+    if m:
+        n = 1 if m.group(1) in ("a", "an", "last") else int(m.group(1))
+        return (today - _dt.timedelta(days=n * rel[m.group(2)])).isoformat(), True
+    return None
+
+
+def release_info(prov, html, today=None):
+    """-> {"cover": url|None, "dates": {chapter_id: [YYYY-MM-DD, approx]}}"""
+    cover = None
+    m = re.search(r'<meta (?:property|name)="og:image" content="([^"]+)"', html)
+    if m:
+        cover = m.group(1).replace("&amp;", "&")
+    dates = {}
+    if prov.name == "webtoon":
+        marks = list(re.finditer(r'data-episode-no="(\d+)"', html))
+        for i, mk in enumerate(marks):
+            chunk = html[mk.end(): marks[i + 1].start() if i + 1 < len(marks) else mk.end() + 3000]
+            d = re.search(r'<span class="date">\s*([^<]+?)\s*</span>', chunk)
+            p = _parse_date(d.group(1), today) if d else None
+            if p:
+                dates[prov.normalize_chapter_id(mk.group(1))] = list(p)
+    else:
+        for a in re.finditer(r'<a [^>]*href="[^"]*/chapter/(\d+(?:\.\d+)?)"[^>]*>(.*?)</a>', html, re.S):
+            spans = re.findall(r"<span[^>]*>([^<]+)</span>", a.group(2))
+            for txt in reversed(spans):
+                p = _parse_date(txt, today)
+                if p:
+                    dates[prov.normalize_chapter_id(a.group(1))] = list(p)
+                    break
+    return {"cover": cover, "dates": dates}

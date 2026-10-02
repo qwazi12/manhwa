@@ -97,9 +97,11 @@ def main():
     check("an old project says it predates the refinement pass",
           "before the refinement pass" in sb._built_with({"split_coverage": {"panels": 3}}))
     src = open(os.path.join(HERE, "storyboard.py")).read()
-    check("the Work drawer is in the UI and loads the log",
-          'd="work"' in open(os.path.join(HERE, "theme.py")).read()
-          and "loadWork()" in src and "/api/worklog" in src)
+    check("the work log lives in the Logs & Activity page and loads the log",
+          'id="lt_work"' in src and 'id="worklist"' in src
+          and "if (which === 'work') loadWork();" in src and "/api/worklog" in src)
+    check("old links to the Work page land on its tab",
+          "if (name === 'work') name = 'logs';" in src)
 
     for name, ok in R:
         print(("PASS " if ok else "FAIL ") + name)

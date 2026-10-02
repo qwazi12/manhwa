@@ -788,6 +788,26 @@ a {{ color:var(--accent); }}
 .drawer > h3:first-of-type {{ margin:0 -16px 14px; padding:11px 16px; background:var(--panel2);
   border-bottom:1px solid var(--rule); font-size:12px; letter-spacing:.8px; color:var(--ink3); }}
 .drawer .hint {{ font-size:12px; }}
+.calbar {{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }}
+.drawer .calbar button.primary {{ width:auto; }}
+.calchips {{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }}
+.calchips button {{ font-size:11px; padding:2px 9px; background:transparent; box-shadow:none; font-weight:600; }}
+.calchips button.on {{ background:var(--btn); color:var(--ink); }}
+.calgrid {{ display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; margin-top:6px; }}
+.calmonth {{ grid-column:1/-1; font-size:12px; font-weight:700; border-bottom:1px solid var(--rule);
+  padding-bottom:4px; margin-top:8px; color:var(--ink); }}
+.calcard {{ background:var(--seg-bg); border:1px solid var(--rule); border-radius:8px; padding:8px;
+  display:flex; flex-direction:column; gap:4px; min-width:0; }}
+.calcard b {{ font-size:12px; line-height:1.3; }}
+.calcover {{ width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:6px; background:var(--btn); display:block; }}
+.calmeta {{ font-size:11px; color:var(--ink3); }}
+.calst {{ font-size:11px; }} .calst.made {{ color:var(--ok); }} .calst.new {{ color:var(--accent); }}
+.calcard button {{ font-size:11px; margin-top:auto; }}
+.voicebox {{ border:1px solid var(--rule); border-radius:8px; padding:10px 12px; margin:10px 0 12px;
+  background:var(--panel2); display:flex; flex-direction:column; gap:8px; }}
+.voicebox .vlabel {{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--ink3); }}
+.voicebox .vrow {{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }}
+.voicebox select {{ flex:1 1 200px; min-width:0; padding:6px 8px; }}
 body.not-board #v_board {{ display:none; }}
 /* off the board, the status bar shows the chapter's numbers only (as the
    Scrapper's StatusBar does); the board's tools stay on the board page */
@@ -933,6 +953,22 @@ body.not-board header button, body.not-board header label {{ display:none !impor
       style="flex:0 0 90px"/>
     <input type="checkbox" id="ingdirect"> Direct speech
     <span style="opacity:.75">(2–3 pivotal lines quoted, in the narrator's own voice — Gemini only)</span></label>
+  <div class="voicebox">
+    <div class="vlabel">Narrator voice</div>
+    <div class="vrow">
+      <select id="ingvoice" onchange="voiceChanged()"><option>loading voices…</option></select>
+      <select id="ingstyle"></select>
+    </div>
+    <div class="vrow">
+      <button type="button" onclick="previewVoice()" id="vprevbtn">▶ Preview</button>
+      <button type="button" onclick="saveDefaultVoice()" id="vdefbtn">Make this the default</button>
+      <span class="hint" id="vstatus"></span>
+    </div>
+    <audio id="vprev" controls preload="none" style="display:none;width:100%;margin-top:6px"></audio>
+    <div class="hint">Used when this chapter is first voiced, or with Fresh re-ingest. A chapter
+      that already has a voice keeps it, so a video never switches narrator. Chapters started
+      from the Tracker use the default.</div>
+  </div>
   <button class="primary" onclick="runIngest()">▶ Run ingest</button>
   <div id="ingprog" style="margin-top:12px"></div>
 </div>
@@ -1030,9 +1066,26 @@ body.not-board header button, body.not-board header label {{ display:none !impor
 </div>
 <div class="drawer" id="d_tracker">
   <h3>TRACKER</h3>
-  <div style="display:flex;gap:6px;margin-bottom:10px">
-    <button id="tkw" class="mini" onclick="trkTab('watch')">Watchlist</button>
-    <button id="tkn" class="mini" onclick="trkTab('new')">New chapters</button>
+  <div class="segtabs">
+    <button type="button" id="tkc" onclick="trkTab('cal')">📅 Release calendar</button>
+    <button type="button" id="tkw" onclick="trkTab('watch')">Watchlist</button>
+    <button type="button" id="tkn" onclick="trkTab('new')">New chapters</button>
+  </div>
+
+  <!-- ============ RELEASE CALENDAR: when each chapter came out, by month -->
+  <div id="trk_cal" style="display:none">
+    <div class="calbar">
+      <button type="button" class="primary" id="calcheck" onclick="calCheckAll()">↻ Check all series</button>
+      <span class="hint" id="calnote">Reads each series page for chapter dates and covers — no AI cost.</span>
+    </div>
+    <div class="calchips" id="calmonths"></div>
+    <div class="calchips" id="calstatus">
+      <span class="hint">Show:</span>
+      <button type="button" class="on" data-f="all" onclick="calFilter('st', 'all', this)">All</button>
+      <button type="button" data-f="new" onclick="calFilter('st', 'new', this)">Not made yet</button>
+      <button type="button" data-f="made" onclick="calFilter('st', 'made', this)">Made</button>
+    </div>
+    <div class="calgrid" id="calgrid"><div class="hint">loading…</div></div>
   </div>
 
   <!-- ============ WATCHLIST: what to make next, before any money is spent -->
@@ -1093,15 +1146,16 @@ body.not-board header button, body.not-board header label {{ display:none !impor
   <div class="hint" style="margin-bottom:8px">Every exported MP4 for the active project. Click to watch / download.</div>
   <div id="exportlist">loading…</div>
 </div>
-<div class="drawer wide" id="d_work">
-  <h3 style="margin-bottom:4px">WORK LOG <span id="workstamp" class="hint" style="font-weight:400;font-size:11px"></span></h3>
-  <div class="hint" style="margin-bottom:8px">Every change made to the system, newest first — what changed, why,
-  what was tested, and the evidence (cut sheets, listening clips, before/after tables). It is read from the
-  project log that ships with each deploy, so it always matches what is live.</div>
-  <div id="worklist" style="font-size:12px">loading…</div>
-</div>
 <div class="drawer" id="d_logs">
-  <h3 style="margin-bottom:4px">JOBS <span id="logstamp" class="hint" style="font-weight:400;font-size:11px"></span></h3>
+  <h3 style="margin-bottom:4px">LOGS &amp; ACTIVITY <span id="logstamp" class="hint" style="font-weight:400;font-size:11px"></span></h3>
+  <div class="segtabs"><button type="button" id="lt_jobs" class="on" onclick="logsTab('jobs')">⏳ Jobs &amp; usage</button><button type="button" id="lt_work" onclick="logsTab('work')">🗒 What changed</button></div>
+  <div id="logs_work" style="display:none">
+    <div class="hint" style="margin-bottom:8px">Every change made to the system, newest first — what changed, why,
+    what was tested, and the evidence (cut sheets, listening clips, before/after tables). It is read from the
+    project log that ships with each deploy, so it always matches what is live. <span id="workstamp"></span></div>
+    <div id="worklist" style="font-size:12px">loading…</div>
+  </div>
+  <div id="logs_jobs">
   <div class="hint" style="margin-bottom:6px">Every ingest, render and export — newest first. Pause and stop take effect at
   the next step (between pipeline stages, or between clips), so a stop lands within seconds rather than instantly.</div>
   <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:12px;flex-wrap:wrap">
@@ -1112,6 +1166,7 @@ body.not-board header button, body.not-board header label {{ display:none !impor
   </div>
   <div id="joblist">loading…</div>
   <div class="section"><h3>API usage</h3><div id="logusage" class="hint">loading…</div></div>
+  </div>
 </div></div>
 </div>
 <header>
@@ -1590,8 +1645,11 @@ setInterval(refreshUsage, 15000);
    move on, and the browser's Back button returns. Nothing slides over the
    board and nothing needs closing. 'board' is the storyboard page itself. */
 let CURRENT_VIEW = 'board', _viewFromHistory = false;
-const VIEWS = ['ingest','projects','tracker','validate','logs','work','exports','test','split'];
+const VIEWS = ['ingest','projects','tracker','validate','logs','exports','test','split'];
 function toggleDrawer(name) {{
+  // Work was merged into Logs: old links to it land on the "What changed" tab.
+  let logsWant = name === 'work' ? 'work' : 'jobs';
+  if (name === 'work') name = 'logs';
   if (VIEWS.indexOf(name) < 0) name = 'board';
   CURRENT_VIEW = name;
   for (const d of VIEWS) {{
@@ -1609,16 +1667,23 @@ function toggleDrawer(name) {{
   }}
   window.scrollTo(0, 0);
   if (name === 'projects') loadProjects();
-  if (name === 'tracker') trkTab('watch');   // planning first; 'New chapters' is a click away
-  if (name === 'logs') loadLogs();
+  if (name === 'tracker') trkTab('cal');     // the release calendar first, as in the Scrapper; Watchlist and New chapters are a click away
+  if (name === 'logs') {{ logsTab(logsWant); loadLogs(); }}
   if (name === 'work') loadWork();
   if (name === 'exports') loadExports();
   if (name === 'validate') loadValidation();
   if (name === 'test') loadLab();
   if (name === 'split') loadSplit();
-  if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
+  if (name === 'ingest') {{ paintIngest(); loadVoices(); if (activeJob()) startIngestPoller(); }}
 }}
 function showView(name) {{ toggleDrawer(name); }}
+function logsTab(which) {{
+  document.getElementById('logs_jobs').style.display = which === 'work' ? 'none' : 'block';
+  document.getElementById('logs_work').style.display = which === 'work' ? 'block' : 'none';
+  document.getElementById('lt_jobs').classList.toggle('on', which !== 'work');
+  document.getElementById('lt_work').classList.toggle('on', which === 'work');
+  if (which === 'work') loadWork();
+}}
 window.addEventListener('popstate', function () {{
   _viewFromHistory = true;
   try {{ toggleDrawer((location.hash || '').slice(1) || 'board'); }} finally {{ _viewFromHistory = false; }}
@@ -2385,6 +2450,56 @@ async function loadLab() {{
 
 const ING_STAGES = ['scrape','split','describe','narrate','voice','match','segment'];
 let ingestState = null, ingestPolling = false;
+/* ---- narrator voice picker (Ingest page) ---- */
+let VOICE_DATA = null;
+async function loadVoices() {{
+  if (VOICE_DATA) return;
+  try {{ VOICE_DATA = await j('/api/voices'); }} catch (e) {{
+    document.getElementById('vstatus').textContent = 'could not load voices'; return; }}
+  const d = VOICE_DATA.default || {{}};
+  document.getElementById('ingvoice').innerHTML = VOICE_DATA.voices.map(function (v) {{
+    return '<option value="' + v.id + '"' + (v.id === d.id ? ' selected' : '') + '>' +
+      v.label + (v.id === d.id ? '  ★ default' : '') + '</option>';
+  }}).join('');
+  const styles = VOICE_DATA.styles.slice();
+  if (d.style && !styles.some(function (x) {{ return x.style === d.style; }}))
+    styles.push({{style: d.style, label: d.style}});
+  document.getElementById('ingstyle').innerHTML = styles.map(function (x) {{
+    return '<option value="' + x.style.replace(/"/g, '&quot;') + '"' + (x.style === (d.style || '') ? ' selected' : '') + '>' +
+      'Style: ' + x.label + '</option>';
+  }}).join('');
+  voiceChanged();
+}}
+function voiceChanged() {{
+  const v = document.getElementById('ingvoice').value || '';
+  // the classic Chirp voice has no style control
+  document.getElementById('ingstyle').disabled = v.indexOf('chirp:') === 0;
+  const a = document.getElementById('vprev'); a.style.display = 'none'; a.removeAttribute('src');
+  document.getElementById('vstatus').textContent = '';
+}}
+async function previewVoice() {{
+  const b = document.getElementById('vprevbtn'), st = document.getElementById('vstatus');
+  b.disabled = true; st.textContent = 'recording a sample…';
+  try {{
+    const r = await j('/api/voices/preview', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{voice: document.getElementById('ingvoice').value,
+                            style: document.getElementById('ingstyle').value}})}});
+    const a = document.getElementById('vprev');
+    a.src = r.url; a.style.display = 'block'; st.textContent = '';
+    try {{ await a.play(); }} catch (e) {{ /* the player is there to press */ }}
+  }} catch (e) {{ st.textContent = 'preview failed: ' + (e.message || e); }}
+  b.disabled = false;
+}}
+async function saveDefaultVoice() {{
+  const st = document.getElementById('vstatus');
+  try {{
+    await j('/api/voices/default', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{voice: document.getElementById('ingvoice').value,
+                            style: document.getElementById('ingstyle').value}})}});
+    VOICE_DATA = null; await loadVoices();
+    st.textContent = '✓ saved as the default for new chapters';
+  }} catch (e) {{ st.textContent = 'could not save: ' + (e.message || e); }}
+}}
 function activeJob() {{ return localStorage.getItem('activeIngestJob'); }}
 function setActiveJob(id) {{ if (id) localStorage.setItem('activeIngestJob', id); else localStorage.removeItem('activeIngestJob'); }}
 async function runIngest() {{
@@ -2402,6 +2517,11 @@ async function runIngest() {{
     const body = {{url, fresh, engine}};
     if (variant) body.variant = variant;
     if (direct) body.direct_speech = true;
+    const vv = document.getElementById('ingvoice');
+    if (vv && vv.value && vv.value.indexOf(':') > 0) {{
+      body.voice = vv.value;
+      body.voice_style = document.getElementById('ingstyle').value;
+    }}
     const r = await j('/api/ingest', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(body)}});
     setActiveJob(r.job); startIngestPoller();
   }} catch (e) {{ alert(e.message); }}
@@ -2592,12 +2712,102 @@ var WL = {{series: []}};
 var WLCH = {{}};      // series_id -> {{series_key: chapter payload}}
 
 function trkTab(which) {{
-  const w = which === 'watch';
+  const w = which === 'watch', c = which === 'cal', n = !w && !c;
   document.getElementById('trk_watch').style.display = w ? '' : 'none';
-  document.getElementById('trk_new').style.display = w ? 'none' : '';
-  document.getElementById('tkw').className = 'mini' + (w ? ' primary' : '');
-  document.getElementById('tkn').className = 'mini' + (w ? '' : ' primary');
-  if (w) {{ if (!WL.series.length) wlLoad(); }} else loadTracker(0);
+  document.getElementById('trk_new').style.display = n ? '' : 'none';
+  document.getElementById('trk_cal').style.display = c ? '' : 'none';
+  document.getElementById('tkw').classList.toggle('on', w);
+  document.getElementById('tkn').classList.toggle('on', n);
+  document.getElementById('tkc').classList.toggle('on', c);
+  if (c) calLoad();
+  else if (w) {{ if (!WL.series.length) wlLoad(); }} else loadTracker(0);
+}}
+
+/* ---- release calendar (the Scrapper studio's calendar, for chapters) ----
+   Chapters grouped by the month they came out, newest first, as cover cards
+   with an Ingest button. Dates come from each series page (watchlist check);
+   "≈" marks a date the site only gave as "3 days ago". */
+let CAL = {{ month: 'all', st: 'all', items: [] }};
+function esc(x) {{
+  return String(x == null ? '' : x).replace(/[&<>"']/g, function (c) {{
+    return {{ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }}[c]; }});
+}}
+async function calLoad() {{
+  const grid = document.getElementById('calgrid');
+  try {{ WL = await j('/api/watchlist'); }} catch (e) {{
+    grid.innerHTML = '<div class="hint">Could not load the watchlist: ' + esc(e.message || e) + '</div>'; return; }}
+  const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10);
+  const items = [];
+  (WL.series || []).forEach(function (sx) {{
+    const made = {{}};
+    (sx.mirrors || []).forEach(function (m) {{ (m.ingested || []).forEach(function (c) {{ made[String(c.chapter)] = c.project || true; }}); }});
+    const key = sx.preferred_mirror || sx.best_mirror;
+    const m = (sx.mirrors || []).find(function (x) {{ return x.series_key === key; }}) ||
+              (sx.mirrors || []).find(function (x) {{ return x.release_dates; }});
+    if (!m || !m.release_dates) return;
+    Object.keys(m.release_dates).forEach(function (cid) {{
+      const d = m.release_dates[cid];
+      if (!d || d[0] < cutoff) return;
+      items.push({{ sid: sx.id, title: sx.title, key: m.series_key, src: m.label || m.source,
+                   ch: cid, day: d[0], approx: !!d[1], made: made[cid] || null,
+                   cover: !!m.cover }});
+    }});
+  }});
+  items.sort(function (a, b) {{ return a.day < b.day ? 1 : a.day > b.day ? -1 : parseFloat(b.ch) - parseFloat(a.ch); }});
+  CAL.items = items;
+  const months = Array.from(new Set(items.map(function (i) {{ return i.day.slice(0, 7); }})));
+  document.getElementById('calmonths').innerHTML = '<span class="hint">Month:</span>' +
+    ['all'].concat(months).map(function (mo) {{
+      return '<button type="button" class="' + (CAL.month === mo ? 'on' : '') + '" data-v="' + mo + '" onclick="calFilter(&quot;month&quot;, this.dataset.v, this)">' +
+        (mo === 'all' ? 'All' : calMonth(mo).split(' ')[0]) + '</button>';
+    }}).join('');
+  calPaint();
+}}
+function calMonth(mo) {{
+  return new Date(mo + '-15T12:00:00Z').toLocaleString('en-US', {{ month: 'long', year: 'numeric' }});
+}}
+function calFilter(kind, val, btn) {{
+  CAL[kind] = val;
+  btn.parentNode.querySelectorAll('button').forEach(function (b) {{ b.classList.toggle('on', b === btn); }});
+  calPaint();
+}}
+function calPaint() {{
+  const grid = document.getElementById('calgrid');
+  const list = CAL.items.filter(function (i) {{
+    return (CAL.month === 'all' || i.day.slice(0, 7) === CAL.month) &&
+           (CAL.st === 'all' || (CAL.st === 'made') === !!i.made);
+  }});
+  if (!CAL.items.length) {{
+    grid.innerHTML = '<div class="hint" style="grid-column:1/-1">No release dates yet. Press <b>↻ Check all series</b> — it reads each series page on the watchlist.</div>';
+    return;
+  }}
+  if (!list.length) {{ grid.innerHTML = '<div class="hint" style="grid-column:1/-1">Nothing matches these filters.</div>'; return; }}
+  let html = '', prev = '';
+  list.forEach(function (i) {{
+    const mo = i.day.slice(0, 7);
+    if (mo !== prev) {{ html += '<div class="calmonth">' + calMonth(mo) + '</div>'; prev = mo; }}
+    const when = new Date(i.day + 'T12:00:00Z').toLocaleDateString('en-US', {{ month: 'short', day: 'numeric', year: 'numeric' }});
+    html += '<div class="calcard">' +
+      (i.cover ? '<img class="calcover" loading="lazy" alt="" src="/api/watchlist/cover/' + encodeURIComponent(i.sid) +
+        '" onerror="this.outerHTML=&quot;<div class=calcover></div>&quot;">' : '<div class="calcover"></div>') +
+      '<b>' + esc(i.title) + '</b>' +
+      '<span class="calmeta">Ch.' + esc(i.ch) + ' · ' + (i.approx ? '≈ ' : '') + when + ' · ' + esc(i.src) + '</span>' +
+      (i.made ? '<span class="calst made">✓ made</span>' : '<span class="calst new">● not made yet</span>') +
+      (i.made ? '<button type="button" disabled>✓ Made</button>'
+              : '<button type="button" class="primary" data-sid="' + esc(i.sid) + '" data-key="' + esc(i.key) + '" data-ch="' + esc(i.ch) + '" onclick="wlIngest(this.dataset.sid, this.dataset.key, this.dataset.ch)">Ingest Ch.' + esc(i.ch) + '</button>') +
+      '</div>';
+  }});
+  grid.innerHTML = html;
+}}
+async function calCheckAll() {{
+  const b = document.getElementById('calcheck'), note = document.getElementById('calnote');
+  b.disabled = true; note.textContent = 'checking every series… (one page each)';
+  try {{
+    const r = await j('/api/watchlist/refresh_all', {{ method: 'POST' }});
+    note.textContent = 'checked ' + r.checked + ' series' + (r.failed.length ? ' · ' + r.failed.length + ' could not be read' : '');
+  }} catch (e) {{ note.textContent = 'check failed: ' + (e.message || e); }}
+  b.disabled = false;
+  calLoad();
 }}
 
 async function wlLoad() {{

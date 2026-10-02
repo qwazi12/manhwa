@@ -86,6 +86,13 @@ def main():
           and "theme.JOBS_JS" in rp and "/api/jobs/control" in theme.JOBS_JS)
     check("review cards use the panel header bar", ".card > h2:first-child" in rp)
 
+    check("Review opened directly falls back to the newest video and always fills the picker",
+          "if (ALL.length && !AUTO_PICKED)" in rp and "load(ALL[0].name, ALL[0].project)" in rp
+          and "exportOptions(ALL" in rp)
+    check("Work is merged into Logs & Activity (one sidebar item)",
+          "Logs & Activity" in open(os.path.join(HERE, "theme.py")).read()
+          and 'title="Work"' not in theme.sidebar_html(theme.nav_items("board")))
+
     for n, ok in R:
         print(("PASS " if ok else "FAIL ") + n)
     n_ok = sum(1 for _, ok in R if ok)

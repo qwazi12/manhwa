@@ -289,12 +289,37 @@ function pick(v) {
   load(v.slice(i + 1), v.slice(0, i));
 }
 
+var AUTO_PICKED = false;
+function exportOptions(list, curProject, curName) {
+  return list.map(function (e) {
+    var st = e.review_status || e.status;
+    var mark = e.superseded ? ' — superseded' :
+      (st === 'approved' ? ' — approved' :
+       (st === 'sent_back' ? ' — sent back' : ' — not reviewed'));
+    var proj = e.project || curProject;
+    var on = (e.name === curName && proj === curProject);
+    var ver = /_\d+(?:\.\d+)?-([a-z0-9][a-z0-9-]*)$/.exec(proj || '');
+    var label = (e.title ? e.title + (ver ? ' (' + ver[1] + ')' : '') : proj) + ' · ' + e.name;
+    return '<option value="' + esc(proj + '|' + e.name) + '"' + (on ? ' selected' : '') + '>' +
+      esc(label) + ' (' + e.size_mb + ' MB)' + esc(mark) + '</option>';
+  }).join('');
+}
+
 function render() {
   var d = DATA, root = document.getElementById('root');
   var sel = document.getElementById('picker');
 
   if (d.missing || !d.name) {
-    sel.innerHTML = '';
+    // Opened directly while the board's open chapter has no video yet: show
+    // the newest video from ANY chapter instead of an empty page. The picker
+    // always lists every export, so nothing depends on going via Exports.
+    if (ALL.length && !AUTO_PICKED) {
+      AUTO_PICKED = true;
+      load(ALL[0].name, ALL[0].project);
+      return;
+    }
+    sel.innerHTML = ALL.length ? exportOptions(ALL, '', '') :
+      '<option value="">No exported videos yet</option>';
     document.getElementById('hdrstate').innerHTML = '';
     root.innerHTML = '<div class="empty"><p>Nothing to review yet — ' +
       esc(d.reason || 'no export found') + '.</p>' +
@@ -307,17 +332,7 @@ function render() {
     return { name: e.name, project: d.project, size_mb: e.size_mb,
              review_status: e.status, superseded: e.superseded };
   });
-  sel.innerHTML = list.map(function (e) {
-    var st = e.review_status || e.status;
-    var mark = e.superseded ? ' — superseded' :
-      (st === 'approved' ? ' — approved' :
-       (st === 'sent_back' ? ' — sent back' : ' — not reviewed'));
-    var val = (e.project || d.project) + '|' + e.name;
-    var on = (e.name === d.name && (e.project || d.project) === d.project);
-    return '<option value="' + esc(val) + '"' + (on ? ' selected' : '') + '>' +
-      esc(e.project || d.project) + ' · ' + esc(e.name) +
-      ' (' + e.size_mb + ' MB)' + esc(mark) + '</option>';
-  }).join('');
+  sel.innerHTML = exportOptions(list, d.project, d.name);
 
   var rv = d.review || {}, qc = d.qc || {};
   document.getElementById('hdrstate').innerHTML =

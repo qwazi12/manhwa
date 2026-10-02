@@ -26,6 +26,95 @@ DEFAULT_STYLE = "dramatic, engaging manhwa recap narrator"
 DEFAULT_MODEL = "gemini-3.8-flash-tts"
 
 PIN_FILE = "tts.json"
+CHOICE_FILE = "tts_choice.json"       # the voice picked for this chapter at ingest
+DEFAULT_FILE = "_voice_default.json"  # studio default, in the projects root
+
+# Gemini TTS prebuilt voices (Google's published names, each confirmed to be
+# accepted by gemini-3.8-flash-tts) with Google's one-word character notes.
+GEMINI_VOICES = [
+    ("Charon", "informative"), ("Algenib", "gravelly"), ("Gacrux", "mature"),
+    ("Orus", "firm"), ("Alnilam", "firm"), ("Kore", "firm"), ("Fenrir", "excitable"),
+    ("Puck", "upbeat"), ("Iapetus", "clear"), ("Erinome", "clear"),
+    ("Rasalgethi", "informative"), ("Sadaltager", "knowledgeable"),
+    ("Schedar", "even"), ("Algieba", "smooth"), ("Despina", "smooth"),
+    ("Enceladus", "breathy"), ("Umbriel", "easy-going"), ("Callirrhoe", "easy-going"),
+    ("Zubenelgenubi", "casual"), ("Achird", "friendly"), ("Sulafat", "warm"),
+    ("Vindemiatrix", "gentle"), ("Achernar", "soft"), ("Aoede", "breezy"),
+    ("Zephyr", "bright"), ("Autonoe", "bright"), ("Leda", "youthful"),
+    ("Laomedeia", "upbeat"), ("Sadachbia", "lively"), ("Pulcherrima", "forward"),
+]
+STYLE_PRESETS = [
+    ("", "Natural (no style direction)"),
+    ("dramatic, engaging manhwa recap narrator", "Dramatic recap narrator"),
+    ("calm, clear storyteller, steady pace", "Calm storyteller"),
+    ("deep, cinematic trailer narrator, measured and intense", "Cinematic trailer"),
+    ("energetic, fast-paced YouTube recap host", "Energetic recap host"),
+]
+VOICE_NAMES = {v for v, _ in GEMINI_VOICES}
+
+
+def voice_options():
+    """Every voice the operator can pick, as ids the UI and API share."""
+    out = [{"id": "chirp:Charon", "provider": "chirp", "voice": "Charon",
+            "label": "Charon (classic) — Google Chirp 3 HD",
+            "desc": "the voice of every chapter made before 2026-10-02"}]
+    for v, d in GEMINI_VOICES:
+        out.append({"id": "gemini:" + v, "provider": "gemini", "voice": v,
+                    "label": f"{v} — {d}", "desc": "Gemini 3.8 Flash TTS"})
+    return out
+
+
+def parse_choice(voice_id, style=None):
+    """'gemini:Puck' / 'chirp:Charon' -> a pin record, or ValueError."""
+    prov, _, voice = (voice_id or "").partition(":")
+    if prov == "chirp" and voice in ("", "Charon"):
+        return {"provider": "chirp", "model": CHIRP_MODEL, "voice": CHIRP_VOICE, "style": ""}
+    if prov == "gemini" and voice in VOICE_NAMES:
+        st = (style if style is not None else DEFAULT_STYLE) or ""
+        if len(st) > 200:
+            raise ValueError("style is too long (200 characters at most)")
+        return {"provider": "gemini",
+                "model": env_any_case("TTS_MODEL") or DEFAULT_MODEL,
+                "voice": voice, "style": st.strip()}
+    raise ValueError(f"unknown voice {voice_id!r}")
+
+
+def choice_id(rec):
+    if not rec:
+        return None
+    return "chirp:Charon" if rec.get("provider") == "chirp" else "gemini:" + str(rec.get("voice"))
+
+
+def load_default(root):
+    try:
+        with open(os.path.join(root, DEFAULT_FILE), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, path)
+
+
+def save_default(root, voice_id, style=None):
+    rec = parse_choice(voice_id, style)
+    rec["set_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    _write_json(os.path.join(root, DEFAULT_FILE), rec)
+    return rec
+
+
+def save_choice(pdir, voice_id, style=None):
+    """The voice picked for one chapter at ingest. It applies when the chapter
+    is first voiced (or on a fresh re-ingest); a chapter that already has a
+    voice keeps it, so narrators never mix within a video."""
+    rec = parse_choice(voice_id, style)
+    _write_json(os.path.join(pdir, CHOICE_FILE), rec)
+    return rec
 CHIRP_MODEL = "chirp3-hd-charon"
 CHIRP_VOICE = "en-US-Chirp3-HD-Charon"
 
@@ -46,8 +135,17 @@ def env_any_case(name):
     return None
 
 
-def get_tts_engine_config():
-    """The voice a NEW project gets, from the environment."""
+def get_tts_engine_config(root=None):
+    """The voice a NEW project gets: the studio default saved from the UI
+    (root/_voice_default.json) when there is one, else the environment."""
+    d = load_default(root) if root else None
+    if d and d.get("provider") == "chirp" and env_any_case("TTS_API_KEY"):
+        return _chirp_cfg(env_any_case("TTS_API_KEY"))
+    if d and d.get("provider") == "gemini" and env_any_case("GEMINI_API_KEY"):
+        return {"provider": "gemini", "api_key": env_any_case("GEMINI_API_KEY"),
+                "model": d.get("model") or DEFAULT_MODEL,
+                "voice": d.get("voice") or DEFAULT_VOICE,
+                "style": d.get("style", DEFAULT_STYLE)}
     gemini_key = env_any_case("GEMINI_API_KEY")
     tts_key = env_any_case("TTS_API_KEY")
     model = env_any_case("TTS_MODEL") or DEFAULT_MODEL
@@ -109,8 +207,18 @@ def engine_for_project(pdir):
             rec = {"provider": "chirp", "model": CHIRP_MODEL, "voice": CHIRP_VOICE,
                    "style": "", "reason": "voiced before the Gemini switch"}
         else:
-            cur = get_tts_engine_config()
-            rec = {k: cur[k] for k in ("provider", "model", "voice", "style")}
+            picked = None
+            try:
+                with open(os.path.join(pdir, CHOICE_FILE), encoding="utf-8") as f:
+                    picked = json.load(f)
+            except (OSError, ValueError, TypeError):
+                picked = None
+            if picked and picked.get("provider") in ("gemini", "chirp"):
+                rec = {k: picked.get(k, "") for k in ("provider", "model", "voice", "style")}
+                rec["reason"] = "picked at ingest"
+            else:
+                cur = get_tts_engine_config(os.path.dirname(pdir.rstrip("/")) if pdir else None)
+                rec = {k: cur[k] for k in ("provider", "model", "voice", "style")}
         rec["pinned_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         if path and rec["provider"] != "none":
             try:

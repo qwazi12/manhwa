@@ -445,9 +445,8 @@ def nav_items(page, board_badge=None):
              href="/review", active=(page == "review")),
         item("📚", "Projects", "Every chapter", d="projects"),
         item("📡", "Tracker", "Series & new chapters", d="tracker"),
-        item("📋", "Logs", "Jobs & progress", d="logs"),
-        item("🗒", "Work", "What changed recently", d="work",
-             title_attr="Everything that has been changed in the system, newest first, with its evidence"),
+        item("📋", "Logs & Activity", "Jobs, usage & what changed", d="logs",
+             title_attr="Every job with Stop, API usage, and every change made to the system with its evidence"),
     ]
 
 
@@ -466,6 +465,10 @@ PANEL_CSS = """
 details.legend { padding:10px 14px; border-bottom:1px solid var(--rule); }
 details.legend summary { cursor:pointer; color:var(--ink3); font-size:12px; font-weight:600; }
 details.legend p.meta { margin:8px 0 0; }
+/* segmented tabs inside a page (Logs: Jobs | What changed; Tracker views) */
+.segtabs { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 12px; }
+.segtabs button { font-size:12px; padding:5px 12px; background:transparent; box-shadow:none; font-weight:600; }
+.segtabs button.on { background:var(--btn); border-color:var(--btn-edge); color:var(--ink); }
 """
 
 # Everything running on the server, with Stop — at the top of every page,
