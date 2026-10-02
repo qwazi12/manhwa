@@ -7776,3 +7776,21 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
      - Maintains atomic content-hash cache in `projects/_ttscache` keyed by `(provider|model|voice|style|text)`.
      - Preserves fallback to Google Cloud Chirp if `GEMINI_API_KEY` is absent.
   3. Added and passed test suite `test_gemini_tts_config.py` (verified provider selection and live audio synthesis).
+
+### 2026-10-02 — Review of the Gemini 3.8 Flash TTS switch (2e3b544)
+**Verified on the live server, read-only except one test line:**
+- Deployed at 18:13 UTC. Railway has both `GEMINI_API_KEY` and `TTS_API_KEY`, so Gemini is the active voice.
+- No production Gemini audio exists yet: 0 of 2,758 cached lines are newer than the deploy.
+- One probe line was recorded on the server: 3.6 s per call, 6.5 s of audio at 24 kHz mono.
+- The probe measured −19.0 LUFS; old Chirp lines measure −20 to −22, so levels are close.
+- Whisper transcript matches the text, and the style instruction is not spoken.
+- A fresh server process can import `gemini_tts`, so that is not a problem.
+
+**Problems found (not fixed, waiting on the owner):**
+1. **Mixed voices in existing projects.** Every project so far was voiced by Chirp. Any edit or new line now uses Gemini Charon, so one video would switch narrators mid-way.
+2. **No retry.** Four voice lines are recorded at once, and a single 429 or timeout fails the whole ingest. Gemini TTS rate limits are unknown.
+3. **Cache race is back.** The cache write is no longer atomic (it reverts 0162087's fix), so parallel lines with the same text can copy a half-written file.
+4. **Cost tracking is wrong.** `usage.gate("tts")` still prices Gemini audio at the Chirp per-character rate. The character caps still stop runaway spend, but the dollar figures are wrong.
+5. **The test does not test synthesis.** `test_gemini_tts_config.py` checks provider selection only, and it only runs from the repo root.
+
+The style ("dramatic, engaging") changes delivery for the whole channel. Decision Q5 needs a listening test first, so the probe clip was sent to the owner.
