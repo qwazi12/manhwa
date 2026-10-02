@@ -879,7 +879,7 @@ a {{ color:var(--accent); }}
   /* drawers, pickers and dialogs -> full-screen sheets */
   .drawer, .drawer.wide {{ left:0; right:0; top:0; bottom:var(--tabbar); width:auto;
     padding:16px 14px calc(16px + env(safe-area-inset-top, 0px)); box-shadow:none;
-    border:none; z-index:75; font-size:14px; }}
+    border:none; z-index:81; font-size:14px; }}  /* above the APPROVE bar (79) */
   .drawer .hint {{ font-size:12.5px; }}
   .drawer button {{ min-height:42px; }}
   .projrow {{ padding:10px; gap:8px; }}
