@@ -791,7 +791,7 @@ def promote(pdir, progress=None, tts=True):
         for i, b in enumerate(beats):
             out = os.path.join(audio_dir, f"beat_{b['index']:03d}.mp3")
             if not os.path.exists(out):
-                srv._synth_rest(b["text"], out)
+                srv._synth_rest(b["text"], out, engine=__import__("gemini_tts").engine_for_project(os.path.dirname(audio_dir)))
             d = _audio_len(out)
             b["start"], b["end"] = round(t, 3), round(t + d, 3)
             nxt = beats[i + 1] if i + 1 < len(beats) else None

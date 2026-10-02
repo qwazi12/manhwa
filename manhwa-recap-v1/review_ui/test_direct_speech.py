@@ -144,7 +144,7 @@ def main():
     check("the SDK path voices the same speakable text", tts._clean_for_tts('"Run," she said.') == "Run, she said.")
     src = open(os.path.join(HERE, "server.py")).read()
     check("the REST TTS path applies speakable before the cache key",
-          src.index("speech_text.speakable(text)") < src.index('ck = hashlib.sha1(f"{_TTS_VOICE}|{text}"'))
+          src.index("speech_text.speakable(text)") < src.index("ck = hashlib.sha1("))
 
     # ------------------------------------------------------ segmentation
     beats = [b["text"] for b in BS.segment_beats('He ran for the gate. "Go!" She followed him out.')]

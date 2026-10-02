@@ -746,7 +746,7 @@ def run_lab(url, splitter="claude", model=None, progress=None, job_id="lab",
             for i, b in enumerate(beats):
                 out = os.path.join(audio, f"beat_{b['index']:03d}.mp3")
                 if not os.path.exists(out):
-                    srv._synth_rest(b["text"], out)
+                    srv._synth_rest(b["text"], out, engine=__import__("gemini_tts").engine_for_project(os.path.dirname(audio)))
                 d = CP._audio_len(out)
                 b["start"], b["end"] = round(t, 3), round(t + d, 3)
                 nxt = beats[i + 1] if i + 1 < len(beats) else None

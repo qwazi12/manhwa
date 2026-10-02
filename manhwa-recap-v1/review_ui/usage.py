@@ -253,6 +253,32 @@ GEMINI_TOKEN_PRICES_PER_1M = [
                          _price("PRICE_FLASH_OUT_PER_1M", 2.50)),
 ]
 
+# Gemini TTS: Google's PUBLISHED paid-tier rates (ai.google.dev pricing,
+# read 2026-10-02): text in $0.50/1M, audio out $9.00/1M (Flash) or $6.00/1M
+# (Flash-Lite), audio billed at 25 tokens per second. These rates DOUBLE on
+# 2027-01-01 ($1.00 / $18.00 / $12.00) — set the env vars then.
+GEMINI_TTS_PRICES_PER_1M = [
+    ("gemini-3.8-flash-lite-tts", _price("PRICE_TTS_IN_PER_1M", 0.50),
+                                  _price("PRICE_TTS_LITE_OUT_PER_1M", 6.00)),
+    ("gemini-3.8-flash-tts", _price("PRICE_TTS_IN_PER_1M", 0.50),
+                             _price("PRICE_TTS_OUT_PER_1M", 9.00)),
+]
+TTS_AUDIO_TOKENS_PER_SEC = 25
+TTS_CHARS_PER_SEC = 12.0     # measured: 80 chars -> 6.5 s of Charon
+
+
+def _gemini_tts_rates(model):
+    for prefix, rin, rout in GEMINI_TTS_PRICES_PER_1M:
+        if (model or "").startswith(prefix):
+            return rin, rout
+    return GEMINI_TTS_PRICES_PER_1M[-1][1], GEMINI_TTS_PRICES_PER_1M[-1][2]
+
+
+def gemini_tts_cost(model, prompt_tokens, audio_tokens):
+    rin, rout = _gemini_tts_rates(model)
+    return (prompt_tokens / 1e6) * rin + (audio_tokens / 1e6) * rout
+
+
 # Claude rates, unlike the Gemini block above, are Anthropic's PUBLISHED list
 # prices per million tokens (Opus 5 $5/$25, Sonnet 5 $3/$15, Haiku 4.5 $1/$5),
 # not placeholders — rate_card() reports that difference so the UI can stop
@@ -367,6 +393,10 @@ def _est_cost(kind, units, model=""):
         return units * _gemini_call_cost(model)
     if kind == "claude":
         return units * EST_COST_PER_CLAUDE_CALL_USD
+    if kind == "tts" and (model or "").startswith("gemini"):
+        # Before the call: estimate the audio from the text length.
+        secs = units / TTS_CHARS_PER_SEC
+        return gemini_tts_cost(model, units / 4.0, secs * TTS_AUDIO_TOKENS_PER_SEC)
     return units / 1000.0 * EST_COST_PER_TTS_1K_CHARS_USD
 
 
@@ -421,6 +451,9 @@ def gate(kind, units, model=""):
     # them. TTS is already exact (it is billed per character).
     if kind in ("gemini", "claude") and meter.reported:
         est_cost = token_cost(model, meter.prompt_tokens, meter.output_tokens)
+    # Gemini TTS: priced from the audio actually returned (25 tokens/s).
+    if kind == "tts" and (model or "").startswith("gemini") and meter.reported:
+        est_cost = gemini_tts_cost(model, meter.prompt_tokens, meter.output_tokens)
 
     with _flock():
         d = _load_counts()

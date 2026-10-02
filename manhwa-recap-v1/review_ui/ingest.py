@@ -197,7 +197,10 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         progress("scrape", "fresh=1 — clearing derived artifacts…", 2)
         for f in ("script.txt", "script.json", "direct_speech.json",
                   "segments.json", "review.json",
-                  "storyboard.json", "edits.log.jsonl", "beatsheet.json"):
+                  "storyboard.json", "edits.log.jsonl", "beatsheet.json",
+                  # every line is re-recorded, so the chapter takes the
+                  # current narration voice instead of its old pin
+                  "tts.json"):
             try:
                 os.remove(os.path.join(proj, f))
             except FileNotFoundError:
@@ -421,6 +424,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     # 5. voice (TTS each beat via REST; recompute timeline) --------------
     progress("voice", f"Synthesizing {len(beats)} beats (TTS)…", 72)
     import server as srv  # reuse the REST TTS helper (certifi CA, no SDK)
+    import gemini_tts
+    voice_engine = gemini_tts.engine_for_project(proj)   # pinned per project
     # Record the lines several at a time (each call is still usage-gated);
     # the timeline below then reads the finished files in story order.
     # TTS_WORKERS=1 restores one-at-a-time.
@@ -431,7 +436,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         from concurrent.futures import ThreadPoolExecutor, as_completed
         n_w = max(1, int(os.environ.get("TTS_WORKERS", "4")))
         with ThreadPoolExecutor(max_workers=n_w) as ex:
-            futs = [ex.submit(srv._synth_rest, b["text"], out) for b, out in todo]
+            futs = [ex.submit(srv._synth_rest, b["text"], out, engine=voice_engine)
+                    for b, out in todo]
             for k, fut in enumerate(as_completed(futs), 1):
                 fut.result()      # first failure (incl. a usage cap) stops the job
                 if k % 10 == 0:
@@ -444,7 +450,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         else:
             out = os.path.join(audio, f"beat_{b['index']:03d}.mp3")
             if not os.path.exists(out):
-                srv._synth_rest(b["text"], out)
+                srv._synth_rest(b["text"], out, engine=voice_engine)
             d = _dur(out)
         b["start"], b["end"] = round(t, 3), round(t + d, 3)
         # E3: scene-aware rhythm — a longer breath at scene boundaries,

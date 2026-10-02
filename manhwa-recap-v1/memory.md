@@ -7794,3 +7794,23 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
 5. **The test does not test synthesis.** `test_gemini_tts_config.py` checks provider selection only, and it only runs from the repo root.
 
 The style ("dramatic, engaging") changes delivery for the whole channel. Decision Q5 needs a listening test first, so the probe clip was sent to the owner.
+
+### 2026-10-02 — Gemini Charon wired in properly for every new chapter
+The owner chose to keep Gemini 3.8 Flash TTS going forward ("fix the wiring so we can use the new/updated Charon going forward").
+
+**Fixes on top of 2e3b544:**
+1. **Voice pinned per project (`gemini_tts.engine_for_project`, `tts.json`):**
+   - A project already voiced keeps the legacy Chirp Charon, so edits never mix narrators.
+   - New projects get Gemini Charon.
+   - A fresh re-ingest drops the pin (every line is re-recorded), so it takes the current voice.
+   - All callers pass the project's voice: ingest, the claude_lab and claude_pipeline paths, and edit narration (active project).
+2. **Retries:** Gemini TTS retries 429, 5xx and timeouts with bounded exponential backoff and jitter (`TTS_RETRIES` = 4). A 400 is not retried.
+3. **Cache write is atomic again** for both voices.
+4. **Chirp cache key restored** to its original form (voice|text). 2e3b544 had changed it, which would have re-billed all 2,758 recorded Chirp lines.
+5. **Real pricing:**
+   - `usage.py` has Google's published Gemini TTS rates: $0.50/1M text in, $9/1M audio out (Flash) or $6/1M (Flash-Lite), audio at 25 tokens/s. These double on 2027-01-01.
+   - Each line is estimated from its text before the call, then billed from the actual audio length.
+   - The character caps are unchanged.
+6. **Tests:**
+   - `test_gemini_tts_config.py` rewritten: 22/22, mocked (pinning, request shape, retry, transcode, cache key, metering, pricing). It now runs from its own directory.
+   - `test_direct_speech` assertion updated for the new key line (stale since 2e3b544); 45/45.
