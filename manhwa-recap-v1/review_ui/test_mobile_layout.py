@@ -19,19 +19,41 @@ def main():
 
     phone = sb.index("PHONE\n   Last in the sheet")
     end = sb.index("</style>", phone)
-    for base in (".drawer {{ position:fixed", "th, td {{ border:", "#rail {{ position:fixed",
-                 "td.img {{ width: 185px"):
+    for base in (".drawer {{ position:fixed", "th, td {{ border:", "td.img {{ width: 185px"):
         check("board phone rules come after the base rule %r" % base[:18],
               base in sb and sb.index(base) < phone)
     block = sb[phone:end]
-    for need in ("#rail {{", "#approveBtn {{", ".drawer, .drawer.wide {{",
+    for need in ("@media (max-width: 760px)", "#approveBtn {{", ".drawer, .drawer.wide {{",
                  "grid-template-areas", "font-size:16px"):
         check("board phone block sets %s" % need.strip("{ "), need in block)
 
     check("review page has a viewport meta", 'name="viewport"' in rp)
-    rphone = rp.index("/* PHONE")
-    check("review phone rules come after the base .nav rule",
-          rp.index(".nav { position:fixed") < rphone < rp.index("</style>__HEADJS__"))
+    check("review phone rules sit at the end of its sheet",
+          rp.index("/* PHONE") < rp.index("</style>__HEADJS__"))
+
+    # The Scrapper-style navigation, shared by both pages
+    import theme
+    check("one shared sidebar: both pages render theme.sidebar_html",
+          "theme.sidebar_html(" in sb and "theme.sidebar_html(" in rp)
+    check("both pages load the sidebar CSS and JS",
+          "theme.SIDE_CSS" in sb and "theme.SIDE_JS" in sb
+          and "theme.SIDE_CSS" in rp and "theme.SIDE_JS" in rp)
+    check("phones get a slide-out menu, not a bottom tab bar",
+          "translateX(-100%)" in theme.SIDE_CSS and "side-open" in theme.SIDE_CSS
+          and "--tabbar: calc(62px" not in sb and "rail -> bottom tab bar" not in sb)
+    html_b = theme.sidebar_html(theme.nav_items("board", "89/104 in video"))
+    check("board items open panels in place (toggleDrawer) and keep data-d",
+          "toggleDrawer(&#x27;ingest&#x27;)" in html_b and 'data-d="logs"' in html_b)
+    html_r = theme.sidebar_html(theme.nav_items("review"))
+    check("review items link back to the board's panels",
+          'href="/storyboard?open=ingest"' in html_r)
+    check("the active page is marked", 'navbtn navitem active' in html_b
+          and html_r.count("navitem active") == 1)
+    check("the theme toggle lives in the sidebar footer", 'id="themebtn"' in html_b)
+    check("the menu button exists for phones", 'onclick="sideOpen()"' in html_b)
+    check("sidebar width drives the page and panel offsets",
+          "margin: 0 0 0 var(--side-w)" in sb and "left:var(--side-w)" in sb
+          and "margin-left:var(--side-w)" in rp)
 
     for page, src in (("board", sb), ("review", rp)):
         check(page + " links the web app manifest", 'rel="manifest"' in src)

@@ -496,10 +496,10 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
    tokens; re-theming is editing this block, not hunting 169 literals.
    color-scheme:dark also makes native checkboxes, scrollbars and date pickers
    render dark, which CSS alone cannot do. */
-{theme.TOKENS_CSS}{theme.CONTROLS_CSS}
-body {{ font-family: -apple-system, Helvetica, sans-serif; margin: 0 0 0 64px; background:var(--bg); color:var(--ink); }}
-header {{ position: sticky; top:0; z-index:5; background:var(--panel); color:var(--ink); padding:10px 18px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--rule); }}
-header .stat b {{ display:block; font-size:15px; color:var(--ink); }} header .stat {{ font-size:11px; color:var(--ink3); }}
+{theme.TOKENS_CSS}{theme.CONTROLS_CSS}{theme.SIDE_CSS}
+body {{ font-family: -apple-system, Helvetica, sans-serif; margin: 0 0 0 var(--side-w); background:var(--bg); transition:margin-left .2s; color:var(--ink); }}
+header {{ position: sticky; top:0; z-index:5; background:var(--top-bg); color:var(--ink); padding:10px 18px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--rule); }}
+header .stat b {{ display:block; font-size:16px; font-weight:700; color:var(--ink); line-height:1.1; text-transform:none; letter-spacing:normal; }} header .stat {{ font-size:10px; color:var(--ink3); text-transform:uppercase; letter-spacing:.5px; }}
 .usage {{ font-size:11px; color:var(--ok); line-height:1.5; }}
 #approveBtn {{ margin-left:auto; background:var(--cta); border:1px solid var(--cta);
   color:var(--cta-ink); padding:11px 18px; border-radius:8px; font-weight:800;
@@ -514,16 +514,7 @@ header .stat b {{ display:block; font-size:15px; color:var(--ink); }} header .st
 #renderbar {{ height:8px; background:var(--ok); border-radius:4px; width:0%; min-width:2px; transition:width .5s;
   box-shadow:0 0 8px rgba(57,192,127,.6); }}
 #rendertxt {{ color:var(--ok); white-space:nowrap; }}
-/* ---- left rail (ported from legacy UI) ---- */
-#rail {{ position:fixed; left:0; top:0; bottom:0; width:64px; background:var(--panel); border-right:1px solid var(--rule); display:flex; flex-direction:column; align-items:center; gap:6px; padding-top:12px; z-index:20; }}
-.navbtn {{ width:52px; height:56px; border:0; background:transparent; border-radius:9px; display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center; color:var(--ink3); font-size:10px; cursor:pointer; }}
-.navbtn .ic {{ font-size:19px; line-height:1; }}
-.navbtn:hover, .navbtn.active {{ background:var(--panel2); color:var(--accent); }}
-/* The rail does not retract. It used to auto-hide to a sliver and slide back
-   out on hover; that was removed at the owner's request (2026-09-13). It is
-   simply always here, at a fixed 64px, which is why body keeps a matching
-   64px left margin. */
-{theme.rail_css('#rail')}
+/* ---- navigation: the shared Scrapper-style sidebar (theme.SIDE_CSS) ---- */
 /* ---- validation badges + findings ---- */
 .vbadge {{ display:inline-block; margin-top:4px; padding:1px 6px; border-radius:9px;
   font-size:10px; font-weight:700; cursor:pointer; border:1px solid transparent; }}
@@ -624,7 +615,7 @@ tr.vflag-low td.n {{ box-shadow:inset 3px 0 0 var(--rule); }}
 @keyframes vspin {{ to {{ transform:rotate(360deg); }} }}
 /* The rail button carries the same state, so a run is visible with the drawer
    shut — otherwise you have to open Check to find out Check is busy. */
-.navbtn .vdot {{ position:absolute; margin:-22px 0 0 22px; width:8px; height:8px;
+.navbtn .vdot {{ position:absolute; left:28px; top:8px; margin:0; width:8px; height:8px;
   border-radius:50%; background:var(--accent); box-shadow:0 0 0 2px var(--panel);
   animation:vpulse 1.2s infinite; }}
 .navbtn .vdot.error {{ background:var(--bad); animation:none; }}
@@ -697,7 +688,9 @@ tr.vfocus td {{ background:var(--sa-bg) !important; transition:background .3s; }
 .tside .th {{ font-size:9.5px; text-transform:uppercase; letter-spacing:.5px;
   color:var(--ink3); margin-bottom:2px; }}
 /* ---- drawers ---- */
-.drawer {{ position:fixed; left:64px; top:86px; bottom:0; width:360px; background:var(--panel); color:var(--ink); border-right:1px solid var(--rule); z-index:70; padding:16px; overflow-y:auto; display:none; font-size:13px; box-shadow:4px 0 18px rgba(0,0,0,.5); }}
+.drawer {{ position:fixed; left:var(--side-w); top:86px; bottom:0; width:360px; background:var(--panel); color:var(--ink); border-right:1px solid var(--rule); z-index:70; padding:16px; overflow-y:auto; display:none; font-size:13px; box-shadow:4px 0 18px rgba(0,0,0,.5); }}
+.drawerclose {{ position:sticky; top:0; float:right; margin:-4px -4px 0 8px; z-index:2;
+  padding:6px 11px; font-size:14px; line-height:1; box-shadow:none; }}
 .drawer h3 {{ font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink3); margin:0 0 10px; }}
 .drawer .hint {{ color:var(--ink3); font-size:11px; }}
 .drawer input.field {{ width:100%; background:var(--panel2); border:1px solid var(--rule); border-radius:7px; color:var(--ink); padding:8px; font:inherit; margin:10px 0; }}
@@ -788,28 +781,17 @@ a {{ color:var(--accent); }}
 #busy {{ position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--panel2); color:var(--ink); border:1px solid var(--rule); padding:8px 16px; border-radius:8px; display:none; z-index:40; font-size:12px; }}
 /* ================================================================ PHONE
    Last in the sheet on purpose, so it wins over every base rule above with
-   the same specificity. Phones and portrait tablets (<=820px) get:
-   - the rail as a bottom tab bar (thumb reach, no horizontal space stolen)
+   the same specificity. Phones (<=760px, the Scrapper studio's breakpoint) get:
+   - the sidebar as a slide-out menu behind a ☰ in a slim top bar (theme.SIDE_CSS)
    - the header as a swipeable stat strip, not a sticky wall of numbers
    - APPROVE as a full-width bar pinned above the tabs
    - each panel row as a card: image beside its narration, timing below
    - drawers and dialogs as full-screen sheets
    - 40px+ touch targets and 16px inputs (iOS zooms anything smaller) */
-@media (max-width: 820px) {{
-  :root {{ --tabbar: calc(62px + env(safe-area-inset-bottom, 0px)); }}
-  body {{ margin:0; padding-bottom:calc(var(--tabbar) + 64px);
+@media (max-width: 760px) {{
+  :root {{ --tabbar: env(safe-area-inset-bottom, 0px); }}
+  body {{ margin:0; padding-bottom:calc(var(--tabbar) + 76px);
           -webkit-text-size-adjust:100%; }}
-
-  /* rail -> bottom tab bar */
-  #rail {{ top:auto; bottom:0; left:0; right:0; width:auto; height:var(--tabbar);
-           flex-direction:row; align-items:flex-start; gap:0; padding:3px 4px env(safe-area-inset-bottom, 0px);
-           border-right:none; border-top:1px solid var(--rule);
-           overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;
-           scrollbar-width:none; z-index:80; }}
-  #rail::-webkit-scrollbar {{ display:none; }}
-  #rail .navbtn {{ flex:1 0 54px; width:auto; height:56px; font-size:10px; gap:3px; text-decoration:none; }}
-  #rail .navbtn .ic {{ font-size:20px; }}
-  #themebtn {{ margin:0; }}
 
   /* header -> one swipeable strip of stats and tools */
   header {{ position:static; flex-wrap:nowrap; overflow-x:auto; gap:14px;
@@ -820,7 +802,7 @@ a {{ color:var(--accent); }}
   #approveBtn {{ position:fixed; left:10px; right:10px; bottom:calc(var(--tabbar) + 8px);
                  margin:0; z-index:79; padding:12px; font-size:14px; border-radius:12px; }}
 
-  #pipebar {{ top:0; overflow-x:auto; white-space:nowrap; gap:14px; padding:8px 12px;
+  #pipebar {{ position:static; overflow-x:auto; white-space:nowrap; gap:14px; padding:8px 12px;
               scrollbar-width:none; }}
   #pipebar::-webkit-scrollbar {{ display:none; }}
   #pipebar > * {{ flex:0 0 auto; }}
@@ -877,9 +859,9 @@ a {{ color:var(--accent); }}
   .acts button {{ flex:1 1 auto; min-height:42px; font-size:13px; padding:6px 10px; }}
 
   /* drawers, pickers and dialogs -> full-screen sheets */
-  .drawer, .drawer.wide {{ left:0; right:0; top:0; bottom:var(--tabbar); width:auto;
-    padding:16px 14px calc(16px + env(safe-area-inset-top, 0px)); box-shadow:none;
-    border:none; z-index:81; font-size:14px; }}  /* above the APPROVE bar (79) */
+  .drawer, .drawer.wide {{ left:0; right:0; top:0; bottom:0; width:auto;
+    padding:calc(14px + env(safe-area-inset-top, 0px)) 14px calc(16px + env(safe-area-inset-bottom, 0px));
+    box-shadow:none; border:none; z-index:120; font-size:14px; }}  /* above the APPROVE bar (79) and top bar (100) */
   .drawer .hint {{ font-size:12.5px; }}
   .drawer button {{ min-height:42px; }}
   .projrow {{ padding:10px; gap:8px; }}
@@ -899,17 +881,8 @@ a {{ color:var(--accent); }}
   tr {{ grid-template-columns:92px minmax(0,1fr); }}
   td.img img {{ max-height:180px; }}
 }}
-</style>{theme.HEAD_THEME_JS}</head><body>
-<div id="rail">
-  <button class="navbtn" data-d="ingest" onclick="toggleDrawer('ingest')"><span class="ic">🔗</span>Ingest</button>
-  <button class="navbtn active" title="Storyboard" onclick="location.reload()"><span class="ic">🎬</span>Board</button>
-  <button class="navbtn" data-d="validate" onclick="toggleDrawer('validate')"><span class="ic">🛡</span>Check</button>
-  <button class="navbtn" data-d="exports" onclick="toggleDrawer('exports')"><span class="ic">📤</span>Exports</button>
-  <a class="navbtn" href="/review" title="watch and rule on a rendered export"><span class="ic">📺</span>Review</a>
-  <button class="navbtn" data-d="projects" onclick="toggleDrawer('projects')"><span class="ic">📚</span>Projects</button>
-  <button class="navbtn" data-d="tracker" onclick="toggleDrawer('tracker')"><span class="ic">📡</span>Tracker</button>
-  <button class="navbtn" data-d="logs" onclick="toggleDrawer('logs')"><span class="ic">📋</span>Logs</button>
-  <button class="navbtn" data-d="work" onclick="toggleDrawer('work')" title="Everything that has been changed in the system, newest first, with its evidence"><span class="ic">🗒</span>Work</button>
+</style>{theme.HEAD_THEME_JS}{theme.HEAD_SIDE_JS}</head><body>
+{theme.sidebar_html(theme.nav_items('board', f"{n_included}/{n_segs} in video"), foot_rows=[("Spend today", "~$%.2f" % u.get("est_cost_usd", 0)), ("All-time", "~$%.2f" % all_c)])}
   <!-- ARCHIVED 2026-09-23. Both features graduated into Ingest: the Claude
        engine is now an engine choice, and the background-registration
        splitter is the production split path. The drawers and their routes
@@ -918,8 +891,6 @@ a {{ color:var(--accent); }}
   <button class="navbtn navtest" data-d="test" onclick="toggleDrawer('test')"><span class="ic">🧪</span>TEST</button>
   <button class="navbtn" data-d="split" onclick="toggleDrawer('split')"><span class="ic">✂️</span>Split</button>
   -->
-  {theme.RAIL_BUTTONS_HTML}
-</div>
 <div class="drawer" id="d_ingest">
   <h3>Ingest a chapter</h3>
   <div class="hint">Paste a chapter URL — it runs the whole pipeline
@@ -1190,10 +1161,18 @@ entirely — its audio file is kept, so re-adding the same sentence is free.</p>
 <button onclick="editDlg.close()">Cancel</button></p></dialog>
 <script>document.querySelectorAll('input[data-partial]').forEach(function(c){{c.indeterminate=true;}});</script>
 <script>
+// Every slide-out panel gets a close button (on a phone a panel fills the
+// screen, so there has to be a way out that is not the menu).
+document.querySelectorAll('.drawer').forEach(function (d) {{
+  var b = document.createElement('button');
+  b.className = 'drawerclose'; b.type = 'button'; b.title = 'Close'; b.textContent = '✕';
+  b.onclick = function () {{ toggleDrawer(d.id.slice(2)); }};
+  d.insertBefore(b, d.firstChild);
+}});
 // Phone: the legend, bubble text and AI description are clamped to a few
 // lines; a tap opens them. Desktop shows them in full, so this does nothing.
 document.addEventListener('click', function (e) {{
-  if (!window.matchMedia('(max-width: 820px)').matches) return;
+  if (!window.matchMedia('(max-width: 760px)').matches) return;
   var el = e.target.closest && e.target.closest('p.meta, td.ocr, td.vis');
   if (el && !e.target.closest('a, button, input')) el.classList.toggle('open');
 }});
@@ -1579,6 +1558,7 @@ setInterval(refreshUsage, 15000);
 
 /* ---- drawers: ingest / projects / logs (ported from legacy UI) ---- */
 {theme.SHARED_JS}
+{theme.SIDE_JS}
 
 function toggleDrawer(name) {{
   for (const d of ['ingest','projects','tracker','validate','logs','work','exports','test','split']) {{

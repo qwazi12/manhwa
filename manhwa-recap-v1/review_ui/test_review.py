@@ -201,12 +201,13 @@ def main():
         import re as _r
         # The rail is the first .nav / #rail block; a label can sit on a
         # <button> or an <a>, so match the label text rather than the tag.
-        start = html.find('id="rail"')
-        if start < 0:
-            start = html.find('class="nav"')
-        block = html[start:start + 3000]
-        return [m for m in _r.findall(
-            r'</span>([A-Za-z]+)</(?:button|a)>', block) if m in WORKFLOW]
+        # The shared sidebar (theme.sidebar_html) labels each item in a
+        # <span class="tt">; "Review & Publish" is the Review step.
+        start = html.find('class="side"')
+        block = html[start:start + 8000]
+        names = [m.split(" &amp;")[0].split(" &")[0]
+                 for m in _r.findall(r'class="tt">([^<]+)</span>', block)]
+        return [m for m in names if m in WORKFLOW]
 
     r.append(("the board's rail is in workflow order",
               rail_order(bhtml) == WORKFLOW))

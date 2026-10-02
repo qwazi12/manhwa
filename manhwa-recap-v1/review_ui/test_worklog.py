@@ -98,7 +98,8 @@ def main():
           "before the refinement pass" in sb._built_with({"split_coverage": {"panels": 3}}))
     src = open(os.path.join(HERE, "storyboard.py")).read()
     check("the Work drawer is in the UI and loads the log",
-          'data-d="work"' in src and "loadWork()" in src and "/api/worklog" in src)
+          'd="work"' in open(os.path.join(HERE, "theme.py")).read()
+          and "loadWork()" in src and "/api/worklog" in src)
 
     for name, ok in R:
         print(("PASS " if ok else "FAIL ") + name)

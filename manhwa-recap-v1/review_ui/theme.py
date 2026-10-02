@@ -22,39 +22,47 @@ and deliberately bordered in light, so a control always reads as a control.
 TOKENS_CSS = """
 :root {
   color-scheme: dark;
-  --bg:#0b0e14; --panel:#141824; --panel2:#1b2130; --rule:#2e3648;
-  --ink:#f2f4fa; --ink2:#c3cbdb; --ink3:#8e97ad;
-  /* Signal colours. Deliberately vivid: the previous set sat so close to the
-     panel that a primary action was indistinguishable from a label. */
-  --accent:#4cc9ff; --ok:#2be08a; --warn:#ffb224; --bad:#ff5470;
+  /* Dark palette taken from the Scrapper studio (2026-10-02, owner: "design
+     like that"): deep neutral greys, GREEN for primary actions, BLUE for
+     links and selection. The earlier neon-cyan set is retired. */
+  --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --rule:#2a2f3a;
+  --ink:#e6e9ef; --ink2:#b9c0cd; --ink3:#8b93a3;
+  --accent:#4a9eff; --ok:#3ecf7c; --warn:#e5b567; --bad:#ff5c5c;
   --ai:#c07cff;
-  /* CTAs are FILLED with the signal colour and carry dark ink, which is what
-     makes them read as buttons at a glance instead of as bordered text. */
-  --cta:#00d5ff;      --cta-ink:#04222b;   --cta-hover:#5ce4ff;
-  --cta2:#273044;     --cta2-ink:#e9eefc;  --cta2-hover:#323d55;
-  --ai-cta:#b463ff;   --ai-ink:#1b0733;    --ai-hover:#c88bff;
-  --ok-cta:#2be08a;   --ok-cta-ink:#02261a;
-  --bad-cta:#ff5470;  --bad-cta-ink:#2b0510;
-  --sel:#00d5ff;                      /* active selection */
-  --applied:#2be08a;                  /* a value that has been applied */
-  --glow:0 0 0 1px rgba(0,213,255,.35), 0 4px 18px -4px rgba(0,213,255,.55);
-  --glow-ai:0 0 0 1px rgba(180,99,255,.35), 0 4px 18px -4px rgba(180,99,255,.55);
-  --btn:#232c3d; --btn-hover:#2d3850; --btn-edge:#47536e; --btn-ink:#f2f4fa;
-  --focus:#8fe4ff; --shadow:rgba(0,0,0,.5);
-  --accent-ink:#04222b;
-  --sa-bg:#10243f;    --sa-ink:#8ecbff;
-  --fold-bg:#2e2712;  --fold-ink:#ffd98a;
-  --omit-bg:#36171f;  --omit-ink:#ffa8b6;
-  --gray-bg:#1e2433;  --gray-ink:#9aa3b8;
-  --seg-bg:#151b27;   --seg-rule:#2b3446;
-  --okb-bg:#0f3326;   --okb-ink:#6bf0b3;
-  --warnb-bg:#38290f; --warnb-ink:#ffd07a;
-  --badb-bg:#3a1420;  --badb-ink:#ffabb9;
-  --tall-bg:#261c40;  --tall-ink:#d0b4ff;
-  --tight-bg:#3c2210; --tight-ink:#ffbc85;
+  --cta:#3ecf7c;      --cta-ink:#06210f;   --cta-hover:#46e089;
+  --cta2:#232833;     --cta2-ink:#e6e9ef;  --cta2-hover:#2c333f;
+  --ai-cta:#a56bff;   --ai-ink:#16052b;    --ai-hover:#b788ff;
+  --ok-cta:#1f7a48;   --ok-cta-ink:#e8fff1;
+  --bad-cta:#ff5c5c;  --bad-cta-ink:#2b0505;
+  --sel:#4a9eff;
+  --applied:#3ecf7c;
+  --glow:none;
+  --glow-ai:0 0 0 1px rgba(165,107,255,.30);
+  --btn:#232833; --btn-hover:#2c333f; --btn-edge:#333a47; --btn-ink:#e6e9ef;
+  --focus:#4a9eff; --shadow:rgba(0,0,0,.35);
+  --accent-ink:#04121f;
+  --sa-bg:#132235;    --sa-ink:#8ec2ff;
+  --fold-bg:#2b2414;  --fold-ink:#e5c98a;
+  --omit-bg:#311a1d;  --omit-ink:#ff9e9e;
+  --gray-bg:#1b1f27;  --gray-ink:#9aa2b2;
+  --seg-bg:#14171d;   --seg-rule:#2a2f3a;
+  --okb-bg:#10291c;   --okb-ink:#6fe3a4;
+  --warnb-bg:#2e2615; --warnb-ink:#ecc98a;
+  --badb-bg:#33191b;  --badb-ink:#ffa3a3;
+  --tall-bg:#241c38;  --tall-ink:#cdb4ff;
+  --tight-bg:#33220f; --tight-ink:#f0b98a;
+  /* sidebar + top bar surfaces */
+  --side-bg:#0c0e14; --side-foot:#080a0e; --top-bg:#0b0d11;
+  --nav-ink:#94a3b8; --nav-on-bg:#1e293b; --nav-on-edge:#334155; --nav-on-ink:#ffffff;
+  --badge-ok-bg:#064e3b; --badge-warn-bg:#78350f; --badge-warn-ink:#fbbf24;
+  --badge-muted-bg:#1e293b;
 }
 :root[data-theme="light"] {
   color-scheme: light;
+  --side-bg:#ffffff; --side-foot:#f2f5fa; --top-bg:#ffffff;
+  --nav-ink:#475569; --nav-on-bg:#e8eef8; --nav-on-edge:#c2cbdb; --nav-on-ink:#0f1420;
+  --badge-ok-bg:#d6f5e5; --badge-warn-bg:#fbeed0; --badge-warn-ink:#6d4a00;
+  --badge-muted-bg:#e7ebf3;
   --bg:#f2f5fa; --panel:#ffffff; --panel2:#e9edf5; --rule:#c2cbdb;
   --ink:#0f1420; --ink2:#414b5e; --ink3:#5b6478;
   /* Light mode keeps the vividness by SATURATING rather than brightening:
@@ -228,3 +236,211 @@ function toggleTheme() {
 }
 applyTheme();
 """
+
+
+# ---------------------------------------------------------------- sidebar
+# The Scrapper studio's navigation, shared by every page (owner, 2026-10-02:
+# "take notes from the scrapper web design and mobile friendliness"):
+#   desktop  — a 280px sidebar: brand, items with title + subtitle + badge,
+#              a footer with live status; "←" collapses it to 76px icons and
+#              the choice is remembered.
+#   phones   — (<760px) the sidebar slides in from the left behind a "☰" in a
+#              slim top bar, over a dimmed backdrop; every page gets the full
+#              width. This replaced the bottom tab bar.
+# Pages place their content beside it with margin-left: var(--side-w).
+SIDE_CSS = """
+:root { --side-w:280px; }
+html[data-side="collapsed"] { --side-w:76px; }
+.side { position:fixed; left:0; top:0; bottom:0; width:var(--side-w); z-index:200;
+  background:var(--side-bg); border-right:1px solid var(--rule);
+  display:flex; flex-direction:column;
+  transition:width .2s cubic-bezier(.4,0,.2,1), transform .2s ease; }
+.side-brand { display:flex; align-items:center; justify-content:space-between;
+  gap:8px; padding:18px 18px 16px; border-bottom:1px solid var(--rule); }
+.side-brand .bn { display:flex; align-items:center; gap:8px; }
+.side-brand .bi { font-size:18px; }
+.side-brand .bt { font-weight:800; font-size:16px; letter-spacing:-.02em; color:var(--ink); }
+.side-brand .bp { font-size:10px; font-weight:700; color:var(--ok); background:var(--badge-ok-bg);
+  padding:2px 6px; border-radius:8px; letter-spacing:.05em; }
+.side-brand .bs { font-size:11px; color:var(--ink3); margin-top:2px; }
+.side-collapse { padding:5px 9px; background:transparent; border:1px solid var(--rule);
+  color:var(--ink3); border-radius:6px; box-shadow:none; font-weight:400; line-height:1; }
+.side-nav { flex:1; overflow-y:auto; overflow-x:hidden; padding:14px 10px; display:flex; flex-direction:column; gap:5px; }
+.navitem { position:relative; display:flex; align-items:center; gap:12px; width:100%;
+  padding:10px 14px; border-radius:8px; border:1px solid transparent; background:transparent;
+  color:var(--nav-ink); text-align:left; text-decoration:none; box-shadow:none;
+  font-weight:500; cursor:pointer; transition:background .15s, color .15s; }
+.navitem:hover:not(:disabled) { background:var(--nav-on-bg); border-color:transparent; color:var(--ink); }
+.navitem.active { background:var(--nav-on-bg); border-color:var(--nav-on-edge); color:var(--nav-on-ink); }
+.navitem.active::before { content:""; position:absolute; left:-1px; top:9px; bottom:9px; width:3px;
+  border-radius:2px; background:var(--ok); }
+.navitem .ic { font-size:18px; line-height:1; flex-shrink:0; width:22px; text-align:center; }
+.navitem .tx { flex:1; min-width:0; display:flex; flex-direction:column; }
+.navitem .tr { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+.navitem .tt { font-size:13px; }
+.navitem.active .tt { font-weight:700; }
+.navitem .st { font-size:11px; color:var(--ink3); margin-top:1px; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }
+.navitem .bd { font-size:10px; font-weight:700; padding:1px 6px; border-radius:10px; white-space:nowrap;
+  color:var(--ink3); background:var(--badge-muted-bg); }
+.navitem .bd.ok { color:var(--ok); background:var(--badge-ok-bg); }
+.navitem .bd.warn { color:var(--badge-warn-ink); background:var(--badge-warn-bg); }
+.navitem .vdot { position:absolute; left:28px; top:8px; margin:0; }
+.side-foot { border-top:1px solid var(--rule); background:var(--side-foot); padding:14px 16px;
+  font-size:11px; display:flex; flex-direction:column; gap:9px; }
+.side-foot .fr { display:flex; justify-content:space-between; align-items:center; gap:8px; color:var(--ink3); }
+.side-foot .fv { color:var(--ink); font-weight:600; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.side-foot .live { color:var(--ok); }
+.side-foot #themebtn { padding:4px 9px; font-size:11px; font-weight:600; box-shadow:none;
+  display:inline-flex; gap:5px; align-items:center; width:auto; height:auto; }
+.side-foot #themebtn .ic { font-size:12px; }
+/* collapsed: icons only */
+html[data-side="collapsed"] .side-brand { justify-content:center; padding:18px 8px 16px; flex-direction:column; }
+html[data-side="collapsed"] .side-brand .bn > :not(.bi),
+html[data-side="collapsed"] .side-brand .bs,
+html[data-side="collapsed"] .navitem .tx,
+html[data-side="collapsed"] .side-foot .fr:not(.keep) { display:none; }
+html[data-side="collapsed"] .navitem { justify-content:center; padding:12px 0; }
+html[data-side="collapsed"] .side-foot { align-items:center; padding:12px 6px; }
+html[data-side="collapsed"] .side-foot .fr.keep { flex-direction:column; gap:8px; }
+html[data-side="collapsed"] .side-foot .live { font-size:0; }
+html[data-side="collapsed"] .side-foot .live::first-letter { font-size:13px; }
+html[data-side="collapsed"] #themelbl { display:none; }
+/* phone top bar + backdrop (hidden on desktop) */
+.mtop { display:none; }
+.side-backdrop { display:none; }
+@media (max-width:760px) {
+  html:root, html[data-side] { --side-w:0px; }
+  .side { width:280px; transform:translateX(-100%); }
+  html.side-open .side { transform:none; box-shadow:0 0 40px rgba(0,0,0,.6); }
+  html.side-open .side-backdrop { display:block; position:fixed; inset:0; z-index:150;
+    background:rgba(0,0,0,.55); }
+  /* inside the open drawer always show the full labels */
+  html[data-side="collapsed"] .side .navitem .tx,
+  html[data-side="collapsed"] .side-brand .bn > :not(.bi),
+  html[data-side="collapsed"] .side-brand .bs,
+  html[data-side="collapsed"] .side-foot .fr { display:flex; }
+  html[data-side="collapsed"] .side-brand .bs { display:block; }
+  html[data-side="collapsed"] .navitem { justify-content:flex-start; padding:10px 14px; }
+  html[data-side="collapsed"] .side-brand { flex-direction:row; justify-content:space-between; padding:18px 18px 16px; }
+  .mtop { display:flex; position:sticky; top:0; z-index:100; align-items:center; gap:10px;
+    padding:calc(8px + env(safe-area-inset-top, 0px)) 10px 8px; background:var(--top-bg);
+    border-bottom:1px solid var(--rule); }
+  .mtop .menu { font-size:20px; padding:4px 12px; line-height:1; min-height:38px; }
+  .mtop .mt { font-weight:700; font-size:15px; color:var(--ink); }
+  .mtop .ms { margin-left:auto; font-size:11px; color:var(--ok); white-space:nowrap; }
+  .navitem { min-height:52px; }
+}
+"""
+
+# Before paint: restore the collapsed choice (default collapsed on narrow
+# desktops, where 280px would crowd the board) so the sidebar never jumps.
+HEAD_SIDE_JS = (
+    '<script>(function(){try{var s=localStorage.getItem("side");'
+    'if(!s&&innerWidth<1100&&innerWidth>=760)s="collapsed";'
+    'if(s==="collapsed")document.documentElement.setAttribute("data-side","collapsed");'
+    '}catch(e){}})();</script>'
+)
+
+SIDE_JS = """
+function sideIsPhone() { return window.matchMedia('(max-width: 760px)').matches; }
+function sideOpen() { document.documentElement.classList.add('side-open'); }
+function sideClose() { document.documentElement.classList.remove('side-open'); }
+function sideToggle() {
+  if (sideIsPhone()) { sideClose(); return; }
+  var h = document.documentElement, c = h.getAttribute('data-side') === 'collapsed';
+  if (c) h.removeAttribute('data-side'); else h.setAttribute('data-side', 'collapsed');
+  try { localStorage.setItem('side', c ? 'open' : 'collapsed'); } catch (e) {}
+  var b = document.querySelector('.side-collapse');
+  if (b) { b.textContent = c ? '\\u2190' : '\\u2192'; b.title = c ? 'Collapse sidebar' : 'Expand sidebar'; }
+}
+(function () {
+  var b = document.querySelector('.side-collapse');
+  if (b && document.documentElement.getAttribute('data-side') === 'collapsed') {
+    b.textContent = '\\u2192'; b.title = 'Expand sidebar';
+  }
+  // On a phone, choosing anything in the menu closes it.
+  document.addEventListener('click', function (e) {
+    if (sideIsPhone() && e.target.closest && e.target.closest('.side .navitem')) sideClose();
+  });
+})();
+"""
+
+
+def _esc(s):
+    import html as _h
+    return _h.escape(str(s), quote=True)
+
+
+def sidebar_html(items, foot_rows=(), status="● live"):
+    """items: dicts with icon, title, sub, and either href or onclick
+    (+ optional d=drawer name, badge, badge_kind 'ok'|'warn'|'', active,
+    title_attr). foot_rows: (label, value) pairs for the footer."""
+    out = ['<div class="side-backdrop" onclick="sideClose()"></div>',
+           '<div class="mtop"><button class="menu" onclick="sideOpen()" '
+           'aria-label="Open menu">☰</button><div class="mt">🎬 Recap Studio</div>'
+           f'<span class="ms">{_esc(status)}</span></div>',
+           '<aside class="side" id="rail">',
+           '<div class="side-brand"><div><div class="bn"><span class="bi">🎬</span>'
+           '<span class="bt">Recap</span><span class="bp">STUDIO</span></div>'
+           '<div class="bs">Manhwa recap pipeline</div></div>'
+           '<button class="side-collapse" onclick="sideToggle()" '
+           'title="Collapse sidebar">←</button></div>',
+           '<nav class="side-nav">']
+    for it in items:
+        cls = "navbtn navitem" + (" active" if it.get("active") else "")
+        attrs = f' class="{cls}"'
+        if it.get("d"):
+            attrs += f' data-d="{_esc(it["d"])}"'
+        if it.get("title_attr"):
+            attrs += f' title="{_esc(it["title_attr"])}"'
+        badge = ""
+        if it.get("badge") not in (None, ""):
+            badge = (f'<span class="bd {_esc(it.get("badge_kind", ""))}">'
+                     f'{_esc(it["badge"])}</span>')
+        inner = (f'<span class="ic">{it["icon"]}</span><span class="tx">'
+                 f'<span class="tr"><span class="tt">{_esc(it["title"])}</span>{badge}</span>'
+                 f'<span class="st">{_esc(it.get("sub", ""))}</span></span>')
+        if it.get("href"):
+            out.append(f'<a href="{_esc(it["href"])}"{attrs}>{inner}</a>')
+        else:
+            out.append(f'<button onclick="{_esc(it.get("onclick", ""))}"{attrs}>{inner}</button>')
+    out.append('</nav><div class="side-foot">')
+    for label, value in foot_rows:
+        out.append(f'<div class="fr"><span>{_esc(label)}</span>'
+                   f'<span class="fv">{_esc(value)}</span></div>')
+    out.append(f'<div class="fr keep"><span class="live">{_esc(status)}</span>'
+               f'{RAIL_BUTTONS_HTML}</div></div></aside>')
+    return "".join(out)
+
+
+# The pages that list the app's sections, in one place so both pages agree.
+def nav_items(page, board_badge=None):
+    """page: 'board' or 'review'. On the board, panels open in place; from
+    /review they link back to the board with ?open=<panel>."""
+    def item(icon, title, sub, d=None, **kw):
+        if page == "board" and d:
+            kw.setdefault("onclick", f"toggleDrawer('{d}')")
+            kw["d"] = d
+        elif d:
+            kw.setdefault("href", f"/storyboard?open={d}")
+        return dict(icon=icon, title=title, sub=sub, **kw)
+    board = dict(icon="🎬", title="Board", sub="Script, panels & timing",
+                 active=(page == "board"), badge=board_badge, badge_kind="ok")
+    if page == "board":
+        board["onclick"] = "location.reload()"
+    else:
+        board["href"] = "/storyboard"
+    return [
+        item("🔗", "Ingest", "Paste a chapter link", d="ingest"),
+        board,
+        item("🛡", "Check", "Story mistakes", d="validate"),
+        item("📤", "Exports", "Finished videos", d="exports"),
+        dict(icon="📺", title="Review & Publish", sub="Approve, then post",
+             href="/review", active=(page == "review")),
+        item("📚", "Projects", "Every chapter", d="projects"),
+        item("📡", "Tracker", "Series & new chapters", d="tracker"),
+        item("📋", "Logs", "Jobs & progress", d="logs"),
+        item("🗒", "Work", "What changed recently", d="work",
+             title_attr="Everything that has been changed in the system, newest first, with its evidence"),
+    ]

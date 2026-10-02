@@ -36,24 +36,8 @@ a { color:var(--accent); }
 header { display:flex; gap:16px; align-items:center; padding:12px 20px;
   border-bottom:1px solid var(--rule); background:var(--panel); flex-wrap:wrap; }
 header h1 { font-size:15px; margin:0; font-weight:700; letter-spacing:-.01em; }
-.nav { position:fixed; left:0; top:0; bottom:0; width:64px; background:var(--panel);
-  border-right:1px solid var(--rule); display:flex; flex-direction:column; gap:4px;
-  align-items:center; padding:10px 0; z-index:20; }
-.navbtn { width:52px; height:56px; border:0; background:transparent; border-radius:9px;
-  display:flex; flex-direction:column; gap:4px; align-items:center; justify-content:center;
-  color:var(--ink3); font-size:10px; cursor:pointer; text-decoration:none; box-shadow:none; }
-.navbtn .ic { font-size:19px; line-height:1; }
-.navbtn:hover, .navbtn.active { background:var(--panel2); color:var(--accent); border-color:transparent; }
-/* Retractable rail — same behaviour and same localStorage key as the board, so
-   the sidebar is not a per-page habit. Retracted it is a 14px sliver; hover or
-   keyboard focus slides it back over the content rather than reflowing it. */
-__RAIL__
-.shell { margin-left:64px; }
-@media (max-width:700px) {
-  .nav { position:static; width:auto; flex-direction:row; bottom:auto;
-         border-right:0; border-bottom:1px solid var(--rule); overflow-x:auto; }
-  .shell { margin-left:0; }
-}
+.shell { margin-left:var(--side-w); transition:margin-left .2s; }
+header { background:var(--top-bg); }
 .back { font-size:12.5px; text-decoration:none; font-weight:600; padding:7px 13px;
   border-radius:6px; background:var(--panel2); border:1px solid var(--rule); color:var(--ink);
   white-space:nowrap; }
@@ -186,20 +170,10 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 .qc ul { margin:6px 0 0; padding-left:18px; }
 .actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:11px; }
 .empty { padding:40px 20px; text-align:center; color:var(--ink3); }
-/* PHONE — last in the sheet so it wins. Same bottom tab bar as the board,
-   so moving between the two pages feels like one app. */
-@media (max-width:820px) {
-  :root { --tabbar: calc(62px + env(safe-area-inset-bottom, 0px)); }
-  .nav { position:fixed; top:auto; bottom:0; left:0; right:0; width:auto;
-         height:var(--tabbar); flex-direction:row; align-items:flex-start; gap:0;
-         padding:3px 4px env(safe-area-inset-bottom, 0px); border-right:0;
-         border-bottom:0; border-top:1px solid var(--rule); overflow-x:auto;
-         overflow-y:hidden; scrollbar-width:none; z-index:80; }
-  .nav::-webkit-scrollbar { display:none; }
-  .nav .navbtn { flex:1 0 54px; width:auto; height:56px; gap:3px; }
-  .nav .navbtn .ic { font-size:20px; }
-  #themebtn { margin:0; }
-  .shell { margin-left:0; padding-bottom:calc(var(--tabbar) + 12px); }
+/* PHONE — last in the sheet so it wins. Same slide-out menu (theme.SIDE_CSS)
+   and 760px breakpoint as the board and the Scrapper studio. */
+@media (max-width:760px) {
+  .shell { margin-left:0; padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px)); }
   header { padding:10px 12px; gap:10px; }
   #picker { max-width:100%; width:100%; }
   .wrap { padding:10px; gap:12px; }
@@ -209,17 +183,7 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
   .actions button { flex:1 1 auto; }
 }
 </style>__HEADJS__</head><body>
-<div class="nav">
-  <a class="navbtn" href="/storyboard?open=ingest"><span class="ic">🔗</span>Ingest</a>
-  <a class="navbtn" href="/storyboard" title="Storyboard"><span class="ic">🎬</span>Board</a>
-  <a class="navbtn" href="/storyboard?open=validate"><span class="ic">🛡</span>Check</a>
-  <a class="navbtn" href="/storyboard?open=exports"><span class="ic">📤</span>Exports</a>
-  <a class="navbtn active" href="/review"><span class="ic">📺</span>Review</a>
-  <a class="navbtn" href="/storyboard?open=projects"><span class="ic">📚</span>Projects</a>
-  <a class="navbtn" href="/storyboard?open=tracker"><span class="ic">📡</span>Tracker</a>
-  <a class="navbtn" href="/storyboard?open=logs"><span class="ic">📋</span>Logs</a>
-  __RAILBTNS__
-</div>
+__SIDEBAR__
 <div class="shell">
 <header>
   <h1>📺 Review</h1>
@@ -1248,8 +1212,8 @@ def build_review_html(pdir=None):
     """
     return (_PAGE
             .replace("__TOKENS__", theme.TOKENS_CSS)
-            .replace("__CONTROLS__", theme.CONTROLS_CSS)
-            .replace("__RAIL__", theme.rail_css(".nav", guard="(min-width:701px)"))
-            .replace("__HEADJS__", theme.HEAD_THEME_JS)
-            .replace("__RAILBTNS__", theme.RAIL_BUTTONS_HTML)
-            .replace("__SHAREDJS__", theme.SHARED_JS))
+            .replace("__CONTROLS__", theme.CONTROLS_CSS + theme.SIDE_CSS)
+            .replace("__RAIL__", "")
+            .replace("__HEADJS__", theme.HEAD_THEME_JS + theme.HEAD_SIDE_JS)
+            .replace("__SIDEBAR__", theme.sidebar_html(theme.nav_items("review")))
+            .replace("__SHAREDJS__", theme.SHARED_JS + theme.SIDE_JS))

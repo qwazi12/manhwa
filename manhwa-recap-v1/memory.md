@@ -7815,3 +7815,38 @@ The owner chose to keep Gemini 3.8 Flash TTS going forward ("fix the wiring so w
    - `test_gemini_tts_config.py` rewritten: 22/22, mocked (pinning, request shape, retry, transcode, cache key, metering, pricing). It now runs from its own directory.
    - `test_direct_speech` assertion updated for the new key line (stale since 2e3b544); 45/45.
 - Live check after 9f148ab deployed (18:47 UTC): v5 resolves to Chirp and is now pinned ('voiced before the Gemini switch'); a new chapter resolves to gemini-3.8-flash-tts Charon. One real line was recorded through server._synth_rest: 4.4 s, 7.2 s of audio. The usage log billed it from real tokens (290 in, 178 audio, metered=true) at $0.001747, which matches the rate card.
+
+### 2026-10-02 — UI redesigned after the Scrapper studio (scrapper.nodepilot.dev)
+**Owner request:** "take notes from the scrapper web design and mobile friendliness, design like that — the one we currently have isn't up to standard."
+
+**Studied:**
+- The qwazi12/scrapper frontend: `page.tsx` NavButton, StatusBar, Panel and Metric; `globals.css`.
+- The live site at desktop width and at 390px.
+
+**Adopted:**
+- **Palette (`theme.TOKENS_CSS`, dark):**
+  - Scrapper greys: bg #0f1115, panel #171a21, panel2 #1e222b, border #2a2f3a, text #e6e9ef, muted #8b93a3.
+  - GREEN #3ecf7c for primary actions, BLUE #4a9eff for links and selection.
+  - Neon cyan and glows retired. The light theme is unchanged apart from the new sidebar tokens.
+- **Navigation (shared `theme.sidebar_html` + `SIDE_CSS` + `SIDE_JS`, used by both pages):**
+  - 280px sidebar: brand with a STUDIO pill; items with title, subtitle and badge (the board shows "N/M in video"); a green bar on the active item.
+  - The footer shows spend today and all-time (board), "● live" and the theme toggle.
+  - "←" collapses it to 76px icons. The choice is remembered, and narrow desktops (<1100px) start collapsed.
+  - Phones (<760px, Scrapper's breakpoint) get a slim top bar (☰, Recap Studio, ● live). The sidebar slides in over a dimmed backdrop and closes when an item is picked.
+  - This replaced the bottom tab bar from a59cbac.
+- **Board:**
+  - Scrapper-style metrics in the header: 16px number over a 10px uppercase label.
+  - Panels sit beside the sidebar (`left: var(--side-w)`).
+  - Every panel has a ✕ close button; on phones panels are full-screen.
+  - The approve bar is still pinned at the bottom on phones.
+- **Review:** the same sidebar; `.shell` is offset by `--side-w`.
+- **Kept working:**
+  - `toggleDrawer`, `data-d` and `.navbtn` hooks, `?open=` from /review, `#themebtn`, and the Check running dot.
+  - The archived TEST/Split entries comment stays after the sidebar.
+
+**Tests:**
+- `test_mobile_layout` 28/28 (new: shared sidebar, slide-out not tab bar, active item, offsets).
+- `test_review` 81/81 and `test_worklog` 21/21 were updated to read the new labels.
+- `test_edge_routes` 47/47.
+
+**Checked:** the local server (`swordmasters-youngest-son_1`) at desktop width (expanded and collapsed) and at 390px (menu open, panel full-screen, ✕ closes). Live check after deploy is below.
