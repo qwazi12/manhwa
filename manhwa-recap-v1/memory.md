@@ -7814,3 +7814,4 @@ The owner chose to keep Gemini 3.8 Flash TTS going forward ("fix the wiring so w
 6. **Tests:**
    - `test_gemini_tts_config.py` rewritten: 22/22, mocked (pinning, request shape, retry, transcode, cache key, metering, pricing). It now runs from its own directory.
    - `test_direct_speech` assertion updated for the new key line (stale since 2e3b544); 45/45.
+- Live check after 9f148ab deployed (18:47 UTC): v5 resolves to Chirp and is now pinned ('voiced before the Gemini switch'); a new chapter resolves to gemini-3.8-flash-tts Charon. One real line was recorded through server._synth_rest: 4.4 s, 7.2 s of audio. The usage log billed it from real tokens (290 in, 178 audio, metered=true) at $0.001747, which matches the rate card.
