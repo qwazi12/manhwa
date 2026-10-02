@@ -7762,3 +7762,17 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
 **Not checked:** a real iPhone, specifically whether Basic Auth survives "Add to Home Screen" standalone mode.
 - Follow-up: an open drawer sat under the pinned APPROVE bar on phones. Drawer z-index raised above it (81 > 79). Verified live at 390px: Ingest drawer, review page and board cards; manifest and icon return 200 through manhwa.nodepilot.dev.
 - 2026-10-02: the separate "Manhwa Recap Studio — SOP" doc no longer exists (deleted outside this session). The Manhwa Recap Handbook is now the single guide.
+
+## Session 32 — Google Gemini 3.8 Flash TTS Integration (Native Interactions API)
+- **Objective:** Upgrade voice generation from legacy Google Cloud Chirp 3 HD to Google's new **Gemini 3.8 Flash TTS** (`gemini-3.8-flash-tts`), taking advantage of native `speech_metadata` turn-level emotion/intonations, point-in-time inline tags (`<short pause>`, `<gasp>`, `<sigh>`), and shared `GEMINI_API_KEY` authentication without additional vendor subscriptions.
+- **Implementation:**
+  1. Created `gemini_tts.py`:
+     - Calls `https://generativelanguage.googleapis.com/v1beta/interactions?key={GEMINI_API_KEY}`.
+     - Supports `gemini-3.8-flash-tts` (and `gemini-3.8-flash-lite-tts`).
+     - Emits 24kHz audio with `speech_metadata: {"style": ...}` and lossless FFmpeg transcode to 192k MP3 for timeline and segment rendering.
+     - Configurable via `TTS_MODEL` (default: `gemini-3.8-flash-tts`), `TTS_VOICE` (default: `Charon`), and `TTS_STYLE` (default: `dramatic, engaging manhwa recap narrator`).
+  2. Updated `server.py` (`_synth_rest`):
+     - Uses Gemini 3.8 Flash TTS as the default voice synthesis engine powered by the existing `GEMINI_API_KEY`.
+     - Maintains atomic content-hash cache in `projects/_ttscache` keyed by `(provider|model|voice|style|text)`.
+     - Preserves fallback to Google Cloud Chirp if `GEMINI_API_KEY` is absent.
+  3. Added and passed test suite `test_gemini_tts_config.py` (verified provider selection and live audio synthesis).

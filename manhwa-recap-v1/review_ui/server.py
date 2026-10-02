@@ -2477,33 +2477,57 @@ def _tts_key():
     return None
 
 
-_TTS_VOICE = "en-US-Chirp3-HD-Charon"
+_TTS_VOICE = "Charon"
 _TTS_CACHE_DIR = os.path.join(HERE, "projects", "_ttscache")
 
 
-def _synth_rest(text, out_path):
-    """Synthesize one beat to MP3 via the Chirp REST endpoint + API key,
-    using certifi's CA bundle (avoids the hanging google-cloud SDK import).
+def _synth_rest(text, out_path, style=None):
+    """Synthesize one beat to MP3 via Gemini 3.8 Flash TTS (or Chirp fallback),
+    using certifi's CA bundle.
 
-    E2: results are cached by hash(voice+text) in projects/_ttscache — a
-    script edit re-synthesizes ONLY the sentences that actually changed
-    (beat-index filenames shift on any insertion; the content hash doesn't),
+    E2: results are cached by hash(engine+voice+style+text) in projects/_ttscache —
+    a script edit re-synthesizes ONLY the sentences that actually changed,
     and identical text across re-ingests costs zero TTS chars."""
     import base64, hashlib, shutil, ssl, urllib.request
     import speech_text
-    # What the narrator SAYS: no quotation marks, harsher profanity softened
-    # (docs/craft_reconciliation.md §7g, owner decision Q4). Done before the
-    # cache key, so a quote-only change to the script costs no new TTS.
+    import gemini_tts
+
+    # Clean speakable form (remove harsh profanity, quotation marks)
     text = speech_text.speakable(text)
     os.makedirs(_TTS_CACHE_DIR, exist_ok=True)
-    ck = hashlib.sha1(f"{_TTS_VOICE}|{text}".encode()).hexdigest()
+
+    engine_cfg = gemini_tts.get_tts_engine_config()
+    provider = engine_cfg.get("provider", "gemini")
+    voice = engine_cfg.get("voice", _TTS_VOICE)
+    model = engine_cfg.get("model", "gemini-3.8-flash-tts")
+    chosen_style = style if style is not None else engine_cfg.get("style", "")
+
+    ck = hashlib.sha1(f"{provider}|{model}|{voice}|{chosen_style}|{text}".encode()).hexdigest()
     cached = os.path.join(_TTS_CACHE_DIR, f"{ck}.mp3")
     if os.path.exists(cached) and os.path.getsize(cached) > 0:
         shutil.copyfile(cached, out_path)
         return
+
+    # 1. Primary: Gemini 3.8 Flash TTS (using GEMINI_API_KEY)
+    if provider == "gemini":
+        with usage.gate("tts", len(text), model=model):
+            gemini_tts.synth_gemini_tts(
+                text=text,
+                out_path=out_path,
+                cfg=engine_cfg,
+                style=chosen_style,
+                voice=voice
+            )
+        try:
+            shutil.copyfile(out_path, cached)
+        except OSError:
+            pass
+        return
+
+    # 2. Legacy fallback: Google Cloud Chirp TTS (using TTS_API_KEY)
     key = _tts_key()
     if not key:
-        raise RuntimeError("TTS_API_KEY not set (checked env var and local .env)")
+        raise RuntimeError("Neither GEMINI_API_KEY nor TTS_API_KEY is configured")
     try:
         import certifi
         ctx = ssl.create_default_context(cafile=certifi.where())
@@ -2524,9 +2548,7 @@ def _synth_rest(text, out_path):
         audio = _call()
     with open(out_path, "wb") as f:
         f.write(audio)
-    try:  # populate the content-hash cache (best effort). Atomic: voice
-        # lines are synthesized in parallel, and another thread may be
-        # copying this same cache file at this moment.
+    try:
         tmp = "%s.%d.%d.tmp" % (cached, os.getpid(), threading.get_ident())
         with open(tmp, "wb") as f:
             f.write(audio)
