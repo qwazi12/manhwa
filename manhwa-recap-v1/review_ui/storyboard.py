@@ -496,7 +496,7 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
    tokens; re-theming is editing this block, not hunting 169 literals.
    color-scheme:dark also makes native checkboxes, scrollbars and date pickers
    render dark, which CSS alone cannot do. */
-{theme.TOKENS_CSS}{theme.CONTROLS_CSS}{theme.SIDE_CSS}
+{theme.TOKENS_CSS}{theme.CONTROLS_CSS}{theme.SIDE_CSS}{theme.PANEL_CSS}{theme.JOBS_CSS}
 body {{ font-family: -apple-system, Helvetica, sans-serif; margin: 0 0 0 var(--side-w); background:var(--bg); transition:margin-left .2s; color:var(--ink); }}
 header {{ position: sticky; top:0; z-index:5; background:var(--top-bg); color:var(--ink); padding:10px 18px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--rule); }}
 header .stat b {{ display:block; font-size:16px; font-weight:700; color:var(--ink); line-height:1.1; text-transform:none; letter-spacing:normal; }} header .stat {{ font-size:10px; color:var(--ink3); text-transform:uppercase; letter-spacing:.5px; }}
@@ -689,8 +689,6 @@ tr.vfocus td {{ background:var(--sa-bg) !important; transition:background .3s; }
   color:var(--ink3); margin-bottom:2px; }}
 /* ---- drawers ---- */
 .drawer {{ position:fixed; left:var(--side-w); top:86px; bottom:0; width:360px; background:var(--panel); color:var(--ink); border-right:1px solid var(--rule); z-index:70; padding:16px; overflow-y:auto; display:none; font-size:13px; box-shadow:4px 0 18px rgba(0,0,0,.5); }}
-.drawerclose {{ position:sticky; top:0; float:right; margin:-4px -4px 0 8px; z-index:2;
-  padding:6px 11px; font-size:14px; line-height:1; box-shadow:none; }}
 .drawer h3 {{ font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink3); margin:0 0 10px; }}
 .drawer .hint {{ color:var(--ink3); font-size:11px; }}
 .drawer input.field {{ width:100%; background:var(--panel2); border:1px solid var(--rule); border-radius:7px; color:var(--ink); padding:8px; font:inherit; margin:10px 0; }}
@@ -779,6 +777,25 @@ textarea, input[type=text], input[type=number], select {{ background:var(--panel
 textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; padding:6px; }}
 a {{ color:var(--accent); }}
 #busy {{ position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--panel2); color:var(--ink); border:1px solid var(--rule); padding:8px 16px; border-radius:8px; display:none; z-index:40; font-size:12px; }}
+/* ---- sections are PAGES (Scrapper logic), not overlays ----
+   The section containers keep their old ids (d_ingest, d_logs…) so every
+   loader still finds its elements; they simply render in the main area as a
+   titled card, one at a time, and the board page hides while one is open. */
+.drawer, .drawer.wide {{ position:static; left:auto; top:auto; bottom:auto; width:auto;
+  margin:16px 24px; padding:0 16px 16px; background:var(--panel); color:var(--ink);
+  border:1px solid var(--rule); border-radius:10px; box-shadow:none; overflow:visible;
+  z-index:auto; font-size:13px; }}
+.drawer > h3:first-of-type {{ margin:0 -16px 14px; padding:11px 16px; background:var(--panel2);
+  border-bottom:1px solid var(--rule); font-size:12px; letter-spacing:.8px; color:var(--ink3); }}
+.drawer .hint {{ font-size:12px; }}
+body.not-board #v_board {{ display:none; }}
+/* off the board, the status bar shows the chapter's numbers only (as the
+   Scrapper's StatusBar does); the board's tools stay on the board page */
+body.not-board header button, body.not-board header label {{ display:none !important; }}
+.jobsbar {{ margin:12px 24px 0; }}
+.wrap {{ padding:16px 24px; }}
+.boardpanel table {{ border-style:hidden; }}
+#sentback {{ margin:12px 24px 0 !important; }}
 /* ================================================================ PHONE
    Last in the sheet on purpose, so it wins over every base rule above with
    the same specificity. Phones (<=760px, the Scrapper studio's breakpoint) get:
@@ -809,11 +826,10 @@ a {{ color:var(--accent); }}
   #renderprog {{ min-width:220px; }}
 
   .wrap {{ padding:10px 8px; }}
-  h1 {{ font-size:16px; line-height:1.3; }}
-  /* the long legend: three lines, tap to read it all */
-  p.meta {{ display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
-            overflow:hidden; cursor:pointer; }}
-  p.meta.open {{ display:block; }}
+  .boardpanel {{ background:transparent; border:none; overflow:visible; }}
+  .boardpanel > .panel-h {{ border:1px solid var(--rule); border-radius:10px 10px 0 0; }}
+  details.legend {{ background:var(--panel); border:1px solid var(--rule); border-top:none;
+                    border-radius:0 0 10px 10px; margin-bottom:12px; }}
 
   /* table -> one card per panel */
   table, tbody, tr, td {{ display:block; width:auto; }}
@@ -859,9 +875,12 @@ a {{ color:var(--accent); }}
   .acts button {{ flex:1 1 auto; min-height:42px; font-size:13px; padding:6px 10px; }}
 
   /* drawers, pickers and dialogs -> full-screen sheets */
-  .drawer, .drawer.wide {{ left:0; right:0; top:0; bottom:0; width:auto;
-    padding:calc(14px + env(safe-area-inset-top, 0px)) 14px calc(16px + env(safe-area-inset-bottom, 0px));
-    box-shadow:none; border:none; z-index:120; font-size:14px; }}  /* above the APPROVE bar (79) and top bar (100) */
+  .drawer, .drawer.wide {{ margin:10px 8px; padding:0 12px 14px; font-size:14px; }}
+  .drawer > h3:first-of-type {{ margin:0 -12px 12px; padding:11px 12px; }}
+  body.not-board header {{ display:none; }}
+  body.not-board {{ padding-bottom:calc(var(--tabbar) + 16px); }}
+  .jobsbar {{ margin:10px 8px 0; }}
+  #sentback {{ margin:10px 8px 0 !important; }}
   .drawer .hint {{ font-size:12.5px; }}
   .drawer button {{ min-height:42px; }}
   .projrow {{ padding:10px; gap:8px; }}
@@ -1119,6 +1138,15 @@ a {{ color:var(--accent); }}
   <button id="approveBtn" class="{'on' if approved else ''}" onclick="toggleApproval()">
     {'✔ APPROVED — click to re-render &amp; re-export' if approved else 'APPROVE PROJECT FOR RENDER'}</button>
 </header>
+<div id="jobsbar" class="jobsbar"></div>
+<div id="views"></div>
+<script>
+// Section pages live in the main column, under the status bar and jobs bar.
+document.querySelectorAll('.drawer').forEach(function (d) {{
+  document.getElementById('views').appendChild(d);
+}});
+</script>
+<section id="v_board">
 <div id="sentback" style="display:none;margin:0 14px 10px;padding:11px 14px;border-radius:8px;
   background:var(--warnb-bg);border-left:3px solid var(--warn);color:var(--warnb-ink);font-size:13px"></div>
 {_built_with(meta)}
@@ -1138,7 +1166,9 @@ a {{ color:var(--accent); }}
     <button id="renderstop" class="danger mini" onclick="stopRender()" title="stop after the clip currently rendering">⏹ Stop</button></div>
 </div>
 <div class="wrap">
-<h1>{html.escape(title)} — combined: all {len(descs)} panels · story placement · render timing ({n_included} of {len(segs)} segments in the video, {_mmss(video_total)})</h1>
+<section class="panel boardpanel">
+<div class="panel-h"><h2>Storyboard — {len(descs)} panels · {n_included} of {len(segs)} segments in the video · {_mmss(video_total)}</h2></div>
+<details class="legend"><summary>How to read this board</summary>
 <p class="meta">Left half: system OCR/description and where each extracted panel lands in the script
 (<b style="color:var(--sa-ink)">blue</b> carries narration unit ¶N on screen · <b style="color:var(--fold-ink)">yellow</b> folded — its
 story is told in ¶N while another panel holds the screen · <b style="color:var(--omit-ink)">red</b> LEFT OUT, with the junk
@@ -1147,10 +1177,12 @@ final video (folded panels get a slice of their unit's window; script-less panel
 segment's on-screen duration, "cut" buttons move the boundary between neighbours (narration audio slices seamlessly
 if a cut lands mid-sentence ✂), ⠿ drag a seg card onto ANOTHER ROW to play that narration over that panel (shift-drop also moves it there in the story; card-on-card still reorders), ✚ adds a new narrated line (TTS). 🗑 rejects a segment (takes it OUT of the final video; ✅ puts it back — nothing is deleted). Badges: ⚠ hold &gt;12s ·
 📜 tall strip (scroll-pan) · 🔇 silent hold · ✅/🗑 review status. Approving the project unlocks bulk rendering.</p>
+</details>
 <table>
 <tr><th>#</th><th>Panel</th><th>System OCR</th><th>System description</th><th>Script placement</th><th>On-screen timing &amp; motion</th></tr>
 {''.join(rows)}
-</table></div>
+</table></section></div>
+</section>
 <div id="cands" onclick="this.style.display='none'"><div class="inner" onclick="event.stopPropagation()"><h3>Pick replacement panel</h3><div id="candList"></div></div></div>
 <dialog id="editDlg"><h3>Edit narration</h3>
 <p class="hint">One box per spoken line. Edit the text and Save to re-voice just
@@ -1161,19 +1193,11 @@ entirely — its audio file is kept, so re-adding the same sentence is free.</p>
 <button onclick="editDlg.close()">Cancel</button></p></dialog>
 <script>document.querySelectorAll('input[data-partial]').forEach(function(c){{c.indeterminate=true;}});</script>
 <script>
-// Every slide-out panel gets a close button (on a phone a panel fills the
-// screen, so there has to be a way out that is not the menu).
-document.querySelectorAll('.drawer').forEach(function (d) {{
-  var b = document.createElement('button');
-  b.className = 'drawerclose'; b.type = 'button'; b.title = 'Close'; b.textContent = '✕';
-  b.onclick = function () {{ toggleDrawer(d.id.slice(2)); }};
-  d.insertBefore(b, d.firstChild);
-}});
 // Phone: the legend, bubble text and AI description are clamped to a few
 // lines; a tap opens them. Desktop shows them in full, so this does nothing.
 document.addEventListener('click', function (e) {{
   if (!window.matchMedia('(max-width: 760px)').matches) return;
-  var el = e.target.closest && e.target.closest('p.meta, td.ocr, td.vis');
+  var el = e.target.closest && e.target.closest('td.ocr, td.vis');
   if (el && !e.target.closest('a, button, input')) el.classList.toggle('open');
 }});
 </script>
@@ -1559,15 +1583,31 @@ setInterval(refreshUsage, 15000);
 /* ---- drawers: ingest / projects / logs (ported from legacy UI) ---- */
 {theme.SHARED_JS}
 {theme.SIDE_JS}
+{theme.JOBS_JS}
 
+/* Each sidebar section is a PAGE, the Scrapper studio's logic: choosing one
+   switches the main area to it, the sidebar (or ☰ on a phone) is how you
+   move on, and the browser's Back button returns. Nothing slides over the
+   board and nothing needs closing. 'board' is the storyboard page itself. */
+let CURRENT_VIEW = 'board', _viewFromHistory = false;
+const VIEWS = ['ingest','projects','tracker','validate','logs','work','exports','test','split'];
 function toggleDrawer(name) {{
-  for (const d of ['ingest','projects','tracker','validate','logs','work','exports','test','split']) {{
+  if (VIEWS.indexOf(name) < 0) name = 'board';
+  CURRENT_VIEW = name;
+  for (const d of VIEWS) {{
     const el = document.getElementById('d_' + d);
     const btn = document.querySelector(`.navbtn[data-d="${{d}}"]`);
-    const show = d === name && el.style.display !== 'block';
-    el.style.display = show ? 'block' : 'none';
-    if (btn) btn.classList.toggle('active', show);
+    if (el) el.style.display = d === name ? 'block' : 'none';
+    if (btn) btn.classList.toggle('active', d === name);
   }}
+  const bb = document.querySelector('.navitem[data-v="board"]');
+  if (bb) bb.classList.toggle('active', name === 'board');
+  document.body.classList.toggle('not-board', name !== 'board');
+  if (!_viewFromHistory) {{
+    const url = location.pathname + location.search + (name === 'board' ? '' : '#' + name);
+    if (url !== location.pathname + location.search + location.hash) history.pushState({{v: name}}, '', url);
+  }}
+  window.scrollTo(0, 0);
   if (name === 'projects') loadProjects();
   if (name === 'tracker') trkTab('watch');   // planning first; 'New chapters' is a click away
   if (name === 'logs') loadLogs();
@@ -1578,6 +1618,18 @@ function toggleDrawer(name) {{
   if (name === 'split') loadSplit();
   if (name === 'ingest') {{ paintIngest(); if (activeJob()) startIngestPoller(); }}
 }}
+function showView(name) {{ toggleDrawer(name); }}
+window.addEventListener('popstate', function () {{
+  _viewFromHistory = true;
+  try {{ toggleDrawer((location.hash || '').slice(1) || 'board'); }} finally {{ _viewFromHistory = false; }}
+}});
+(function () {{
+  var h = (location.hash || '').slice(1);
+  if (h && VIEWS.indexOf(h) >= 0) setTimeout(function () {{
+    _viewFromHistory = true;
+    try {{ toggleDrawer(h); }} finally {{ _viewFromHistory = false; }}
+  }}, 60);
+}})();
 /* Arriving from another page with ?open=<drawer> should land on that drawer,
    so the rail behaves the same wherever you clicked it.
 
@@ -1694,6 +1746,7 @@ const V_RANK = {{ high: 0, medium: 1, low: 2 }};
 function vJumpTo(pid) {{
   const tr = document.getElementById('row_' + pid);
   if (!tr) return;
+  if (CURRENT_VIEW !== 'board') toggleDrawer('board');
   tr.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
   tr.classList.add('vfocus');
   setTimeout(function () {{ tr.classList.remove('vfocus'); }}, 2200);

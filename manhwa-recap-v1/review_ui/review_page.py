@@ -170,6 +170,13 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 .qc ul { margin:6px 0 0; padding-left:18px; }
 .actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:11px; }
 .empty { padding:40px 20px; text-align:center; color:var(--ink3); }
+/* Cards as Scrapper Panels: the title sits in its own header bar. */
+.card { padding:0 14px 14px; overflow:hidden; }
+.card > h2:first-child { margin:0 -14px 12px; padding:10px 14px; background:var(--panel2);
+  border-bottom:1px solid var(--rule); font-size:12px; letter-spacing:.8px; color:var(--ink3); }
+.card > :first-child:not(h2) { margin-top:14px; }
+header { position:sticky; top:0; z-index:10; border-bottom:1px solid var(--rule); }
+.jobsbar { margin:12px 20px 0; }
 /* PHONE — last in the sheet so it wins. Same slide-out menu (theme.SIDE_CSS)
    and 760px breakpoint as the board and the Scrapper studio. */
 @media (max-width:760px) {
@@ -177,7 +184,10 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
   header { padding:10px 12px; gap:10px; }
   #picker { max-width:100%; width:100%; }
   .wrap { padding:10px; gap:12px; }
-  .card { padding:12px; border-radius:12px; }
+  .card { padding:0 12px 12px; border-radius:12px; }
+  .card > h2:first-child { margin:0 -12px 12px; padding:10px 12px; }
+  header { position:static; }
+  .jobsbar { margin:10px 10px 0; }
   input, select, textarea { font-size:16px; }
   button, select { min-height:42px; }
   .actions button { flex:1 1 auto; }
@@ -191,6 +201,7 @@ __SIDEBAR__
   <select id="picker" onchange="pick(this.value)"></select>
   <span id="hdrstate"></span>
 </header>
+<div id="jobsbar" class="jobsbar"></div>
 <div id="root"><div class="empty">loading…</div></div>
 </div>
 <script>
@@ -1212,8 +1223,8 @@ def build_review_html(pdir=None):
     """
     return (_PAGE
             .replace("__TOKENS__", theme.TOKENS_CSS)
-            .replace("__CONTROLS__", theme.CONTROLS_CSS + theme.SIDE_CSS)
+            .replace("__CONTROLS__", theme.CONTROLS_CSS + theme.SIDE_CSS + theme.PANEL_CSS + theme.JOBS_CSS)
             .replace("__RAIL__", "")
             .replace("__HEADJS__", theme.HEAD_THEME_JS + theme.HEAD_SIDE_JS)
             .replace("__SIDEBAR__", theme.sidebar_html(theme.nav_items("review")))
-            .replace("__SHAREDJS__", theme.SHARED_JS + theme.SIDE_JS))
+            .replace("__SHAREDJS__", theme.SHARED_JS + theme.SIDE_JS + theme.JOBS_JS))

@@ -69,6 +69,23 @@ def main():
         check("icon %d is a PNG" % size, r.status_code == 200 and r.content[:4] == b"\x89PNG")
     check("unknown icon size is 404", c.get("/app-icon/77.png").status_code == 404)
 
+    # Scrapper logic: sections are pages, not overlays with a close button
+    check("no ✕ close button is bolted onto sections", "drawerclose" not in sb)
+    check("sections render in the page flow, one at a time",
+          ".drawer, .drawer.wide {{ position:static;" in sb and "body.not-board #v_board" in sb)
+    check("toggleDrawer switches pages (never toggles one shut) and records history",
+          "CURRENT_VIEW = name" in sb and "history.pushState" in sb and "popstate" in sb)
+    check("the board item returns to the board page without a reload",
+          "toggleDrawer(&#x27;board&#x27;)" in theme.sidebar_html(theme.nav_items("board")))
+    check("jumping to a row from Check returns to the board first",
+          "if (CURRENT_VIEW !== 'board') toggleDrawer('board');" in sb)
+    check("the board is a titled card with a collapsible legend",
+          'class="panel boardpanel"' in sb and '<details class="legend">' in sb)
+    check("a running-jobs bar with Stop is on both pages",
+          'id="jobsbar"' in sb and 'id="jobsbar"' in rp and "theme.JOBS_JS" in sb
+          and "theme.JOBS_JS" in rp and "/api/jobs/control" in theme.JOBS_JS)
+    check("review cards use the panel header bar", ".card > h2:first-child" in rp)
+
     for n, ok in R:
         print(("PASS " if ok else "FAIL ") + n)
     n_ok = sum(1 for _, ok in R if ok)

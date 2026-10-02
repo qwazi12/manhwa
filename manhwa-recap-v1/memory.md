@@ -7855,3 +7855,28 @@ The owner chose to keep Gemini 3.8 Flash TTS going forward ("fix the wiring so w
 ### Session 32 Follow-up — Test Suite Alignment
 - Stale assertions in `test_claude_experiment.py` (82/82) and `test_claude_plus.py` (100/100) were updated to reflect the production rule that segments are born included/ticked (`user_included = not silent_hold`) rather than unticked.
 - All 49 test suites in `review_ui` verified passing.
+
+### 2026-10-02 — Redesign, take 2: the Scrapper's LOGIC, not just its look
+**Owner feedback (with phone screenshots of Exports and Check showing a ✕):** "The redesign isn't complete … on mobile there's a ✕ I have to click to leave a clicked tab … that's not the scrapper logic … the whole site seems to have kept its original design."
+
+**Correct:**
+- 8a2346e restyled the sidebar and palette but kept the drawer model: every section slid OVER the board, and on phones it covered the screen and needed a ✕.
+- The board's own layout (big h1, wall-of-text legend, bare table) was untouched.
+
+**Fix: sections are now PAGES, as in the Scrapper's tab logic.**
+- `toggleDrawer(name)` switches the main area to that page; the name is kept so every caller and the loader test work. Picking an item never toggles it shut.
+- The Board item returns to the board without a reload.
+- URL hash plus `history.pushState`, so the browser Back button works; `#exports`-style deep links open that page.
+- The section containers moved into `#views` under the status bar. They render in the page flow as titled cards (the Scrapper Panel header bar). The ✕ is gone.
+- Off the board, the status bar shows the chapter's numbers only: the board tools (all/none, repair, re-render, APPROVE) are hidden. On phones the whole strip and the approve bar belong to the board page.
+- `vJumpTo` (Check → row) returns to the board page first.
+- **Board page:** the h1 and legend paragraph became a "STORYBOARD — N panels · M of K in video · mm:ss" panel with a collapsible "How to read this board". The table sits inside the card.
+- **Running-jobs bar** (`theme.JOBS_JS`), like the Scrapper's JobsBar: at the top of every page on both board and /review. It lists queued, running and paused jobs from /api/jobs and /api/logs/ingest, with progress and ⏹ Stop via /api/jobs/control, refreshes every 4 s, and pauses while the tab is hidden.
+- **Review page:** every card title is a Panel header bar; the header is the status bar; the jobs bar is added.
+- **Bug caught before deploy:** the jobs bar's Stop button quoting broke /review's script (`test_review`: "inline JS parses"). Now uses a `data-job` attribute; board and review scripts pass `node --check`.
+
+**Tests:**
+- `test_mobile_layout` 36/36: no ✕, sections in flow, history, board item, jump-to-row, board panel, jobs bar on both pages, review panel headers.
+- Full review_ui suite passes.
+
+**Checked locally:** desktop (Ingest, Tracker and Exports as pages; Back returns; Board item returns) and 390px (☰ → Exports page, no ✕, no sideways scroll; review page).

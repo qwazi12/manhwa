@@ -56,6 +56,7 @@ TOKENS_CSS = """
   --nav-ink:#94a3b8; --nav-on-bg:#1e293b; --nav-on-edge:#334155; --nav-on-ink:#ffffff;
   --badge-ok-bg:#064e3b; --badge-warn-bg:#78350f; --badge-warn-ink:#fbbf24;
   --badge-muted-bg:#1e293b;
+  --job-bg:#1e1b4b; --job-ink:#c7d2fe; --job-err-bg:#450a0a; --job-err-ink:#fca5a5;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -63,6 +64,7 @@ TOKENS_CSS = """
   --nav-ink:#475569; --nav-on-bg:#e8eef8; --nav-on-edge:#c2cbdb; --nav-on-ink:#0f1420;
   --badge-ok-bg:#d6f5e5; --badge-warn-bg:#fbeed0; --badge-warn-ink:#6d4a00;
   --badge-muted-bg:#e7ebf3;
+  --job-bg:#eef0ff; --job-ink:#3730a3; --job-err-bg:#fde2e2; --job-err-ink:#991b1b;
   --bg:#f2f5fa; --panel:#ffffff; --panel2:#e9edf5; --rule:#c2cbdb;
   --ink:#0f1420; --ink2:#414b5e; --ink3:#5b6478;
   /* Light mode keeps the vividness by SATURATING rather than brightening:
@@ -392,6 +394,8 @@ def sidebar_html(items, foot_rows=(), status="● live"):
         attrs = f' class="{cls}"'
         if it.get("d"):
             attrs += f' data-d="{_esc(it["d"])}"'
+        if it.get("v"):
+            attrs += f' data-v="{_esc(it["v"])}"'
         if it.get("title_attr"):
             attrs += f' title="{_esc(it["title_attr"])}"'
         badge = ""
@@ -428,7 +432,8 @@ def nav_items(page, board_badge=None):
     board = dict(icon="🎬", title="Board", sub="Script, panels & timing",
                  active=(page == "board"), badge=board_badge, badge_kind="ok")
     if page == "board":
-        board["onclick"] = "location.reload()"
+        board["onclick"] = "toggleDrawer('board')"
+        board["v"] = "board"
     else:
         board["href"] = "/storyboard"
     return [
@@ -444,3 +449,85 @@ def nav_items(page, board_badge=None):
         item("🗒", "Work", "What changed recently", d="work",
              title_attr="Everything that has been changed in the system, newest first, with its evidence"),
     ]
+
+
+# ---------------------------------------------------------------- panels
+# The Scrapper studio's Panel: a card whose title sits in its own header bar
+# (uppercase, muted, on the second surface), content padded below. Used for
+# every section page, the board and every /review card.
+PANEL_CSS = """
+.panel { background:var(--panel); border:1px solid var(--rule); border-radius:10px;
+  margin:0 0 16px; overflow:hidden; }
+.panel-h { display:flex; align-items:center; gap:10px; padding:10px 14px;
+  background:var(--panel2); border-bottom:1px solid var(--rule); }
+.panel-h h2 { margin:0; font-size:12px; text-transform:uppercase; letter-spacing:.8px;
+  color:var(--ink3); font-weight:700; }
+.panel-h .r { margin-left:auto; }
+details.legend { padding:10px 14px; border-bottom:1px solid var(--rule); }
+details.legend summary { cursor:pointer; color:var(--ink3); font-size:12px; font-weight:600; }
+details.legend p.meta { margin:8px 0 0; }
+"""
+
+# Everything running on the server, with Stop — at the top of every page,
+# like the Scrapper studio's JobsBar. Reads the same two feeds the Logs page
+# uses and stops through the same control endpoint.
+JOBS_CSS = """
+.jobsbar { display:flex; flex-direction:column; gap:6px; }
+.jobsbar:empty { display:none; }
+.jobrow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px;
+  border-radius:8px; background:var(--job-bg); border:1px solid var(--rule); font-size:12px; }
+.jobrow.err { background:var(--job-err-bg); }
+.jobrow .jl { color:var(--job-ink); font-weight:700; }
+.jobrow.err .jl { color:var(--job-err-ink); }
+.jobrow .jm { color:var(--ink3); flex:1; min-width:120px; }
+.jobrow .jp { height:4px; flex-basis:100%; background:rgba(255,255,255,.08); border-radius:2px; overflow:hidden; }
+.jobrow .jp > i { display:block; height:100%; background:var(--ok); }
+.jobrow button { font-size:11px; padding:3px 12px; }
+"""
+
+JOBS_JS = """
+(function () {
+  var ACTIVE = ['queued', 'running', 'paused', 'stopping'];
+  var NAMES = { finalize: 'Render & export', render: 'Render', publish: 'Publish',
+                ingest: 'Ingest', lab: 'Lab run', validate: 'Check' };
+  function get(u) {
+    return fetch(u, { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+  }
+  function esc(x) { return String(x == null ? '' : x).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function paint(jobs) {
+    var box = document.getElementById('jobsbar');
+    if (!box) return;
+    box.innerHTML = jobs.map(function (j) {
+      var pct = j.total ? Math.round(100 * (j.done || 0) / j.total) : (j.pct || 0);
+      var icon = j.status === 'queued' ? '⏸' : j.status === 'paused' ? '⏸' : j.status === 'stopping' ? '✋' : '⏳';
+      return '<div class="jobrow"><span class="jl">' + icon + ' ' + esc(NAMES[j.type || 'ingest'] || j.type) +
+        (j.project ? ' · ' + esc(j.project) : '') + '</span><span class="jm">' +
+        esc(j.control === 'stop' ? 'stopping…' : (j.msg || j.stage || j.status)) +
+        (pct ? ' · ' + pct + '%' : '') + '</span>' +
+        (j.control === 'stop' ? '' : '<button class="danger" data-job="' + esc(j.job) + '" onclick="jobsStop(this.dataset.job)">⏹ Stop</button>') +
+        (pct ? '<span class="jp"><i style="width:' + pct + '%"></i></span>' : '') + '</div>';
+    }).join('');
+  }
+  function load() {
+    if (document.hidden) return;
+    Promise.all([get('/api/jobs?limit=20'), get('/api/logs/ingest')]).then(function (r) {
+      var seen = {}, jobs = [];
+      [].concat((r[0] && r[0].jobs) || [], (r[1] && r[1].jobs) || []).forEach(function (j) {
+        if (!j || !j.job || seen[j.job] || ACTIVE.indexOf(j.status) < 0) return;
+        seen[j.job] = 1; jobs.push(j);
+      });
+      paint(jobs);
+    });
+  }
+  window.jobsStop = function (id) {
+    if (!confirm('Stop this job? It stops after the current step; work already done is kept.')) return;
+    fetch('/api/jobs/control', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: id, action: 'stop' }) }).then(load, load);
+  };
+  load();
+  setInterval(load, 4000);
+  document.addEventListener('visibilitychange', load);
+})();
+"""
