@@ -7689,3 +7689,35 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
   - Timings come from real jobs: ingest 22–27 min (v2–v5), finalize/render 2–4 min.
   - The claim that saving an unchanged narration re-records the voice was checked against `server.py` and is wrong: TTS only re-runs when the text changes. The SOP says so.
 - The SOP states the known gaps: Schedule and Playlist are not sent to Upload-Post, and exports expire after 7 days.
+
+### 2026-10-01 — Ingest speed-up (27.5 → 12.3 min) and the single merged Handbook
+**Changes (commit 0162087):**
+- Describe runs 6 panels at once (`DESCRIBE_WORKERS`, default 6). Panel order is kept and the 0.5 s free-tier pause is gone.
+- Describe retries timeouts, 429 and 5xx: bounded (`DESCRIBE_RETRIES` = 3), exponential backoff with jitter.
+- The token stash is now per-thread, so usage is billed to the right call.
+- Voice lines are recorded 4 at once (`TTS_WORKERS`, default 4), before the in-order timeline pass. The TTS cache is written atomically.
+- All calls still go through `usage.gate`; caps are unchanged.
+- Bug caught by the new test: after a cap tripped, the cancelled futures crashed the run instead of stopping it with the USAGE CAP message. Fixed.
+- `test_ocr_lines`: the stub was stale since the Series Bible commit (no `prompt` kwarg). Fixed, now 25/25.
+
+**Real test: Murim ch.44 as version `v6-speed`, job c22fbf7d2418.** Nothing existing was touched.
+
+| Stage | v5 | v6-speed |
+|---|---|---|
+| Describe | 17.4 min | 2.5 min |
+| Voice | (in voice+match 4.5 min) | 40 s |
+| Narrate | 4.3 min | 4.1 min |
+| Split | 1.3 min | 2.3 min |
+| Match + segment | (in voice+match 4.5 min) | 2.7 min |
+| **Total** | **27.5 min** | **12.3 min** |
+
+- Quality: 145/145 panels described (v5: 144; its timeout panel is now described thanks to the retry). Panel order is correct.
+- Bubble text is 99% similar to v5, and description length is the same (155 vs 152 chars).
+- All 105 beats have audio.
+- The timeline check flagged 5 faults before repair (v5: 2, v4: 4). That comes from the new script and is fixed by 🔧 repair timeline.
+- Tests: `panel-describe/test_parallel_describe.py` 8/8, mocked with no network calls.
+
+**Handbook:**
+- "Manhwa Recap Handbook" (https://claude.ai/artifact/PJuBT9bs3nQHgtRrGjT18Y, public) was republished as v3. It merges the SOP plus today's facts: Upload-Post publishing, ingest options, ~12 min ingest, 2–4 min render, Schedule and Playlist not sent, troubleshooting and rules.
+- The owner declined deleting the separate SOP doc, so it is left as is.
+- Note: the public link may be pinned to an earlier version for viewers. Update the share from the page's Share menu if viewers still see the old one.
