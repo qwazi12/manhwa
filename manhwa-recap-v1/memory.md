@@ -7721,3 +7721,42 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
 - "Manhwa Recap Handbook" (https://claude.ai/artifact/PJuBT9bs3nQHgtRrGjT18Y, public) was republished as v3. It merges the SOP plus today's facts: Upload-Post publishing, ingest options, ~12 min ingest, 2–4 min render, Schedule and Playlist not sent, troubleshooting and rules.
 - The owner declined deleting the separate SOP doc, so it is left as is.
 - Note: the public link may be pinned to an earlier version for viewers. Update the share from the page's Share menu if viewers still see the old one.
+
+### 2026-10-02 — Phone layout that actually applies, and installable as an app
+**Owner request:** "mobile friendly and responsive phone layout … use it as if it's mobile native".
+
+**Root cause:** the board already had a ≤820px block, but it never applied.
+- It sat BEFORE the base `.drawer`, `td` and `#rail` rules in the stylesheet, so those later, equal-specificity rules won.
+- It targeted `.rail`, while the element is styled by `#rail` (an ID beats a class).
+- Phones got the desktop layout squeezed into 390px: the rail covered the content, the header was a sticky full-screen wall, and the page scrolled sideways.
+- /review had no viewport meta at all, so a real phone showed it zoomed out at desktop width.
+
+**Board (`storyboard.py`).** The phone block was rebuilt at the END of the sheet; the old dead block was removed and a pointer comment left in its place.
+- The rail becomes a bottom tab bar (safe-area aware).
+- The header becomes one swipeable strip.
+- APPROVE is pinned full-width above the tabs.
+- The pipebar is a sticky swipe strip.
+- Each panel row is a grid card: number/checkbox bar, then image beside narration, then bubble text and AI description (2 lines, tap to expand), then on-screen controls.
+- Touch targets are 40px+ and inputs 16px (stops iOS zoom).
+- Drawers, the swap picker and dialogs are full-screen sheets.
+- The drag handle is hidden on phones (no touch drag-and-drop).
+
+**Review (`review_page.py`):**
+- Viewport meta added.
+- The same bottom tab bar as the board.
+- The full-width picker fixes the 7px sideways overflow.
+- 16px inputs and 42px buttons.
+
+**Installable:**
+- `/manifest.webmanifest` (standalone, dark theme) and `/app-icon/{180,192,512}.png` (drawn with PIL: three webtoon panels plus a play mark).
+- Apple meta tags on both pages.
+- Rewrites added to BOTH vercel.json files (root: placed before the `/(.*)` catch-all).
+
+**Tests:**
+- New `test_mobile_layout.py` 20/20: pins the phone block after the base rules, the viewport, the manifest and the icons.
+- `test_edge_routes` 47/47.
+- Suite otherwise unchanged: only the two known stale claude tests fail.
+
+**Checked:** previewed the new CSS injected into the live board in a 390px frame. No sideways scroll; tab bar, cards and approve bar are visible.
+
+**Not checked:** a real iPhone, specifically whether Basic Auth survives "Add to Home Screen" standalone mode.

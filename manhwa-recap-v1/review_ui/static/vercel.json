@@ -61,6 +61,14 @@
     {
       "source": "/export/:path*",
       "destination": "https://recap-studio-production.up.railway.app/export/:path*"
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "destination": "https://recap-studio-production.up.railway.app/manifest.webmanifest"
+    },
+    {
+      "source": "/app-icon/:path*",
+      "destination": "https://recap-studio-production.up.railway.app/app-icon/:path*"
     }
   ]
 }

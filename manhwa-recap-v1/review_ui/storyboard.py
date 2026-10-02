@@ -478,6 +478,13 @@ def build_storyboard_html(pdir, matcher, review, usage_summary, approved):
     mm = meta.get("match_method", "")
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<meta name="theme-color" content="#141824">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Recap Studio">
+<link rel="apple-touch-icon" href="/app-icon/180.png">
 <title>{html.escape(title)} — storyboard: story + render plan</title>
 <style>
 /* ---------------------------------------------------------------- palette
@@ -623,61 +630,10 @@ tr.vflag-low td.n {{ box-shadow:inset 3px 0 0 var(--rule); }}
 .navbtn .vdot.error {{ background:var(--bad); animation:none; }}
 .navbtn .vdot.done {{ background:var(--ok); animation:none; }}
 @keyframes vpulse {{ 50% {{ opacity:.35; }} }}
-/* ---------------------------------------------------------------- mobile
-   The board is a 6-column table beside a fixed 64px rail with 360px drawers —
-   a layout that assumes a mouse and a wide screen. On a phone the columns
-   cannot fit, so rows become stacked cards, the rail becomes a bottom bar
-   (thumb reach, and it stops stealing horizontal space), and drawers go
-   full-width. Nothing is hidden: the same controls are present, re-laid out.
-   Breakpoint is 820px so tablets in portrait get the phone layout too. */
-@media (max-width: 820px) {{
-  body {{ margin: 0 0 76px 0; -webkit-text-size-adjust: 100%; }}
-
-  /* rail -> bottom bar, horizontally scrollable so every tab stays reachable */
-  .rail {{ left:0; right:0; top:auto; bottom:0; width:auto; height:64px;
-           flex-direction:row; overflow-x:auto; overflow-y:hidden;
-           border-right:none; border-top:1px solid var(--rule);
-           padding:0 4px; gap:2px; -webkit-overflow-scrolling:touch; }}
-  .navbtn {{ flex:0 0 auto; width:62px; height:56px; font-size:9px; }}
-
-  /* drawers cover the screen rather than sitting in a 360px column */
-  .drawer, .drawer.wide {{ left:0; right:0; width:auto; top:0; bottom:64px;
-                           padding:14px; box-shadow:none;
-                           border-right:none; z-index:90; }}
-
-  /* the table stops being a table: one card per row */
-  table, thead, tbody, tr, th, td {{ display:block; width:auto; }}
-  thead {{ display:none; }}
-  tr {{ border:1px solid var(--rule); border-radius:10px; margin:0 8px 12px;
-        padding:8px; background:var(--panel); }}
-  td {{ border:none; border-bottom:1px solid var(--rule); padding:8px 4px; }}
-  tr td:last-child {{ border-bottom:none; }}
-  td.n {{ width:auto; }}
-  td.img {{ width:auto; text-align:center; }}
-  td.img img {{ max-width:100%; max-height:60vh; }}
-  td.ocr, td.vis, td.script, td.timing {{ width:auto; font-size:13px; }}
-
-  /* the columns lose their headers when stacked, so label them */
-  td.ocr::before {{ content:"OCR"; }}
-  td.vis::before {{ content:"DESCRIPTION"; }}
-  td.script::before {{ content:"SCRIPT PLACEMENT"; }}
-  td.timing::before {{ content:"TIMING & MOTION"; }}
-  td.ocr::before, td.vis::before, td.script::before, td.timing::before {{
-    display:block; font-size:9px; letter-spacing:.08em; text-transform:uppercase;
-    color:var(--ink3); margin-bottom:4px; }}
-
-  /* touch targets: 44px is the accessible minimum */
-  button, select, input {{ min-height:40px; font-size:15px; }}
-  .mini {{ min-height:34px; }}
-  h2 {{ font-size:18px; }}
-}}
-
-/* very narrow phones: give the cards the full width */
-@media (max-width: 420px) {{
-  tr {{ margin:0 4px 10px; }}
-  .navbtn {{ width:56px; }}
-}}
-
+/* The phone layout lives at the END of this stylesheet (search "PHONE").
+   It used to sit here, ahead of the base rules it was meant to override, so
+   the later .drawer / td / #rail rules silently won and phones got the
+   desktop layout squeezed into 390px. */
 @media (prefers-reduced-motion: reduce) {{
   .vspin, .navbtn .vdot, .vstate.running .vsbar.indet > i {{ animation:none; }}
 }}
@@ -830,6 +786,119 @@ textarea, input[type=text], input[type=number], select {{ background:var(--panel
 textarea {{ width:100%; min-height:110px; font:13px/1.5 -apple-system; padding:6px; }}
 a {{ color:var(--accent); }}
 #busy {{ position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--panel2); color:var(--ink); border:1px solid var(--rule); padding:8px 16px; border-radius:8px; display:none; z-index:40; font-size:12px; }}
+/* ================================================================ PHONE
+   Last in the sheet on purpose, so it wins over every base rule above with
+   the same specificity. Phones and portrait tablets (<=820px) get:
+   - the rail as a bottom tab bar (thumb reach, no horizontal space stolen)
+   - the header as a swipeable stat strip, not a sticky wall of numbers
+   - APPROVE as a full-width bar pinned above the tabs
+   - each panel row as a card: image beside its narration, timing below
+   - drawers and dialogs as full-screen sheets
+   - 40px+ touch targets and 16px inputs (iOS zooms anything smaller) */
+@media (max-width: 820px) {{
+  :root {{ --tabbar: calc(62px + env(safe-area-inset-bottom, 0px)); }}
+  body {{ margin:0; padding-bottom:calc(var(--tabbar) + 64px);
+          -webkit-text-size-adjust:100%; }}
+
+  /* rail -> bottom tab bar */
+  #rail {{ top:auto; bottom:0; left:0; right:0; width:auto; height:var(--tabbar);
+           flex-direction:row; align-items:flex-start; gap:0; padding:3px 4px env(safe-area-inset-bottom, 0px);
+           border-right:none; border-top:1px solid var(--rule);
+           overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;
+           scrollbar-width:none; z-index:80; }}
+  #rail::-webkit-scrollbar {{ display:none; }}
+  #rail .navbtn {{ flex:1 0 54px; width:auto; height:56px; font-size:10px; gap:3px; text-decoration:none; }}
+  #rail .navbtn .ic {{ font-size:20px; }}
+  #themebtn {{ margin:0; }}
+
+  /* header -> one swipeable strip of stats and tools */
+  header {{ position:static; flex-wrap:nowrap; overflow-x:auto; gap:14px;
+            padding:10px 12px; scrollbar-width:none; }}
+  header::-webkit-scrollbar {{ display:none; }}
+  header > * {{ flex:0 0 auto; }}
+  header .usage {{ white-space:nowrap; }}
+  #approveBtn {{ position:fixed; left:10px; right:10px; bottom:calc(var(--tabbar) + 8px);
+                 margin:0; z-index:79; padding:12px; font-size:14px; border-radius:12px; }}
+
+  #pipebar {{ top:0; overflow-x:auto; white-space:nowrap; gap:14px; padding:8px 12px;
+              scrollbar-width:none; }}
+  #pipebar::-webkit-scrollbar {{ display:none; }}
+  #pipebar > * {{ flex:0 0 auto; }}
+  #renderprog {{ min-width:220px; }}
+
+  .wrap {{ padding:10px 8px; }}
+  h1 {{ font-size:16px; line-height:1.3; }}
+  /* the long legend: three lines, tap to read it all */
+  p.meta {{ display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
+            overflow:hidden; cursor:pointer; }}
+  p.meta.open {{ display:block; }}
+
+  /* table -> one card per panel */
+  table, tbody, tr, td {{ display:block; width:auto; }}
+  table tr:first-child {{ display:none; }}
+  tr {{ display:grid; grid-template-columns:112px minmax(0,1fr);
+        grid-template-areas:"n n" "img script" "ocr ocr" "vis vis" "timing timing";
+        border:1px solid var(--rule); border-radius:12px; margin:0 0 12px; padding:0;
+        background:var(--panel); overflow:hidden; }}
+  td {{ border:none; padding:8px 10px; min-width:0; }}
+  td.n {{ grid-area:n; width:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+          border-bottom:1px solid var(--rule); background:var(--panel2); }}
+  td.n .inc {{ margin:0; }}
+  td.n .inc input {{ width:24px; height:24px; }}
+  td.img {{ grid-area:img; width:auto; padding-right:0; }}
+  td.img img {{ max-width:100%; max-height:220px; }}
+  td.script {{ grid-area:script; width:auto; font-size:14px; line-height:1.45; }}
+  td.ocr {{ grid-area:ocr; width:auto; }}
+  td.vis {{ grid-area:vis; width:auto; }}
+  td.timing {{ grid-area:timing; width:auto; border-top:1px solid var(--rule); }}
+  /* OCR and description: two lines each until tapped */
+  td.ocr, td.vis {{ font-size:12px; color:var(--ink2); padding-top:0; padding-bottom:0; margin:5px 0;
+                    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+                    overflow:hidden; cursor:pointer; }}
+  td.ocr.open, td.vis.open {{ display:block; }}
+  td.ocr::before, td.vis::before, td.script::before, td.timing::before {{
+    display:block; font-size:9px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--ink3); margin-bottom:3px; font-weight:700; }}
+  td.ocr::before {{ content:"Bubble text"; }}
+  td.vis::before {{ content:"What the AI saw"; }}
+  td.script::before {{ content:"Narration"; }}
+  td.timing::before {{ content:"On screen"; }}
+
+  /* segment cards */
+  .segblock {{ padding:10px; border-radius:10px; }}
+  .segprev {{ width:92px; }}
+  .segprev img {{ width:92px; max-height:130px; }}
+  .draghandle {{ display:none; }}
+  .timectl {{ gap:6px; font-size:12px; }}
+  .timectl input {{ width:64px; min-height:38px; font-size:16px; }}
+  .timectl button {{ min-height:38px; min-width:42px; font-size:13px; }}
+  .bctl {{ white-space:normal; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }}
+  .acts {{ gap:6px; }}
+  .acts button {{ flex:1 1 auto; min-height:42px; font-size:13px; padding:6px 10px; }}
+
+  /* drawers, pickers and dialogs -> full-screen sheets */
+  .drawer, .drawer.wide {{ left:0; right:0; top:0; bottom:var(--tabbar); width:auto;
+    padding:16px 14px calc(16px + env(safe-area-inset-top, 0px)); box-shadow:none;
+    border:none; z-index:75; font-size:14px; }}
+  .drawer .hint {{ font-size:12.5px; }}
+  .drawer button {{ min-height:42px; }}
+  .projrow {{ padding:10px; gap:8px; }}
+  #cands {{ padding:10px 6px calc(var(--tabbar) + 10px); }}
+  #cands .inner {{ padding:12px; }}
+  #cands img {{ max-width:46%; max-height:200px; margin:2%; }}
+  dialog {{ width:calc(100vw - 20px); max-width:none; max-height:86vh; padding:14px; }}
+  dialog textarea {{ font-size:16px; }}
+  #busy {{ bottom:calc(var(--tabbar) + 72px); }}
+
+  /* touch sizes; 16px stops iOS zooming into a field */
+  input, select, textarea {{ font-size:16px; }}
+  button, select {{ min-height:40px; }}
+  .mini {{ min-height:36px; }}
+}}
+@media (max-width: 380px) {{
+  tr {{ grid-template-columns:92px minmax(0,1fr); }}
+  td.img img {{ max-height:180px; }}
+}}
 </style>{theme.HEAD_THEME_JS}</head><body>
 <div id="rail">
   <button class="navbtn" data-d="ingest" onclick="toggleDrawer('ingest')"><span class="ic">🔗</span>Ingest</button>
@@ -1120,6 +1189,15 @@ entirely — its audio file is kept, so re-adding the same sentence is free.</p>
 <p><button onclick="saveEdit()">Save changes</button>
 <button onclick="editDlg.close()">Cancel</button></p></dialog>
 <script>document.querySelectorAll('input[data-partial]').forEach(function(c){{c.indeterminate=true;}});</script>
+<script>
+// Phone: the legend, bubble text and AI description are clamped to a few
+// lines; a tap opens them. Desktop shows them in full, so this does nothing.
+document.addEventListener('click', function (e) {{
+  if (!window.matchMedia('(max-width: 820px)').matches) return;
+  var el = e.target.closest && e.target.closest('p.meta, td.ocr, td.vis');
+  if (el && !e.target.closest('a, button, input')) el.classList.toggle('open');
+}});
+</script>
 <div id="busy">working…</div>
 <script>
 let editing = null, dragFrom = null;

@@ -2047,6 +2047,60 @@ def os_eligibility(project: str = "", name: str = ""):
     return {"project": pid, "name": name, **publish_eligibility(pdir, name)}
 
 
+# ---- installable on a phone home screen --------------------------------
+# A manifest + icon let the studio be "Added to Home Screen" and open
+# full-screen without browser bars. Not secret: no project data, and the site
+# gate (Vercel Basic Auth) still sits in front of every path.
+_APP_ICON_CACHE = {}
+
+
+def _app_icon_png(size):
+    if size not in _APP_ICON_CACHE:
+        import io
+        from PIL import Image, ImageDraw
+        k = size / 512.0
+        im = Image.new("RGB", (size, size), "#0b0e14")
+        d = ImageDraw.Draw(im)
+        # three manhwa panels stacked like a webtoon strip
+        for x0, y0, x1, y1 in ((96, 84, 416, 196), (96, 216, 250, 428), (270, 216, 416, 428)):
+            d.rounded_rectangle([x0 * k, y0 * k, x1 * k, y1 * k], radius=18 * k,
+                                fill="#1b2130", outline="#2e3648", width=max(1, int(6 * k)))
+        # play mark over the strip: it becomes a video
+        d.polygon([(214 * k, 236 * k), (214 * k, 400 * k), (352 * k, 318 * k)], fill="#00d5ff")
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        _APP_ICON_CACHE[size] = buf.getvalue()
+    return _APP_ICON_CACHE[size]
+
+
+@app.get("/app-icon/{size}.png")
+def app_icon(size: int):
+    from fastapi.responses import Response
+    if size not in (180, 192, 512):
+        raise HTTPException(404, "no such icon size")
+    return Response(_app_icon_png(size), media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/manifest.webmanifest")
+def web_manifest():
+    from fastapi.responses import JSONResponse as _J
+    return _J({
+        "name": "Manhwa Recap Studio",
+        "short_name": "Recap Studio",
+        "start_url": "/storyboard",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#0b0e14",
+        "theme_color": "#141824",
+        "icons": [
+            {"src": "/app-icon/192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/app-icon/512.png", "sizes": "512x512", "type": "image/png",
+             "purpose": "any maskable"},
+        ],
+    }, media_type="application/manifest+json")
+
+
 @app.get("/review")
 def review_page():
     import review_page as _rp

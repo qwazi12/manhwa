@@ -18,6 +18,14 @@ import theme                    # ONE palette + rail + theme switch, shared
 
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<meta name="theme-color" content="#141824">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Recap Studio">
+<link rel="apple-touch-icon" href="/app-icon/180.png">
 <title>Review — Manhwa Recap Studio</title>
 <style>
 __TOKENS____CONTROLS__
@@ -178,6 +186,28 @@ select { background:var(--panel2); color:var(--ink); border:1px solid var(--rule
 .qc ul { margin:6px 0 0; padding-left:18px; }
 .actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:11px; }
 .empty { padding:40px 20px; text-align:center; color:var(--ink3); }
+/* PHONE — last in the sheet so it wins. Same bottom tab bar as the board,
+   so moving between the two pages feels like one app. */
+@media (max-width:820px) {
+  :root { --tabbar: calc(62px + env(safe-area-inset-bottom, 0px)); }
+  .nav { position:fixed; top:auto; bottom:0; left:0; right:0; width:auto;
+         height:var(--tabbar); flex-direction:row; align-items:flex-start; gap:0;
+         padding:3px 4px env(safe-area-inset-bottom, 0px); border-right:0;
+         border-bottom:0; border-top:1px solid var(--rule); overflow-x:auto;
+         overflow-y:hidden; scrollbar-width:none; z-index:80; }
+  .nav::-webkit-scrollbar { display:none; }
+  .nav .navbtn { flex:1 0 54px; width:auto; height:56px; gap:3px; }
+  .nav .navbtn .ic { font-size:20px; }
+  #themebtn { margin:0; }
+  .shell { margin-left:0; padding-bottom:calc(var(--tabbar) + 12px); }
+  header { padding:10px 12px; gap:10px; }
+  #picker { max-width:100%; width:100%; }
+  .wrap { padding:10px; gap:12px; }
+  .card { padding:12px; border-radius:12px; }
+  input, select, textarea { font-size:16px; }
+  button, select { min-height:42px; }
+  .actions button { flex:1 1 auto; }
+}
 </style>__HEADJS__</head><body>
 <div class="nav">
   <a class="navbtn" href="/storyboard?open=ingest"><span class="ic">🔗</span>Ingest</a>
