@@ -7850,3 +7850,4 @@ The owner chose to keep Gemini 3.8 Flash TTS going forward ("fix the wiring so w
 - `test_edge_routes` 47/47.
 
 **Checked:** the local server (`swordmasters-youngest-son_1`) at desktop width (expanded and collapsed) and at 390px (menu open, panel full-screen, ✕ closes). Live check after deploy is below.
+- Live check after 8a2346e deployed (19:17 UTC): manhwa.nodepilot.dev at 1440px shows the Scrapper-style sidebar, header metrics and green CTA. At 390px the board and review show the ☰ top bar with no horizontal scroll (board 373/373, review 390/390).
