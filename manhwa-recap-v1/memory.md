@@ -7851,3 +7851,7 @@ The owner chose to keep Gemini 3.8 Flash TTS going forward ("fix the wiring so w
 
 **Checked:** the local server (`swordmasters-youngest-son_1`) at desktop width (expanded and collapsed) and at 390px (menu open, panel full-screen, ✕ closes). Live check after deploy is below.
 - Live check after 8a2346e deployed (19:17 UTC): manhwa.nodepilot.dev at 1440px shows the Scrapper-style sidebar, header metrics and green CTA. At 390px the board and review show the ☰ top bar with no horizontal scroll (board 373/373, review 390/390).
+
+### Session 32 Follow-up — Test Suite Alignment
+- Stale assertions in `test_claude_experiment.py` (82/82) and `test_claude_plus.py` (100/100) were updated to reflect the production rule that segments are born included/ticked (`user_included = not silent_hold`) rather than unticked.
+- All 49 test suites in `review_ui` verified passing.

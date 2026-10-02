@@ -415,8 +415,8 @@ def main():
               for a, b in zip(psegs, psegs[1:])))
     check("...and each carries its narration text",
           all(sg["beats"] and sg["beats"][0].get("text") for sg in psegs))
-    check("segments are born UNTICKED, exactly as ingest leaves them",
-          all("user_included" not in sg for sg in psegs))
+    check("segments are born ticked unless silent, exactly as ingest leaves them",
+          all(sg.get("user_included") == (not sg.get("silent_hold")) for sg in psegs))
 
     with open(os.path.join(dest, "project.json"), encoding="utf-8") as f:
         pmeta = json.load(f)

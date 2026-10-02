@@ -423,8 +423,8 @@ def main():
           all(abs(x["end"] - y["start"]) < 0.01 for x, y in zip(segs, segs[1:])))
     check("segments carry the crop Claude chose for the line",
           all(s.get("focus_source") == "claude+" for s in segs))
-    check("segments are born unticked, as ingest leaves them",
-          all("user_included" not in s for s in segs))
+    check("segments are born ticked unless silent, as ingest leaves them",
+          all(s.get("user_included") == (not s.get("silent_hold")) for s in segs))
     check("the project is stamped as a lab experiment",
           json.load(open(os.path.join(proj, "project.json")))["lab"] is True)
 
