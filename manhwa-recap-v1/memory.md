@@ -7761,3 +7761,4 @@ Pipeline ran end to end: scrape (21 pages), split (145 panels), describe (Gemini
 
 **Not checked:** a real iPhone, specifically whether Basic Auth survives "Add to Home Screen" standalone mode.
 - Follow-up: an open drawer sat under the pinned APPROVE bar on phones. Drawer z-index raised above it (81 > 79). Verified live at 390px: Ingest drawer, review page and board cards; manifest and icon return 200 through manhwa.nodepilot.dev.
+- 2026-10-02: the separate "Manhwa Recap Studio — SOP" doc no longer exists (deleted outside this session). The Manhwa Recap Handbook is now the single guide.
