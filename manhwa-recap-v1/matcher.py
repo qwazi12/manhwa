@@ -371,8 +371,17 @@ def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
         for attempt in range(EMBED_RETRIES):
             try:
                 if _usage:
-                    with _usage.gate("gemini", len(chunk), model=model_name):
+                    with _usage.gate("gemini", len(chunk), model=model_name) as _m:
                         resp = _call()
+                        # Embedding responses carry no token counts. count_tokens
+                        # is free and gives the exact billed input, so the log
+                        # holds a measured cost, not a flat per-call guess.
+                        try:
+                            n = client.models.count_tokens(
+                                model=model_name, contents=[t for _, t in chunk]).total_tokens
+                            _m.tokens(n or 0, 0)
+                        except Exception:
+                            pass                  # stays an estimate, metered=false
                 else:
                     resp = _call()
                 embs = list(resp.embeddings)

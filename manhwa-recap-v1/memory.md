@@ -8078,3 +8078,28 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 
 **Not verified:** Gemini 3.5 Flash list price, Chirp free tier on this Google project, Railway plan fee, Vercel plan. Ground truth = Google AI Studio / Cloud billing.
 **Pending owner decisions:** daily cap ($30 live vs requested $6); switch autopilot on; which levers to build (suggested order: metering fix → cap → levers 4+5 → lever 1 → disk housekeeping).
+
+---
+
+### 2026-10-03 — Real metering fixed; site cap $10, autopilot budget $6
+
+**Owner:** "Overall limit to $10. $6 for autopilot. And fix the metering — I want actual factual numbers."
+
+**Root cause (verified with one live probe call on Railway, <$0.001):** the Interactions API (AQ. key) returns `usage{total_input_tokens, total_output_tokens, total_thought_tokens, total_cached_tokens}` + top-level `service_tier`. `describe._stash_usage` / `narrate._stash_usage` read generateContent names (`promptTokenCount`, `outputTokenCount`) → 0, and `Meter.tokens(0,0)` counted that as a real report → $0.00. 3,145 calls (2026-09-12 → 10-03) were logged free. Neither path counted **thinking tokens**, which Google bills as output (the probe: 1 output token + 57 thinking for a one-word answer). Embedding responses carry no token counts at all (verified; `count_tokens` works and is free).
+
+**Prices:** the Gemini rates in `usage.py` were placeholders ($0.30/$2.50). Google's published Standard rates (ai.google.dev pricing, read 2026-10-03): **gemini-3.5-flash $1.50 in / $9.00 out (incl. thinking), cache $0.15; Batch and Flex $0.75/$4.50**; gemini-3.8-flash $0.75/$3.75 through 2026-12-31 then $1.50/$7.50; gemini-3.1-pro-preview $2/$12 (≤200k); gemini-2.5-flash $0.30/$2.50; gemini-embedding-2 $0.20 text; 3.8 Flash TTS $0.50/$9.00 (→ $1/$18 on 2027-01-01).
+
+**Fixed:**
+- `usage.parse_gemini_usage()` — one reader for both shapes; output = output + thinking; records service tier.
+- `describe.py` and `narrate.py` read usage through it; `matcher.py` meters embeddings with `count_tokens` (exact input).
+- `Meter.tokens()` — a zero report is no longer "free": the call keeps its estimate and is logged `metered:false`. SDK reader adds `thoughts_token_count`.
+- `token_cost()` — published rates, cached input at the caching rate, Batch/Flex at half, dated 2027 price rises applied automatically (env overrides still win).
+- Log rows gain `thought_tokens` and `service_tier`; the pre-call estimate for 3.5 Flash is $0.012 (was $0.001, ~10× under).
+- Logs → API usage shows tokens in/out/thinking per call and marks estimates; the header says "at published rates".
+- **Autopilot budget:** `budget_usd` setting (default $6), checked against autopilot jobs' own metered spend today (ET) from the usage log; a chapter starts only if it fits under the $6 budget AND the site cap. The card shows "autopilot $x of $6 · whole site $y of $10" with the budget editable.
+- **Site cap:** Railway `MAX_DAILY_SPEND_USD` 30 → **10** (hard stop on every call).
+
+**Expect:** the dashboard will now show real numbers, several times higher per chapter than before. At published rates a median chapter's describe+narrate alone is ~162 calls × ~$0.0104 ≈ $1.70 + voice ~$0.14, so the $6 autopilot budget likely allows **~2–3 chapters/day, not 4**, until a cost lever (Flex/Batch tier = half price, 3.8 Flash = ~60% cheaper per token) is applied. First real measurements will confirm.
+
+**Not changed:** history. Past unmetered rows stay as logged (their tokens were never recorded; they cannot be recovered).
+**Tests:** new `test_metering.py` 19/19; `test_usage_tokens.py` updated to published prices 21/21; `test_autopilot.py` 42/42; full suite 58/58; panel-describe 1/1.

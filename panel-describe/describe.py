@@ -144,17 +144,18 @@ def _transient(e):
 
 
 def _stash_usage(res):
+    # One parser for both Gemini response shapes (generateContent and the
+    # Interactions API), with thinking tokens counted as output — see
+    # usage.parse_gemini_usage. The old field names read 0 on every
+    # Interactions call (2026-09-12 → 10-03), so describe/narrate looked free.
+    LAST_USAGE.clear()
     try:
-        um = (res or {}).get("usageMetadata") or (res or {}).get("usage") or {}
-        LAST_USAGE.clear()
-        LAST_USAGE.update({
-            "prompt": um.get("promptTokenCount") or um.get("inputTokenCount") or 0,
-            "output": (um.get("candidatesTokenCount")
-                       or um.get("outputTokenCount") or 0),
-            "cached": um.get("cachedContentTokenCount") or 0,
-        })
+        u = usage.parse_gemini_usage(res) if usage else {}
     except Exception:
-        LAST_USAGE.clear()
+        u = {}
+    if u:
+        LAST_USAGE.update({"prompt": u["prompt"], "output": u["output"],
+                           "cached": u["cached"]})
 
 
 def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, certifi_path: str | None = None,

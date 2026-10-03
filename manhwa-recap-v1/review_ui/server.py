@@ -5603,12 +5603,43 @@ def _ap_deps():
         m = row["mirror"]
         return _prov.by_name(m["source"]).chapter_url(m["series_url"], chapter)
 
-    return {"view": lambda: _wl_view()["series"], "refresh": refresh,
+    return {"view": lambda: _wl_view()["series"], "refresh": refresh, "ap_spend": _ap_spent_today,
             "canon": _prov.canonical_key, "live_projects": live_projects,
             "queue_busy": queue_busy, "spend": spend, "chapter_url": chapter_url,
             "project_id": lambda url: _ingest_mod.project_id(url),
             "enqueue": lambda url, engine: _enqueue_ingest(url, False, engine, "", None,
                                                            source="autopilot")}
+
+
+_AP_SPEND_CACHE = {"at": 0.0, "value": 0.0}
+
+
+def _ap_spent_today():
+    """Metered spend of autopilot's own jobs today (ET), from the usage log —
+    the number autopilot's $ budget is checked against. Cached 30 s."""
+    now = time.time()
+    if now - _AP_SPEND_CACHE["at"] < 30:
+        return _AP_SPEND_CACHE["value"]
+    jobs = {e.get("job") for e in _autopilot.load(_ingest_mod.PROJECTS)["ledger"].values()
+            if e.get("source") == "autopilot" and e.get("job")}
+    today, total = _autopilot.et_day(now), 0.0
+    if jobs:
+        try:
+            with open(usage.LOG_PATH, encoding="utf-8") as f:
+                for line in f:
+                    if '"job_id"' not in line:
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except ValueError:
+                        continue
+                    if e.get("job_id") in jobs and _autopilot.et_day(
+                            datetime.fromisoformat(e["ts"]).timestamp()) == today:
+                        total += e.get("est_cost_usd") or 0.0
+        except (FileNotFoundError, KeyError, ValueError):
+            pass
+    _AP_SPEND_CACHE.update(at=now, value=round(total, 4))
+    return _AP_SPEND_CACHE["value"]
 
 
 def _waiting_ingests(status):
@@ -5717,6 +5748,7 @@ def autopilot_status():
 class AutopilotSettingsIn(BaseModel):
     enabled: bool | None = None
     per_day: int | None = None
+    budget_usd: float | None = None
 
 
 @app.post("/api/autopilot/settings")

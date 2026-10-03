@@ -33,12 +33,14 @@ class Fake:
         self.view_rows = view
         self.queued = []
         self.busy = False
-        self.spent, self.cap = 0.0, 6.0
+        self.spent, self.cap = 0.0, 10.0
+        self.ap_spent = 0.0
 
     def deps(self):
         return {"view": lambda: self.view_rows, "refresh": lambda: None,
                 "canon": lambda k: k, "live_projects": lambda: set(),
                 "queue_busy": lambda: self.busy, "spend": lambda: (self.spent, self.cap),
+                "ap_spend": lambda: self.ap_spent,
                 "chapter_url": lambda row, ch: f"https://src/{row['series_id']}/{ch}",
                 "project_id": lambda url: url.rsplit("/", 2)[-2] + "_" + url.rsplit("/", 1)[-1],
                 "enqueue": self.enqueue}
@@ -99,10 +101,20 @@ def main():
     check("waits while an ingest is running", ap.tick(root, fake.deps(), tomorrow) is None
           and "running" in ap.runtime["last_result"])
     fake.busy = False
-    fake.spent = 5.9
-    check("waits when one more chapter would pass the $6 cap",
-          ap.tick(root, fake.deps(), tomorrow) is None and "budget" in ap.runtime["last_result"])
+    fake.spent = 9.9
+    check("waits when one more chapter would pass the $10 site cap",
+          ap.tick(root, fake.deps(), tomorrow) is None and "budget left" in ap.runtime["last_result"])
     fake.spent = 0.0
+    check("autopilot's own budget defaults to $6", ap.settings(root)["budget_usd"] == 6.0)
+    fake.ap_spent = 5.8          # + the learned ~$0.30 estimate > $6
+    check("waits when one more chapter would pass autopilot's $6 budget",
+          ap.tick(root, fake.deps(), tomorrow) is None and "autopilot budget" in ap.runtime["last_result"])
+    fake.ap_spent = 0.0
+    try:
+        ap.update_settings(root, {"budget_usd": 500})
+        check("autopilot budget is bounded", False)
+    except ValueError:
+        check("autopilot budget is bounded", True)
 
     # owner stop: never re-picked by itself
     n = len(fake.queued)

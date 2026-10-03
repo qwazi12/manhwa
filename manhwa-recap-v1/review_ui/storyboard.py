@@ -1635,7 +1635,10 @@ async function refreshUsage() {{
     const claudeNote = rates.claude_rates_published
       ? ' Claude is priced at published Anthropic list rates.'
       : ' Claude is priced at the PRICE_CLAUDE_* rates set here.';
-    const tag = rates.defaults
+    const tag = rates.gemini_rates_published && rates.defaults
+      ? '<span title="Measured tokens priced at Google’s published Gemini rates (read ' + rates.gemini_prices_read +
+        '), thinking included.' + claudeNote + ' Before 2026-10-03 Gemini Flash calls were under-counted (logged as $0).">at published rates</span>'
+      : rates.defaults
       ? '<span title="Gemini/TTS are priced at built-in default rates — set PRICE_* env vars from your Google rate card.' + claudeNote + '">≈ at default rates</span>'
       : '<span title="priced at the PRICE_* rates configured for this deployment.' + claudeNote + '">at configured rates</span>';
     box.innerHTML = now + ' ET — today: ' + (su.gemini_calls || 0) + ' gemini · ' +
@@ -2714,7 +2717,11 @@ async function loadAutopilot() {{
       <span>Today (ET)</span><span>${{d.today}} of
         <input id="apday" type="number" min="0" max="20" value="${{d.per_day}}" style="width:52px;padding:1px 4px"> chapters
         <button class="mini" onclick="apSet({{per_day: parseInt(document.getElementById('apday').value || '0', 10)}})">save</button>
-        · spend $${{(d.spent_usd || 0).toFixed(2)}} of $${{(d.cap_usd || 0).toFixed(2)}} · ~$${{(d.estimate_usd || 0).toFixed(2)}} a chapter</span>
+        · ~$${{(d.estimate_usd || 0).toFixed(2)}} a chapter</span>
+      <span>Spend today (ET)</span><span>autopilot $${{(d.ap_spent_usd || 0).toFixed(2)}} of
+        $<input id="apbudget" type="number" min="0" max="100" step="0.5" value="${{d.budget_usd}}" style="width:60px;padding:1px 4px">
+        <button class="mini" onclick="apSet({{budget_usd: parseFloat(document.getElementById('apbudget').value || '0')}})">save</button>
+        · whole site $${{(d.spent_usd || 0).toFixed(2)}} of $${{(d.cap_usd || 0).toFixed(2)}} (hard stop)</span>
       <span>Last chapter</span><span>${{last}}</span>
       <span>Last check</span><span>${{apAgo(d.last_tick || sched.last_run)}}${{d.last_result ? ' · ' + d.last_result : ''}} · checks every ${{Math.round((d.tick_seconds || 600) / 60)}} min${{sched.running ? '' : ' · <b style="color:var(--bad)">scheduler not running</b>'}}${{sched.last_error ? ' · <span style="color:var(--bad)">' + sched.last_error + '</span>' : ''}}</span>
       ${{waitingJobs}}
@@ -3532,7 +3539,12 @@ async function loadLogs() {{
        <b>$${{((life.est_cost_usd || 0) + (su.est_cost_usd || 0)).toFixed(2)}}</b></div>` +
       (uj.calls || []).slice(-40).reverse().map(c =>
         `<div class="hint" style="border-bottom:1px solid var(--rule);padding:2px 0">
-         ${{c.kind}} · ${{c.model || ''}} · ${{c.units}} ${{c.unit || ''}} · $${{(c.est_cost_usd || 0).toFixed(4)}}</div>`).join('');
+         ${{c.kind}} · ${{c.model || ''}} · ${{c.units}} ${{c.unit || ''}}${{c.metered
+           ? ` · ${{(c.prompt_tokens || 0).toLocaleString()}} in / ${{(c.output_tokens || 0).toLocaleString()}} out` +
+             (c.thought_tokens ? ` (${{c.thought_tokens.toLocaleString()}} thinking)` : '') +
+             (c.service_tier && c.service_tier !== 'standard' ? ` · ${{c.service_tier}}` : '')
+           : (c.unit === 'chars' ? '' : ' · <span style="color:var(--warn)" title="no token count came back — this is an estimate">estimate</span>')}}
+         · $${{(c.est_cost_usd || 0).toFixed(4)}}</div>`).join('');
   }} catch (e) {{ document.getElementById('logusage').innerHTML = 'usage unavailable'; }}
 
   const stamp = document.getElementById('logstamp');

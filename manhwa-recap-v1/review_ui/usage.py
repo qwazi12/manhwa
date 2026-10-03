@@ -100,7 +100,10 @@ EST_GEMINI_MODEL_COST_USD = [
     ("gemini-3.1-pro",    _envf("EST_COST_PRO_CALL_USD", 0.02)),
     ("gemini-3-pro",      _envf("EST_COST_PRO_CALL_USD", 0.02)),
     ("gemini-embedding",  _envf("EST_COST_EMBED_CALL_USD", 0.0002)),
-    ("gemini-3.5-flash",  EST_COST_PER_GEMINI_CALL_USD),
+    # Pre-call guess only (the cap check runs BEFORE the call). Sized from a
+    # measured describe call (~2,250 in / ~800 out incl. thinking) at the
+    # published $1.50/$9.00 — the old $0.001 under-guessed it ~10x.
+    ("gemini-3.5-flash",  _envf("EST_COST_FLASH35_CALL_USD", 0.012)),
     ("gemini-3.1-flash",  EST_COST_PER_GEMINI_CALL_USD),
 ]
 
@@ -240,18 +243,35 @@ def _price(name, default):
         return default
 
 
+# Google's PUBLISHED paid Standard-tier rates (ai.google.dev/gemini-api/docs/
+# pricing, read 2026-10-03). Output INCLUDES thinking tokens. The Batch and
+# Flex tiers bill exactly half (applied from the response's service_tier).
+# gemini-3.8-flash rates double on 2027-01-01 (handled by date below).
+GEMINI_PRICES_READ = "2026-10-03"
 GEMINI_TOKEN_PRICES_PER_1M = [
     # (model prefix, input $/1M tokens, output $/1M tokens)
-    ("gemini-3.1-pro", _price("PRICE_PRO_IN_PER_1M", 1.25),
-                       _price("PRICE_PRO_OUT_PER_1M", 10.0)),
-    ("gemini-3-pro",   _price("PRICE_PRO_IN_PER_1M", 1.25),
-                       _price("PRICE_PRO_OUT_PER_1M", 10.0)),
-    ("gemini-embedding", _price("PRICE_EMBED_IN_PER_1M", 0.15), 0.0),
-    ("gemini-3.5-flash", _price("PRICE_FLASH_IN_PER_1M", 0.30),
-                         _price("PRICE_FLASH_OUT_PER_1M", 2.50)),
-    ("gemini-3.1-flash", _price("PRICE_FLASH_IN_PER_1M", 0.30),
-                         _price("PRICE_FLASH_OUT_PER_1M", 2.50)),
+    # 3.1 Pro Preview: $2/$12 for prompts <= 200k tokens (ours always are).
+    ("gemini-3.1-pro", _price("PRICE_PRO_IN_PER_1M", 2.00),
+                       _price("PRICE_PRO_OUT_PER_1M", 12.0)),
+    ("gemini-3-pro",   _price("PRICE_PRO_IN_PER_1M", 2.00),
+                       _price("PRICE_PRO_OUT_PER_1M", 12.0)),
+    ("gemini-embedding", _price("PRICE_EMBED_IN_PER_1M", 0.20), 0.0),
+    ("gemini-3.5-flash", _price("PRICE_FLASH_IN_PER_1M", 1.50),
+                         _price("PRICE_FLASH_OUT_PER_1M", 9.00)),
+    ("gemini-3.8-flash", _price("PRICE_FLASH38_IN_PER_1M", 0.75),
+                         _price("PRICE_FLASH38_OUT_PER_1M", 3.75)),
+    ("gemini-3.1-flash", _price("PRICE_FLASH_IN_PER_1M", 1.50),
+                         _price("PRICE_FLASH_OUT_PER_1M", 9.00)),
+    ("gemini-2.5-flash", _price("PRICE_FLASH25_IN_PER_1M", 0.30),
+                         _price("PRICE_FLASH25_OUT_PER_1M", 2.50)),
 ]
+# Cached input is billed at the context-caching rate, not the input rate.
+GEMINI_CACHED_PRICE_PER_1M = [
+    ("gemini-3.5-flash", 0.15), ("gemini-3.8-flash", 0.075), ("gemini-2.5-flash", 0.03),
+]
+# Rates that change on a date: (prefix, from YYYY-MM-DD, input, output).
+GEMINI_PRICE_CHANGES = [("gemini-3.8-flash", "2027-01-01", 1.50, 7.50)]
+DISCOUNTED_TIERS = {"batch": 0.5, "flex": 0.5}
 
 # Gemini TTS: Google's PUBLISHED paid-tier rates (ai.google.dev pricing,
 # read 2026-10-02): text in $0.50/1M, audio out $9.00/1M (Flash) or $6.00/1M
@@ -263,13 +283,27 @@ GEMINI_TTS_PRICES_PER_1M = [
     ("gemini-3.8-flash-tts", _price("PRICE_TTS_IN_PER_1M", 0.50),
                              _price("PRICE_TTS_OUT_PER_1M", 9.00)),
 ]
+GEMINI_TTS_PRICE_CHANGES = [("gemini-3.8-flash-lite-tts", "2027-01-01", 1.00, 12.00),
+                            ("gemini-3.8-flash-tts", "2027-01-01", 1.00, 18.00)]
 TTS_AUDIO_TOKENS_PER_SEC = 25
 TTS_CHARS_PER_SEC = 12.0     # measured: 80 chars -> 6.5 s of Charon
+
+
+def _dated(model, changes, rin, rout):
+    """Apply a published future price change once its date has come. An env
+    override (operator set the price by hand) always wins."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    for prefix, since, nin, nout in changes:
+        if (model or "").startswith(prefix) and today >= since:
+            return nin, nout
+    return rin, rout
 
 
 def _gemini_tts_rates(model):
     for prefix, rin, rout in GEMINI_TTS_PRICES_PER_1M:
         if (model or "").startswith(prefix):
+            if not os.environ.get("PRICE_TTS_OUT_PER_1M"):
+                return _dated(model, GEMINI_TTS_PRICE_CHANGES, rin, rout)
             return rin, rout
     return GEMINI_TTS_PRICES_PER_1M[-1][1], GEMINI_TTS_PRICES_PER_1M[-1][2]
 
@@ -319,14 +353,60 @@ def _token_rates(model):
                 _price("PRICE_CLAUDE_OPUS_OUT_PER_1M", 25.0))
     for prefix, rin, rout in GEMINI_TOKEN_PRICES_PER_1M:
         if m.startswith(prefix):
-            return rin, rout
-    return (_price("PRICE_FLASH_IN_PER_1M", 0.30),
-            _price("PRICE_FLASH_OUT_PER_1M", 2.50))
+            return _dated(m, GEMINI_PRICE_CHANGES, rin, rout)
+    # Unknown Gemini model: bill at 3.5 Flash, the dearest Flash we run.
+    return (_price("PRICE_FLASH_IN_PER_1M", 1.50),
+            _price("PRICE_FLASH_OUT_PER_1M", 9.00))
 
 
-def token_cost(model, prompt_tokens, output_tokens):
+def token_cost(model, prompt_tokens, output_tokens, cached_tokens=0, tier=""):
+    """Dollar cost of one call from its REAL token counts. Output includes
+    thinking. Cached input is billed at the caching rate; Batch/Flex at half."""
     rin, rout = _token_rates(model)
-    return (prompt_tokens / 1e6) * rin + (output_tokens / 1e6) * rout
+    m = (model or "").lower()
+    rcache = next((r for p, r in GEMINI_CACHED_PRICE_PER_1M if m.startswith(p)), None)
+    cached = min(int(cached_tokens or 0), int(prompt_tokens or 0)) if rcache is not None else 0
+    cost = ((prompt_tokens - cached) / 1e6) * rin + (cached / 1e6) * (rcache or 0) \
+        + (output_tokens / 1e6) * rout
+    return cost * DISCOUNTED_TIERS.get((tier or "").lower(), 1.0)
+
+
+_tier_local = threading.local()
+
+
+def parse_gemini_usage(res):
+    """Token counts from ANY Gemini response shape we receive, or {} if none.
+
+    * generateContent REST: usageMetadata{promptTokenCount, candidatesTokenCount,
+      thoughtsTokenCount, cachedContentTokenCount}
+    * Interactions API (AQ. keys): usage{total_input_tokens, total_output_tokens,
+      total_thought_tokens, total_cached_tokens} + top-level service_tier
+    Thinking tokens are billed as output, so 'output' includes them. Before
+    2026-10-03 the Interactions shape was read with generateContent names,
+    every count came back 0, and 3,145 calls were recorded as free."""
+    try:
+        res = res or {}
+        um = res.get("usageMetadata")
+        if um:
+            out = {"prompt": um.get("promptTokenCount") or 0,
+                   "thoughts": um.get("thoughtsTokenCount") or 0,
+                   "cached": um.get("cachedContentTokenCount") or 0}
+            out["output"] = (um.get("candidatesTokenCount") or 0) + out["thoughts"]
+        else:
+            u = res.get("usage") or {}
+            if not u:
+                return {}
+            out = {"prompt": u.get("total_input_tokens") or u.get("inputTokenCount") or 0,
+                   "thoughts": u.get("total_thought_tokens") or 0,
+                   "cached": u.get("total_cached_tokens") or 0}
+            out["output"] = (u.get("total_output_tokens") or u.get("outputTokenCount") or 0) \
+                + out["thoughts"]
+        out["tier"] = str(res.get("service_tier") or "standard").lower()
+        _tier_local.tier = out["tier"]
+        _tier_local.thoughts = out["thoughts"]
+        return out
+    except Exception:
+        return {}
 
 
 class Meter:
@@ -334,15 +414,23 @@ class Meter:
     charged for. Without a report the old flat per-call estimate stands, so
     call sites that have not been updated keep working unchanged."""
 
-    __slots__ = ("prompt_tokens", "output_tokens", "cached_tokens", "reported")
+    __slots__ = ("prompt_tokens", "output_tokens", "cached_tokens", "reported",
+                 "thought_tokens", "tier")
 
     def __init__(self):
         self.prompt_tokens = 0
         self.output_tokens = 0
         self.cached_tokens = 0
+        self.thought_tokens = 0
+        self.tier = ""
         self.reported = False
 
     def tokens(self, prompt=0, output=0, cached=0):
+        # A report of ZERO tokens is not a measurement — no real call costs
+        # nothing. Treat it as unreported so the call keeps its estimate and
+        # is logged metered=false, instead of being recorded as free.
+        if not (int(prompt or 0) or int(output or 0)):
+            return self
         self.prompt_tokens += int(prompt or 0)
         self.output_tokens += int(output or 0)
         self.cached_tokens += int(cached or 0)
@@ -380,9 +468,11 @@ class Meter:
             um = getattr(resp, "usage_metadata", None)
             if um is None:
                 return self
+            thoughts = getattr(um, "thoughts_token_count", 0) or 0
+            self.thought_tokens += thoughts
             return self.tokens(
                 getattr(um, "prompt_token_count", 0) or 0,
-                getattr(um, "candidates_token_count", 0) or 0,
+                (getattr(um, "candidates_token_count", 0) or 0) + thoughts,
                 getattr(um, "cached_content_token_count", 0) or 0)
         except Exception:
             return self
@@ -445,12 +535,20 @@ def gate(kind, units, model=""):
                 f"today (${d['est_cost_usd']:.4f} + ${est_cost:.4f} est.)")
 
     meter = Meter()
+    _tier_local.tier = ""
+    _tier_local.thoughts = 0
     yield meter  # --- the actual API call happens here, outside the lock ---
+    # parse_gemini_usage() ran on this thread during the call: pick up the
+    # service tier and thinking count it saw (REST callers report tokens only).
+    meter.tier = meter.tier or getattr(_tier_local, "tier", "") or ""
+    meter.thought_tokens = meter.thought_tokens or getattr(_tier_local, "thoughts", 0) or 0
 
     # Actual tokens beat the flat per-call guess whenever the caller reported
     # them. TTS is already exact (it is billed per character).
     if kind in ("gemini", "claude") and meter.reported:
-        est_cost = token_cost(model, meter.prompt_tokens, meter.output_tokens)
+        est_cost = token_cost(model, meter.prompt_tokens, meter.output_tokens,
+                              meter.cached_tokens if kind == "gemini" else 0,
+                              meter.tier if kind == "gemini" else "")
     # Gemini TTS: priced from the audio actually returned (25 tokens/s).
     if kind == "tts" and (model or "").startswith("gemini") and meter.reported:
         est_cost = gemini_tts_cost(model, meter.prompt_tokens, meter.output_tokens)
@@ -480,6 +578,8 @@ def gate(kind, units, model=""):
             "prompt_tokens": meter.prompt_tokens,
             "output_tokens": meter.output_tokens,
             "cached_tokens": meter.cached_tokens,
+            "thought_tokens": meter.thought_tokens,
+            "service_tier": meter.tier or None,
             "metered": meter.reported,
             "job_totals": dict(job),
             "daily_totals": {"gemini_calls": d["gemini_calls"],
@@ -494,6 +594,10 @@ def rate_card():
     presenting an assumption as a fact."""
     return {
         "defaults": RATES_ARE_DEFAULT,
+        # Gemini rates are now Google's published ones (read on this date);
+        # 'defaults' only says no env override is set.
+        "gemini_rates_published": True,
+        "gemini_prices_read": GEMINI_PRICES_READ,
         "tts_per_1k_chars": EST_COST_PER_TTS_1K_CHARS_USD,
         "gemini_per_1m": [
             {"model": p, "input": rin, "output": rout}

@@ -15,7 +15,11 @@ How it picks (the owner's rules):
     serves the top-ranked series first, then the rest.
   * At most `per_day` chapters a day (America/New_York day, the same day the
     spend cap uses), one at a time, only when the ingest queue is empty and
-    today's spend plus one chapter's estimate fits under the daily cap.
+    one more chapter's estimate fits BOTH under autopilot's own daily budget
+    (`budget_usd`, owner: $6 — counted from autopilot jobs' metered spend)
+    and under the site-wide cap (MAX_DAILY_SPEND_USD, owner: $10). The budget
+    decides whether a chapter STARTS; the site cap is the hard stop on every
+    call, so a chapter started under budget can finish a little above it.
   * Gemini engine.
 
 Never repeat: a ledger of every chapter autopilot queued or a finished ingest
@@ -47,8 +51,9 @@ from datetime import datetime, timezone
 
 STATE_NAME = "_autopilot.json"
 DEFAULTS = {"enabled": False, "per_day": 4, "engine": "gemini", "window": 3,
-            "paused_series": []}
+            "paused_series": [], "budget_usd": 6.0}
 MAX_PER_DAY = 20
+MAX_BUDGET = 100.0          # $ a day autopilot may spend (owner: $6; site cap $10)
 FAIL_LIMIT = 2              # a chapter failing this often blocks its series
 FAIL_COOLDOWN = 3600        # seconds before a failed chapter is tried again
 REFRESH_EVERY = 6 * 3600    # re-read every series page this often (free)
@@ -147,6 +152,11 @@ def update_settings(root, patch):
         if not 0 <= v <= MAX_PER_DAY:
             raise ValueError(f"chapters per day must be 0–{MAX_PER_DAY}")
         clean["per_day"] = v
+    if patch.get("budget_usd") is not None:
+        b = float(patch["budget_usd"])
+        if not 0 <= b <= MAX_BUDGET:
+            raise ValueError(f"autopilot budget must be $0–{MAX_BUDGET:.0f} a day")
+        clean["budget_usd"] = round(b, 2)
     if patch.get("engine") is not None:
         if patch["engine"] != "gemini":
             raise ValueError("autopilot runs on Gemini only")
@@ -358,7 +368,7 @@ def pick(rows):
 
 
 # ------------------------------------------------------------------ decision
-def decide(st, rows, *, queue_busy, spent, cap, now=None):
+def decide(st, rows, *, queue_busy, spent, cap, now=None, ap_spent=0.0):
     """(waiting_reason or None, pick or None). No side effects."""
     cfg = st["settings"]
     if not cfg.get("enabled"):
@@ -369,6 +379,10 @@ def decide(st, rows, *, queue_busy, spent, cap, now=None):
     if n >= lim:
         return f"today's limit reached ({n} of {lim}) — continues after midnight ET", None
     est = estimate(st["ledger"])
+    budget = float(cfg.get("budget_usd") or 0)
+    if ap_spent + est > budget:
+        return (f"autopilot budget used for today (${ap_spent:.2f} of ${budget:.2f}, "
+                f"~${est:.2f} a chapter) — continues after midnight ET"), None
     if cap and spent + est > cap:
         return (f"not enough budget left today (${spent:.2f} spent, ~${est:.2f} a chapter, "
                 f"cap ${cap:.2f}) — continues after midnight ET"), None
@@ -404,7 +418,8 @@ def tick(root, deps, now=None):
         rows = candidates(st, deps["view"](), deps["canon"], deps["live_projects"](), now)
         save(root, st)                              # start_from for new series
         spent, cap = deps["spend"]()
-        reason, p = decide(st, rows, queue_busy=deps["queue_busy"](), spent=spent, cap=cap, now=now)
+        reason, p = decide(st, rows, queue_busy=deps["queue_busy"](), spent=spent, cap=cap, now=now,
+                           ap_spent=deps.get("ap_spend", lambda: 0.0)())
         if reason:
             runtime["last_result"] = "waiting: " + reason
             return None
@@ -429,7 +444,9 @@ def status(root, deps, now=None):
         rows = candidates(st, deps["view"](), deps["canon"], deps["live_projects"](), now)
         save(root, st)
     spent, cap = deps["spend"]()
-    reason, p = decide(st, rows, queue_busy=deps["queue_busy"](), spent=spent, cap=cap, now=now)
+    ap_spent = deps.get("ap_spend", lambda: 0.0)()
+    reason, p = decide(st, rows, queue_busy=deps["queue_busy"](), spent=spent, cap=cap, now=now,
+                       ap_spent=ap_spent)
     nxt = p or (pick(rows) if st["settings"].get("enabled") else None)
     ledger = st["ledger"]
     recent = sorted((dict(e, key=k) for k, e in ledger.items() if e.get("source") == "autopilot"),
@@ -439,6 +456,7 @@ def status(root, deps, now=None):
         "enabled": bool(st["settings"].get("enabled")),
         "today": today_count(ledger, now), "per_day": st["settings"].get("per_day"),
         "day": et_day(now), "spent_usd": round(spent, 2), "cap_usd": cap,
+        "ap_spent_usd": round(ap_spent, 2), "budget_usd": st["settings"].get("budget_usd"),
         "estimate_usd": estimate(ledger),
         "waiting": reason,
         "next": {"series": nxt["title"], "chapter": nxt["next"], "series_id": nxt["series_id"]} if nxt else None,

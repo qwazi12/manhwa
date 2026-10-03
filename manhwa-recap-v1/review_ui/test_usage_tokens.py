@@ -32,7 +32,7 @@ def main():
     # ---- token pricing
     c = usage.token_cost("gemini-3.5-flash", 1_000_000, 0)
     check("1M flash input tokens price off the input rate, not per-call",
-          abs(c - usage._price("PRICE_FLASH_IN_PER_1M", 0.30)) < 1e-9)
+          abs(c - usage._price("PRICE_FLASH_IN_PER_1M", 1.50)) < 1e-9)
     out = usage.token_cost("gemini-3.5-flash", 0, 1_000_000)
     check("output tokens are priced separately from input", out > c)
     pro = usage.token_cost("gemini-3.1-pro", 1_000_000, 0)
@@ -67,7 +67,7 @@ def main():
     check("...and neither is None", usage.Meter().from_response(None).reported is False)
 
     # ---- gate: metered vs unmetered
-    big = 500_000
+    big = 100_000              # $1.05 at the published 3.5 Flash rates
     with usage.gate("gemini", 1, model="gemini-3.5-flash") as meter:
         meter.tokens(big, big)
     d1 = usage.daily_summary()
@@ -83,7 +83,7 @@ def main():
     d2 = usage.daily_summary()
     delta = d2["est_cost_usd"] - metered_cost
     check("an UNMETERED call still bills, at the flat fallback",
-          abs(delta - usage.EST_COST_PER_GEMINI_CALL_USD) < 1e-6)
+          abs(delta - usage._gemini_call_cost("gemini-3.5-flash")) < 1e-6)
     check("call counts are unaffected by metering", d2["gemini_calls"] == 2)
 
     # ---- the log carries the evidence
