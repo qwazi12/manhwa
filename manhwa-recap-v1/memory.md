@@ -7986,3 +7986,26 @@ Owner (phone screenshot of Projects showing "chapter-2 (current) … active"): "
   - Review labels no longer double the version ('Ch.44 (v5) (v5)').
 - Live page sweep after e5a13ab: Ingest, Check, Exports, Projects, Tracker and Logs each open as a page, set their #hash, load (no stuck placeholder) and return to the board (146 rows); #work lands on Logs → What changed. **Exception: Check stayed on 'loading…'.** Cause: the voice picker (c66034c) reused id `vstatus`, which Check already uses, and getElementById returned the Ingest one. Renamed to `voicestatus`. Added a no-duplicate-ids test (test_mobile_layout 39/39). A rendered-page scan found no other real duplicates: /review's seo_msg and tc_msg sit in mutually exclusive render branches.
 - Live after 77802c9 (reloaded for real; a hash-only navigation does not refetch the page): Check shows 'Never checked. Pick a mode and run.' with no stuck placeholder; #voicestatus is in Ingest.
+
+---
+
+### 2026-10-03 — Port the still-applicable code-review fixes (no-regression scope)
+
+A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bugs. Each was checked against this live code; only the ones that still exist here **and** can be fixed without changing current behavior were applied. The owner's instruction: absolutely no regression.
+
+**Applied:**
+- `shot_planner.py` — failed crop queries (timeout, parse error, usage cap) were cached forever as full-panel. They still render full-panel for that run, but are **no longer cached**, and existing `Error:` entries are retried on the next run.
+- `shot_planner.py` — the crop cache was keyed by beat index only, so a regenerated script reused crops for different text. Entries now store `beat_text` and are re-queried when it changes. Entries written before this change have no `beat_text` and **stay valid** (no surprise quota spend).
+- `hyperframes/render_segments.py` — `ensure_project()` was skipped when `segments.json` already existed, so `/api/render-missing` on a fresh ingest could fail copying into a missing `assets/`. It now always runs (it only creates what is missing).
+- `server.py` `/api/debug/cat` — the string-prefix sandbox let `../<project>0/…` through, and `project=..` could climb out of the projects dir. Now `realpath` + `commonpath`.
+- `server.py` `/api/debug/test-planner` — GET→POST, so opening the URL no longer spends Gemini quota; uses real panel dims from descriptions.json (falls back to 1000 as before). Nothing in the site calls it.
+
+**Deliberately NOT applied (would regress):**
+- Stripping `[ID: …]` narration tags — live `parse_anchored_narrations()` uses them to tie narration to panels and already removes them.
+- Routing `AQ.` keys to the Interactions API in shot_planner — the current SDK route works with the live key (53 `vision` crops in local caches); switching would change the crop model and crops.
+- Rebuilding `segments.json` on CLI runs — the default workspace is the legacy chapter-2 project's editable state; rebuilding would erase board edits.
+- Box clamping / full-frame layout — already handled here (`normalize_crop`, `card_regime`).
+- Failing the ingest on a usage-cap breach — today it finishes with full-panel crops; kept.
+
+**Verified:** full suite 56/56 files pass before and after. Mocked planner test: failure → full panel and not cached; success caches `beat_text`; same text = cache hit, changed text = re-query; legacy entry reused; old error entry retried. TestClient: GET test-planner no longer runs it; debug/cat denies `../<sibling>`, `../../server.py`, `project=..`, still reads `project.json` in the active and a named project.
+**Not verified:** a live crop-planning run against Gemini after deploy.

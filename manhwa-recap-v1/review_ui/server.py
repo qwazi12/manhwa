@@ -5326,7 +5326,8 @@ def health():
     }
 
 
-@app.get("/api/debug/test-planner")
+# POST, not GET: each call spends Gemini quota, so merely opening the URL must not.
+@app.post("/api/debug/test-planner")
 def debug_test_planner():
     pdir = active_project_dir()
     segments_path = os.path.join(pdir, "segments.json")
@@ -5337,6 +5338,12 @@ def debug_test_planner():
     import shot_planner
     with open(segments_path) as f:
         segs = json.load(f)
+    # Real panel dimensions; a hardcoded 1000x1000 squashed every crop square.
+    dims = {}
+    desc_file = os.path.join(pdir, "descriptions.json")
+    if os.path.exists(desc_file):
+        dims = {p.get("panel_id"): (p.get("width"), p.get("height"))
+                for p in json.load(open(desc_file))}
     shots = []
     for seg in segs:
         for b in seg["beats"]:
@@ -5345,8 +5352,8 @@ def debug_test_planner():
                 "beat_text": b["text"],
                 "panel_id": seg["panel_id"],
                 "panel_file": os.path.join(pdir, "crops", f"{seg['panel_id']}.png"),
-                "width": 1000,
-                "height": 1000
+                "width": dims.get(seg["panel_id"], (None, None))[0] or 1000,
+                "height": dims.get(seg["panel_id"], (None, None))[1] or 1000,
             })
     planned = shot_planner.plan_shots(shots[:5], os.path.join(pdir, "descriptions.json"), os.path.join(pdir, "crops"))
     return {"planned": planned}
@@ -5379,9 +5386,14 @@ def debug_cat(path: str, project: str = ""):
         import ingest
         pdir = (os.path.join(ingest.PROJECTS, project) if project
                 else active_project_dir())
-        full_path = os.path.abspath(os.path.join(pdir, path))
-        # Sandbox check to ensure it stays in project dir
-        if not full_path.startswith(os.path.abspath(pdir)):
+        projects_root = os.path.realpath(ingest.PROJECTS)
+        root = os.path.realpath(pdir)
+        full_path = os.path.realpath(os.path.join(root, path))
+        # Sandbox check, component-wise: a string prefix let "../<project>_10/…"
+        # through, and `project` itself must not climb out of the projects dir.
+        if project and os.path.commonpath([projects_root, root]) != projects_root:
+            return {"ok": False, "error": "access denied"}
+        if os.path.commonpath([root, full_path]) != root:
             return {"ok": False, "error": "access denied"}
         if not os.path.exists(full_path):
             return {"ok": False, "error": "file not found"}

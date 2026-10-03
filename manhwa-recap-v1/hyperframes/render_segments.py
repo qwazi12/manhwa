@@ -576,6 +576,10 @@ def main():
         print(f"cards: intro={'ok' if ok1 else 'FAIL'} outro={'ok' if ok2 else 'FAIL'}")
         return
 
+    # Scaffolding (clips/, assets/, hyperframes.json) is needed on the reuse path
+    # too: ingest writes segments.json but not assets/, so a first render-missing
+    # on a fresh project would fail copying the panel in.
+    ensure_project()
     segments_path = os.path.join(WORK, "segments.json")
     if os.path.exists(segments_path):
         print(f"Loading segments directly from {segments_path}...")

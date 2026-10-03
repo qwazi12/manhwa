@@ -311,6 +311,21 @@ Beats list:
 
     return json.loads(text)
 
+def _cache_stale(cached_beats, pshots):
+    """True when a panel's cached crop plan must be re-queried: it recorded a
+    failure, or a beat's narration changed since it was planned (cache is keyed
+    by beat index). Entries from before beat_text was stored are kept as-is."""
+    for s in pshots:
+        c = cached_beats.get(str(s["index"]))
+        if not c:
+            continue
+        if str(c.get("focus_reason", "")).startswith("Error:"):
+            return True
+        if "beat_text" in c and c["beat_text"] != s.get("beat_text"):
+            return True
+    return False
+
+
 def plan_shots(shots, desc_path, crops_dir, api_key=None):
     if not api_key:
         api_key = os.environ.get("GEMINI_API_KEY")
@@ -369,7 +384,7 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
         # Filter out cached ones
         query_list = []
         for pid, img_path, pshots in to_plan:
-            if pid in cache:
+            if pid in cache and not _cache_stale(cache[pid], pshots):
                 cached_beats = cache[pid]
                 for s in pshots:
                     b_idx_str = str(s["index"])
@@ -415,6 +430,7 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
                             s["focus_confidence"] = 0.5
                         
                         panel_cache[str(s["index"])] = {
+                            "beat_text": s["beat_text"],
                             "crop_bbox_norm": s["crop_bbox_norm"],
                             "focus_source": s["focus_source"],
                             "focus_reason": s["focus_reason"],
@@ -442,6 +458,11 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
 
             # Update cache and save
             for pid, panel_cache in completed:
+                # A failed query (timeout, parse error, usage cap) still renders
+                # full-panel this run, but is not cached so the next run retries.
+                if any(str(b.get("focus_reason", "")).startswith("Error:")
+                       for b in panel_cache.values()):
+                    continue
                 cache[pid] = panel_cache
             try:
                 with open(cache_path, "w") as f:
