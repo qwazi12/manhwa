@@ -803,6 +803,7 @@ a {{ color:var(--accent); }}
 .calmeta {{ font-size:11px; color:var(--ink3); }}
 .calst {{ font-size:11px; }} .calst.made {{ color:var(--ok); }} .calst.new {{ color:var(--accent); }}
 .calcard button {{ font-size:11px; margin-top:auto; }}
+.calpick {{ width:100%; font-size:12px; padding:5px 6px; margin-top:2px; }}
 .voicebox {{ border:1px solid var(--rule); border-radius:8px; padding:10px 12px; margin:10px 0 12px;
   background:var(--panel2); display:flex; flex-direction:column; gap:8px; }}
 .voicebox .vlabel {{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--ink3); }}
@@ -1081,9 +1082,9 @@ body.not-board header button, body.not-board header label {{ display:none !impor
     <div class="calchips" id="calmonths"></div>
     <div class="calchips" id="calstatus">
       <span class="hint">Show:</span>
-      <button type="button" class="on" data-f="all" onclick="calFilter('st', 'all', this)">All</button>
-      <button type="button" data-f="new" onclick="calFilter('st', 'new', this)">Not made yet</button>
-      <button type="button" data-f="made" onclick="calFilter('st', 'made', this)">Made</button>
+      <button type="button" class="on" data-f="all" onclick="calFilter('st', 'all', this)">All series</button>
+      <button type="button" data-f="new" onclick="calFilter('st', 'new', this)">Has chapters to make</button>
+      <button type="button" data-f="made" onclick="calFilter('st', 'made', this)">All made</button>
     </div>
     <div class="calgrid" id="calgrid"><div class="hint">loading…</div></div>
   </div>
@@ -2732,31 +2733,42 @@ function esc(x) {{
   return String(x == null ? '' : x).replace(/[&<>"']/g, function (c) {{
     return {{ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }}[c]; }});
 }}
+/* ONE card per series (owner, 2026-10-02): cover, latest release, how many
+   chapters are still unmade, and a dropdown of every chapter (newest first,
+   with its date and whether it is made) to ingest the one picked. Cards are
+   grouped by the month of the series' latest release. */
 async function calLoad() {{
   const grid = document.getElementById('calgrid');
   try {{ WL = await j('/api/watchlist'); }} catch (e) {{
     grid.innerHTML = '<div class="hint">Could not load the watchlist: ' + esc(e.message || e) + '</div>'; return; }}
-  const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10);
   const items = [];
   (WL.series || []).forEach(function (sx) {{
     const made = {{}};
-    (sx.mirrors || []).forEach(function (m) {{ (m.ingested || []).forEach(function (c) {{ made[String(c.chapter)] = c.project || true; }}); }});
+    (sx.mirrors || []).forEach(function (m) {{ (m.ingested || []).forEach(function (c) {{ made[String(c.chapter)] = true; }}); }});
     const key = sx.preferred_mirror || sx.best_mirror;
-    const m = (sx.mirrors || []).find(function (x) {{ return x.series_key === key; }}) ||
-              (sx.mirrors || []).find(function (x) {{ return x.release_dates; }});
-    if (!m || !m.release_dates) return;
-    Object.keys(m.release_dates).forEach(function (cid) {{
-      const d = m.release_dates[cid];
-      if (!d || d[0] < cutoff) return;
-      items.push({{ sid: sx.id, title: sx.title, key: m.series_key, src: m.label || m.source,
-                   ch: cid, day: d[0], approx: !!d[1], made: made[cid] || null,
-                   cover: !!m.cover }});
-    }});
+    const m = (sx.mirrors || []).find(function (x) {{ return x.series_key === key; }}) || (sx.mirrors || [])[0];
+    if (!m) return;
+    const dates = m.release_dates || {{}};
+    const chs = (m.chapters || Object.keys(dates)).map(String)
+      .sort(function (a, b) {{ return parseFloat(b) - parseFloat(a); }});
+    if (!chs.length) return;
+    const latest = chs[0], ld = dates[latest];
+    const unmade = chs.filter(function (c) {{ return !made[c]; }});
+    // pre-select the next chapter to make: the first unmade one after the
+    // highest made chapter, else the latest unmade, else the latest
+    const madeNums = chs.filter(function (c) {{ return made[c]; }}).map(parseFloat);
+    const top = madeNums.length ? Math.max.apply(null, madeNums) : -Infinity;
+    const after = unmade.filter(function (c) {{ return parseFloat(c) > top; }});
+    const pick = after.length ? after[after.length - 1] : (unmade[0] || latest);
+    items.push({{ sid: sx.id, title: sx.title, key: m.series_key, src: m.label || m.source,
+                 tier: sx.tier_label || '', cover: !!m.cover, chs: chs, dates: dates, made: made,
+                 latest: latest, day: ld ? ld[0] : '', approx: ld ? !!ld[1] : false,
+                 unmade: unmade.length, pick: pick }});
   }});
-  items.sort(function (a, b) {{ return a.day < b.day ? 1 : a.day > b.day ? -1 : parseFloat(b.ch) - parseFloat(a.ch); }});
+  items.sort(function (a, b) {{ return (b.day || '') < (a.day || '') ? -1 : (b.day || '') > (a.day || '') ? 1 : 0; }});
   CAL.items = items;
-  const months = Array.from(new Set(items.map(function (i) {{ return i.day.slice(0, 7); }})));
-  document.getElementById('calmonths').innerHTML = '<span class="hint">Month:</span>' +
+  const months = Array.from(new Set(items.filter(function (i) {{ return i.day; }}).map(function (i) {{ return i.day.slice(0, 7); }})));
+  document.getElementById('calmonths').innerHTML = '<span class="hint">Latest release:</span>' +
     ['all'].concat(months).map(function (mo) {{
       return '<button type="button" class="' + (CAL.month === mo ? 'on' : '') + '" data-v="' + mo + '" onclick="calFilter(&quot;month&quot;, this.dataset.v, this)">' +
         (mo === 'all' ? 'All' : calMonth(mo).split(' ')[0]) + '</button>';
@@ -2766,6 +2778,9 @@ async function calLoad() {{
 function calMonth(mo) {{
   return new Date(mo + '-15T12:00:00Z').toLocaleString('en-US', {{ month: 'long', year: 'numeric' }});
 }}
+function calDay(d) {{
+  return new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', {{ month: 'short', day: 'numeric', year: 'numeric' }});
+}}
 function calFilter(kind, val, btn) {{
   CAL[kind] = val;
   btn.parentNode.querySelectorAll('button').forEach(function (b) {{ b.classList.toggle('on', b === btn); }});
@@ -2773,31 +2788,39 @@ function calFilter(kind, val, btn) {{
 }}
 function calPaint() {{
   const grid = document.getElementById('calgrid');
-  const list = CAL.items.filter(function (i) {{
-    return (CAL.month === 'all' || i.day.slice(0, 7) === CAL.month) &&
-           (CAL.st === 'all' || (CAL.st === 'made') === !!i.made);
-  }});
   if (!CAL.items.length) {{
-    grid.innerHTML = '<div class="hint" style="grid-column:1/-1">No release dates yet. Press <b>↻ Check all series</b> — it reads each series page on the watchlist.</div>';
+    grid.innerHTML = '<div class="hint" style="grid-column:1/-1">Nothing on the watchlist has chapters yet. Press <b>↻ Check all series</b>.</div>';
     return;
   }}
+  const list = CAL.items.filter(function (i) {{
+    return (CAL.month === 'all' || (i.day || '').slice(0, 7) === CAL.month) &&
+           (CAL.st === 'all' || (CAL.st === 'new') === (i.unmade > 0));
+  }});
   if (!list.length) {{ grid.innerHTML = '<div class="hint" style="grid-column:1/-1">Nothing matches these filters.</div>'; return; }}
-  let html = '', prev = '';
+  let html = '', prev = null;
   list.forEach(function (i) {{
-    const mo = i.day.slice(0, 7);
-    if (mo !== prev) {{ html += '<div class="calmonth">' + calMonth(mo) + '</div>'; prev = mo; }}
-    const when = new Date(i.day + 'T12:00:00Z').toLocaleDateString('en-US', {{ month: 'short', day: 'numeric', year: 'numeric' }});
+    const mo = i.day ? i.day.slice(0, 7) : '';
+    if (mo !== prev) {{ html += '<div class="calmonth">' + (mo ? calMonth(mo) : 'No release dates yet') + '</div>'; prev = mo; }}
+    const opts = i.chs.map(function (c) {{
+      const d = i.dates[c];
+      return '<option value="' + esc(c) + '"' + (c === i.pick ? ' selected' : '') + '>' +
+        'Ch.' + esc(c) + (d ? ' · ' + (d[1] ? '≈ ' : '') + calDay(d[0]) : '') + (i.made[c] ? ' · ✓ made' : '') + '</option>';
+    }}).join('');
     html += '<div class="calcard">' +
       (i.cover ? '<img class="calcover" loading="lazy" alt="" src="/api/watchlist/cover/' + encodeURIComponent(i.sid) +
         '" onerror="this.outerHTML=&quot;<div class=calcover></div>&quot;">' : '<div class="calcover"></div>') +
       '<b>' + esc(i.title) + '</b>' +
-      '<span class="calmeta">Ch.' + esc(i.ch) + ' · ' + (i.approx ? '≈ ' : '') + when + ' · ' + esc(i.src) + '</span>' +
-      (i.made ? '<span class="calst made">✓ made</span>' : '<span class="calst new">● not made yet</span>') +
-      (i.made ? '<button type="button" disabled>✓ Made</button>'
-              : '<button type="button" class="primary" data-sid="' + esc(i.sid) + '" data-key="' + esc(i.key) + '" data-ch="' + esc(i.ch) + '" onclick="wlIngest(this.dataset.sid, this.dataset.key, this.dataset.ch)">Ingest Ch.' + esc(i.ch) + '</button>') +
+      '<span class="calmeta">Latest Ch.' + esc(i.latest) + (i.day ? ' · ' + (i.approx ? '≈ ' : '') + calDay(i.day) : '') + ' · ' + esc(i.src) + '</span>' +
+      (i.unmade ? '<span class="calst new">● ' + i.unmade + ' not made yet</span>' : '<span class="calst made">✓ all made</span>') +
+      '<select class="calpick" id="calpick_' + esc(i.sid) + '">' + opts + '</select>' +
+      '<button type="button" class="primary" data-sid="' + esc(i.sid) + '" data-key="' + esc(i.key) + '" onclick="calIngest(this)">Ingest chapter</button>' +
       '</div>';
   }});
   grid.innerHTML = html;
+}}
+function calIngest(btn) {{
+  const sel = document.getElementById('calpick_' + btn.dataset.sid);
+  if (sel && sel.value) wlIngest(btn.dataset.sid, btn.dataset.key, sel.value);
 }}
 async function calCheckAll() {{
   const b = document.getElementById('calcheck'), note = document.getElementById('calnote');

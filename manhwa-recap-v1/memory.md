@@ -7921,3 +7921,33 @@ Owner (phone screenshot of /review with an empty "No Options" picker): "why does
   - `refresh_all` checked 14/14 series in 5.8 s: every one has dates and a cover (Asura full history, WEBTOON latest 10).
   - The Tracker calendar shows Jun–Oct month chips and real cover art (cover proxy 0.12–0.38 s on first fetch, then cached).
 - **Open, observed but not fixed:** WEBTOON `episode_no` is the site's internal sequence, not the displayed episode. Fog Land's `episode_no=2` is "Ep. 1 – Locked Up", which is why the owner sent that export back ("this is chapter 1 not chapter 2"). Project labels, and the calendar's "Ch.N" for WEBTOON, use `episode_no`, so they can be off by one where a series has a prologue/notice entry.
+
+### 2026-10-03 — Tracker: one card per series; takeaways from the Scrapper's LongForm Studio
+**Tracker (owner):** "each manhwa/webtoon should have only 1 card but have a drop down so we can pick the chapters to directly ingest."
+- The release calendar now shows ONE card per series: cover, "Latest Ch.N · date · source", "● N not made yet" (or "✓ all made").
+- Each card has a dropdown of every chapter (newest first, with its date, ≈ when approximate, and "✓ made") and an "Ingest chapter" button through `wlIngest` (confirm, then queued, then the Ingest console).
+- The dropdown pre-selects the next chapter to make: the first unmade chapter above the highest made one.
+- Grouped by the month of the latest release. Chips: Latest-release month, and All series / Has chapters to make / All made.
+- `test_release_calendar` 13/13. Previewed locally with 3 real series (46/131/40 chapters) at desktop width and 390px.
+
+**Studied:** qwazi12/scrapper `backend/app/studio` (stage_gather, sources, stage_script, stage_plan, stage_render, motion + motion_templates) and its MEMORY log.
+
+**What the manhwa pipeline does NOT have that the Scrapper does:**
+1. Research is grounded and source-tiered: Gemini with Google Search grounding; redirects resolved; sources tiered official/trusted/low; only official- or trusted-backed findings reach the script; sources are cited in the description. Our series bible is hand-seeded (only Murim) and new series start with none.
+2. Every script change is visible: the second-pass per-sentence verdict (ok/unsupported → fix or drop) is kept as `script.changes` and shown to the owner. Our narrate fact-check exists but its changes are not surfaced.
+3. Shot QA by dHash: no repeat while fresh shots remain, nothing look-alike within 6 slots, flags on plan rows. Our v4 review found repeated images; we only warn on `same_panel_run`.
+4. Motion layer (HyperFrames JSON templates: css + body + GSAP js):
+   - Pieces: intro title card, release card, cast name cards (only on shots where that actor is the ONLY person tagged), subscribe lower-third, and an 8 s end screen.
+   - Rendered to ProRes 4444 alpha overlays and cached by template version and inputs; each piece falls back to a static PNG if its render fails.
+   - Compare mode: final.mp4 (static) and final_motion.mp4.
+   - Subscribe timing: ~18 s, ~60 % through, and over the closing call to action; moved out of the intro and card windows.
+   - **We have none of these in the render.**
+5. Narration is loudness-normalised to −14 LUFS / TP −1.5 (YouTube's target). We have none (v4 peaked at 0 dB).
+6. Thumbnail: a close-up of the lead from tagged shots, a bottom shade and the title. Our Thumbnail Copilot is already more advanced.
+7. Render safety:
+   - Builds in `render_new/` and swaps at the end, so a stopped or failed re-render keeps the last good video.
+   - Stop kills ffmpeg at once, and a restart marks interrupted jobs.
+   - Pixel formats are normalised (a JPEG yuvj420p mid-stream switch made ffmpeg drop overlays).
+8. Stop uses a two-tap in-page confirm because `window.confirm()` can be silently blocked (in-app browsers). **Our jobs bar and many board buttons still use `confirm()`.**
+
+**Recommended order (awaiting owner):** loudnorm → subscribe lower-third + end screen + intro card (channel-branded, static fallback) → dHash plan QA → auto series bible from grounded research → character name cards → render_new swap + two-tap Stop.

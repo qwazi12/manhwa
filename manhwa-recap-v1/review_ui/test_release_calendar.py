@@ -62,8 +62,11 @@ def main():
 
     src = open(os.path.join(HERE, "storyboard.py"), encoding="utf-8").read()
     check("the Tracker opens on the release calendar", "trkTab('cal')" in src and 'id="trk_cal"' in src)
-    check("calendar cards ingest through the watchlist (no quoted args)",
-          "onclick=\"wlIngest(this.dataset.sid, this.dataset.key, this.dataset.ch)\"" in src)
+    check("ONE card per series, with a chapter dropdown that ingests the pick",
+          "id=\"calpick_' + esc(i.sid) + '\"" in src and "function calIngest(btn)" in src
+          and "wlIngest(btn.dataset.sid, btn.dataset.key, sel.value)" in src)
+    check("the dropdown pre-selects the next chapter to make",
+          "after.length ? after[after.length - 1]" in src)
     check("approximate dates are marked ≈", "(i.approx ? '≈ ' : '')" in src)
 
     for n, ok in R:
