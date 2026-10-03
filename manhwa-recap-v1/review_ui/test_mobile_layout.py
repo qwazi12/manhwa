@@ -93,6 +93,15 @@ def main():
           "Logs & Activity" in open(os.path.join(HERE, "theme.py")).read()
           and 'title="Work"' not in theme.sidebar_html(theme.nav_items("board")))
 
+    # duplicate ids break getElementById silently (the voice picker once took
+    # the Check page's #vstatus, leaving Check stuck on "loading…")
+    import re as _re2
+    from collections import Counter as _C
+    sb_html = sb[sb.index("<body>"):] if "<body>" in sb else sb
+    ids = _re2.findall(r'\bid="([A-Za-z][\w-]*)"', sb_html)
+    dups = sorted(k for k, v in _C(ids).items() if v > 1)
+    check("no element id is used twice on the board" + (" (dups: %s)" % dups if dups else ""), not dups)
+
     for n, ok in R:
         print(("PASS " if ok else "FAIL ") + n)
     n_ok = sum(1 for _, ok in R if ok)

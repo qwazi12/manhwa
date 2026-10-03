@@ -963,7 +963,7 @@ body.not-board header button, body.not-board header label {{ display:none !impor
     <div class="vrow">
       <button type="button" onclick="previewVoice()" id="vprevbtn">▶ Preview</button>
       <button type="button" onclick="saveDefaultVoice()" id="vdefbtn">Make this the default</button>
-      <span class="hint" id="vstatus"></span>
+      <span class="hint" id="voicestatus"></span>
     </div>
     <audio id="vprev" controls preload="none" style="display:none;width:100%;margin-top:6px"></audio>
     <div class="hint">Used when this chapter is first voiced, or with Fresh re-ingest. A chapter
@@ -2456,7 +2456,7 @@ let VOICE_DATA = null;
 async function loadVoices() {{
   if (VOICE_DATA) return;
   try {{ VOICE_DATA = await j('/api/voices'); }} catch (e) {{
-    document.getElementById('vstatus').textContent = 'could not load voices'; return; }}
+    document.getElementById('voicestatus').textContent = 'could not load voices'; return; }}
   const d = VOICE_DATA.default || {{}};
   document.getElementById('ingvoice').innerHTML = VOICE_DATA.voices.map(function (v) {{
     return '<option value="' + v.id + '"' + (v.id === d.id ? ' selected' : '') + '>' +
@@ -2476,10 +2476,10 @@ function voiceChanged() {{
   // the classic Chirp voice has no style control
   document.getElementById('ingstyle').disabled = v.indexOf('chirp:') === 0;
   const a = document.getElementById('vprev'); a.style.display = 'none'; a.removeAttribute('src');
-  document.getElementById('vstatus').textContent = '';
+  document.getElementById('voicestatus').textContent = '';
 }}
 async function previewVoice() {{
-  const b = document.getElementById('vprevbtn'), st = document.getElementById('vstatus');
+  const b = document.getElementById('vprevbtn'), st = document.getElementById('voicestatus');
   b.disabled = true; st.textContent = 'recording a sample…';
   try {{
     const r = await j('/api/voices/preview', {{method:'POST', headers:{{'Content-Type':'application/json'}},
@@ -2492,7 +2492,7 @@ async function previewVoice() {{
   b.disabled = false;
 }}
 async function saveDefaultVoice() {{
-  const st = document.getElementById('vstatus');
+  const st = document.getElementById('voicestatus');
   try {{
     await j('/api/voices/default', {{method:'POST', headers:{{'Content-Type':'application/json'}},
       body: JSON.stringify({{voice: document.getElementById('ingvoice').value,
