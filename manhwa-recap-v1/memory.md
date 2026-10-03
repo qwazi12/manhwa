@@ -8009,3 +8009,29 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 
 **Verified:** full suite 56/56 files pass before and after. Mocked planner test: failure → full panel and not cached; success caches `beat_text`; same text = cache hit, changed text = re-query; legacy entry reused; old error entry retried. TestClient: GET test-planner no longer runs it; debug/cat denies `../<sibling>`, `../../server.py`, `project=..`, still reads `project.json` in the active and a named project.
 **Not verified:** a live crop-planning run against Gemini after deploy.
+
+---
+
+### 2026-10-03 — PLAN FOR REVIEW: Chapter Autopilot (NOT BUILT; awaiting owner go-ahead)
+
+**Owner request:** automate ingestion so new chapters simply appear in Projects; the owner opens one on the Board, reviews and approves. Learn from https://github.com/qwazi12/scrapper. Review page: https://claude.ai/artifact/BH5v41J9iJojkE8ykCVbQP
+
+**Delete question (same day), answered:** the 16:29:00 UTC project delete did work (projects dir mtime = request second; Murim ch.44 v5 gone). What still shows deleted work is **Logs & Activity** (job/ingest history is never cleared on delete) and two identical "Chapter 358" rows (normal + Claude lab). Button audit: 1,616 board + 45 review handlers all call defined functions; all 56 board API calls have a route with the right method; 15 live GET feeds answer 200 in ~0.1 s; every page opens with no JS errors or stuck "loading…". Not clicked: destructive or paid buttons. No code changed for this.
+
+**Learned from scrapper (85abec2):** automation switch with a rule-40 status card and a 5-min tick that starts at most one job (`studio/auto.py`); checked, ranked candidate list with ✓/✕ reasons, pin/skip (`candidates.py`); never-repeat ledger because deletes made titles eligible again; restart-surviving jobs with heartbeat/owner/max 2 resumes (`resume.py`); budget-paused (not failed) jobs that resume first next day; waiting line instead of "busy"; review mark + batch render (`batch.py`); polling-driven DB deadlock outage (keep status polling light); archive with a 5-day timer; home-IP worker as a blocking fallback.
+
+**Measured on live (2026-10-03):** AI cost per pipeline job median $0.24 (p25 $0.17, p75 $0.81, max $4.37; 63 jobs, ingest/render/lab mixed); ingest outcomes 90 done / 36 error of 126; projects 70–450 MB each; volume 27 GB free of 28 GB.
+
+**Plan (each step its own commit, tests, suite must stay green, jobs check before push, manual ingest unchanged, autopilot OFF by default):**
+- A. Never-repeat ledger `_made.json` (survives project deletes; backfilled).
+- B. Candidate list: next unmade chapter per watched series, checks (new / source readable / previous chapter made / not running / budget), ranked tier→rank, pin/skip; free.
+- C. Autopilot switch + 10-min scheduler tick, at most one chapter, only when queue empty, under per-day limit and cap; status card on Ingest; decisions logged.
+- D. Restart re-queue (max 2, cached stages) instead of "aborted"; cap hit → paused until midnight ET, resumed first.
+- E. Projects inbox: status (Ingesting / Ready for review / In review / Approved / Rendered / Failed), auto badge, filters, sidebar count; clear lab/version labels.
+- F. Auto story-check after ingest (free mode).
+- G. Approve → "Render approved" batch render + export; publishing stays manual.
+- H. RUNBOOK/CONFIG + Work drawer entries.
+
+**Open questions for the owner:** (1) chapters/day (suggest 3); (2) which tiers (suggest Greenlight only); (3) next-in-order vs newest (suggest in order); (4) engine (suggest Gemini); (5) restart-resume for manual ingests too (suggest yes); (6) story check free vs paid (suggest free); (7) render after approval: button vs automatic (suggest button first); (8) extra ideas: release-day timing, catch-up mode, source health/mirror failover, ready notifications, archive after export, Logs "(deleted)" clean-up.
+
+**Risks:** unlicensed sources (publishing stays manual; Stage 7 rights gate still required before public), Railway IP blocking, spend (bounded by $5/day cap + chapter limit), disk (~1 month headroom at 3/day).
