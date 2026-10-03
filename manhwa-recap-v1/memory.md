@@ -7953,3 +7953,29 @@ Owner (phone screenshot of /review with an empty "No Options" picker): "why does
 **Recommended order (awaiting owner):** loudnorm → subscribe lower-third + end screen + intro card (channel-branded, static fallback) → dHash plan QA → auto series bible from grounded research → character name cards → render_new swap + two-tap Stop.
 - Follow-up (live check after 0e47a35): Murim Psychopath pre-selected Ch.0 although Ch.44 was made. Cause: Asura rotates a random 8-hex suffix in series URLs (murim-psychopath-05c7df14 → -3ec3b16f → -6f7fe6eb), and the watchlist matched made chapters by that URL key. Fix: `providers.canonical_key` ('asura:<slug>' without the suffix) is used for the made-chapter join in `watchlist.view`. WEBTOON keys were already stable. test_release_calendar 16/16, test_watchlist 39/39, test_tracker 32/32.
 - Live after bf4dd9c (00:13 UTC): the Tracker shows 14 series cards; pre-selected next chapters are Murim Psychopath Ch.45 (44 made), I Am the Fated Villain Ch.359 (358 made), Extra's Academy Ch.98 (97 made) and Fog Land Ch.3.
+
+### 2026-10-03 — Projects "Open" fixed, wiring audit, faster Review & Publish
+Owner (phone screenshot of Projects showing "chapter-2 (current) … active"): "when I click Open it doesn't take me to the board … the project on the board isn't the one I opened … check the entire system so everything is wired … why does Review & Publish take so long to load?"
+
+**1. Open did not go to the board** (my regression from ec513fa, sections-as-pages). `activateProj` ended with `location.reload()`, which kept the `#projects` page address, so it reloaded onto Projects. Now it goes to `/storyboard`, and a failed activation says so.
+
+**2. Projects never showed which chapter was open.**
+- `/api/projects` always listed a legacy "chapter-2 (current)" placeholder first, marked active, and every real chapter with `active: False`.
+- Live, active_project.txt said `the-extras-academy-survival-guide-6465_97` while the list said otherwise. Activation itself worked; the screen never confirmed it.
+- Now the real open chapter is marked active, and the placeholder appears only when no chapter is open.
+
+**3. Wiring audit (scripted)** over the rendered board and /review:
+- Board: 2,443 handlers, 86 element lookups, 55 API calls, 245 links. Review: 48 handlers, 27 lookups, 16 API calls, 4 links.
+- Clean: no handler calls an undefined function, no link to a missing page, no page switch to an unknown page.
+- The 4 "no route" API hits were false positives (template URLs; the routes exist).
+- Real but null-guarded: `undoEdit` looked up `#undobtn`, which doesn't exist (the buttons only have the class), so it never showed "undoing…". Fixed to use the class.
+- `#p_targets` on /review is a dead fallback, left as is.
+- Also checked: the remaining `location.reload()` calls are correct where they are (Check "Reload board & re-check", Undo, board edit helper).
+
+**4. Review & Publish load time.**
+- Measured live: each API call is 0.06–0.14 s at the server, and the page completed in about 0.6 s on desktop.
+- The cost was sequential round trips through the edge: up to 4 (2 to load, plus 2 more when the open chapter had no video and the page then fetched the newest).
+- Now `/api/review` with no project answers with the newest video from any chapter itself, and when the video is known (picker or Exports link) all 6 calls go out in ONE round.
+- No AI work runs on load; the SEO and Thumbnail copilots only generate on a button press. The video is `preload="metadata"`.
+
+**Tests:** new `test_project_switching` 6/6; full suite passes.

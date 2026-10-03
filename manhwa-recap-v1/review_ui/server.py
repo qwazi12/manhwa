@@ -772,6 +772,23 @@ def api_review(project: str = "", name: str = ""):
     pid = os.path.basename(pdir.rstrip("/"))
     if not name:
         name, pid = latest_export(project or pid)
+    if not name and not project:
+        # Opened directly while the board's chapter has no video: answer with
+        # the newest video from ANY chapter here, instead of "missing" and a
+        # second round trip from the page to go and find one.
+        newest = None
+        for _pid, _d in _all_export_dirs():
+            try:
+                for f in os.listdir(_d):
+                    if f.endswith(".mp4"):
+                        m = os.stat(os.path.join(_d, f)).st_mtime
+                        if newest is None or m > newest[0]:
+                            newest = (m, _pid, f)
+            except OSError:
+                pass
+        if newest:
+            pid, name = newest[1], newest[2]
+            pdir = project_dir_for(pid)
     exports = []
     d = os.path.join(pdir, "exports")
     recs = load_reviews(pdir)
@@ -3778,11 +3795,21 @@ def logs_ingest():
 @app.get("/api/projects")
 def projects_list():
     import ingest
-    items = [{"id": "chapter-2 (current)", "url": "loaded", "active": True,
-              "n_segments": len(load_segments())}]
+    # The OPEN chapter is the one in active_project.txt. This list used to
+    # put a legacy "chapter-2 (current)" placeholder first, always marked
+    # active, and every real chapter as inactive — so Projects could never
+    # show which chapter was actually open. The placeholder now appears only
+    # when no chapter has been opened (the board then shows that workspace).
+    active_id = get_active_project_id()
+    projects = ingest.list_projects()
+    known = {m.get("id") for m in projects}
+    items = []
+    if not active_id or active_id not in known:
+        items.append({"id": "chapter-2 (current)", "url": "loaded", "active": True,
+                      "n_segments": len(load_segments())})
     finished_slugs = set()
-    for m in ingest.list_projects():
-        items.append({**m, "active": False})
+    for m in projects:
+        items.append({**m, "active": m.get("id") == active_id})
         finished_slugs.add(m.get("id"))
     # IN-PROGRESS ingests (running/queued) — clickable to watch live status.
     in_progress = []

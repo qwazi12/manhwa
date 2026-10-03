@@ -256,25 +256,35 @@ async function load(name, proj) {
   if (proj) u += '&project=' + encodeURIComponent(proj);
   if (name) u += '&name=' + encodeURIComponent(name);
   try {
-    // Round 1. /api/review is NOT caught here: if it fails the page has
-    // nothing to show, and the outer catch renders that properly.
+    // When the video is already known (picker, Exports link) all six calls go
+    // out at once: ONE round trip. Opened bare, the server first resolves which
+    // video to show (the newest one if this chapter has none), then round 2.
+    function round2(qs) {
+      return Promise.all([
+        api('/api/publishing/eligibility?cb=' + Date.now() + qs).catch(function () { return null; }),
+        api('/api/publishing/publish/status?cb=' + Date.now() + qs).catch(function () { return null; }),
+        api('/api/publish?cb=' + Date.now() + qs).catch(function () { return null; })
+      ]);
+    }
+    var known = (proj && name) ? '&project=' + encodeURIComponent(proj) + '&name=' + encodeURIComponent(name) : '';
+    // /api/review is NOT caught here: if it fails the page has nothing to
+    // show, and the outer catch renders that properly.
     var r1 = await Promise.all([
       api(u),
       api('/api/exports?cb=' + Date.now()).catch(function () { return {}; }),
-      api('/api/publishing/status?cb=' + Date.now()).catch(function () { return null; })
+      api('/api/publishing/status?cb=' + Date.now()).catch(function () { return null; }),
+      known ? round2(known) : Promise.resolve(null)
     ]);
     DATA = r1[0];
     ALL = (r1[1] || {}).exports || [];
     OS = r1[2];
     YT = null;
-    // Round 2 — all three depend only on the project/name just resolved.
-    var qs = (DATA.project ? '&project=' + encodeURIComponent(DATA.project) : '') +
-             (DATA.name ? '&name=' + encodeURIComponent(DATA.name) : '');
-    var r2 = await Promise.all([
-      api('/api/publishing/eligibility?cb=' + Date.now() + qs).catch(function () { return null; }),
-      api('/api/publishing/publish/status?cb=' + Date.now() + qs).catch(function () { return null; }),
-      api('/api/publish?cb=' + Date.now() + qs).catch(function () { return null; })
-    ]);
+    var r2 = r1[3];
+    if (!r2) {
+      var qs = (DATA.project ? '&project=' + encodeURIComponent(DATA.project) : '') +
+               (DATA.name ? '&name=' + encodeURIComponent(DATA.name) : '');
+      r2 = await round2(qs);
+    }
     ELIG = r2[0]; PUBST = r2[1]; PUB = r2[2];
   } catch (e) {
     document.getElementById('root').innerHTML =

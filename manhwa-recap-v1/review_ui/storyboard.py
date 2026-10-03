@@ -3077,8 +3077,8 @@ async function refreshUndo() {{
 }}
 
 async function undoEdit() {{
-  const b = document.getElementById('undobtn');
-  if (b) {{ b.disabled = true; b.textContent = 'undoing…'; }}
+  // every segment card has its own ↶ (class undobtn); show progress on all
+  document.querySelectorAll('.undobtn').forEach(function (b) {{ b.disabled = true; b.textContent = 'undoing…'; }});
   try {{
     const r = await j('/api/storyboard/undo', {{method: 'POST'}});
     // Clips for the segments that actually changed were deleted, so the board
@@ -3292,8 +3292,12 @@ async function ingestChapter(url, label) {{
   }} catch (e) {{ alert('Could not start ingest: ' + (e.message || e)); }}
 }}
 async function activateProj(id) {{
-  await j('/api/activate', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{id}})}});
-  location.reload();
+  // Open = switch the studio to that chapter AND go to its board. A plain
+  // reload kept the #projects page address, so it landed back on Projects.
+  try {{
+    await j('/api/activate', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{id}})}});
+  }} catch (e) {{ alert('Could not open that chapter: ' + (e.message || e)); return; }}
+  location.href = '/storyboard';
 }}
 let logsPolling = false;
 async function loadLogs() {{
