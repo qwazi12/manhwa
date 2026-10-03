@@ -60,6 +60,19 @@ def main():
     W.refresh_mirror(root, s["id"], key, _fetcher=lambda u: calls.append(u) or AS)
     check("chapters and dates share ONE page download", len(calls) == 1)
 
+    ck = P.canonical_key
+    check("Asura's rotating slug code is ignored when matching made chapters",
+          ck("https://asurascans.com/comics/murim-psychopath-05c7df14/")
+          == ck("https://asurascans.com/comics/murim-psychopath-6f7fe6eb") == "asura:murim-psychopath")
+    check("stable keys (WEBTOON) are unchanged", ck("webtoon:9299") == "webtoon:9299")
+    root2 = tempfile.mkdtemp(prefix="wl2_")
+    W.add_series(root2, "Murim Psychopath")
+    W.add_mirror(root2, W.load(root2)["series"][0]["id"], "https://asurascans.com/comics/murim-psychopath-6f7fe6eb/")
+    v = W.view(root2, projects=[{"id": "murim-psychopath_44-v5", "chapter": "44",
+                                 "url": "https://asurascans.com/comics/murim-psychopath-05c7df14/chapter/44"}])
+    check("a chapter made under an older Asura code still counts as made",
+          [c["chapter"] for c in v["series"][0]["mirrors"][0]["ingested"]] == ["44"])
+
     src = open(os.path.join(HERE, "storyboard.py"), encoding="utf-8").read()
     check("the Tracker opens on the release calendar", "trkTab('cal')" in src and 'id="trk_cal"' in src)
     check("ONE card per series, with a chapter dropdown that ingests the pick",

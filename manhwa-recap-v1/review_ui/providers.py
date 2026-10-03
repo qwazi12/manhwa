@@ -422,3 +422,17 @@ def release_info(prov, html, today=None):
                     dates[prov.normalize_chapter_id(a.group(1))] = list(p)
                     break
     return {"cover": cover, "dates": dates}
+
+
+def canonical_key(series_key):
+    """A series key that survives Asura's rotating slug suffix.
+
+    Asura appends a random 8-hex code to every series URL and changes it
+    (murim-psychopath-05c7df14 -> -3ec3b16f -> -6f7fe6eb), so the same story
+    gets a new key each time and chapters already made stop being recognised.
+    Other sources' keys (e.g. 'webtoon:9299') are already stable."""
+    k = (series_key or "").strip().rstrip("/")
+    m = re.match(r"(https?://[^/]*asura[^/]*/comics/)(.+?)(?:-[0-9a-f]{8})?$", k, re.I)
+    if m:
+        return "asura:" + m.group(2).lower()
+    return k

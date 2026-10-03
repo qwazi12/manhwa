@@ -294,7 +294,7 @@ def view(root, projects=None):
             key = providers.describe(url)["series_key"]
         except Exception:
             continue
-        have.setdefault(key, []).append(
+        have.setdefault(providers.canonical_key(key), []).append(
             {"chapter": str(p.get("chapter")), "project": p.get("id")})
 
     out = []
@@ -302,7 +302,7 @@ def view(root, projects=None):
         mirrors = []
         ingested = []
         for m in s.get("mirrors", []):
-            got = have.get(m["series_key"], [])
+            got = have.get(providers.canonical_key(m["series_key"]), [])
             ingested.extend(got)
             mirrors.append(dict(m, ingested=got, ingested_count=len(got)))
         best = best_mirror(s)
