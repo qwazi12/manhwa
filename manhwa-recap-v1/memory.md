@@ -8058,3 +8058,23 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 **Tests:** new `test_autopilot.py` 39/39 (picks, round robin, window, limits, cap, stop/retry/pause, failure cooldown/block, never-repeat, estimate, archive dates/Keep/Unarchive, routes, resume of cap-paused, stop of waiting, restart sweep + resume, inbox statuses, UI guards). Full suite 57/57 files pass (was 56/56).
 **Not verified yet:** a real autopilot chapter end to end (autopilot is OFF until the owner switches it on).
 - **Live after f929901:** deploy SUCCESS, /health 200, scheduler running, autopilot OFF. `/api/autopilot` lists all 14 series `ready`, each starting at its latest 3 (e.g. Fated Villain from ch.358, Murim from ch.43, Mount Hua from ch.180). Board: Autopilot card renders on Ingest; Projects shows filters + status (Fog Land ch.2 = Approved); Logs shows ▶ resume on 4 older stopped/failed ingests; no JS errors on any page. Follow-up commit: the card's buttons no longer stretch full width.
+
+---
+
+### 2026-10-03 — Cost analysis & projections (no code changed)
+
+**Report:** https://claude.ai/artifact/Gf3WDtxKvPURsrCwNErZ1z. **Sources:** live `_usage/calls.log.jsonl` (21,240 calls, 2026-07-09 → 10-02), 126 `_jobs` records, `railway usage` / `railway metrics`, `usage.py` rate card, Scrapper MEMORY.md pricing notes.
+
+**Findings:**
+- **Metering gap (defect):** since 2026-09-12, 3,145 Gemini 3.5 Flash calls (describe + narrate via the Interactions API / AQ. key) were logged with 0 tokens → $0.00. `describe._stash_usage` / `narrate._stash_usage` read `usageMetadata` / `usage.promptTokenCount|inputTokenCount`, which the Interactions response evidently does not carry in that shape. Missing from the all-time total: ~$8–15. The daily cap and autopilot's budget check read this under-count. NOT FIXED yet (owner to prioritise).
+- Lifetime tracked $44.58: Claude Opus $26.83 (60%), Chirp TTS $7.64, Gemini 3.5 Flash flat-estimate $4.29, embeddings $2.56, Gemini 3.1 Pro $2.22, other $1.02. By month: Jul $9.53, Aug $0.43, Sep $33.46, Oct $1.16.
+- Median chapter (17 recent Gemini chapters): 57 segments, 8 min video, 162 Flash calls, ~210 embedding calls, 7,900 TTS chars. The 4 calls that did report tokens: ~2,250 in / 785 out → $0.0026/call at the code's rate card, $0.0046 at Gemini 3.8 Flash-level prices.
+- **Per chapter, all-in: $0.77–1.10** (describe/narrate $0.43–0.75, voice $0.14 on Gemini 3.8 Flash TTS (today's default; measured $18/1M chars), matching $0.05, story check $0, Railway CPU ~$0.03, egress ~$0.12). The dashboard shows ~$0.18.
+- Railway (Sep 7–Oct 7): recap-studio $6.16 of $7.68 workspace (memory $4.16, egress $2.19, CPU $0.71, volume $0.43, backups $0.19). Renders average 3–4 vCPU for ~5 min, peak 16 vCPU; idle <0.01 vCPU, ~157 MB.
+- **At 4 chapters/day:** $3.40–4.70/day · $24–33/week · $100–140/month · $1,230–1,700/year (incl. ~$8.10/month fixed server). Optimized (Batch mode + smaller images + Chirp free tier): $1.70–2.10/day · $12–15/week · $50–64/month · $615–780/year. Upload-Post $24/month (shared with Scrapper) excluded.
+- **Disk:** ~250 MB/chapter → ~30 GB/month at 4/day vs a 28 GB volume; only published chapters are archived/deleted.
+
+**Levers, ranked (monthly saving at 4/day):** (1) Gemini Batch mode (50% price, async) for autopilot describe/narrate $26–45 — verify AQ. key support; (2) several panels per describe call $5–10; (3) lower media resolution $10–18 (OCR risk); (4) Chirp 3 HD inside 1M free chars/month ~$17 (4/day ≈ 950k chars; verify free tier); (5) pre-describe blank/transition panel skip $5–9 (junk filter currently runs after describe); (6) fewer full re-builds (Murim 44 built 6× in 9 days); (7) Claude only occasional, Sonnet for paid check (−40% vs Opus); (8) server: lazy-load YOLO/torch, smaller review preview, clear unreviewed chapters after 30 days $3–7 and prevents disk-full. Render batching saves nothing (per-second CPU billing).
+
+**Not verified:** Gemini 3.5 Flash list price, Chirp free tier on this Google project, Railway plan fee, Vercel plan. Ground truth = Google AI Studio / Cloud billing.
+**Pending owner decisions:** daily cap ($30 live vs requested $6); switch autopilot on; which levers to build (suggested order: metering fix → cap → levers 4+5 → lever 1 → disk housekeeping).
