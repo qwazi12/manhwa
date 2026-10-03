@@ -936,6 +936,7 @@ body.not-board header button, body.not-board header label {{ display:none !impor
   .apcard {{ border:1px solid var(--rule); border-radius:10px; padding:12px 14px; margin:0 0 18px; background:var(--panel); }}
   .apcard .aph {{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }}
   .apcard .aph b {{ font-size:14px; }}
+  .apcard .aph button {{ width:auto; flex:0 0 auto; margin:0; }}
   .apcard .apr {{ display:grid; grid-template-columns:120px 1fr; gap:3px 12px; font-size:12px; }}
   .apcard .apr > span:nth-child(odd) {{ color:var(--ink3); }}
   .apser {{ display:flex; gap:8px; align-items:flex-start; justify-content:space-between; border-top:1px solid var(--rule); padding:6px 0; font-size:12px; }}
