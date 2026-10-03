@@ -309,7 +309,9 @@ function exportOptions(list, curProject, curName) {
     var proj = e.project || curProject;
     var on = (e.name === curName && proj === curProject);
     var ver = /_\d+(?:\.\d+)?-([a-z0-9][a-z0-9-]*)$/.exec(proj || '');
-    var label = (e.title ? e.title + (ver ? ' (' + ver[1] + ')' : '') : proj) + ' · ' + e.name;
+    var vtag = ver ? ' (' + ver[1] + ')' : '';
+    if (e.title && e.title.indexOf(vtag.trim()) >= 0) vtag = '';   // the title already names the version
+    var label = (e.title ? e.title + vtag : proj) + ' · ' + e.name;
     return '<option value="' + esc(proj + '|' + e.name) + '"' + (on ? ' selected' : '') + '>' +
       esc(label) + ' (' + e.size_mb + ' MB)' + esc(mark) + '</option>';
   }).join('');

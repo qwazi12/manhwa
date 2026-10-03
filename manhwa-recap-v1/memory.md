@@ -7979,3 +7979,8 @@ Owner (phone screenshot of Projects showing "chapter-2 (current) … active"): "
 - No AI work runs on load; the SEO and Thumbnail copilots only generate on a button press. The video is `preload="metadata"`.
 
 **Tests:** new `test_project_switching` 6/6; full suite passes.
+- **Follow-up:**
+  - Live after 95016c3: Projects marked v6-speed as open with no placeholder. Open on v5 landed on /storyboard showing Ch.44 (v5); the owner's v6-speed was restored afterwards.
+  - Review opened bare loads all data in 0.39 s (6 calls, one round).
+  - Its picker showed only 1 video because only 1 exists on disk. The Fog Land, Murim v3/v4 and Fated Villain exports were removed through the Exports ✕ button at 01:47:08, 01:47:16 and 01:47:19 UTC on 2026-10-03 (folder mtimes, seconds apart). Retention did not do it: they were 1–4 days old.
+  - Review labels no longer double the version ('Ch.44 (v5) (v5)').
