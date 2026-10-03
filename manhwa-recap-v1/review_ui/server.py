@@ -3369,6 +3369,7 @@ os.makedirs(_JOBS_DIR, exist_ok=True)
 
 def _persist_ingest(job_id):
     try:
+        INGEST[job_id]["updated"] = time.time()
         with open(os.path.join(_JOBS_DIR, f"{job_id}.json"), "w") as f:
             json.dump(INGEST[job_id], f)
     except Exception:
@@ -3442,6 +3443,10 @@ def _all_ingest_jobs():
     return out
 
 
+RESUME_MAX = 2              # restarts a single ingest may survive
+RESUME_WINDOW = 6 * 3600    # older orphans are written off as before
+
+
 def _sweep_orphaned_ingest_jobs():
     """E1: a server restart (deploy, env-var change, crash) kills the ingest
     thread but leaves its persisted status 'running' forever — a mystery-dead
@@ -3459,10 +3464,23 @@ def _sweep_orphaned_ingest_jobs():
                 j = json.load(open(p))
             except Exception:
                 continue
-            if j.get("status") in ("queued", "running"):
-                j["status"] = "error"
-                j["error"] = ("aborted by server restart (deploy/env change) — "
-                              "re-submit the chapter URL to resume from cached stages")
+            if j.get("status") in ("queued", "running", "paused", "pausing"):
+                # 2026-10-03 (owner: resume after restarts, manual ingests
+                # too): a job cut off recently is marked 'interrupted' and
+                # re-queued at startup with its cached stages, at most
+                # RESUME_MAX times. Older or owner-stopped ones are written
+                # off exactly as before.
+                age = time.time() - (j.get("updated") or j.get("ts") or 0)
+                if (age < RESUME_WINDOW and j.get("control") != "stop"
+                        and j.get("resumes", 0) < RESUME_MAX):
+                    j["status"] = "interrupted"
+                    j["msg"] = "cut off by a server restart — resuming from cached stages"
+                else:
+                    j["status"] = "error"
+                    j["error"] = ("aborted by server restart (deploy/env change) — "
+                                  "re-submit the chapter URL to resume from cached stages"
+                                  + (" (already resumed %d times)" % j.get("resumes", 0)
+                                     if j.get("resumes", 0) >= RESUME_MAX else ""))
                 json.dump(j, open(p, "w"))
                 n += 1
     except FileNotFoundError:
@@ -3509,11 +3527,69 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
         INGEST[job_id].update(status="error",
                               error=(e.stderr or str(e))[-400:])
     except usage.UsageCapExceeded as e:
-        INGEST[job_id].update(status="error", error=f"USAGE CAP EXCEEDED: {e}")
+        # Owner rule (2026-10-03): a cap hit PAUSES the chapter until the
+        # spend day resets (midnight ET); the scheduler resumes it first.
+        INGEST[job_id].update(status="budget_paused", paused_day=usage._today(),
+                              error=f"paused: daily spend cap reached ({e}) — "
+                                    f"resumes after midnight ET")
     except Exception as e:  # noqa
         INGEST[job_id].update(status="error", error=str(e))
     INGEST[job_id]["ended"] = time.time()
     _persist_ingest(job_id)
+    _after_ingest(job_id)
+
+
+def _job_cost(job_id):
+    """Tracked AI spend of one job, from the usage call log."""
+    total = 0.0
+    try:
+        with open(usage.LOG_PATH, encoding="utf-8") as f:
+            for line in f:
+                if job_id not in line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if e.get("job_id") == job_id:
+                    total += e.get("est_cost_usd") or 0.0
+    except FileNotFoundError:
+        pass
+    return round(total, 4)
+
+
+def _after_ingest(job_id):
+    """Every ingest end: keep the autopilot ledger in step, remember finished
+    chapters (never re-made), and run the free story check on a new chapter.
+    Never raises — bookkeeping must not turn a finished ingest into an error."""
+    rec = INGEST.get(job_id) or {}
+    status = rec.get("status")
+    try:
+        import autopilot as _ap
+        root = _ingest_mod.PROJECTS
+        entry = _ap.on_job_end(root, job_id, status, rec.get("error"),
+                               _job_cost(job_id) if status == "done" else None)
+        if status == "done" and entry is None and not rec.get("variant"):
+            import providers as _prov
+            url = rec.get("url") or ""
+            key = _prov.canonical_key(_prov.describe(url)["series_key"])
+            ch = _ingest_mod.parse_series_chapter(url)[1]
+            _ap.remember_done(root, _ap.ledger_key(key, ch), series_id=None,
+                              chapter=ch, project=(rec.get("project") or {}).get("id"),
+                              job=job_id)
+    except Exception as e:  # noqa
+        print(f"[autopilot] ledger update failed for {job_id}: {e}", flush=True)
+    if status == "done" and rec.get("project"):
+        def _check(pid=rec["project"].get("id")):
+            try:
+                rep = _validator.validate(os.path.join(_ingest_mod.PROJECTS, pid),
+                                          review={}, mode="rules")
+                INGEST[job_id]["check"] = {"findings": len(rep.get("findings") or []),
+                                           "status": rep.get("status")}
+                _persist_ingest(job_id)
+            except Exception as e:  # noqa
+                print(f"[autopilot] story check failed for {pid}: {e}", flush=True)
+        threading.Thread(target=_check, daemon=True).start()
 
 
 # ---------------------------------------------------------- ingest queue
@@ -3544,13 +3620,25 @@ def _queue_worker():
             pass
 
 
-def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None):
+def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
+                    source="manual", job_id=None, control="run", why=""):
+    """Queue an ingest. With job_id, RE-queue that existing job (resume after a
+    stop, a restart or a budget pause) so its history stays one record."""
     global _QUEUE_RUNNING
-    job_id = uuid.uuid4().hex[:12]
-    INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "waiting for its turn",
-                      "status": "queued", "error": None, "project": None,
-                      "url": url, "ts": time.time(), "control": "run",
-                      "engine": engine, "variant": variant, "direct_speech": direct}
+    old = _load_ingest(job_id) if job_id else None
+    if old:
+        rec = dict(old)
+        rec.update(stage="queued", msg=why or "waiting for its turn (resumed)",
+                   status="queued", error=None, control=control)
+        rec.pop("ended", None)
+        INGEST[job_id] = rec
+    else:
+        job_id = uuid.uuid4().hex[:12]
+        INGEST[job_id] = {"stage": "queued", "pct": 0, "msg": "waiting for its turn",
+                          "status": "queued", "error": None, "project": None,
+                          "url": url, "ts": time.time(), "control": "run",
+                          "engine": engine, "variant": variant, "direct_speech": direct,
+                          "source": source}
     _persist_ingest(job_id)
     with _QUEUE_LOCK:
         # the engine rides with the job — it used to be dropped here, so any
@@ -3583,6 +3671,10 @@ def job_control(body: JobControlIn):
         raise HTTPException(400, "action must be pause, resume or stop")
     ctl = {"pause": "pause", "resume": "run", "stop": "stop"}[action]
     hit = False
+    if body.job_id not in INGEST and body.job_id not in JOBS:
+        rec0 = _load_ingest(body.job_id)       # a waiting job from before a restart
+        if rec0 and rec0.get("status") in ("budget_paused", "interrupted"):
+            INGEST[body.job_id] = dict(rec0)
     for store, persist in ((INGEST, _persist_ingest), (JOBS, _persist_job)):
         rec = store.get(body.job_id)
         if rec is None:
@@ -3591,6 +3683,14 @@ def job_control(body: JobControlIn):
         if rec.get("status") in ("done", "error", "cancelled"):
             raise HTTPException(409, f"job already {rec['status']} — nothing to "
                                      f"{action}")
+        if rec.get("status") in ("budget_paused", "interrupted"):
+            # nothing is running for these: stop retires them, resume re-queues
+            if ctl != "stop":
+                raise HTTPException(409, "this job is waiting — use ▶ Resume to restart it")
+            rec.update(status="cancelled", error="stopped by you", control="stop")
+            persist(body.job_id)
+            _after_ingest(body.job_id)
+            continue
         rec["control"] = ctl
         if ctl == "stop":
             # a job still waiting in the queue never starts at all
@@ -3599,6 +3699,9 @@ def job_control(body: JobControlIn):
                 _QUEUE[:] = [q for q in _QUEUE if q[0] != body.job_id]
             if rec.get("status") == "queued" or len(_QUEUE) != before:
                 rec.update(status="cancelled", error="stopped before it started")
+                if store is INGEST:
+                    persist(body.job_id)
+                    _after_ingest(body.job_id)
         elif ctl == "pause" and rec.get("status") == "running":
             rec["status"] = "pausing"
         try:
@@ -3819,9 +3922,62 @@ def projects_list():
                 "job": jid, "url": j.get("url"),
                 "slug": ingest._slug(j.get("url", "")),
                 "stage": j.get("stage"), "pct": j.get("pct", 0),
-                "status": j.get("status"),
+                "status": j.get("status"), "source": j.get("source", "manual"),
             })
+    _add_review_status(items)
     return {"projects": items, "in_progress": in_progress}
+
+
+def _add_review_status(items):
+    """The Projects inbox: where each chapter is in review → approve →
+    render → publish → archive, read from files the studio already writes
+    (no new state). Also marks autopilot-made chapters."""
+    import ingest
+    import autopilot as _ap
+    import project_archive as _arch
+    try:
+        auto = {e.get("project") for e in _ap.load(ingest.PROJECTS)["ledger"].values()
+                if e.get("source") == "autopilot"}
+    except Exception:
+        auto = set()
+    rendering = {j.get("project") for j in JOBS.values()
+                 if j.get("type") == "finalize" and j.get("status") in ("queued", "running", "paused", "pausing")}
+    for it in items:
+        pid = it.get("id")
+        pdir = os.path.join(ingest.PROJECTS, pid or "")
+        if not pid or not os.path.isdir(pdir):
+            continue
+        it["auto"] = pid in auto
+        arch = _arch.view(pdir)
+        it["archive"] = arch
+        try:
+            approved = bool(json.load(open(os.path.join(pdir, "storyboard.json"))).get("approved"))
+        except (OSError, ValueError):
+            approved = False
+        try:
+            n_exports = len([f for f in os.listdir(os.path.join(pdir, "exports"))
+                             if f.endswith(".mp4")])
+        except OSError:
+            n_exports = 0
+        try:
+            rep = json.load(open(os.path.join(pdir, "validation.json")))
+            it["checks"] = len(rep.get("findings") or [])
+        except (OSError, ValueError):
+            it["checks"] = None
+        published = _arch.is_published(load_publishes(pdir))
+        if arch:
+            st = "archived"
+        elif published:
+            st = "published"
+        elif pid in rendering:
+            st = "rendering"
+        elif n_exports:
+            st = "rendered"
+        elif approved:
+            st = "approved"
+        else:
+            st = "ready"
+        it["review_status"] = st
 
 
 class ActivateIn(BaseModel):
@@ -5403,6 +5559,268 @@ def debug_cat(path: str, project: str = ""):
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+
+
+# ================================================================ AUTOPILOT
+# Chapter Autopilot (owner request 2026-10-03): ingest new chapters of every
+# watchlist series on its own, one at a time, round robin, under the daily
+# cap; they land in Projects as "Ready for review". Plus resume after stops,
+# restarts and cap pauses, and archive-after-publish. Logic in autopilot.py
+# and project_archive.py; this is the wiring. OFF by default.
+import autopilot as _autopilot
+import project_archive as _archive
+
+_SCHED = {"started": False, "last_run": None, "last_error": None}
+
+
+def _ap_deps():
+    import providers as _prov
+    import watchlist as _wl
+
+    def refresh():
+        for s in _wl_view()["series"]:
+            if s.get("best_mirror"):
+                try:
+                    _wl.refresh_mirror(_wl_root(), s["id"], s["best_mirror"])
+                except Exception as e:  # noqa
+                    print(f"[autopilot] refresh {s['id']} failed: {e}", flush=True)
+
+    def live_projects():
+        return {_ingest_mod.project_id(j.get("url", ""), j.get("variant", ""))
+                for j in list(INGEST.values())
+                if j.get("status") in ("queued", "running", "paused", "pausing")}
+
+    def queue_busy():
+        return any(j.get("status") in ("queued", "running", "paused", "pausing")
+                   for j in list(INGEST.values()))
+
+    def spend():
+        d = usage.daily_summary()
+        spent = d.get("est_cost_usd", 0.0) if d.get("date") == usage._today() else 0.0
+        return float(spent or 0.0), float(usage.MAX_DAILY_SPEND_USD)
+
+    def chapter_url(row, chapter):
+        m = row["mirror"]
+        return _prov.by_name(m["source"]).chapter_url(m["series_url"], chapter)
+
+    return {"view": lambda: _wl_view()["series"], "refresh": refresh,
+            "canon": _prov.canonical_key, "live_projects": live_projects,
+            "queue_busy": queue_busy, "spend": spend, "chapter_url": chapter_url,
+            "project_id": lambda url: _ingest_mod.project_id(url),
+            "enqueue": lambda url, engine: _enqueue_ingest(url, False, engine, "", None,
+                                                           source="autopilot")}
+
+
+def _waiting_ingests(status):
+    return [j for j in _all_ingest_jobs() if j.get("status") == status]
+
+
+def _resume_interrupted():
+    """Startup: re-queue ingests a restart cut off (see the boot sweep)."""
+    n = 0
+    for j in _waiting_ingests("interrupted"):
+        jid = j["job"]
+        rec = _load_ingest(jid) or {}
+        rec["resumes"] = rec.get("resumes", 0) + 1
+        INGEST[jid] = rec
+        ctl = "pause" if rec.get("control") == "pause" else "run"
+        _enqueue_ingest(rec.get("url", ""), False, rec.get("engine", "gemini"),
+                        rec.get("variant", ""), rec.get("direct_speech"), job_id=jid,
+                        control=ctl, why=f"resumed after a server restart ({rec['resumes']} of {RESUME_MAX})")
+        _autopilot.set_status_for_job(_ingest_mod.PROJECTS, jid, "queued")
+        n += 1
+    if n:
+        print(f"[boot] resumed {n} interrupted ingest(s)", flush=True)
+    return n
+
+
+def _resume_budget_paused():
+    """A new spend day: chapters the cap paused go first, oldest first."""
+    today = usage._today()
+    n = 0
+    for j in sorted(_waiting_ingests("budget_paused"), key=lambda x: x.get("ts", 0)):
+        if j.get("paused_day") == today:
+            continue
+        _enqueue_ingest(j.get("url", ""), False, j.get("engine", "gemini"), j.get("variant", ""),
+                        j.get("direct_speech"), job_id=j["job"],
+                        why="resumed: a new spend day started")
+        _autopilot.set_status_for_job(_ingest_mod.PROJECTS, j["job"], "queued")
+        n += 1
+    return n
+
+
+def _archive_sweep(now=None):
+    """Archive published chapters; delete archived folders whose date passed."""
+    import ingest
+    out = {"archived": [], "deleted": []}
+    active = get_active_project_id()
+    for m in ingest.list_projects():
+        pid = m.get("id")
+        pdir = os.path.join(ingest.PROJECTS, pid or "")
+        if not pid or not os.path.isdir(pdir):
+            continue
+        st = _archive.read(pdir)
+        if st is None and _archive.is_published(load_publishes(pdir)):
+            _archive.archive(pdir, "published", now)
+            _autopilot.audit("project_archived", project=pid, reason="published")
+            out["archived"].append(pid)
+        elif st is not None and _archive.due(pdir, now) and pid != active:
+            ok, why, mb = _delete_one_project(pid)
+            _autopilot.audit("archived_project_deleted" if ok else "archived_delete_skipped",
+                             project=pid, detail=why, freed_mb=mb)
+            if ok:
+                out["deleted"].append(pid)
+    return out
+
+
+def _scheduler_pass():
+    _SCHED["last_run"] = time.time()
+    for name, fn in (("budget", _resume_budget_paused), ("archive", _archive_sweep),
+                     ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps()))):
+        try:
+            fn()
+        except Exception as e:  # noqa — one failing part must not stop the rest
+            _SCHED["last_error"] = f"{name}: {e}"
+            print(f"[scheduler] {name} failed: {e}", flush=True)
+
+
+def _scheduler_loop():
+    time.sleep(60)                       # let the server finish booting
+    while True:
+        _scheduler_pass()
+        time.sleep(_autopilot.TICK_SECONDS)
+
+
+@app.on_event("startup")
+def _start_background_work():
+    # Env switch so a local/dev server never spends money by itself.
+    if os.environ.get("AUTOPILOT_SCHEDULER", "1") == "0" or _SCHED["started"]:
+        return
+    _SCHED["started"] = True
+    try:
+        _resume_interrupted()
+    except Exception as e:  # noqa
+        print(f"[boot] resume failed: {e}", flush=True)
+    threading.Thread(target=_scheduler_loop, daemon=True).start()
+
+
+@app.get("/api/autopilot")
+def autopilot_status():
+    st = _autopilot.status(_ingest_mod.PROJECTS, _ap_deps())
+    st["scheduler"] = {"running": _SCHED["started"], "last_run": _SCHED["last_run"],
+                       "last_error": _SCHED["last_error"]}
+    st["waiting_jobs"] = {"budget_paused": len(_waiting_ingests("budget_paused")),
+                          "interrupted": len(_waiting_ingests("interrupted"))}
+    return st
+
+
+class AutopilotSettingsIn(BaseModel):
+    enabled: bool | None = None
+    per_day: int | None = None
+
+
+@app.post("/api/autopilot/settings")
+def autopilot_settings(body: AutopilotSettingsIn):
+    try:
+        before, after = _autopilot.update_settings(_ingest_mod.PROJECTS, body.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if after.get("enabled") and not before.get("enabled") and _SCHED["started"]:
+        threading.Thread(target=_scheduler_pass, daemon=True).start()   # start now, not in 10 min
+    return {"ok": True, "before": before, "settings": after}
+
+
+class AutopilotSeriesIn(BaseModel):
+    series_id: str
+    action: str          # pause | resume | retry
+
+
+@app.post("/api/autopilot/series")
+def autopilot_series(body: AutopilotSeriesIn):
+    try:
+        return {"ok": True, **_autopilot.set_series(_ingest_mod.PROJECTS, body.series_id, body.action)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/autopilot/check")
+def autopilot_check_now():
+    """Re-read every series page now (free) and run one scheduler pass."""
+    _autopilot.runtime["last_refresh"] = 0.0
+    threading.Thread(target=_scheduler_pass, daemon=True).start()
+    return {"ok": True, "note": "checking sources — the card updates within a minute"}
+
+
+class JobResumeIn(BaseModel):
+    job_id: str
+
+
+@app.post("/api/jobs/resume")
+def jobs_resume(body: JobResumeIn):
+    """Resume a stopped, failed, restart-cut or cap-paused job.
+
+    Ingest: re-queued under the same record, reusing every cached stage.
+    Approve/render (finalize): re-run for the open project — clips already
+    rendered are kept, so it continues where it stopped."""
+    rec = INGEST.get(body.job_id) or _load_ingest(body.job_id)
+    if rec is not None:
+        if rec.get("status") not in ("cancelled", "error", "budget_paused", "interrupted"):
+            raise HTTPException(409, f"job is {rec.get('status')} — nothing to resume")
+        if rec.get("status") == "budget_paused":
+            spent, cap = _ap_deps()["spend"]()
+            if spent >= cap:
+                raise HTTPException(409, f"today's spend cap is reached (${spent:.2f} of "
+                                         f"${cap:.2f}) — it resumes by itself after midnight ET")
+        _enqueue_ingest(rec.get("url", ""), False, rec.get("engine", "gemini"),
+                        rec.get("variant", ""), rec.get("direct_speech"),
+                        job_id=body.job_id, why="resumed by you")
+        _autopilot.set_status_for_job(_ingest_mod.PROJECTS, body.job_id, "queued")
+        return {"ok": True, "job": body.job_id, "kind": "ingest"}
+    j = JOBS.get(body.job_id)
+    if j is None:
+        try:
+            j = json.load(open(os.path.join(_jobs_dir(), f"render_{body.job_id}.json")))
+        except (OSError, ValueError):
+            j = None
+    if j is None:
+        raise HTTPException(404, "unknown job")
+    if j.get("type") != "finalize":
+        raise HTTPException(400, "only ingests and approve-renders can be resumed here")
+    if j.get("status") not in ("cancelled", "error"):
+        raise HTTPException(409, f"job is {j.get('status')} — nothing to resume")
+    if j.get("project") != get_active_project_id():
+        raise HTTPException(409, f"open {j.get('project')} first (Projects → Open), then resume")
+    r = storyboard_approve(ApproveIn(approved=True))
+    return {"ok": True, "job": r.get("job"), "kind": "finalize"}
+
+
+class ArchiveIn(BaseModel):
+    id: str
+    action: str          # archive | unarchive | keep
+
+
+@app.post("/api/projects/archive")
+def project_archive_action(body: ArchiveIn):
+    import ingest
+    pid = body.id
+    if not pid or "/" in pid or ".." in pid or pid.startswith("_"):
+        raise HTTPException(400, "bad project id")
+    pdir = os.path.join(ingest.PROJECTS, pid)
+    if not os.path.isdir(pdir):
+        raise HTTPException(404, "unknown project")
+    if body.action == "archive":
+        rec = _archive.archive(pdir, "by you")
+    elif body.action == "unarchive":
+        rec = _archive.unarchive(pdir)
+    elif body.action == "keep":
+        try:
+            rec = _archive.keep(pdir)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+    else:
+        raise HTTPException(400, "action must be archive, unarchive or keep")
+    _autopilot.audit("project_" + body.action, project=pid)
+    return {"ok": True, "id": pid, "archive": _archive.view(pdir)}
 
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")
 

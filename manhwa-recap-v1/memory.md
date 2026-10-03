@@ -8035,3 +8035,25 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 **Open questions for the owner:** (1) chapters/day (suggest 3); (2) which tiers (suggest Greenlight only); (3) next-in-order vs newest (suggest in order); (4) engine (suggest Gemini); (5) restart-resume for manual ingests too (suggest yes); (6) story check free vs paid (suggest free); (7) render after approval: button vs automatic (suggest button first); (8) extra ideas: release-day timing, catch-up mode, source health/mirror failover, ready notifications, archive after export, Logs "(deleted)" clean-up.
 
 **Risks:** unlicensed sources (publishing stays manual; Stage 7 rights gate still required before public), Railway IP blocking, spend (bounded by $5/day cap + chapter limit), disk (~1 month headroom at 3/day).
+
+---
+
+### 2026-10-03 — BUILT: Chapter Autopilot (owner approved the plan; ships OFF)
+
+**Owner's answers to the plan:** daily limit $6; 4 chapters/day round robin; ALL Tracker series; start from each series' latest 3 chapters, then in order, top-ranked first; Gemini; restart-resume for manual ingests too; free story check; approve already renders automatically — keep it; **the owner must be able to stop anything and resume it**; archive after review and publishing.
+
+**Built:**
+- `review_ui/autopilot.py` — settings, never-repeat ledger (`projects/_autopilot.json`), candidate checks per series, round-robin pick (fewest autopilot-made first, ties by tier→rank), start window fixed at each series' latest 3 the first time it is seen, daily count (ET), spend check (today + estimate ≤ cap), failure cooldown (1 h) then block after 2 failures, owner-stopped chapters never auto-repicked. Structured JSON audit lines (`"service":"autopilot"`).
+- `review_ui/project_archive.py` — archive a project once any publish record is `published`; folder deleted 14 days later unless Keep; Unarchive; the open project is never deleted.
+- `server.py` — ingest lifecycle: cap hit → `budget_paused` (resumed first after midnight ET) instead of error; boot sweep marks ingests cut off in the last 6 h `interrupted` and re-queues them at startup (max 2; older/owner-stopped written off as before); stop works on waiting jobs; every ingest end updates the ledger, remembers manual chapters, runs the free `rules` story check. Scheduler thread (startup event, every 10 min; `AUTOPILOT_SCHEDULER=0` disables). Routes: `GET /api/autopilot`, `POST /api/autopilot/settings|series|check`, `POST /api/jobs/resume` (ingest, or approve-render for the open project), `POST /api/projects/archive`. `/api/projects` rows gain `review_status` (ready/approved/rendering/rendered/published/archived), `auto`, `checks`, `archive`.
+- `storyboard.py` — 🤖 Autopilot card on Ingest (rule 40: state · next · waiting because · today x of N with editable limit · spend · last chapter · last check · undo; per-series pause/resume/retry; ↻ check now). Projects = review inbox (status pills, auto badge, filters, "N to review" on the sidebar, Keep/Unarchive, Claude-lab rows labelled — fixes the two identical "Chapter 358" rows). Logs: ▶ resume on stopped/failed/cap-paused/restart-cut jobs, ⏹ on waiting jobs, `autopilot` kind label.
+- **Safety fix found while building:** the board adopted ANY running ingest on load and auto-opened it when done, so an autopilot chapter finishing would have switched the board away from the chapter being reviewed. Autopilot jobs are now never adopted or auto-opened.
+- `docs/AUTOPILOT_RUNBOOK.md` — config, pause/stop/resume, automatic behaviour, where to look.
+
+**Live facts found on the way:**
+- The owner's bulk delete at **16:38:48 UTC** removed 6 projects (Fated Villain 358 + lab, Murim 44 v2/v3/v6-speed, Extra's Academy 97); only Fog Land ch.2 remains. Deleted chapters predate the ledger, so they are NOT treated as made — the owner asked to start from the latest 3 of every series, which includes some of them.
+- All 14 watchlist series have readable sources (checked within the last 17 h). Fog Land has no publish records, so the archive sweep changes nothing on deploy.
+- **Daily cap is already $30 on Railway** (`MAX_DAILY_SPEND_USD=30`; $5 is only the code default). Setting $6 would LOWER it 80% and also bound manual/Claude-lab work. **Not changed — waiting for the owner to confirm.**
+
+**Tests:** new `test_autopilot.py` 39/39 (picks, round robin, window, limits, cap, stop/retry/pause, failure cooldown/block, never-repeat, estimate, archive dates/Keep/Unarchive, routes, resume of cap-paused, stop of waiting, restart sweep + resume, inbox statuses, UI guards). Full suite 57/57 files pass (was 56/56).
+**Not verified yet:** a real autopilot chapter end to end (autopilot is OFF until the owner switches it on).

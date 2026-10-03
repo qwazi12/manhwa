@@ -932,6 +932,17 @@ body.not-board header button, body.not-board header label {{ display:none !impor
   <button class="navbtn" data-d="split" onclick="toggleDrawer('split')"><span class="ic">✂️</span>Split</button>
   -->
 <div class="drawer" id="d_ingest">
+  <style>
+  .apcard {{ border:1px solid var(--rule); border-radius:10px; padding:12px 14px; margin:0 0 18px; background:var(--panel); }}
+  .apcard .aph {{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }}
+  .apcard .aph b {{ font-size:14px; }}
+  .apcard .apr {{ display:grid; grid-template-columns:120px 1fr; gap:3px 12px; font-size:12px; }}
+  .apcard .apr > span:nth-child(odd) {{ color:var(--ink3); }}
+  .apser {{ display:flex; gap:8px; align-items:flex-start; justify-content:space-between; border-top:1px solid var(--rule); padding:6px 0; font-size:12px; }}
+  .apser .r {{ display:flex; gap:4px; flex-shrink:0; }}
+  @media (max-width:560px) {{ .apcard .apr {{ grid-template-columns:1fr; }} .apser {{ flex-wrap:wrap; }} }}
+  </style>
+  <div id="apcard" class="apcard hint">loading autopilot…</div>
   <h3>Ingest a chapter</h3>
   <div class="hint">Paste a chapter URL — it runs the whole pipeline
     (scrape → split → describe → narrate → voice → match → segment) and this
@@ -1676,6 +1687,7 @@ function toggleDrawer(name) {{
   if (name === 'test') loadLab();
   if (name === 'split') loadSplit();
   if (name === 'ingest') {{ paintIngest(); loadVoices(); if (activeJob()) startIngestPoller(); }}
+  apPolling(name === 'ingest');
 }}
 function showView(name) {{ toggleDrawer(name); }}
 function logsTab(which) {{
@@ -2587,7 +2599,7 @@ async function startIngestPoller() {{
       ingestState = s; paintIngest();
       if (s.status === 'done' || s.status === 'error') {{
         setActiveJob(null);
-        if (s.status === 'done' && s.project) await activateProj(s.project.id);
+        if (s.status === 'done' && s.project && s.source !== 'autopilot') await activateProj(s.project.id);
         break;
       }}
       await new Promise(r => setTimeout(r, 1500));
@@ -2611,7 +2623,10 @@ async function recoverActiveIngest() {{
   }}
   try {{
     const ij = await j('/api/logs/ingest');
-    const running = (ij.jobs || []).find(x => x.status === 'running' || x.status === 'queued');
+    // Autopilot chapters run in the background: adopting one here would end
+    // with activateProj() switching the board away from what you are reviewing.
+    const running = (ij.jobs || []).find(x => (x.status === 'running' || x.status === 'queued')
+                                              && x.source !== 'autopilot');
     if (running) {{ setActiveJob(running.job); startIngestPoller(); }}
   }} catch (e) {{}}
 }}
@@ -2632,29 +2647,159 @@ async function recoverActiveLab() {{
   }} catch (e) {{}}
 }}
 recoverActiveLab();
+// ================= AUTOPILOT =================
+// Chapter Autopilot (owner request 2026-10-03): ingests new chapters of every
+// Tracker series by itself, one at a time, round robin, under the daily cap.
+// The card follows rule 40: state, what happens next, last run, how to undo.
+let apTimer = null;
+function apPolling(on) {{
+  if (on && !apTimer) {{ loadAutopilot(); apTimer = setInterval(loadAutopilot, 30000); }}
+  if (!on && apTimer) {{ clearInterval(apTimer); apTimer = null; }}
+}}
+function apAgo(ts) {{
+  if (!ts) return 'never';
+  const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
+  return s < 90 ? s + ' s ago' : s < 5400 ? Math.round(s / 60) + ' min ago' : Math.round(s / 3600) + ' h ago';
+}}
+const AP_STATE = {{
+  ready: ['var(--okb-bg)', 'var(--okb-ink)', 'ready'], running: ['var(--sa-bg)', 'var(--sa-ink)', 'ingesting'],
+  up_to_date: ['var(--gray-bg)', 'var(--gray-ink)', 'caught up'], paused: ['var(--warnb-bg)', 'var(--warn)', 'paused'],
+  stopped: ['var(--warnb-bg)', 'var(--warn)', 'stopped by you'], cooldown: ['var(--warnb-bg)', 'var(--warn)', 'retrying soon'],
+  blocked: ['var(--badb-bg)', 'var(--bad)', 'needs you'], no_source: ['var(--badb-bg)', 'var(--bad)', 'no source']
+}};
+function apPill(t, bg, fg) {{
+  return `<span style="background:${{bg}};color:${{fg}};font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;white-space:nowrap">${{t}}</span>`;
+}}
+async function loadAutopilot() {{
+  const box = document.getElementById('apcard');
+  if (!box) return;
+  let d;
+  try {{ d = await j('/api/autopilot'); }}
+  catch (e) {{ box.innerHTML = `<span style="color:var(--bad)">⚠ could not load autopilot — ${{e.message || e}}</span>`; return; }}
+  box.classList.remove('hint');
+  const names = {{}};
+  (d.series || []).forEach(r => {{ names[r.series_id] = r.title; }});
+  const on = d.enabled;
+  const nxt = d.next ? `${{d.next.series}} · ch.${{d.next.chapter}}` : '—';
+  const r0 = (d.recent || [])[0];
+  const last = r0 ? `${{names[r0.series_id] || r0.series_id}} ch.${{r0.chapter}} · ${{r0.status.replace('_', ' ')}} · ${{apAgo(r0.updated_at)}}` : 'nothing yet';
+  const wj = d.waiting_jobs || {{}};
+  const waitingJobs = (wj.budget_paused || wj.interrupted)
+    ? `<span>Waiting jobs</span><span>${{wj.budget_paused || 0}} paused by the cap · ${{wj.interrupted || 0}} cut off by a restart — see <a href="#logs" onclick="toggleDrawer('logs');return false">Logs</a></span>` : '';
+  const sched = d.scheduler || {{}};
+  const rows = (d.series || []).map(r => {{
+    const [bg, fg, label] = AP_STATE[r.state] || AP_STATE.ready;
+    const btns = [];
+    if (r.state === 'paused') btns.push(`<button class="mini" onclick="apSeries('${{r.series_id}}','resume')" title="let autopilot pick this series again">▶ resume</button>`);
+    else if (r.state !== 'no_source' && r.state !== 'up_to_date') btns.push(`<button class="mini" onclick="apSeries('${{r.series_id}}','pause')" title="autopilot skips this series until you resume it">⏸ pause</button>`);
+    if (['stopped', 'blocked', 'cooldown'].includes(r.state)) btns.push(`<button class="mini" onclick="apSeries('${{r.series_id}}','retry')" title="make the chapter pickable again now">↻ retry</button>`);
+    const more = r.remaining && r.remaining.length ? ` · ${{r.remaining.length}} to make` : '';
+    return `<div class="apser"><div style="min-width:0">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="hint">#${{r.rank || '—'}}</span>
+          <b>${{r.title}}</b> ${{apPill(label, bg, fg)}}</div>
+        <div class="hint">${{r.reason || ''}}${{r.start_from ? ' · from ch.' + r.start_from : ''}}${{more}} · made by autopilot: ${{r.made_by_autopilot}}</div></div>
+      <div class="r">${{btns.join('')}}</div></div>`;
+  }}).join('');
+  box.innerHTML = `<div class="aph"><b>🤖 Autopilot</b>
+      ${{on ? apPill('ON', 'var(--okb-bg)', 'var(--okb-ink)') : apPill('OFF', 'var(--gray-bg)', 'var(--gray-ink)')}}
+      <button class="${{on ? 'danger' : 'primary'}} mini" onclick="apSet({{enabled: ${{!on}}}})">${{on ? '⏹ Switch off' : '▶ Switch on'}}</button>
+      <button class="mini" onclick="apCheck()" title="re-read every series page now (free) and run one check">↻ check now</button></div>
+    <div class="hint" style="margin-bottom:8px">Makes the next chapter of every Tracker series by itself — round robin,
+      highest rank first, starting from each series' latest ${{(d.settings || {{}}).window || 3}} chapters, Gemini, one at a time.
+      Finished chapters land in <a href="#projects" onclick="toggleDrawer('projects');return false">Projects</a> as “Ready for review”.</div>
+    <div class="apr">
+      <span>Next</span><span>${{on ? nxt : '— (off)'}}</span>
+      <span>Waiting because</span><span>${{on ? (d.waiting || '— starting it now') : 'switched off'}}</span>
+      <span>Today (ET)</span><span>${{d.today}} of
+        <input id="apday" type="number" min="0" max="20" value="${{d.per_day}}" style="width:52px;padding:1px 4px"> chapters
+        <button class="mini" onclick="apSet({{per_day: parseInt(document.getElementById('apday').value || '0', 10)}})">save</button>
+        · spend $${{(d.spent_usd || 0).toFixed(2)}} of $${{(d.cap_usd || 0).toFixed(2)}} · ~$${{(d.estimate_usd || 0).toFixed(2)}} a chapter</span>
+      <span>Last chapter</span><span>${{last}}</span>
+      <span>Last check</span><span>${{apAgo(d.last_tick || sched.last_run)}}${{d.last_result ? ' · ' + d.last_result : ''}} · checks every ${{Math.round((d.tick_seconds || 600) / 60)}} min${{sched.running ? '' : ' · <b style="color:var(--bad)">scheduler not running</b>'}}${{sched.last_error ? ' · <span style="color:var(--bad)">' + sched.last_error + '</span>' : ''}}</span>
+      ${{waitingJobs}}
+      <span>Undo</span><span>${{d.undo}}</span>
+    </div>
+    <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">All series, in the order autopilot serves them (${{(d.series || []).length}})</summary>${{rows}}</details>`;
+}}
+async function apSet(patch) {{
+  try {{ await j('/api/autopilot/settings', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(patch)}}); }}
+  catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
+  loadAutopilot();
+}}
+async function apSeries(id, action) {{
+  try {{ await j('/api/autopilot/series', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{series_id: id, action}})}}); }}
+  catch (e) {{ alert('Could not ' + action + ': ' + (e.message || e)); }}
+  loadAutopilot();
+}}
+async function apCheck() {{
+  try {{ await j('/api/autopilot/check', {{method:'POST'}}); }}
+  catch (e) {{ alert('Could not start a check: ' + (e.message || e)); }}
+  setTimeout(loadAutopilot, 5000);
+}}
+
+// ================= PROJECTS (review inbox) =================
+var PROJ_FILTER = 'all';
+const PROJ_STATUS = {{
+  ready: ['Ready for review', 'var(--warnb-bg)', 'var(--warn)'], approved: ['Approved', 'var(--sa-bg)', 'var(--sa-ink)'],
+  rendering: ['Rendering', 'var(--sa-bg)', 'var(--sa-ink)'], rendered: ['Rendered', 'var(--okb-bg)', 'var(--okb-ink)'],
+  published: ['Published', 'var(--okb-bg)', 'var(--okb-ink)'], archived: ['Archived', 'var(--gray-bg)', 'var(--gray-ink)']
+}};
+function projFilter(f) {{ PROJ_FILTER = f; loadProjects(); }}
+async function projArchive(id, action) {{
+  try {{ await j('/api/projects/archive', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{id, action}})}}); }}
+  catch (e) {{ alert('Could not ' + action + ': ' + (e.message || e)); }}
+  loadProjects();
+}}
+function projNavCount(n) {{
+  const tr = document.querySelector('.navitem[data-d="projects"] .tr');
+  if (!tr) return;
+  let b = tr.querySelector('.bd.projready');
+  if (!n) {{ if (b) b.remove(); return; }}
+  if (!b) {{ b = document.createElement('span'); b.className = 'bd projready'; tr.appendChild(b); }}
+  b.textContent = n + ' to review';
+}}
 async function loadProjects() {{
   const box = document.getElementById('projlist');
   const d = await j('/api/projects');
   let htmlOut = '';
   if ((d.in_progress || []).length) {{
     htmlOut += '<div class="hint" style="text-transform:uppercase;font-weight:600;margin:4px 0">In progress</div>' +
-      d.in_progress.map(p => `<div class="projrow">⏳ ${{p.slug}} <span class="hint">${{p.stage}} · ${{p.pct}}%</span>
+      d.in_progress.map(p => `<div class="projrow">⏳ ${{p.slug}} ${{p.source === 'autopilot' ? apPill('autopilot', 'var(--gray-bg)', 'var(--gray-ink)') : ''}} <span class="hint">${{p.stage}} · ${{p.pct}}%</span>
         <button onclick="setActiveJob('${{p.job}}');toggleDrawer('ingest');startIngestPoller()">Watch</button></div>`).join('');
   }}
+  const all = d.projects || [];
+  const count = st => all.filter(p => st === 'all' ? p.review_status !== 'archived' : p.review_status === st).length;
+  projNavCount(count('ready'));
+  const tabs = [['all', 'All'], ['ready', 'Ready for review'], ['approved', 'Approved'], ['rendered', 'Rendered'],
+                ['published', 'Published'], ['archived', 'Archived']];
+  htmlOut += `<div class="segtabs" style="margin-top:8px">${{tabs.map(([k, l]) =>
+    `<button type="button" class="${{PROJ_FILTER === k ? 'on' : ''}}" onclick="projFilter('${{k}}')">${{l}} (${{count(k)}})</button>`).join('')}}</div>`;
+  const shown = all.filter(p => PROJ_FILTER === 'all' ? (p.review_status !== 'archived' || p.active)
+                                                     : p.review_status === PROJ_FILTER);
   const grouped = {{}};
-  (d.projects || []).forEach(p => {{
+  shown.forEach(p => {{
     const s = p.series || 'Other';
     (grouped[s] = grouped[s] || []).push(p);
   }});
   for (const series in grouped) {{
     htmlOut += `<div class="projcard"><div class="ph">📚 ${{series}}</div>`;
     grouped[series].forEach(p => {{
-      const label = p.chapter ? ('Chapter ' + p.chapter) : p.id;
+      // a Claude-lab copy and the normal chapter used to read identically
+      const lab = /-lab-/.test(p.id) ? (' · ' + (p.engine === 'claude' ? 'Claude lab' : 'lab')) : '';
+      const label = (p.chapter ? ('Chapter ' + p.chapter) : p.id) + lab;
+      const ps = PROJ_STATUS[p.review_status];
+      const tags = (ps ? apPill(ps[0], ps[1], ps[2]) : '') + (p.auto ? ' ' + apPill('auto', 'var(--gray-bg)', 'var(--gray-ink)') : '') +
+        (p.checks ? ` <span class="hint" title="free story check found these — open Check after opening the chapter">${{p.checks}} to check</span>` : '');
+      const arch = p.archive;
+      const archInfo = arch ? (arch.keep ? ' <span class="hint">kept</span>'
+        : ` <span class="hint" title="the folder is deleted then, to free space; Keep cancels">deletes in ${{arch.days_left}} day(s)</span>`) : '';
+      const archBtns = arch ? `${{arch.keep ? '' : `<button class="mini" onclick="projArchive('${{p.id}}','keep')" title="never delete this archived chapter">Keep</button>`}}
+        <button class="mini" onclick="projArchive('${{p.id}}','unarchive')" title="back to the main list; cancels the delete">Unarchive</button>` : '';
       const _sel = (p.active || p.id === 'chapter-2 (current)')
         ? '<span style="display:inline-block;width:16px"></span>'
         : `<input type="checkbox" class="projsel" value="${{p.id}}" onchange="updateProjSel()" title="select for bulk delete">`;
-      htmlOut += `<div class="projrow"><span>${{_sel}} ${{p.active ? '▶ ' : ''}}${{label}} <span class="hint">(${{p.n_segments}} segs${{p.duration ? ' · ' + p.duration + 's' : ''}})</span></span>
-        <span>${{p.active ? '<span class="hint">active</span>' : `<button onclick="activateProj('${{p.id}}')">Open</button>`}}
+      htmlOut += `<div class="projrow"><span>${{_sel}} ${{p.active ? '▶ ' : ''}}${{label}} ${{tags}}${{archInfo}} <span class="hint">(${{p.n_segments}} segs${{p.duration ? ' · ' + p.duration + 's' : ''}})</span></span>
+        <span>${{archBtns}}${{p.active ? '<span class="hint">active</span>' : `<button onclick="activateProj('${{p.id}}')">Open</button>`}}
         ${{p.active || p.id === 'chapter-2 (current)' ? '' : `<button title="delete this project and everything in it" onclick="delProject('${{p.id}}')" style="border:1px solid var(--rule);color:var(--bad);background:none;border-radius:3px;cursor:pointer;padding:1px 6px">🗑</button>`}}</span></div>`;
     }});
     htmlOut += '</div>';
@@ -2668,6 +2813,12 @@ async function loadProjects() {{
     </div>`;
   box.innerHTML = htmlOut ? (bar + htmlOut) : 'No projects yet.';
   updateProjSel();
+}}
+async function refreshProjCount() {{
+  try {{
+    const d = await j('/api/projects');
+    projNavCount((d.projects || []).filter(p => p.review_status === 'ready').length);
+  }} catch (e) {{}}
 }}
 function _projChecked() {{
   return Array.from(document.querySelectorAll('.projsel')).filter(c => c.checked).map(c => c.value);
@@ -3309,8 +3460,12 @@ async function loadLogs() {{
   const STAT = {{
     running:['var(--sa-bg)','var(--sa-ink)'], queued:['var(--gray-bg)','var(--gray-ink)'], paused:['var(--warnb-bg)','var(--warn)'],
     pausing:['var(--warnb-bg)','var(--warn)'], done:['var(--okb-bg)','var(--okb-ink)'], error:['var(--badb-bg)','var(--bad)'],
-    cancelled:['var(--gray-bg)','var(--gray-ink)']
+    cancelled:['var(--gray-bg)','var(--gray-ink)'], budget_paused:['var(--warnb-bg)','var(--warn)'],
+    interrupted:['var(--warnb-bg)','var(--warn)']
   }};
+  const waiting = st => ['budget_paused','interrupted'].includes(st);
+  const resumable = x => (x.kind === 'ingest' || x.kind === 'autopilot' || x.kind === 'finalize') &&
+    ['cancelled','error','budget_paused','interrupted'].includes(x.status);
   const live = st => ['running','queued','paused','pausing'].includes(st);
 
   async function rows() {{
@@ -3320,7 +3475,7 @@ async function loadLogs() {{
     ]);
     const out = [];
     for (const x of (ij.jobs || [])) out.push({{
-      id: x.job, kind: 'ingest', status: x.status || 'queued',
+      id: x.job, kind: x.source === 'autopilot' ? 'autopilot' : 'ingest', status: x.status || 'queued',
       title: (x.url || '').replace('https://','').replace(/^www\\./,''),
       detail: [x.stage, (x.pct != null ? x.pct + '%' : null), x.msg].filter(Boolean).join(' · '),
       error: x.error, ts: x.ts || 0
@@ -3344,7 +3499,9 @@ async function loadLogs() {{
         ? `<button class="mini" title="pause at the next step" onclick="jobCtl('${{x.id}}','pause')">⏸</button>
            <button class="mini" title="resume" onclick="jobCtl('${{x.id}}','resume')">▶</button>
            <button class="mini" title="stop this job" onclick="jobCtl('${{x.id}}','stop')">⏹</button>`
-        : `<button class="mini" title="remove this record" onclick="jobCtl('${{x.id}}','delete')">🗑</button>`;
+        : (resumable(x) ? `<button class="mini" title="continue it — cached work is reused" onclick="jobResume('${{x.id}}')">▶</button>` : '') +
+          (waiting(x.status) ? `<button class="mini" title="stop this waiting job" onclick="jobCtl('${{x.id}}','stop')">⏹</button>` : '') +
+          `<button class="mini" title="remove this record" onclick="jobCtl('${{x.id}}','delete')">🗑</button>`;
       return `<div style="border-bottom:1px solid var(--rule);padding:7px 0;display:flex;gap:8px;align-items:flex-start">
         <input type="checkbox" class="jobsel" value="${{x.id}}" data-live="${{live(x.status)?1:0}}" onchange="updateJobSel()" style="margin-top:3px">
         <div style="flex:1;min-width:0">
@@ -3424,6 +3581,14 @@ async function jobCtl(id, action) {{
     }}
     loadLogs();
   }} catch (e) {{ alert('Could not ' + action + ': ' + (e.message || e)); }}
+}}
+async function jobResume(id) {{
+  try {{
+    const r = await j('/api/jobs/resume', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{job_id: id}})}});
+    if (r.kind === 'finalize' && r.job) pollFinalize(r.job);
+    loadLogs();
+  }} catch (e) {{ alert('Could not resume: ' + (e.message || e)); }}
 }}
 async function bulkJobs(action) {{
   const sel = _jobsChecked().filter(c => c.dataset.live === (action === 'stop' ? '1' : '0'));
