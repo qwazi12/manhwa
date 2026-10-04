@@ -8418,3 +8418,97 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - `find_by_mirror` matches by the canonical key, which ignores Asura's rotating code.
 - Tests: new `test_paste_add.py` 22/22; full suite 74/74.
 - **Live (8f8bd79):** after the deploy, the scheduler's "new sources" step checked A Regressor's Tale of Cultivation by itself: 32 chapters, latest ch.32. ch.30 finished before the push ($0.58, Ready for review); it was described with the empty cast. Pending (owner): 📖 research missing (rebuilds the cast from the saved research, ~$0.01), then optionally 🧩 steps → describe again on ch.30 (~$0.45).
+
+---
+
+## PLAN — 2026-10-04 (evening, owner request, FOR REVIEW — nothing below is built yet)
+
+Owner test run (ch.30, A Regressor's Tale of Cultivation): rows 82–96 a "serious failure, usually on Asura"; SEO Copilot and Final Metadata look different (scroll bar, tiny title box, page refreshes on every SEO click); Publishing Studio confusing ("why 4 parts? what's the point of the queue if I can publish when reviewing?"); Drive (omnistream-bot service account, Shared Drive 0AOlNsRvSE9zcUk9PVA); the voice change "didn't update in Settings"; "is anything on this site talking to each other — dig deep and wide".
+
+### What the logs say about the test (ET, from /api/events + records)
+- 15:51 the posting schedule was switched ON (11:00, 19:00), with privacy still **private**. 15:57: the 11:00 slot fired at once ("queue empty"). **Bug:** switching the schedule on fires slots that had already passed that day.
+- 16:30–16:39 ch.30 ingested ($0.58): 125 crops; the image check found 19 bubble, 8 credits and 12 fragment crops. 16:46 the cast was rebuilt (9 characters) **after** ch.30 was written, so ch.30 has no character names.
+- 16:56 approved, then 17:00 exported (1.25×, already at −14 LUFS). 17:11 sent to the queue. ~17:17 **published from the Video review page**: Upload-Post confirmed YouTube id `mCRcBjKWiEI` as **private**. 17:16 the project was archived (published).
+- **Bug:** that queue row is still "queued" because a publish made from Video review never updates it, so the 19:00 slot will try to post it again. The publish check refuses already-posted videos, so there is no double post, but the row will show as failed.
+- **Bug:** the Published tab has no link. For a private upload Upload-Post puts the text "Post uploaded as Private. No public URL available." where the URL goes; the real id (`platform_post_id`) is ignored.
+
+### 1. Rows 82–96: the splitter cut a full-bleed page into 14 strips (P0)
+- **Reproduced locally** on the real ch.30 pages. Page 13 (900×3974) is one or two continuous full-bleed panels (the screaming cultivator, then the crying disciple). The splitter cut it into 14 horizontal strips (78–318 px tall) across the face, robe and sound effect. Each strip was described and narrated as its own scene ("Thunder detonated…", "White-hot impact lines…"), which is the mess on rows 82–96.
+- **Cause (`splitlab.register`/`breaks`):** the "gutter colour" is the page's most common row brightness. On a page with no white gutters, that is the art itself (bg = 119, a blue). Any blue, low-detail row then counts as a gap: 20 false gaps on page 13.
+- **Why Asura in particular:** Asura serves 900-px-wide long pages with many full-bleed colour scenes, and bubbles floating on white with no frame. The same mechanism also **slices speech bubbles into strips**. Page 3 had 58 "gaps", 51 of them through the middle of bubbles; that is the "bubble split and given its own lines" problem from earlier. Page 11 had a cut through a sound effect.
+- **Measured, all 17 pages:** real gutters are flat across the row (median row std 0.4–0.6, edge 0.03). Every false gap had a row std of 16–95. Rule to apply: **a gap must be flat across its width (median row std ≤ 6)**. This is the same calibrated value the flat-band code already uses.
+  - Simulated on ch.30: pages 2, 4–9, 12 and 14–17 keep every gutter. Page 3 goes 58 → 7 (bubbles kept whole). Page 10 goes 6 → 1. Page 13 goes 20 → 0 (kept whole; the existing tall-crop pass, Gemini-confirmed, can still split it). The credits page (page 1) goes 19 → 0. Chapter total ≈209 → ≈113 crops.
+- **Build:**
+  1. Add the flatness rule to `breaks()`, for pages and strips.
+  2. Belt and braces: merge any run of ≥3 touching full-width art slivers under 200 px back into one crop.
+  3. In the image check, mark a full-width crop under 120 px with art as "fragment" so it never gets its own narration line.
+- **Regression gate before shipping:** the pinned Murim ch.43 cut fixture, `test_split_baseline` and the Fated Villain flat-band cases must hold, plus a live A/B on one Asura and one WEBTOON chapter.
+- **Then for ch.30:** 🧩 steps → describe again (≈$0.45; it re-splits with the fix and now uses the 9-character cast). Approve and re-export. The private YouTube upload `mCRcBjKWiEI` is the owner's to delete in YouTube Studio.
+
+### 2. Publishing correctness (P0, small)
+- **One publish path.** "Publish now" on Video review and "🚀 Post now" in the studio both act on the same queue row (created if missing). Any confirmed post marks it posted. Fix the stranded ch.30 row.
+- **Published links:** use `platform_post_id` → `https://youtu.be/<id>` whenever the "URL" isn't a URL. YouTube views then work too.
+- **Schedule switch-on:** slots before the switch-on time don't fire that day.
+
+### 3. Publishing Studio: simpler, the way Scrapper works (P1)
+- **Scrapper's model** (frontend + `social/queue_manager.py`; MEMORY 2026-10-04): one **Posting Queue** whose rows move Ready → Posting → Posted → Archive. "Your videos" highlights *Ready for your review* and *Rendered, not in the queue*. **Approve = the next free slot.** Posting is the scheduler's job, with a daily cap per channel. Their own lesson: YouTube's per-channel upload limit is a rolling 24 h.
+- **Ours today has 4 tabs and two places to publish.** "Ready to post" plus "Send to queue" is a ritual with no purpose, because Video review can publish directly. Agreed, it's confusing.
+- **Proposal: 3 tabs.**
+  - **👀 To review**: rendered videos; opens Video review.
+  - **📅 Scheduled**: approving in Video review puts the video here automatically, showing the time it will post; Post now, ↑↓, remove.
+  - **✅ Posted**: links, views; archived after 14 days.
+- With the schedule OFF, Scheduled says "posts when you press Post now".
+- The Video review button becomes **"Approve & schedule"** (plus "Post now"). The Board's "APPROVE PROJECT FOR RENDER" becomes **"Render video"**, so "approve" means one thing only.
+
+### 4. Video review / Final metadata (P1)
+- **Why it looks different:** Final Metadata is the original Phase-A form (plain inputs) and the SEO Copilot was added later as a styled card.
+  - **Tiny title box:** the inputs have no width rule (only the textarea does), so the browser draws them about 20 characters wide.
+  - **Scroll bar:** on wide screens the SEO column is a sticky box with a capped height and its own scroll.
+  - **Refresh on every click:** "Use this" calls `render()`, which rebuilds the whole page.
+- **Build:**
+  - one column in the app's card style, with full-width fields and a title counter (n/100);
+  - a larger description and tags as chips;
+  - SEO suggestions inline (no inner scroll) and "Use this" filling only that field (no rebuild, no jump);
+  - remove "Schedule — optional, private only" (its placeholder date looked like a value; scheduling lives in the queue);
+  - the description drafted by SEO (hook, chapter summary, hashtags) instead of "A recap of…";
+  - **SEO characters from the Series Bible.** "Eun, Makli, Young, Kim, Refining" came from the capitalised-word guesser because the cast was empty at the time; with a bible, use the bible's names only.
+
+### 5. Settings as the single source (P1)
+- **Voice:** the live default is Charon + "energetic, fast-paced YouTube recap host" (saved), and ch.30 really was voiced in it. The confusion is the Ingest dropdowns: they set **this chapter only** unless "save as default" is pressed, and the page doesn't say so.
+- **Build:**
+  - make the voice editable in ⚙️ Settings (voice, style, ▶ preview, save);
+  - label the Ingest picker "this chapter only (studio default: X)" with a "make default" tick box;
+  - both read and write the same record.
+- Video review shows "privacy and channels come from ⚙️ Settings" with a link.
+
+### 6. Google Drive copy (P1), Scrapper's `drive_store.py` pattern
+- **Railway already has everything:** `GOOGLE_SERVICE_ACCOUNT_JSON` = omnistream-bot@manhwa-engine (type service_account) and `Flamingo_Remix_DRIVE_FOLDER_ID` = `0AOlNsRvSE9zcUk9PVA`, a Shared Drive root (required, since service accounts have no storage of their own). Verified by name and email only. **No Railway change is needed.**
+- Owner check: the robot must be a *Content manager* member of that Shared Drive; Scrapper's first attempt failed exactly there.
+- **Build:**
+  - after each export, upload the MP4, thumbnail and script to `Flamingo Remix/<Series>/Ch <N>/`: chunked, Stop-able, logged, link stored on the project and its queue row;
+  - posting can use the Drive copy if the local file is gone;
+  - after a successful Drive copy, free the chapter's `clips/` (the largest folder);
+  - show the Drive link in the studio and Projects, and Drive status in Settings → Storage.
+
+### 7. Sweep results ("is anything talking to each other?")
+- **Pages → server:** all 102 `/api/…` addresses the pages call exist (checked mechanically). No broken wiring.
+- **Disconnects found (each covered above):**
+  - publish from review ↔ queue;
+  - Ingest voice picker ↔ Settings;
+  - SEO characters ↔ Series Bible;
+  - research timing ↔ chapter (ch.30 was written before its cast existed: run research first and wait for it);
+  - board header "SPLIT COVERAGE 0% / 0%" is a legacy stat the new splitter never computes, shown green (replace it with pages, crops and slivers merged);
+  - two different "Approve"s.
+- **Cleanup:**
+  - `/api/debug/ps` and `/api/debug/cat` are still live (sandboxed to the projects folder, behind login). Remove them.
+  - ~20 server routes no page uses (old YouTube OAuth, test lab, render-missing…). Review, then remove or label as tools.
+
+### Suggested order
+1. Splitter fix with its regression gate, then ch.30 re-run.
+2. Publishing correctness.
+3. Simplified studio and Video review redesign.
+4. Settings voice.
+5. Drive copy and disk freeing.
+6. Cleanup.
+
+Each step gets its own commit, tests, a live phone check, and a push only when nothing is running.
