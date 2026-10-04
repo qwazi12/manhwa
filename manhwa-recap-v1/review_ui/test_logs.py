@@ -59,6 +59,8 @@ def main():
                 "j4": {"status": "budget_paused", "url": "https://asurascans.com/comics/x/chapter/1", "ts": now}}
         for k, v in recs.items():
             json.dump(v, open(os.path.join(jobs_dir, f"{k}.json"), "w"))
+        json.dump({"type": "research", "status": "done", "project": "7 series", "ts": now, "done": 7, "total": 7},
+                  open(os.path.join(jobs_dir, "render_r1.json"), "w"))
         open(usage.LOG_PATH, "w").write(json.dumps({"ts": "2026-10-04T12:00:00+00:00", "job_id": "j1",
                                                     "provider": "gemini", "est_cost_usd": 0.53}) + "\n")
         server._COST_CACHE["key"] = None
@@ -71,6 +73,8 @@ def main():
               and allr["j1"]["name"] == "Murim Psychopath ch.44" and allr["j1"]["cost"] == 0.53)
         check("a deleted chapter is marked (deleted)", allr["j1"]["deleted"] is True)
         check("an export record is labelled export, not ingest", allr["j3"]["kind"] == "export")
+        check("a research job is listed once, as research (not also as a blank ingest)",
+              [r["kind"] for grp in g.values() for r in grp if r["id"] in ("r1", "render_r1")] == ["research"])
         sp = c.get("/api/spend").json()
         check("spend summary has today, autopilot budget and the month", "today" in sp and "autopilot" in sp
               and sp["month"]["label"])

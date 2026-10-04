@@ -6204,6 +6204,8 @@ def _job_rows():
     cost = _usage_index()["by_job"]
     rows = []
     for x in _all_ingest_jobs():
+        if str(x.get("job", "")).startswith("render_") or x.get("type"):
+            continue          # render/research records share the folder; listed below
         url = x.get("url") or ""
         pid = (x.get("project") or {}).get("id") if isinstance(x.get("project"), dict) else None
         pid = pid or (_i.project_id(url, x.get("variant", "")) if "://" in url else None)
