@@ -371,6 +371,16 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         raise subprocess.CalledProcessError(desc_p.returncode, desc_p.args,
                                             "", err_text)
     progress("describe", "Descriptions ready.", 55)
+    # Image check (free, no API calls): bubble/text cards, near-blank fragments
+    # and credits are tagged so they stay off the timeline, and bubble dialogue
+    # is handed to the neighbouring panel's narration (panel_stats.py).
+    try:
+        import panel_stats
+        roles = panel_stats.annotate(desc_path, crops)
+        progress("describe", "Image check: " + ", ".join(
+            f"{v} {k}" for k, v in sorted(roles.items())), 56)
+    except Exception as e:  # noqa — never fail an ingest over the check
+        progress("describe", f"Image check skipped: {e}", 56)
 
     # 4. narrate (write narration FROM the panels) -----------------------
     # script.txt = plain narration (humans, TTS); script.json = the same

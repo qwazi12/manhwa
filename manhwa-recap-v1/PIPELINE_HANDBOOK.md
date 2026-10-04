@@ -271,6 +271,13 @@ transient-error detection, and a one-off probe that drops to per-text embedding
 if the installed SDK does not honour batching. Deterministic lexical fallback
 (`OCR_WEIGHT = 0.55`, `DESC_WEIGHT = 0.45`) so it runs with no external service.
 
+**Image check first (`panel_stats.py`, since 2026-10-04 — see E8).** Each
+panel carries a `role` from its own pixels: `art`, `bubble`, `fragment` or
+`credits`. Bubble/fragment/credits are junk whatever the description says; an
+`art` panel with ink ≥ 0.30, both sides ≥ 120 px and a description is never
+dropped by a wording rule. Panels without a role (older projects) fall through
+to the rules below unchanged.
+
 **Junk filter (`is_junk_panel`) — two regimes:**
 
 - *Vision-segmented* beats are model-curated, so the keyword filter does not
@@ -706,3 +713,38 @@ created by Approve, so their absence before review is expected.
 Also noted: tiny slivers (7–64 px) come back with empty descriptions; they are
 correctly junk. A very tall panel (AR ≈ 4.4) ships as one card; the
 tall-panel slicing of the legacy splitter does not run on the default path.
+
+## E8. Image check — bubbles, blanks and credits (2026-10-04)
+
+**Why:** the owner's Murim 44 board showed speech-bubble cards ("I THOUGHT IT
+WAS JUST A PERFORMANCE", "ELDER,") and near-black strips (embers, a red slash,
+rain in darkness) each with its own narration line and 6–9 s on screen. They
+passed the wording-only junk filter because the AI's descriptions used keep
+words: "spiky **burst** bubble", "blood-red **energy**", "**glowing** embers",
+"**rain** streaks". The QA pass had no rule about what a panel *looks* like.
+
+**How (`panel_stats.py`, run by ingest right after describe; free):** a 300 px
+thumbnail gives `ink` (share of pixels clearly unlike the dominant colour),
+`std` (luma contrast) and `luma`; with the OCR and description:
+
+| Role | Rule | Off the timeline? |
+|---|---|---|
+| `credits` | description says credits/logo/title card, OCR has a site or scanlation credit, or a page-1 panel ≥25% wider/narrower than the chapter (the aggregator banner) | yes, never narrated |
+| `fragment` | thinner than 40 px, or no text **and** contrast < 20 **and** ink < 0.10 | yes |
+| `bubble` | has text, no person/creature and no place in the description (quoted lettering and "no …" clauses ignored), and ink < 0.16 or the description calls it text/lettering/bubble | yes — **its dialogue is handed to the next art panel on the same page** (text first), else the previous one, before the script is written |
+| `art` | everything else | yes if ink ≥ 0.30 etc. — wording rules can't drop it |
+
+Calibrated on Murim 44 (145 panels): fragments had contrast 0–13, real story
+panels never below 34; bubble cards ink 0.09–0.13; real art ink 0.21–0.62.
+Dry run on all 8 live chapters: 71 panels go off (23 credits, 29 fragments,
+19 bubbles) and 10 real scenes come back (the Mount Hua
+mountain shot and vault door, a Murim rooftop leap, marching soldiers…).
+
+**QA:** `validator.rule_findings` now raises a **high** finding when a bubble,
+fragment or credits panel is on screen in the video (e.g. ticked back in by
+hand), so it shows on Check before review.
+
+**Effect on the script:** bubble dialogue now reaches narration through the
+neighbouring panel (Mount Hua 180: 29 bubbles' dialogue; Extra's 114: 24),
+instead of being dropped with the panel.
+

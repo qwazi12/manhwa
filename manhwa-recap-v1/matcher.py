@@ -168,6 +168,22 @@ _PROMO_BLOCK = re.compile(
 
 # Minimum crop dimensions for a vision beat to count as real content.
 _MIN_BEAT_PX = 40
+# Ink share at which a panel is plainly a picture (Murim 44: real art 0.21–
+# 0.62, the dropped mountain shot far above this); wording rules cannot drop it.
+ART_INK = 0.30
+ART_MIN_SIDE = 120
+
+
+def _art_by_image(panel):
+    """A real picture by image evidence: plenty of ink, a real size, and the
+    model said what it shows. Then no wording rule may drop it (the Mount Hua
+    establishing shot was lost to "…extending down the panel")."""
+    pix = panel.get("pix") or {}
+    w, h = panel.get("width") or 0, panel.get("height") or 0
+    return (panel.get("role") == "art" and pix.get("ink", 0) >= ART_INK
+            and min(w, h) >= ART_MIN_SIDE
+            and (panel.get("visual_description") or "").strip() != ""
+            and panel.get("source") != "vision-segment")
 
 
 def junk_reason(panel):
@@ -176,6 +192,15 @@ def junk_reason(panel):
     desc = panel.get("visual_description", "") or ""
     if _PROMO_BLOCK.search(f"{panel.get('ocr_text','') or ''} {desc}"):
         return "promo/credits card — never narrated"
+    role = panel.get("role")
+    if role == "bubble":
+        return "speech bubble / text only — its dialogue is used in the next panel's narration"
+    if role == "fragment":
+        return "near-blank / low-contrast fragment (image check)"
+    if role == "credits":
+        return "credits / logo card — never narrated"
+    if _art_by_image(panel):
+        return None
     if panel.get("source") == "vision-segment":
         w, h = panel.get("width") or 0, panel.get("height") or 0
         if (w and w < _MIN_BEAT_PX) or (h and h < _MIN_BEAT_PX):
@@ -212,6 +237,16 @@ def is_junk_panel(panel):
     # Promo/credits block outranks every keep-rule in every regime (B2).
     if _PROMO_BLOCK.search(f"{panel.get('ocr_text','') or ''} {desc}"):
         return True
+    # IMAGE EVIDENCE (panel_stats.py, 2026-10-04) beats the wording rules when
+    # present: bubble cards, near-blank fragments and credits are off the
+    # timeline whatever words the AI used; a panel with plenty of real ink is
+    # art even if its description trips a fragment phrase. Panels from before
+    # this existed have no `role` and are judged exactly as before.
+    role = panel.get("role")
+    if role in ("bubble", "fragment", "credits"):
+        return True
+    if _art_by_image(panel):
+        return False
     if panel.get("source") == "vision-segment":
         ocr = panel.get("ocr_text", "") or ""
         w, h = panel.get("width") or 0, panel.get("height") or 0

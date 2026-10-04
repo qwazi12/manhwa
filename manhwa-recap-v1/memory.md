@@ -8170,3 +8170,15 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
   | dialogue on junk panels | not measured | 12% (51 of 439 words, 38 junk panels) |
   | story check | — | 6 findings |
   Conclusion: autopilot reproduces v5's quality fixes on the same chapter; it runs ~15% longer (slower median hold). Dialogue-on-junk gap still present (fix pending owner go-ahead).
+
+---
+
+### 2026-10-04 — Image check: bubble cards and near-black strips off the timeline, their dialogue into the script, real scenes back
+
+**Owner (Murim 44 board screenshots):** (1) let bubble-only panels feed their dialogue into the script and stop the wording rule dropping real scenes; (2) prevent bubble cards (panels 9–12) getting their own lines — shouldn't QA catch that?; (3) catch near-black/abstract images (red slash on black, embers, black strips) before they're ticked into the video.
+
+**Root cause:** the junk filter only read the AI's words; bubble cards and black strips passed via keep words ("burst", "energy", "glowing", "rain"), and the mountain shot was dropped by "extending down the panel". QA had no visual rule.
+**Built:** `panel_stats.py` (pixel ink/contrast + OCR + description → role art/bubble/fragment/credits; bubble dialogue handed to the next art panel on the page); `ingest.py` runs it after describe; `matcher.is_junk_panel`/`junk_reason` honour roles (old projects unchanged); `narrate.load_panels` hands bubble dialogue over before filtering; `validator.rule_findings` high finding for bubble/fragment/credits on screen. Calibrated on Murim 44; dry-run iterations on the live chapters caught and fixed: high-ink bold text cards (description check), banners (page-1 width), slivers (min side 40), smoke clouds (fragment needs low ink too), quoted words/negations read as people, "off-screen"/"light background" read as places, plural "bubbles", serpents as subjects.
+**Dry run, all 8 live chapters:** 71 panels go off (23 credits, 29 fragments, 19 bubbles), 10 real scenes come back; bubble dialogue moved into scripts: Mount Hua 29, Extra's 24, Iron-Blooded 16, Murim 10, Stellar 10, Fog Land 9, Regressed 3, Fated Villain 2.
+**Tests:** new `test_panel_roles.py` 20/20; full suite 60/60. Handbook: A5 note + new E8.
+**Applies to:** every NEW ingest (manual and autopilot). Existing chapters need a rebuild to pick it up — Murim 44 and Mount Hua 180 rebuilt as versions for the before/after (next entry).

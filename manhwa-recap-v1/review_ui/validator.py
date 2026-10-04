@@ -270,6 +270,8 @@ def build_rows(pdir, review=None):
             "ocr": (d.get("ocr_text") or "").strip(),
             "desc": (d.get("visual_description") or "").strip(),
             "desc_ok": bool(d.get("ok", True)),
+            "role": d.get("role"),
+            "pix": d.get("pix"),
             "placement": placement,
             "timing": {
                 "seg_index": si,
@@ -386,6 +388,20 @@ def rule_findings(rows):
                     f"narration unit {p['unit']} is placed on it.",
                     "Leave this panel out — credit pages carry no story.",
                     "rules", category="ocr"))
+
+        # --- Image check: nothing that is not a picture goes on screen ------
+        # (panel_stats roles). The pipeline keeps these off the timeline; this
+        # catches one that slipped through or was ticked back in by hand.
+        if t["in_video"] and r.get("role") in ("bubble", "fragment", "credits"):
+            what = {"bubble": "a speech bubble / text card with no picture",
+                    "fragment": "near-blank or very low contrast (image check)",
+                    "credits": "a credits / logo card"}[r["role"]]
+            out.append(_finding(
+                r, "Panel", "high",
+                f"This panel is {what}, but it is on screen in the video.",
+                "Untick it; its dialogue (if any) belongs to the next panel's "
+                "narration." if r["role"] == "bubble" else "Untick it.",
+                "rules", category="image"))
 
         # --- On-screen timing & motion ------------------------------------
         if t["in_video"] and t["dur"]:

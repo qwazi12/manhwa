@@ -77,6 +77,13 @@ def load_panels(descriptions_path=None):
     with open(descriptions_path or DESCRIPTIONS_PATH, encoding="utf-8") as f:
         panels = json.load(f)
     panels.sort(key=lambda r: _natural_key(r["panel_id"]))
+    # Bubble/text-only panels stay off the timeline, but their DIALOGUE must
+    # reach the script: attach it to the neighbouring art panel first.
+    try:
+        import panel_stats
+        panel_stats.attach_bubble_dialogue(panels)
+    except Exception:
+        pass
     return [p for p in panels if p.get("ok", True) and not matcher.is_junk_panel(p)]
 
 
