@@ -3202,8 +3202,9 @@ async function loadProjects() {{
         ? '<span style="display:inline-block;width:16px"></span>'
         : `<input type="checkbox" class="projsel" value="${{p.id}}" onchange="updateProjSel()" title="select for bulk delete">`;
       htmlOut += `<div class="projrow"><span>${{_sel}} ${{p.active ? '▶ ' : ''}}${{label}} ${{tags}}${{archInfo}} <span class="hint">(${{p.n_segments}} segs${{p.duration ? ' · ' + p.duration + 's' : ''}})</span></span>
-        <span>${{archBtns}}${{p.active ? '<span class="hint">active</span>' : `<button onclick="activateProj('${{p.id}}')">Open</button>`}}
-        ${{p.active || p.id === 'chapter-2 (current)' ? '' : `<button title="delete this project and everything in it" onclick="delProject('${{p.id}}')" style="border:1px solid var(--rule);color:var(--bad);background:none;border-radius:3px;cursor:pointer;padding:1px 6px">🗑</button>`}}</span></div>`;
+        <span><button class="mini" onclick="pipeOpen('${{p.id}}')" title="where this chapter stands in the pipeline; re-run one step">🧩 steps</button> ${{archBtns}}${{p.active ? '<span class="hint">active</span>' : `<button onclick="activateProj('${{p.id}}')">Open</button>`}}
+        ${{p.active || p.id === 'chapter-2 (current)' ? '' : `<button title="delete this project and everything in it" onclick="delProject('${{p.id}}')" style="border:1px solid var(--rule);color:var(--bad);background:none;border-radius:3px;cursor:pointer;padding:1px 6px">🗑</button>`}}</span></div>
+        <div id="pipe_${{p.id}}"></div>`;
     }});
     htmlOut += '</div>';
   }}
@@ -3216,6 +3217,38 @@ async function loadProjects() {{
     </div>`;
   box.innerHTML = htmlOut ? (bar + htmlOut) : 'No projects yet.';
   updateProjSel();
+}}
+// ---- per-chapter pipeline strip (LongForm lesson, step 7)
+const PIPE_ICON = {{done: '✅', missing: '○', partial: '◐'}};
+async function pipeOpen(pid, force) {{
+  const box = document.getElementById('pipe_' + pid);
+  if (!box) return;
+  if (box.innerHTML && !force) {{ box.innerHTML = ''; return; }}
+  box.innerHTML = '<div class="hint">loading…</div>';
+  let d;
+  try {{ d = await j('/api/pipeline?project=' + encodeURIComponent(pid)); }}
+  catch (e) {{ box.innerHTML = '<div class="hint">' + esc(e.message || e) + '</div>'; return; }}
+  const when = t => t ? new Date(t * 1000).toLocaleString([], {{month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}}) : '';
+  box.innerHTML = `<div style="border:1px solid var(--rule);border-radius:8px;padding:6px 8px;margin:2px 0 8px;font-size:12px">
+    ${{d.busy ? '<div class="hint" style="color:var(--warn)">' + esc(d.busy) + ' — re-runs wait until it is done</div>' : ''}}
+    ${{d.steps.map(s => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:2px 0;border-bottom:1px dashed var(--rule)">
+      <span style="width:18px">${{PIPE_ICON[s.state] || '○'}}</span><b style="min-width:86px">${{esc(s.label)}}</b>
+      <span class="hint" style="flex:1;min-width:140px">${{esc(s.detail)}}${{s.at ? ' · ' + when(s.at) : ''}}</span>
+      ${{s.rerun && d.can_rerun && !d.busy ? `<button class="mini" title="${{esc(s.rerun.cost)}}" onclick="pipeRerun('${{pid}}','${{s.key}}',this)">↻ ${{esc(s.rerun.label)}}</button>` : ''}}
+    </div>`).join('')}}
+    <div class="hint" style="margin-top:4px">A re-run clears that step and everything built from it (board edits and the approval included), then makes the chapter again from there. Earlier steps are reused.</div></div>`;
+}}
+function pipeRerun(pid, step, btn) {{
+  if (!btn.dataset.armed) {{
+    btn.dataset.armed = '1'; const was = btn.textContent;
+    btn.textContent = 'tap again: ' + (btn.title || 'clears this step and after');
+    setTimeout(() => {{ if (btn.dataset.armed) {{ delete btn.dataset.armed; btn.textContent = was; }} }}, 5000);
+    return;
+  }}
+  delete btn.dataset.armed; btn.textContent = '…';
+  j('/api/pipeline/rerun', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{project: pid, step}})}})
+    .then(() => {{ if (window.jobsBarLoad) window.jobsBarLoad(); loadProjects(); }})
+    .catch(e => {{ alert('Not re-run: ' + (e.message || e)); pipeOpen(pid, true); }});
 }}
 async function refreshProjCount() {{
   try {{

@@ -6216,6 +6216,63 @@ def series_board():
                                          "paused": st["settings"].get("paused_series") or []}}
 
 
+@app.get("/api/pipeline")
+def pipeline_view(project: str = ""):
+    """One chapter's pipeline strip (LongForm lesson, step 7)."""
+    import pipeline_steps as _ps
+    pdir = project_dir_for(project)
+    meta = _read_json(os.path.join(pdir, "project.json"))
+    return {"project": os.path.basename(pdir.rstrip("/")), "steps": _ps.status(pdir),
+            "can_rerun": bool(meta.get("url")) and (meta.get("engine") or "gemini") == "gemini",
+            "busy": _chapter_busy(pdir)}
+
+
+def _chapter_busy(pdir):
+    pid = os.path.basename(pdir.rstrip("/"))
+    url = _read_json(os.path.join(pdir, "project.json")).get("url")
+    for j in list(INGEST.values()):
+        if j.get("status") in ("queued", "running") and (j.get("project") == pid or (url and j.get("url") == url)):
+            return "an ingest of this chapter is " + j["status"]
+    for j in list(JOBS.values()):
+        if j.get("status") in ("queued", "running") and j.get("project") == pid:
+            return f"a {j.get('type') or 'render'} job of this chapter is {j['status']}"
+    return None
+
+
+class PipelineRerunIn(BaseModel):
+    project: str
+    step: str
+
+
+@app.post("/api/pipeline/rerun")
+def pipeline_rerun(body: PipelineRerunIn):
+    """Re-run ONE step of a chapter: clear its outputs (and what was built from
+    them), then queue the chapter's ingest, which reuses everything else."""
+    import ingest as _i
+    import pipeline_steps as _ps
+    pdir = project_dir_for(body.project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    if body.step not in _ps.CLEARS:
+        raise HTTPException(400, f"'{body.step}' cannot be re-run on its own")
+    meta = _read_json(os.path.join(pdir, "project.json"))
+    url = meta.get("url")
+    if not url or (meta.get("engine") or "gemini") != "gemini":
+        raise HTTPException(409, "only chapters made by the main (Gemini) pipeline can re-run a step")
+    busy = _chapter_busy(pdir)
+    if busy:
+        raise HTTPException(409, busy + " — wait for it or stop it first")
+    base = _i.project_id(url)
+    variant = pid[len(base) + 1:] if pid.startswith(base + "-") else ""
+    if _i.project_id(url, variant) != pid:
+        raise HTTPException(409, "could not work out which chapter version this is")
+    removed = _ps.prepare_rerun(pdir, body.step)
+    job = _enqueue_ingest(url, variant=variant, source="rerun",
+                          why=f"re-running from: {_ps.RERUN[body.step]['label']}")
+    _ev("ingest", f"{_pretty(pid)}: re-running from '{_ps.RERUN[body.step]['label']}' "
+                  f"({len(removed)} file(s) cleared)")
+    return {"ok": True, "job": job, "removed": len(removed)}
+
+
 @app.get("/api/critique")
 def critique_view(project: str = ""):
     """What the narration's second pass (the script editor) flagged and rewrote."""

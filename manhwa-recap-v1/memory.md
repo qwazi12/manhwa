@@ -8366,3 +8366,21 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - Found: clips were already written atomically, but `_do_export` wrote straight to `exports/final_<time>.mp4`, and so did the speed-up. A stopped or failed export would therefore leave a half-written video visible in Exports, the Publishing Studio and the publish picker.
 - Fix (LongForm's render swap): the whole export (concat, music bed, loudness, speed-up) is built in a hidden `exports/.partial/` folder, and only the finished file is `os.replace`d into `exports/`. The next export clears any leftovers. Listings, the cleanup and the studio only read `*.mp4` directly in `exports/`, so the side folder is invisible.
 - Tests: new `test_export_swap.py` 6/6 runs real ffmpeg on generated clips. It covers success (the 1.25× file lands, loudness is applied, the side folder ends empty) and a failed speed-up (it raises and adds nothing to exports/). Full suite 72/72.
+
+---
+
+### 2026-10-04 — BUILT step 7 (part 4): per-chapter pipeline strip with re-run per step
+
+- Each chapter row in Projects has a **🧩 steps** button that opens a strip: Pages → Panels → Descriptions (with image-check counts) → Script (words, editor notes) → Voice (lines, narrator and style) → Timeline → Clips (partial when half-rendered) → Video. Each row shows its state and time.
+- **Re-run one step** (two taps, cost on hover):
+  - describe the panels again (~$0.20 + script and voice)
+  - rewrite the script (~$0.24)
+  - record the voice again with the current narrator (~$0.14)
+  - rebuild the timeline (free)
+- A re-run clears that step's outputs and everything built from them (board edits and the approval included; exports never), then queues the chapter's ingest (`source: rerun`). Ingest reuses every other cached output. A saved version (`-v2`) re-runs as itself.
+- Refused while an ingest or render of that chapter is queued or running, and for Claude-lab chapters.
+- Code: `review_ui/pipeline_steps.py`; `GET /api/pipeline`, `POST /api/pipeline/rerun`. Every re-run is logged in the project's `rerun.log.jsonl` and in Logs → Live.
+- Tests: new `test_pipeline_strip.py` 18/18; full suite 73/73.
+- Step 7 remaining:
+  - **Drive copy + disk freeing:** this needs a Google Drive service account on Railway, which is an owner decision and a secret, so it is not built. Disk freeing is already covered by the 7-day export cleanup and the 14-day archive deletion.
+  - **Motion layer:** this changes how every video looks, so it should come with an owner-reviewed sample first.

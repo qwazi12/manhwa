@@ -908,3 +908,18 @@ The left-menu item **📺 Publishing Studio** (it replaced "Review & Publish") o
 ### E16b. What the script editor changed (2026-10-04)
 
 The narration is written in two passes. A second reviewer reads the whole draft against the panels and flags problems: made-up names, wrong order, a missed beat, a camera or panel mention, repetition, a spoiled reveal. The worst three parts are then rewritten. You can now see this in 🛡 Check → **📝 What the script editor changed**: every issue it found, and each rewritten part with the old text struck through. Only chapters scripted from 2026-10-04 onward have notes.
+
+## E17. 🧩 Pipeline strip — re-run one step (2026-10-04)
+
+Projects → a chapter → **🧩 steps** shows the chapter's progress: Pages, Panels, Descriptions, Script, Voice, Timeline, Clips, Video. Each step has its count and when it last ran.
+
+| Re-run | Clears | Then redone | Cost |
+|---|---|---|---|
+| describe the panels again | descriptions + everything after | describe → script → voice → timeline | ~$0.45 |
+| rewrite the script | script, editor notes, voice | script → voice → timeline | ~$0.24 |
+| record the voice again | the recordings and the voice pin | voice (current studio narrator) → timeline | ~$0.14 |
+| rebuild the timeline | board, approval, clips | match → crops → segments | free |
+
+- Re-running takes two taps. It replaces the board, which means hand edits and the approval are lost. Exported videos are never touched.
+- It is refused while the chapter is being made or rendered.
+- Afterwards, open the chapter, check it, and Approve again.
