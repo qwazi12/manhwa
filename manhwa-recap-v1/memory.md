@@ -8137,3 +8137,14 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 **Root cause:** `tracker.series_page_url` only matched Asura-style `…/chapter/N` URLs. WEBTOON chapters are viewer URLs (`…/viewer?title_no=…&episode_no=…`), so every WEBTOON project was skipped without an error. It looked fine before because earlier projects were Asura; after the 2026-10-03 bulk delete, all remaining projects (Fog Land 2, Stellar Swordmaster 129, Extra's Academy 114) are WEBTOON → 0 series. **Fix:** WEBTOON chapter → its `/list?title_no=` series page, and episodes 1..latest are read through `providers.WEBTOON.discover_chapters` (the same reader the Watchlist and autopilot use). Asura path unchanged. `test_tracker.py` 35/35 (+3 WEBTOON cases); suite 59/59.
 
 **Checked live (2026-10-04 ~04:00 UTC):** Watchlist — all 14 series' sources `ok`, re-read 0.3 h earlier by autopilot's 6-hourly refresh; ingested chapters credited correctly (Stellar 129, Extra's 114). Autopilot — ch.129 done $0.37, ch.114 done $0.68, ch.96 (Regressed Mercenary) running. Unaffected by the bug: autopilot never used the "New chapters" tab; it reads the Watchlist.
+
+---
+
+### 2026-10-04 — Audit: autopilot vs manual; dialogue-on-junk gap; Murim v5
+
+**Owner:** update the handbook; review all Projects work — is something missing / not firing; bring back Murim v5 for comparison; is automation doing less than manual — batching? crops lost?
+
+**Audit (live, read-only, 7 projects):** same `ingest.run_ingest` code; only model (3.8 Flash, also manual now) and Flex tier differ. 0 describe failures; usable panels on timeline (0–1 off per chapter). Crops fine: 6–15 real crops/chapter (Fog Land manual: 11), planner fired 11–21×. Missing exports/assets/storyboard.json = created by Approve.
+**Real gaps (pre-existing, not autopilot):** (1) `narrate.load_panels` drops `is_junk_panel` panels before scripting; bubble/text-only panels are junk → their dialogue never reaches narration. Dialogue words on junk panels: Mount Hua 180 27% (30 panels), Extra's 114 11%, Iron-Blooded 180 10%, Regressed 96 8%, Stellar 129 5%, Fog Land 2 4%, Fated Villain 358 2%. (2) `_ABSTRACT_OVERRIDE` "(extending) down … panel" dropped Mount Hua's 900×3994 establishing shot. Not fixed yet — proposed to owner (needs a go-ahead: it changes scripts).
+**Murim v5:** folder deleted 2026-10-03 16:38 UTC (owner bulk delete). Remaining: job record 9968be66c54c, usage rows, the published video on YouTube (Flamingo Remix, final_Oct01_01.32PM.mp4), memory.md notes. Railway CLI cannot list/restore single backups; a Railway backup restore replaces the WHOLE volume (would wipe the autopilot chapters) — not done.
+**Handbook:** new section E7 with these findings.

@@ -670,3 +670,39 @@ line). Not included: Upload-Post ($24/month, shared with Scrapper). These are
 estimates until the first autopilot chapters are metered end to end; the card's
 "~$ a chapter" switches to the measured average by itself. Disk is ~250 MB a
 chapter against a 28 GB volume, so archiving matters.
+
+## E7. Audit of the first autopilot chapters (2026-10-04)
+
+Seven projects were compared on the server: six autopilot chapters and Fog
+Land ch.2 (manual, 2026-10-02, 3.5 Flash).
+
+**Same as the manual path:** autopilot runs the same `ingest.run_ingest` code.
+The only differences are the model (3.8 Flash, now used by manual ingests too)
+and the Flex tier, which changes queueing and price, not output. No panel
+batching is used. No describe call failed. Every *usable* panel reached the
+timeline (0–1 per chapter left off).
+
+**Crops are not lost.** Real close-up crops per chapter: 6–15 on autopilot vs
+11 on Fog Land; the planner fired on 11–21 vision crops per chapter. Files
+missing from autopilot folders (`exports/`, `assets/`, `storyboard.json`) are
+created by Approve, so their absence before review is expected.
+
+**Two real gaps, both older than autopilot:**
+
+1. **Dialogue on junk panels never reaches the script.** `narrate.load_panels`
+   drops `is_junk_panel` panels before writing, and a panel whose picture is
+   only a speech bubble or a text card has no subject or scene word, so it is
+   junk. Its OCR'd dialogue is lost. Measured share of dialogue words sitting
+   on junk panels: Mount Hua ch.180 **27%** (30 panels), Extra's Academy 114
+   11%, Iron-Blooded 180 10%, Regressed Mercenary 96 8%, Stellar 129 5%, Fog
+   Land 2 4%, Fated Villain 358 2%. Worst on Asura, where the Sept 23 splitter
+   cuts floating bubbles out as separate panels.
+2. **A wording override drops real scenes.** `_ABSTRACT_OVERRIDE` includes
+   `(running|curving|…|extending) (down|along|across…)…(edge|frame|panel…)`,
+   meant for stray gutter lines. Mount Hua's 900×3994 establishing shot ("…
+   dense foliage and rocks **extending down the panel**") matched it and was
+   dropped although it names a slope, rocks, night and a building.
+
+Also noted: tiny slivers (7–64 px) come back with empty descriptions; they are
+correctly junk. A very tall panel (AR ≈ 4.4) ships as one card; the
+tall-panel slicing of the legacy splitter does not run on the default path.
