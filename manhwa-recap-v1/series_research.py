@@ -174,8 +174,60 @@ def _number(sources):
     return "\n".join(f"[{i}] {s['domain']} ({s['tier']})" for i, s in enumerate(sources))
 
 
+def _idx(i):
+    """A cited source number: 3, "3" or "[3]" (the structurer is not consistent)."""
+    if isinstance(i, int):
+        return i
+    m = re.fullmatch(r"\s*\[?(\d+)\]?\s*", str(i))
+    return int(m.group(1)) if m else None
+
+
 def _tiers(idx, sources):
-    return {sources[i]["tier"] for i in idx or [] if isinstance(i, int) and 0 <= i < len(sources)}
+    out = set()
+    for i in idx or []:
+        k = _idx(i)
+        if k is not None and 0 <= k < len(sources):
+            out.add(sources[k]["tier"])
+    return out
+
+
+def _name_keys(c):
+    """Strings that identify a character in the research text: the name, its
+    aliases, and the given name without the family name ("Seo Eunhyun" ->
+    "Eunhyun"), which is how most sentences refer to them."""
+    keys = []
+    for n in [c.get("name")] + list(c.get("aliases") or []):
+        n = (n or "").strip()
+        if len(n) >= 3:
+            keys.append(n.lower())
+            parts = n.split()
+            if len(parts) > 1 and len(" ".join(parts[1:])) >= 4:
+                keys.append(" ".join(parts[1:]).lower())
+    return keys
+
+
+def _grounded(keys, claims):
+    """Source numbers of the grounded sentences (Google's grounding supports)
+    that mention any of `keys`. Owner, 2026-10-04: a whole cast (A Regressor's
+    Tale of Cultivation, 9 named characters, the protagonist in 13 grounded
+    sentences) was rejected because the structurer left its citations empty."""
+    out = set()
+    for cl in claims or []:
+        t = (cl.get("text") or "").lower()
+        if any(re.search(r"(?<![a-z])" + re.escape(k) + r"(?![a-z])", t) for k in keys):
+            out.update(cl.get("sources") or [])
+    return sorted(out)
+
+
+def _overlap_claims(text, claims, need=3):
+    """Grounded sentences sharing >= `need` distinctive words with `text`."""
+    words = {w for w in re.findall(r"[a-z]{5,}", (text or "").lower())}
+    out = set()
+    for cl in claims or []:
+        cw = set(re.findall(r"[a-z]{5,}", (cl.get("text") or "").lower()))
+        if len(words & cw) >= need:
+            out.update(cl.get("sources") or [])
+    return sorted(out)
 
 
 def _parse_json(text):
@@ -205,6 +257,15 @@ def research(title, aliases, series_url, latest, window, api_key, _urlopen=None,
     structured = structure(title, text, sources, api_key, _urlopen) if text else {}
     return {"at": time.time(), "model": MODEL, "text": text, "sources": sources, "claims": claims,
             "queries": meta.get("webSearchQueries", []), "structured": structured}
+
+
+def restructure(title, saved, api_key, _urlopen=None):
+    """Rebuild the cast from research already done (the saved text, sources and
+    grounding): one structuring call, no new search."""
+    structured = structure(title, saved.get("text", ""), saved.get("sources") or [], api_key, _urlopen)
+    return {"at": saved.get("at"), "model": saved.get("model"), "text": saved.get("text", ""),
+            "sources": saved.get("sources") or [], "claims": saved.get("claims") or [],
+            "queries": saved.get("queries") or [], "structured": structured, "restructured_at": time.time()}
 
 
 def structure(title, text, sources, api_key, _urlopen=None):
@@ -237,7 +298,7 @@ def to_bible(title, aliases, rec):
     for c in st.get("characters") or []:
         if not (c.get("name") or "").strip():
             continue
-        t = _tiers(c.get("sources"), src)
+        t = _tiers(c.get("sources"), src) | _tiers(_grounded(_name_keys(c), rec.get("claims")), src)
         entry = {k: c.get(k) for k in ("name", "aliases", "gender", "pronouns", "role", "visual_cues",
                                        "relationships") if c.get(k)}
         entry["origin"] = "research"
@@ -247,7 +308,9 @@ def to_bible(title, aliases, rec):
         else:
             rejected.append(entry["name"])
     ws = st.get("world_setting") or {}
-    world_ok = bool(_tiers(ws.get("sources"), src) & set(FACT_TIERS))
+    world_txt = " ".join(str(ws.get(k) or "") for k in ("universe", "premise", "recurring_elements"))
+    world_ok = bool((_tiers(ws.get("sources"), src) | _tiers(_overlap_claims(world_txt, rec.get("claims")), src))
+                    & set(FACT_TIERS))
     world = {k: ws.get(k) for k in ("universe", "premise", "recurring_elements") if ws.get(k)}
     sf = st.get("story_so_far") or {}
     return {
@@ -262,7 +325,9 @@ def to_bible(title, aliases, rec):
             "world_unverified": {} if world_ok else world,
             "factions": st.get("factions") or [], "terms": st.get("terms") or [],
             "story_so_far": sf.get("text", ""),
-            "story_verified": bool(_tiers(sf.get("sources"), src) & set(FACT_TIERS)),
+            "story_verified": bool((_tiers(sf.get("sources"), src)
+                                    | _tiers(_overlap_claims(sf.get("text", ""), rec.get("claims")), src))
+                                   & set(FACT_TIERS)),
             "disputes": st.get("disputes") or [],
             "rejected_characters": rejected,
         },

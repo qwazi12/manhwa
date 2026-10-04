@@ -346,8 +346,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     series_raw, _ = parse_series_chapter(url)
     import series_bible
     bible = series_bible.load_series_bible(series_raw, pdir=proj)
-    if bible is None:
-        # First chapter of a series with no bible: research it now (sourced
+    if bible is None or not bible.get("characters"):
+        # First chapter of a series with no bible (or one with no cast): research it now (sourced
         # cast, pronouns, looks, world — series_research.py), so describe and
         # narrate know who is who. ~$0.02, once per series.
         try:
@@ -360,7 +360,13 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         except Exception as e:  # noqa — a chapter must not fail over research
             progress("describe", f"Series research skipped: {e}", 33)
     bible_path = os.path.join(proj, "series_bible.json")
-    if bible and not os.path.exists(bible_path):
+    try:
+        _local_cast = (json.load(open(bible_path)) or {}).get("characters") if os.path.exists(bible_path) else None
+    except (OSError, ValueError):
+        _local_cast = None
+    # the chapter's copy is (re)written when missing, or when it has no cast
+    # and the series now has one
+    if bible and (not os.path.exists(bible_path) or (not _local_cast and bible.get("characters"))):
         series_bible.save_series_bible(series_raw, bible, pdir=proj)
 
     progress("describe", "Describing panels (Gemini vision)…", 35)

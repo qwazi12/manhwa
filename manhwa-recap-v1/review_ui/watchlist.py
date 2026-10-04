@@ -90,9 +90,12 @@ def find_by_mirror(data, url):
     them finds the existing entry instead of creating a fifth duplicate.
     """
     key = providers.describe(url)["series_key"]
+    # Asura rotates the 8-hex code on its series URLs; the canonical key
+    # ignores it, so a re-pasted link with a new code is still the same series.
+    canon = providers.canonical_key(key)
     for s in data["series"]:
         for m in s.get("mirrors", []):
-            if m.get("series_key") == key:
+            if m.get("series_key") == key or providers.canonical_key(m.get("series_key")) == canon:
                 return s, m
     return None, None
 

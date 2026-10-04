@@ -82,14 +82,21 @@ def build(series_id, api_key=None):
         raise ValueError(f"no watchlist series '{series_id}'")
     STATUS[series_id] = {"status": "running", "at": time.time()}
     try:
-        window, latest = _window(s)
-        mirror = next((m for m in s.get("mirrors") or [] if m.get("series_key") == s.get("preferred_mirror")),
-                      (s.get("mirrors") or [{}])[0])
-        rec = series_research.research(s["title"], s.get("aliases") or [], mirror.get("series_url", ""),
-                                       latest or "unknown", window, api_key)
+        old = existing_bible(s)
+        saved = (old or {}).get("research") or {}
+        if old and not old.get("characters") and saved.get("text") and saved.get("claims"):
+            # researched before but no cast came out of it: rebuild from the
+            # saved research (one cheap call), no new search
+            rec = series_research.restructure(s["title"], saved, api_key)
+        else:
+            window, latest = _window(s)
+            mirror = next((m for m in s.get("mirrors") or [] if m.get("series_key") == s.get("preferred_mirror")),
+                          (s.get("mirrors") or [{}])[0])
+            rec = series_research.research(s["title"], s.get("aliases") or [], mirror.get("series_url", ""),
+                                           latest or "unknown", window, api_key)
         new = series_research.to_bible(s["title"], s.get("aliases") or [], rec)
         with _lock:
-            merged = series_research.merge(existing_bible(s), new)
+            merged = series_research.merge(old if (old or {}).get("characters") else None, new)
             merged.setdefault("watchlist_id", series_id)
             for slug in _slugs(s) or [series_id]:
                 series_bible.save_series_bible(slug, dict(merged))
@@ -104,6 +111,12 @@ def build(series_id, api_key=None):
     except Exception as e:
         STATUS[series_id] = {"status": "error", "at": time.time(), "error": str(e)[:300]}
         raise
+
+
+def needs_research(series):
+    """No bible yet, or one with no cast in it."""
+    b = existing_bible(series)
+    return not b or not b.get("characters")
 
 
 def build_for_url(url, api_key=None):

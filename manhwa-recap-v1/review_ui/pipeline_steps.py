@@ -25,7 +25,9 @@ CLEARS = {
     "match": _BOARD,
     "voice": _VOICE + _BOARD,
     "narrate": _SCRIPT + _VOICE + _BOARD,
-    "describe": ["descriptions.json"] + _SCRIPT + _VOICE + _BOARD,
+    # series_bible.json: the chapter's copy of the cast list, so a re-describe
+    # picks up the series' current one
+    "describe": ["descriptions.json", "series_bible.json"] + _SCRIPT + _VOICE + _BOARD,
 }
 RERUN = {
     "describe": {"label": "describe the panels again", "cost": "about $0.20 (Gemini vision), then the script and voice below"},

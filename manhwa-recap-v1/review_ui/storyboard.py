@@ -1095,6 +1095,17 @@ body.not-board header button, body.not-board header label {{ display:none !impor
 </div>
 <div class="drawer" id="d_tracker">
   <h3>TRACKER</h3>
+  <div id="qadd" style="border:1px solid var(--rule);border-radius:10px;padding:8px 10px;margin:0 0 10px;background:var(--panel)">
+    <b style="font-size:13px">➕ Paste a link</b> <span class="hint">— any Asura or WEBTOON series or chapter link. The title, chapters, cover and cast fill in by themselves.</span>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+      <input id="qurl" type="url" inputmode="url" placeholder="https://asurascans.com/comics/…" style="flex:1;min-width:200px"
+        oninput="qaddHint()" onkeydown="if (event.key === 'Enter') qaddGo()">
+      <select id="qtier"><option value="greenlight">Make now</option><option value="high_upside">Next up</option><option value="watchlist">Watching</option></select>
+      <button type="button" class="primary" id="qbtn" onclick="qaddGo()">Add</button>
+    </div>
+    <label id="qmakewrap" class="hint" style="display:none;margin-top:4px"><input type="checkbox" id="qmake" checked> also make <span id="qch"></span> now (~$0.50)</label>
+    <div id="qmsg" class="hint" style="margin-top:4px"></div>
+  </div>
   <div class="segtabs">
     <button type="button" id="tks" onclick="trkTab('series')">📚 Series</button>
     <button type="button" id="tkw" onclick="trkTab('watch')">✏️ Manage list</button>
@@ -2900,6 +2911,36 @@ async function bibleSaveEdit() {{
     await j('/api/series/bible', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{series_id: BIBLE_SID, bible: b}})}});
     bibleOpen(BIBLE_SID);
   }} catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
+}}
+// ================= TRACKER: paste a link =================
+function qaddCh(u) {{
+  const m = /\/chapter\/(\d+(?:\.\d+)?)\/?$/i.exec(u) || /[?&]episode_no=(\d+)/i.exec(u);
+  return m ? m[1] : null;
+}}
+function qaddHint() {{
+  const ch = qaddCh(document.getElementById('qurl').value.trim());
+  document.getElementById('qmakewrap').style.display = ch ? 'block' : 'none';
+  if (ch) document.getElementById('qch').textContent = 'ch.' + ch;
+}}
+async function qaddGo() {{
+  const url = document.getElementById('qurl').value.trim();
+  const msg = document.getElementById('qmsg'), btn = document.getElementById('qbtn');
+  if (!url) {{ msg.textContent = 'Paste a link first.'; return; }}
+  const ch = qaddCh(url);
+  btn.disabled = true; msg.textContent = 'reading the page…';
+  try {{
+    const r = await j('/api/watchlist/quick', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{url, tier: document.getElementById('qtier').value,
+                             make_chapter: !!ch && document.getElementById('qmake').checked}})}});
+    msg.innerHTML = (r.created ? '✅ Added <b>' + esc(r.title) + '</b> (' + esc(r.source) + ')' : '✅ <b>' + esc(r.title) + '</b> is already tracked')
+      + ' — checking its chapters and cast in the background.'
+      + (r.job ? ' Making ch.' + esc(r.chapter) + ' now (see the jobs bar).' : r.note ? ' ' + esc(r.note) + '.' : '');
+    document.getElementById('qurl').value = ''; qaddHint();
+    if (r.job && window.jobsBarLoad) window.jobsBarLoad();
+    setTimeout(() => {{ try {{ sbLoad(); }} catch (e) {{}} }}, 8000);
+    setTimeout(() => {{ try {{ sbLoad(); }} catch (e) {{}} }}, 40000);
+  }} catch (e) {{ msg.innerHTML = '<span style="color:var(--bad)">' + esc(e.message || e) + '</span>'; }}
+  finally {{ btn.disabled = false; }}
 }}
 // ================= SCRIPT EDITOR NOTES (critique pass) =================
 async function loadCritique() {{

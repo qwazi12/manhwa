@@ -424,6 +424,30 @@ def release_info(prov, html, today=None):
     return {"cover": cover, "dates": dates}
 
 
+def series_title(html):
+    """The series' own title from its page (og:title, else <title>), without
+    the site's suffix: 'A Regressor's Tale of Cultivation | Asura Scans' ->
+    "A Regressor's Tale of Cultivation". None when the page has neither."""
+    import html as _html
+    m = (re.search(r'<meta (?:property|name)="og:title" content="([^"]+)"', html or "")
+         or re.search(r"<title[^>]*>([^<]+)</title>", html or "", re.I))
+    if not m:
+        return None
+    t = _html.unescape(m.group(1)).strip()
+    t = re.split(r"\s+[|\u2013\u2014-]\s+(?=[^|\u2013\u2014-]*(?:asura|webtoon|scans?|comics?|read|manhwa|chapter)\b)",
+                 t, maxsplit=1, flags=re.I)[0].strip()
+    t = re.sub(r"^read\s+", "", t, flags=re.I)
+    t = re.sub(r"\s+(?:manhwa|manga|webtoon)$", "", t, flags=re.I).strip()
+    return t or None
+
+
+def chapter_of(url):
+    """The chapter number in a chapter link, or None for a series link."""
+    m = re.search(r"/chapter/(\d+(?:\.\d+)?)/?$", url or "", re.I) or \
+        re.search(r"[?&]episode_no=(\d+)", url or "", re.I)
+    return m.group(1) if m else None
+
+
 def canonical_key(series_key):
     """A series key that survives Asura's rotating slug suffix.
 

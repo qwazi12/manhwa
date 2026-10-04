@@ -4314,6 +4314,93 @@ def api_watchlist_add(body: WLSeriesIn):
     return {"series_id": s["id"], "watchlist": _wl_view()}
 
 
+class WLQuickIn(BaseModel):
+    url: str
+    tier: str = "greenlight"
+    make_chapter: bool = False
+
+
+def _quick_followup(series_id, series_key):
+    """After a paste: check the source (chapters, dates, cover), then research
+    the cast if the series has none. Background; reported in Logs → Live."""
+    import watchlist as _wl
+    try:
+        m = _wl.refresh_mirror(_wl_root(), series_id, series_key)
+        _ev("tracker", f"{series_id}: source checked — " + (
+            f"{m.get('chapter_count')} chapters, latest ch.{m.get('latest')}" if m.get("status") == "ok"
+            else f"could not read it: {m.get('error')}"), "ok" if m.get("status") == "ok" else "warn")
+    except Exception as e:  # noqa
+        _ev("tracker", f"{series_id}: source check failed: {e}", "error")
+    try:
+        s = _research._series(series_id)
+        if s and _research.needs_research(s):
+            b = _research.build(series_id)
+            _ev("research", f"{b.get('canonical_title', series_id)}: "
+                            f"{(_research.STATUS.get(series_id) or {}).get('summary', 'done')}", "ok")
+    except usage.UsageCapExceeded as e:
+        _ev("research", f"{series_id}: research waits — spend cap reached ({e})", "warn")
+    except Exception as e:  # noqa
+        _ev("research", f"{series_id}: research failed: {str(e)[:160]}", "error")
+
+
+@app.post("/api/watchlist/quick")
+def api_watchlist_quick(body: WLQuickIn):
+    """Paste a link, done (owner, 2026-10-04): a series OR chapter link from a
+    supported site. The title comes from the page, the series is created (or the
+    existing one reused — never a duplicate), its source is attached, and in the
+    background its chapters are checked and its cast researched. A chapter link
+    can also queue that chapter."""
+    import ingest as _i
+    import providers
+    import watchlist as _wl
+    url = (body.url or "").strip()
+    if not re.match(r"^https?://", url):
+        raise HTTPException(400, "paste a full link (https://…)")
+    d = providers.describe(url)
+    if d["support"] != "supported":
+        raise HTTPException(400, f"{d['label']} links can't be tracked yet — use an Asura or WEBTOON link")
+    data = _wl.load(_wl_root())
+    s, _m = _wl.find_by_mirror(data, url)
+    created = False
+    if s is None:
+        title = None
+        try:
+            title = providers.series_title(providers.fetch(d["series_url"]))
+        except Exception:
+            title = None
+        if not title:
+            series, _c = _i.parse_series_chapter(url)
+            title = _i.to_title_case(_i.clean_series_slug(series or "")) or "Untitled series"
+        s = _wl.find(data, _wl.slugify(title))
+        if s is None:
+            s = _wl.add_series(_wl_root(), title, tier=body.tier if body.tier in _wl.TIERS else "greenlight")
+            created = True
+        try:
+            _wl.add_mirror(_wl_root(), s["id"], url)
+        except _wl.WatchlistError as e:
+            raise HTTPException(409, str(e))
+        _ev("tracker", f"added {title} ({d['label']}) from a pasted link")
+    s = _wl.find(_wl.load(_wl_root()), s["id"])
+    canon = providers.canonical_key(d["series_key"])
+    key = next((m["series_key"] for m in s["mirrors"] if providers.canonical_key(m["series_key"]) == canon),
+               (s["mirrors"] or [{}])[0].get("series_key"))
+    threading.Thread(target=_quick_followup, args=(s["id"], key), daemon=True).start()
+    chapter = providers.chapter_of(url)
+    job = None
+    note = None
+    if chapter and body.make_chapter:
+        pid = _i.project_id(url)
+        busy = any(j.get("status") in ("queued", "running") and j.get("url") == url for j in INGEST.values())
+        if busy:
+            note = f"ch.{chapter} is already being made"
+        elif os.path.exists(os.path.join(_i.PROJECTS, pid, "segments.json")):
+            note = f"ch.{chapter} is already made — open it in Projects"
+        else:
+            job = _enqueue_ingest(url, source="manual", why="from a pasted link")
+    return {"ok": True, "series_id": s["id"], "title": s["title"], "created": created,
+            "source": d["label"], "chapter": chapter, "job": job, "note": note}
+
+
 @app.post("/api/watchlist/mirror")
 def api_watchlist_mirror(body: WLMirrorIn):
     """Attach another place the same story can be read."""
@@ -5935,6 +6022,22 @@ def _schedule_post_pass(now=None):
     return dec
 
 
+def _check_new_sources():
+    """A source added by any route is read within 10 minutes, not at the next
+    6-hourly autopilot refresh (free: one series page each)."""
+    import watchlist as _wl
+    done = 0
+    for sx in _wl.load(_wl_root())["series"]:
+        for m in sx.get("mirrors") or []:
+            if m.get("last_checked") is None and m.get("support") == "supported":
+                mm = _wl.refresh_mirror(_wl_root(), sx["id"], m["series_key"])
+                _ev("tracker", f"{sx['title']}: new source checked — " + (
+                    f"{mm.get('chapter_count')} chapters, latest ch.{mm.get('latest')}" if mm.get("status") == "ok"
+                    else f"could not read it: {mm.get('error')}"), "ok" if mm.get("status") == "ok" else "warn")
+                done += 1
+    return done
+
+
 def _demand_series():
     return [{"id": x["id"], "title": x["title"], "aliases": x.get("aliases") or [], "tier": x.get("tier")}
             for x in _wl_view()["series"]]
@@ -5957,6 +6060,7 @@ def _scheduler_pass():
     _SCHED["last_run"] = time.time()
     for name, fn in (("budget", _resume_budget_paused), ("archive", _archive_sweep),
                      ("posting", _schedule_post_pass), ("demand", _demand_pass),
+                     ("new sources", _check_new_sources),
                      ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps()))):
         try:
             fn()
@@ -6101,7 +6205,7 @@ def series_research_start(body: ResearchIn):
     else:
         ids = []
         for s in _wl.load(_wl_root())["series"]:
-            if not body.missing_only or not _research.existing_bible(s):
+            if not body.missing_only or _research.needs_research(s):
                 ids.append(s["id"])
     if not ids:
         return {"ok": True, "job": None, "note": "every series already has a bible"}

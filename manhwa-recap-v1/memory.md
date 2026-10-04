@@ -8392,3 +8392,28 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - Posting schedule is built and OFF; switch it on in Settings when wanted.
 - Step 7 leftovers: Drive copy (needs a Drive service account secret), motion layer (needs an owner-reviewed sample first).
 - No videos exist live right now: approve a chapter to get one into 📺 Publishing Studio.
+
+---
+
+### 2026-10-04 — Paste-a-link tracking; a whole cast was being thrown away
+
+**Owner (phone screenshots):** they added A Regressor's Tale of Cultivation through Manage list, and the card showed "no source · Latest ch.? · source not checked yet · 0 characters · 4 disputes" while ch.30 ran. "Why didn't it just take the link and fill it into the tracker… I need it to be as easy as paste and add so the system runs it in the background."
+
+**What was actually wrong (verified on the live data):**
+1. The series and its Asura source were stored correctly. **Nothing checked the source after adding:** the autopilot refresh runs every 6 h, and the add route never triggered a check.
+2. **Research found the cast, and every character was then rejected.** The run found 55 sources, the protagonist Seo Eunhyun, and 8 more named characters. The structuring call returned the characters with empty citations, or with citations as text, so `to_bible` judged them unsourced. Google's grounding data in the same record links Seo Eunhyun to 13 sentences backed by official and wiki sources.
+3. Ingest copied that empty bible into ch.30's folder, and that copy takes priority for the chapter.
+4. `find_by_mirror` compared Asura links exactly. Asura rotates the 8-hex code in its series links, so re-pasting a link could create a duplicate series.
+
+**Fixed:**
+- **➕ Paste a link** bar at the top of the Tracker. One field, a tier (default Make now), and **Add**. A chapter link also shows "also make ch.N now (~$0.50)". `POST /api/watchlist/quick`:
+  - the title comes from the page (`providers.series_title`, from og:title without the site suffix, e.g. "A Regressor's Tale of Cultivation");
+  - it creates the series, or reuses an existing one (by source, or by title when it's the same story on another site);
+  - in the background it checks the chapters, cover and dates, then researches the cast if there is none;
+  - it can queue the pasted chapter unless it's already made or in progress.
+- The scheduler's new **"new sources"** step checks any never-checked source within 10 minutes, whatever route added it.
+- Citations: `"3"`/`"[3]"` are accepted, and when the structurer leaves them empty, the **grounded sentences that name the character** (full name, aliases, or the given name) supply the source tiers. Low-only characters are still rejected. World and story facts are verified the same way through overlapping grounded sentences.
+- A bible with **no cast** counts as needing research (the 📖 research missing button and ingest). It is rebuilt **from the saved research with one structuring call, no new search** (`series_research.restructure`).
+- Ingest replaces a chapter's empty-cast copy once the series has a cast, and 🧩 re-describe clears the chapter copy.
+- `find_by_mirror` matches by the canonical key, which ignores Asura's rotating code.
+- Tests: new `test_paste_add.py` 22/22; full suite 74/74.
