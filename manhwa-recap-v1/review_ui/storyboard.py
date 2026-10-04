@@ -2910,8 +2910,9 @@ async function loadStudio() {{
     PS = d;
     if (os) PS_ACCTS = (os.accounts || []).filter(a => a.active);
   }} catch (e) {{ box.innerHTML = '<span style="color:var(--bad)">' + esc(e.message || e) + '</span>'; return; }}
-  document.getElementById('ps_sched').textContent = PS.schedule.enabled ? '' :
-    'Posting schedule: off — each video posts when you press Post now.';
+  document.getElementById('ps_sched').textContent = PS.schedule.enabled
+    ? 'Posting schedule: ON — next post ' + (PS.schedule.next || '?') + ' ET, at most ' + PS.schedule.per_channel_per_day + ' per channel a day (⚙️ Settings to change).'
+    : 'Posting schedule: off — each video posts when you press Post now.';
   const n = {{review: PS.review.length, ready: PS.ready.length,
              queue: PS.queue.filter(x => x.qstatus !== 'failed').length, published: PS.published.length}};
   const lab = {{review: '👀 Needs review', ready: '🎬 Ready to post', queue: '📋 Queue', published: '✅ Published'}};
@@ -3033,6 +3034,7 @@ async function loadSettings() {{
       <input type="checkbox" class="settgt" value="${{esc(a.account_id)}}" ${{(defs.targets || []).includes(a.account_id) ? 'checked' : ''}}>
       ${{a.network === 'youtube' ? '▶️' : '•'}} ${{esc(a.username || a.account_id)}} <span class="hint">${{esc(a.account_id)}}${{a.active ? '' : ' · inactive'}}</span></label>`).join('');
   const st = d.storage, disk = st.disk || {{}};
+  SET_SCHED_ON = !!(d.schedule || {{}}).enabled;
   box.innerHTML = `
     <div class="setcard"><h4>🟢 Connection</h4>
       ${{R('Server', 'live · deploy ' + esc(d.connection.commit || 'local'))}}
@@ -3056,6 +3058,14 @@ async function loadSettings() {{
         <select id="setpriv">${{['public', 'unlisted', 'private'].map(p => `<option ${{defs.privacy === p ? 'selected' : ''}}>${{p}}</option>`).join('')}}</select>
         <button class="mini" onclick="saveChannels()">save</button></div>
       <div class="hint" style="margin-top:4px">Videos stay private until you save “public” here. You still press Publish on each video; the posting schedule is off.</div></div>
+    <div class="setcard"><h4>⏱️ Posting schedule</h4>
+      ${{R('State', d.schedule.enabled ? '<b>ON</b> · next ' + esc(d.schedule.next || '?') + ' ET' : 'OFF — you press Post now for each video')}}
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <label><input type="checkbox" id="schon" ${{d.schedule.enabled ? 'checked' : ''}}> on</label>
+        Times (ET) <input id="schtimes" value="${{esc((d.schedule.times || []).join(', '))}}" style="width:120px">
+        Per channel a day <select id="schcap">${{[1, 2, 3].map(v => `<option ${{v == d.schedule.per_channel_per_day ? 'selected' : ''}}>${{v}}</option>`).join('')}}</select>
+        <button class="mini" onclick="saveSchedule(this)">save</button></div>
+      <div class="hint" style="margin-top:4px">When on, each time posts the next video in 📺 Publishing Studio → Queue, with that video’s channels and privacy. Posts can’t be taken back.</div></div>
     <div class="setcard"><h4>🎬 Export</h4>
       ${{R('Video speed', d.export.speed + '×' + (d.export.env_override ? ' (set by Railway EXPORT_SPEED)' : ''))}}
       <div style="display:flex;gap:6px;align-items:center;margin-top:6px">Speed
@@ -3082,6 +3092,21 @@ async function saveChannels() {{
     body: JSON.stringify({{publish: {{targets, privacy: document.getElementById('setpriv').value}}}})}}); loadSettings(); }}
   catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
 }}
+async function saveSchedule(btn) {{
+  const on = document.getElementById('schon').checked;
+  const times = document.getElementById('schtimes').value.split(',').map(t => t.trim()).filter(Boolean)
+    .map(t => /^\d:\d\d$/.test(t) ? '0' + t : t);
+  if (on && !SET_SCHED_ON && !btn.dataset.armed) {{
+    btn.dataset.armed = '1';
+    btn.textContent = 'tap again: auto-post at ' + times.join(', ') + ' ET';
+    setTimeout(() => {{ if (btn.dataset.armed) {{ delete btn.dataset.armed; btn.textContent = 'save'; }} }}, 5000);
+    return;
+  }}
+  try {{ await j('/api/settings', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+    body: JSON.stringify({{schedule: {{enabled: on, times, per_channel_per_day: +document.getElementById('schcap').value}}}})}}); loadSettings(); }}
+  catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
+}}
+let SET_SCHED_ON = false;
 async function saveSpeed() {{
   try {{ await j('/api/settings', {{method:'POST', headers:{{'Content-Type':'application/json'}},
     body: JSON.stringify({{export_speed: parseFloat(document.getElementById('setspeed').value)}})}}); loadSettings(); }}

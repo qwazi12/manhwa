@@ -17,6 +17,9 @@ NAME = "_studio_settings.json"
 DEFAULTS = {
     "export_speed": 1.25,
     "publish": {"targets": ["mk:youtube"], "privacy": "private"},
+    # Step 5: built but OFF until the owner switches it on (2026-10-04).
+    "schedule": {"enabled": False, "times": ["12:00", "18:00"], "tz": "America/New_York",
+                 "per_channel_per_day": 1},
 }
 PRIVACY = ("private", "unlisted", "public")
 _lock = threading.Lock()
@@ -75,6 +78,22 @@ def update(patch):
             if not isinstance(pub["targets"], list) or not all(isinstance(t, str) for t in pub["targets"]):
                 raise ValueError("targets must be a list of account ids")
             cur["publish"]["targets"] = pub["targets"]
+        sch = patch.get("schedule") or {}
+        if sch:
+            import re
+            if "enabled" in sch:
+                cur["schedule"]["enabled"] = bool(sch["enabled"])
+            if sch.get("times") is not None:
+                times = sch["times"]
+                if (not isinstance(times, list) or not 1 <= len(times) <= 6
+                        or not all(isinstance(t, str) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t) for t in times)):
+                    raise ValueError("posting times must be 1-6 times like 12:00 (24-hour)")
+                cur["schedule"]["times"] = sorted(set(times))
+            if sch.get("per_channel_per_day") is not None:
+                n = int(sch["per_channel_per_day"])
+                if not 1 <= n <= 5:
+                    raise ValueError("posts per channel per day must be 1-5")
+                cur["schedule"]["per_channel_per_day"] = n
         tmp = _path() + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cur, f, indent=1)

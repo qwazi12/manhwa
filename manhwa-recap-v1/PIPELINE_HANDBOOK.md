@@ -882,3 +882,11 @@ The left-menu item **📺 Publishing Studio** (it replaced "Review & Publish") o
 - **↻ Regenerate:** the panels used last time go to the back of the list, so you see the next-best picks.
 - **Clean picture:** one option is always the art alone, with no text and no badge.
 - **Tall panels** are shown whole on a blurred, dimmed copy of themselves instead of being cropped.
+
+## E14. ⏱️ Posting schedule (2026-10-04) — off unless you switch it on
+
+- **Where:** ⚙️ Settings → ⏱️ Posting schedule. Set times in Eastern (default 12:00 and 18:00) and a per-channel daily cap (default 1). Turning it on takes two taps on save.
+- **What it does:** every 10 minutes the scheduler checks for a due time. At each due time it posts the **next video in 📺 Publishing Studio → Queue**, using that video's channels and privacy. Each time slot fires at most once a day.
+- **The cap:** a channel never gets more than N posts in one Eastern day, counting your manual Post now presses. A video that would go over the cap waits, and one for another channel may go first.
+- **When nothing posts:** if the queue is empty, everything would go over the cap, or the publish check refuses (not approved, the cut changed, no channel connected), the slot is skipped and the reason appears in Logs → Live. A refused video shows as failed in the Queue with ↻ try again.
+- **To stop:** untick "on" and save. Videos already queued stay queued.

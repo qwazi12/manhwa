@@ -8310,3 +8310,15 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - **Tall panels** (narrower than 0.6 × the box's shape) are shown whole on a blurred, dimmed copy of themselves instead of being cropped.
 - `/api/thumbcopilot/generate` loads the bible by the chapter URL's series slug.
 - Tests: test_thumbnail_studio 112/112. That includes 9 new checks. The fixture panels now differ in layout as well as tint; before, they were one picture in six tints, which the look-alike filter correctly drops. The tall-fit check was proved to fail with the backdrop disabled. Full suite 66/66.
+
+- **Live check of step 3 + step 4 (e32deb0), in a 390 px frame:** the Publishing Studio opens from the rail, with tabs "👀 Needs review (0) · 🎬 Ready to post (0) · 📋 Queue (0) · ✅ Published (0)" and page width 390. Every lane is empty because the live server has no exports right now (the 7-day cleanup removed them) and earlier posts weren't made through this tool. Settings: page width 373, Connection "deploy e32deb0, scheduler running", Spending $7.22 of $10, autopilot $2.20 of $6, Autopilot ON 4/day, gemini-3.8-flash · flex. No sideways scroll. (Chrome refused to shrink the window, so the check ran in an iframe, as before.)
+
+---
+
+### 2026-10-04 — BUILT step 5: posting schedule (OFF by default)
+
+- ⚙️ Settings → ⏱️ Posting schedule: on/off, times (ET, 1–6 a day, default 12:00 and 18:00), posts per channel per day (1–3, default 1). Switching it on takes two taps on save ("tap again: auto-post at …").
+- The scheduler (every 10 min) runs a new `posting` step (`_schedule_post_pass`). When a time slot is due, it posts the next queued video through the same checked publish job as 🚀 Post now. Each slot fires once (`slots_done` per local day, kept a week). Any video that would push a channel over its daily cap is passed over; manual posts count toward the cap too. An empty queue or an over-cap queue skips the slot and logs why. A refused post marks the video failed with the reason.
+- Pure decision `publish_queue.decide()`; `next_slot()` is shown in the studio header and in Settings.
+- Fixed before shipping: the post's day was taken from the real clock instead of the slot's, which would have miscounted the cap on a late pass.
+- Tests: new `test_posting_schedule.py` 20/20; full suite 67/67. **Still OFF live.** Switching it on is the owner's call.

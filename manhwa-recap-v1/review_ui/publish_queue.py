@@ -143,3 +143,73 @@ def sync(root, publish_status):
         if changed:
             _save(root, d)
     return d
+
+
+# ------------------------------------------------ posting schedule (step 5)
+# Owner, 2026-10-04: built but OFF by default; when on, each daily time slot
+# (operator timezone, Eastern by default) posts the next queued video, never
+# more than `per_channel_per_day` posts to any one channel in a local day.
+
+def _local(now, tz):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.fromtimestamp(now, ZoneInfo(tz or "America/New_York"))
+
+
+def decide(sched, d, now, targets_of):
+    """What the schedule should do right now. Pure: no writes.
+
+    sched: {"enabled", "times": ["12:00", ...], "tz", "per_channel_per_day"}
+    d: the queue file; targets_of(item) -> its channel ids.
+    Returns {"action": "off"|"wait"|"post"|"skip", "slot", "item", "why", "day"}.
+    """
+    if not (sched or {}).get("enabled"):
+        return {"action": "off", "why": "the posting schedule is off"}
+    loc = _local(now, sched.get("tz"))
+    day, hm = loc.strftime("%Y-%m-%d"), loc.strftime("%H:%M")
+    done = set((d.get("slots_done") or {}).get(day, {}))
+    due = [t for t in sorted(sched.get("times") or []) if t <= hm and t not in done]
+    if not due:
+        return {"action": "wait", "day": day, "why": "no posting time is due"}
+    slot = due[0]
+    cap = int(sched.get("per_channel_per_day") or 1)
+    used = {}
+    for x in d["items"]:
+        if x["status"] in ("posted", "posting") and x.get("posted_day") == day:
+            for t in targets_of(x):
+                used[t] = used.get(t, 0) + 1
+    queued = [x for x in d["items"] if x["status"] == "queued"]
+    if not queued:
+        return {"action": "skip", "slot": slot, "day": day, "why": "the queue is empty"}
+    for x in queued:
+        tg = targets_of(x)
+        if tg and all(used.get(t, 0) < cap for t in tg):
+            return {"action": "post", "slot": slot, "day": day, "item": x,
+                    "why": f"{slot} slot: next in the queue"}
+    return {"action": "skip", "slot": slot, "day": day,
+            "why": f"every queued video would go over {cap} post(s) per channel today"}
+
+
+def slot_done(root, day, slot, result):
+    """Record that a slot was used (posted or skipped) so it never fires twice."""
+    with _lock:
+        d = load(root)
+        sd = d.setdefault("slots_done", {})
+        sd.setdefault(day, {})[slot] = result
+        for k in sorted(sd)[:-7]:          # keep a week
+            sd.pop(k, None)
+        _save(root, d)
+
+
+def next_slot(sched, now):
+    """The next posting time as a local 'Mon 12:00' string, or None."""
+    from datetime import timedelta
+    if not (sched or {}).get("enabled") or not sched.get("times"):
+        return None
+    loc = _local(now, sched.get("tz"))
+    for add in (0, 1):
+        day = loc + timedelta(days=add)
+        for t in sorted(sched["times"]):
+            if add or t > loc.strftime("%H:%M"):
+                return day.strftime("%a ") + t
+    return None

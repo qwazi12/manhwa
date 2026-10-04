@@ -5880,9 +5880,43 @@ def _archive_sweep(now=None):
     return out
 
 
+def _schedule_post_pass(now=None):
+    """Posting schedule (step 5): at most one queued video per due time slot,
+    through the same checked publish job as Post now. Off unless switched on."""
+    import ingest as _i
+    sched = _studio.load().get("schedule") or {}
+    if not sched.get("enabled"):
+        return None
+    _pq.sync(_i.PROJECTS, _pub_status)
+
+    def targets_of(x):
+        try:
+            pdir = project_dir_for(x["project"])
+        except HTTPException:
+            return []
+        return list(({**publish_defaults(pdir), **(load_publish(pdir).get(x["name"]) or {})}).get("targets") or [])
+    dec = _pq.decide(sched, _pq.load(_i.PROJECTS), now or time.time(), targets_of)
+    if dec["action"] == "skip":
+        _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], "skipped: " + dec["why"])
+        _ev("publish", f"schedule {dec['slot']}: nothing posted — {dec['why']}", "warn")
+    elif dec["action"] == "post":
+        it = dec["item"]
+        try:
+            r = studio_queue_post(StudioItemIn(id=it["id"]))
+            _pq.mark(_i.PROJECTS, it["id"], posted_day=dec["day"])
+            _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], f"posted {it['project']} ({r.get('privacy')})")
+            _ev("publish", f"schedule {dec['slot']}: posting {_pretty(it['project'])}", "ok")
+        except HTTPException as e:
+            _pq.mark(_i.PROJECTS, it["id"], status="failed", error=str(e.detail)[:300])
+            _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], "refused: " + str(e.detail)[:200])
+            _ev("publish", f"schedule {dec['slot']}: {_pretty(it['project'])} not posted — {e.detail}", "error")
+    return dec
+
+
 def _scheduler_pass():
     _SCHED["last_run"] = time.time()
     for name, fn in (("budget", _resume_budget_paused), ("archive", _archive_sweep),
+                     ("posting", _schedule_post_pass),
                      ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps()))):
         try:
             fn()
@@ -6377,6 +6411,8 @@ def settings_overview():
                      "defaults": _studio.publish_defaults()},
         "voice": gemini_tts.load_default(_i.PROJECTS) or {},
         "export": {"speed": _studio.export_speed(), "env_override": bool(os.environ.get("EXPORT_SPEED"))},
+        "schedule": {**(_studio.load().get("schedule") or {}),
+                     "next": _pq.next_slot(_studio.load().get("schedule") or {}, time.time())},
         "storage": {"disk": disk, "projects": sizes[:8], "n_projects": len(sizes),
                     "exports_kept_days": EXPORT_RETENTION_DAYS, "archive_days": _archive.ARCHIVE_DAYS},
     }
@@ -6440,14 +6476,13 @@ def studio_overview():
                      {"project": x["project"], "name": x["name"], "label": x["name"], "missing": True})
             r.update(qid=x["id"], qstatus=x["status"], qerror=x.get("error"), added_at=x["added_at"])
             queue_rows.append(r)
-    try:
-        import studio_settings as _ss
-        sched = _ss.load().get("schedule") or {}
-    except Exception:
-        sched = {}
+    sched = _studio.load().get("schedule") or {}
     return {"review": review, "ready": ready, "queue": queue_rows, "published": _studio_published(),
             "retention_days": exports["retention_days"],
-            "schedule": {"enabled": bool(sched.get("enabled")), "built": False},
+            "schedule": {"enabled": bool(sched.get("enabled")), "times": sched.get("times"),
+                         "per_channel_per_day": sched.get("per_channel_per_day"),
+                         "next": _pq.next_slot(sched, time.time()),
+                         "last": (q.get("slots_done") or {})},
             "yt_stats": __import__("yt_api").configured()}
 
 
@@ -6558,7 +6593,9 @@ def studio_queue_post(body: StudioItemIn):
     if it["status"] not in ("queued", "failed"):
         raise HTTPException(409, f"this item is {it['status']}")
     r = os_publish(PublishNowIn(project=it["project"], name=it["name"]))
-    _pq.mark(_i.PROJECTS, it["id"], status="posting", job=r.get("job"), error=None)
+    sched = _studio.load().get("schedule") or {}
+    _pq.mark(_i.PROJECTS, it["id"], status="posting", job=r.get("job"), error=None,
+             posted_day=_pq._local(time.time(), sched.get("tz")).strftime("%Y-%m-%d"))
     _ev("publish", f"posting {_pretty(it['project'])} ({r.get('privacy')})")
     return {"ok": True, "job": r.get("job"), "privacy": r.get("privacy")}
 
@@ -6584,6 +6621,7 @@ def studio_stats(body: StudioStatsIn):
 class StudioSettingsIn(BaseModel):
     export_speed: float | None = None
     publish: dict | None = None
+    schedule: dict | None = None
 
 
 @app.post("/api/settings")
@@ -6592,8 +6630,10 @@ def settings_save(body: StudioSettingsIn):
         before, after = _studio.update(body.model_dump())
     except ValueError as e:
         raise HTTPException(400, str(e))
+    sch = after.get("schedule") or {}
     _ev("settings", f"settings saved: export {after['export_speed']}x, publish to "
-                    f"{', '.join(after['publish']['targets']) or 'nobody'} as {after['publish']['privacy']}")
+                    f"{', '.join(after['publish']['targets']) or 'nobody'} as {after['publish']['privacy']}; "
+                    f"posting schedule {'ON at ' + ', '.join(sch.get('times') or []) if sch.get('enabled') else 'off'}")
     return {"ok": True, "before": before, "settings": after}
 
 
