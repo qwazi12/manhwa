@@ -8417,3 +8417,4 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - Ingest replaces a chapter's empty-cast copy once the series has a cast, and 🧩 re-describe clears the chapter copy.
 - `find_by_mirror` matches by the canonical key, which ignores Asura's rotating code.
 - Tests: new `test_paste_add.py` 22/22; full suite 74/74.
+- **Live (8f8bd79):** after the deploy, the scheduler's "new sources" step checked A Regressor's Tale of Cultivation by itself: 32 chapters, latest ch.32. ch.30 finished before the push ($0.58, Ready for review); it was described with the empty cast. Pending (owner): 📖 research missing (rebuilds the cast from the saved research, ~$0.01), then optionally 🧩 steps → describe again on ch.30 (~$0.45).
