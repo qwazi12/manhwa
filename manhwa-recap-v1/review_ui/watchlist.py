@@ -36,9 +36,11 @@ import providers
 STORE_NAME = "_watchlist.json"
 
 TIERS = ("greenlight", "high_upside", "watchlist")
-TIER_LABEL = {"greenlight": "Greenlight now",
-              "high_upside": "High-upside secondary",
-              "watchlist": "Watchlist"}
+# Display names (owner, 2026-10-04: "Make now / Next up / Watching"). The stored
+# tier ids are unchanged, so nothing saved needs migrating.
+TIER_LABEL = {"greenlight": "Make now",
+              "high_upside": "Next up",
+              "watchlist": "Watching"}
 
 
 class WatchlistError(RuntimeError):

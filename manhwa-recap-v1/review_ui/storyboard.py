@@ -1080,29 +1080,35 @@ body.not-board header button, body.not-board header label {{ display:none !impor
 <div class="drawer" id="d_tracker">
   <h3>TRACKER</h3>
   <div class="segtabs">
-    <button type="button" id="tkc" onclick="trkTab('cal')">📅 Release calendar</button>
-    <button type="button" id="tkw" onclick="trkTab('watch')">Watchlist</button>
-    <button type="button" id="tkn" onclick="trkTab('new')">New chapters</button>
+    <button type="button" id="tks" onclick="trkTab('series')">📚 Series</button>
+    <button type="button" id="tkw" onclick="trkTab('watch')">✏️ Manage list</button>
   </div>
 
-  <!-- ============ RELEASE CALENDAR: when each chapter came out, by month -->
-  <div id="trk_cal" style="display:none">
+  <!-- ============ SERIES BOARD: the release calendar + watchlist, one card per series -->
+  <div id="trk_series">
     <div class="calbar">
       <button type="button" class="primary" id="calcheck" onclick="calCheckAll()">↻ Check all series</button>
-      <span class="hint" id="calnote">Reads each series page for chapter dates and covers — no AI cost.</span>
+      <button type="button" class="mini" onclick="bibleResearchAll()" title="research every series that has no cast list yet (~$0.05 each)">📖 research missing</button>
+      <span class="hint" id="calnote">Reads each series page for new chapters, dates and covers — no AI cost.</span>
     </div>
-    <div class="calchips" id="calmonths"></div>
-    <div class="calchips" id="calstatus">
+    <div class="calchips" id="sbfilters">
       <span class="hint">Show:</span>
-      <button type="button" class="on" data-f="all" onclick="calFilter('st', 'all', this)">All series</button>
-      <button type="button" data-f="new" onclick="calFilter('st', 'new', this)">Has chapters to make</button>
-      <button type="button" data-f="made" onclick="calFilter('st', 'made', this)">All made</button>
+      <button type="button" class="on" data-f="all" onclick="sbFilter('all', this)">All</button>
+      <button type="button" data-f="ready" onclick="sbFilter('ready', this)">Next up for autopilot</button>
+      <button type="button" data-f="new" onclick="sbFilter('new', this)">New since last made</button>
+      <button type="button" data-f="attn" onclick="sbFilter('attn', this)">Needs you</button>
+      <button type="button" data-f="paused" onclick="sbFilter('paused', this)">Paused</button>
+      <button type="button" data-f="done" onclick="sbFilter('done', this)">Caught up</button>
     </div>
-    <div class="calgrid" id="calgrid"><div class="hint">loading…</div></div>
+    <div class="calchips"><span class="hint">Sort:</span>
+      <button type="button" class="on" data-s="release" onclick="sbSort('release', this)">Latest release</button>
+      <button type="button" data-s="plan" onclick="sbSort('plan', this)">Plan order (tier, rank)</button>
+    </div>
+    <div class="calgrid" id="sbgrid"><div class="hint">loading…</div></div>
   </div>
 
   <!-- ============ WATCHLIST: what to make next, before any money is spent -->
-  <div id="trk_watch">
+  <div id="trk_watch" style="display:none">
     <div class="hint" style="margin-bottom:8px">One row per story, however many sites carry it.
     Add a title here <em>before</em> ingesting it, then pick a source and a chapter.</div>
     <details style="margin-bottom:8px">
@@ -1112,9 +1118,9 @@ body.not-board header button, body.not-board header label {{ display:none !impor
         <input id="wlUrl" placeholder="Series URL (optional — any supported site)">
         <div style="display:flex;gap:5px">
           <select id="wlTier" style="flex:1">
-            <option value="greenlight">Greenlight now</option>
-            <option value="high_upside">High-upside secondary</option>
-            <option value="watchlist" selected>Watchlist</option>
+            <option value="greenlight">Make now</option>
+            <option value="high_upside">Next up</option>
+            <option value="watchlist" selected>Watching</option>
           </select>
           <button class="primary" onclick="wlAdd()">Add</button>
         </div>
@@ -1141,18 +1147,6 @@ body.not-board header button, body.not-board header label {{ display:none !impor
     <div id="wllist" class="hint">loading…</div>
   </div>
 
-  <!-- ============ NEW CHAPTERS: what is new in what we already own -->
-  <div id="trk_new" style="display:none">
-  <div class="hint" style="margin-bottom:8px">What the source has published since you last ingested each series.
-  Checked at most twice an hour — press refresh to look again.</div>
-  <button style="width:100%;margin-bottom:8px" onclick="loadTracker(1)">↻ Check for new chapters now</button>
-  <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:12px;flex-wrap:wrap">
-    <label style="cursor:pointer"><input type="checkbox" id="trkall" onchange="toggleAllTrk(this)"> select all next</label>
-    <button id="trkqbtn" class="mini" disabled onclick="queueSelected()">▶ queue selected (<span id="trkseln">0</span>)</button>
-    <span class="hint">queued chapters run one at a time</span>
-  </div>
-  <div id="trackerlist" class="hint">loading…</div>
-  </div>
 </div>
 <div class="drawer" id="d_exports">
   <h3>EXPORTS — final videos</h3>
@@ -1687,7 +1681,7 @@ function toggleDrawer(name) {{
   }}
   window.scrollTo(0, 0);
   if (name === 'projects') loadProjects();
-  if (name === 'tracker') trkTab('cal');     // the release calendar first, as in the Scrapper; Watchlist and New chapters are a click away
+  if (name === 'tracker') trkTab('series');     // the release calendar first, as in the Scrapper; Watchlist and New chapters are a click away
   if (name === 'logs') {{ logsTab(logsWant); loadLogs(); }}
   if (name === 'work') loadWork();
   if (name === 'exports') loadExports();
@@ -2965,15 +2959,107 @@ var WL = {{series: []}};
 var WLCH = {{}};      // series_id -> {{series_key: chapter payload}}
 
 function trkTab(which) {{
-  const w = which === 'watch', c = which === 'cal', n = !w && !c;
+  // Release calendar + Watchlist merged into ONE Series board (owner,
+  // 2026-10-04); "New chapters" is now a filter on it. Manage list keeps the
+  // add-a-title / sources / tier / rank tools.
+  const w = which === 'watch';
   document.getElementById('trk_watch').style.display = w ? '' : 'none';
-  document.getElementById('trk_new').style.display = n ? '' : 'none';
-  document.getElementById('trk_cal').style.display = c ? '' : 'none';
+  document.getElementById('trk_series').style.display = w ? 'none' : '';
   document.getElementById('tkw').classList.toggle('on', w);
-  document.getElementById('tkn').classList.toggle('on', n);
-  document.getElementById('tkc').classList.toggle('on', c);
-  if (c) calLoad();
-  else if (w) {{ if (!WL.series.length) wlLoad(); }} else loadTracker(0);
+  document.getElementById('tks').classList.toggle('on', !w);
+  if (w) {{ if (!WL.series.length) wlLoad(); }} else sbLoad();
+}}
+
+/* ---- SERIES BOARD ---- */
+let SB = {{ data: null, f: 'all', sort: 'release' }};
+async function sbLoad() {{
+  const grid = document.getElementById('sbgrid');
+  try {{ SB.data = await j('/api/series/board'); }}
+  catch (e) {{ grid.innerHTML = '<div class="hint">Could not load the series: ' + esc(e.message || e) + '</div>'; return; }}
+  if (!(WL.series || []).length) {{ try {{ WL = await j('/api/watchlist'); }} catch (e) {{}} }}
+  sbPaint();
+}}
+function sbFilter(f, btn) {{
+  SB.f = f;
+  document.querySelectorAll('#sbfilters button').forEach(b => b.classList.toggle('on', b === btn));
+  sbPaint();
+}}
+function sbSort(k, btn) {{
+  SB.sort = k;
+  btn.parentNode.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+  sbPaint();
+}}
+function sbMatch(x) {{
+  if (SB.f === 'ready') return x.state === 'ready';
+  if (SB.f === 'new') return (x.new_since_made || []).length > 0;
+  if (SB.f === 'attn') return ['blocked', 'stopped', 'no_source'].includes(x.state);
+  if (SB.f === 'paused') return x.state === 'paused';
+  if (SB.f === 'done') return x.state === 'up_to_date';
+  return true;
+}}
+function sbPaint() {{
+  const grid = document.getElementById('sbgrid');
+  const all = (SB.data && SB.data.series) || [];
+  if (!all.length) {{ grid.innerHTML = '<div class="hint" style="grid-column:1/-1">No series yet — add one under ✏️ Manage list.</div>'; return; }}
+  const list = all.filter(sbMatch).slice();
+  if (SB.sort === 'release') list.sort((a, b) => (b.latest_date || '') < (a.latest_date || '') ? -1 : (b.latest_date || '') > (a.latest_date || '') ? 1 : 0);
+  if (!list.length) {{ grid.innerHTML = '<div class="hint" style="grid-column:1/-1">Nothing matches this filter.</div>'; return; }}
+  const [rbg, rfg] = ['var(--okb-bg)', 'var(--okb-ink)'];
+  grid.innerHTML = list.map(x => {{
+    const st = AP_STATE[x.state] || AP_STATE.ready;
+    const made = x.made || [];
+    const left = x.left_in_plan || [];
+    const plan = x.next
+      ? `Made: <b>${{made.length ? esc(made.slice(-3).join(', ')) + (made.length > 3 ? ' +' + (made.length - 3) : '') : 'none yet'}}</b> · Next: <b>ch.${{esc(x.next)}}</b>${{left.length > 1 ? ' · ' + (left.length - 1) + ' more in the plan' : ''}}`
+      : esc(x.reason || '');
+    const bib = x.bible
+      ? `📖 ${{x.bible.characters}} characters${{x.bible.disputes ? ' · ' + x.bible.disputes + ' disputes' : ''}}${{x.bible.suggested ? ' · ' + x.bible.suggested + ' new names' : ''}}`
+      : '<span style="color:var(--warn)">📖 no cast list yet — research it</span>';
+    const paused = x.state === 'paused';
+    return `<div class="calcard">
+      ${{x.cover ? '<img class="calcover" loading="lazy" alt="" src="/api/watchlist/cover/' + encodeURIComponent(x.id) + '" onerror="this.outerHTML=&quot;<div class=calcover></div>&quot;">' : '<div class="calcover"></div>'}}
+      <b>${{esc(x.title)}}</b>
+      <span class="calmeta">${{esc(x.tier_label || '')}}${{x.rank ? ' · #' + x.rank : ''}} · ${{esc(x.source || '')}}</span>
+      <span class="calmeta">Latest ch.${{esc(x.latest || '?')}}${{x.latest_date ? ' · ' + (x.latest_approx ? '≈ ' : '') + calDay(x.latest_date) : ''}}${{(x.new_since_made || []).length ? ' · <b>' + x.new_since_made.length + ' new since last made</b>' : ''}}</span>
+      <span>${{apPill(st[2], st[0], st[1])}}</span>
+      <span class="calmeta">${{plan}}</span>
+      ${{x.earlier_not_planned ? '<span class="calmeta">Earlier chapters not planned: ' + x.earlier_not_planned + '</span>' : ''}}
+      <span class="calmeta">${{bib}}</span>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <button class="mini" onclick="apRunNow('${{esc(x.id)}}', '${{esc(x.next || '')}}')" title="make one chapter now (skips today's limit, not the budget)">▶ make now</button>
+        <button class="mini" onclick="apSeries('${{esc(x.id)}}', '${{paused ? 'resume' : 'pause'}}').then(sbLoad)">${{paused ? '▶ resume' : '⏸ pause'}}</button>
+        ${{['blocked', 'stopped', 'cooldown'].includes(x.state) ? '<button class="mini" onclick="apSeries(&quot;' + esc(x.id) + '&quot;, &quot;retry&quot;).then(sbLoad)">↻ retry</button>' : ''}}
+        <button class="mini" onclick="bibleOpen('${{esc(x.id)}}')">📖 cast</button>
+        <button class="mini" onclick="sbChapters('${{esc(x.id)}}', this)">chapters ▾</button>
+      </div>
+      <div id="sbch_${{esc(x.id)}}"></div>
+    </div>`;
+  }}).join('');
+}}
+async function sbChapters(sid, btn) {{
+  const box = document.getElementById('sbch_' + sid);
+  if (box.innerHTML) {{ box.innerHTML = ''; return; }}
+  box.innerHTML = '<span class="hint">loading chapters…</span>';
+  let d;
+  try {{ d = await j('/api/series/chapters?series_id=' + encodeURIComponent(sid)); }}
+  catch (e) {{ box.innerHTML = '<span class="hint">' + esc(e.message || e) + '</span>'; return; }}
+  const x = ((SB.data && SB.data.series) || []).find(s => s.id === sid) || {{}};
+  const pick = x.next || (d.chapters[0] || {{}}).ch;
+  const opts = d.chapters.map(c => '<option value="' + esc(c.ch) + '"' + (c.ch === pick ? ' selected' : '') + '>Ch.' + esc(c.ch) +
+    (c.date ? ' · ' + (c.approx ? '≈ ' : '') + calDay(c.date) : '') + (c.made ? ' · ✓ made' : '') + '</option>').join('');
+  box.innerHTML = `<select class="calpick" id="sbpick_${{esc(sid)}}">${{opts}}</select>
+    <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <button class="primary mini" onclick="wlIngest('${{esc(sid)}}', '${{esc(d.series_key || '')}}', document.getElementById('sbpick_${{esc(sid)}}').value)">Ingest this chapter</button>
+      <button class="mini" onclick="sbBackfill('${{esc(sid)}}')" title="autopilot will make the back catalogue from the picked chapter, in story order">plan backfill from here</button>
+    </div>`;
+}}
+async function sbBackfill(sid) {{
+  const ch = document.getElementById('sbpick_' + sid).value;
+  if (!confirm('Plan this series from ch.' + ch + '? Autopilot will make ch.' + ch + ' onward, in story order, before newer chapters of this series.')) return;
+  try {{
+    await j('/api/autopilot/backfill', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{series_id: sid, from_chapter: ch}})}});
+    sbLoad();
+  }} catch (e) {{ alert('Could not plan the backfill: ' + (e.message || e)); }}
 }}
 
 /* ---- release calendar (the Scrapper studio's calendar, for chapters) ----
@@ -3082,7 +3168,7 @@ async function calCheckAll() {{
     note.textContent = 'checked ' + r.checked + ' series' + (r.failed.length ? ' · ' + r.failed.length + ' could not be read' : '');
   }} catch (e) {{ note.textContent = 'check failed: ' + (e.message || e); }}
   b.disabled = false;
-  calLoad();
+  sbLoad();
 }}
 
 async function wlLoad() {{

@@ -8232,3 +8232,13 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - **Found:** only Murim Psychopath had a bible (hand-written 2026-10-01); 13 series had none. A live grounded probe already disagreed with Murim's hand bible: Google's sources say the "Cursed Killing Star" title belongs to **Yeon Yeong-ha**, while our bible (and the narration) treat them as two people — to be confirmed by the research run and shown as a dispute.
 - **Built:** `series_research.py` (grounded Gemini 3.8 Flash + google_search via generateContent — works with the AQ. key; sources resolved + graded official/trusted/wiki/low; structuring call; owner's fan-wiki rule; merge where hand/owner entries win; name suggestions from our scripts), `review_ui/research_service.py` (watchlist series → slugs of every mirror, autopilot window, save/view/owner edit), ingest researches a series with no bible before describe and notes script names after narrate, routes `GET/POST /api/series/bible` + `POST /api/series/research`, board 📖 cast dialog (+ "research series without a cast list"). Handbook E9.
 - **Tests:** new `test_series_research.py` 28/28; full suite 61/61.
+
+---
+
+### 2026-10-04 — BUILT step 1: Series board (Release calendar + Watchlist merged)
+
+- Tracker → **📚 Series** (default) + **✏️ Manage list**. One card per series with tier (renamed **Make now / Next up / Watching**), latest release, autopilot state, **Made · Next · N more in the plan**, **earlier chapters not planned**, **new since last made**, research status, ▶ make now / ⏸ / ↻ / 📖 cast / chapters ▾ (lazy) → Ingest this chapter / **plan backfill from here**. "New chapters" tab → filter. Old calendar/new-chapters panels removed from the page.
+- Routes: `GET /api/series/board`, `GET /api/series/chapters`, `POST /api/autopilot/backfill`. Made = projects + autopilot ledger.
+- Tests: new `test_series_board.py` 13/13; `test_release_calendar` and `test_review` updated for the merge (their old assertions encoded the separate calendar/new-chapters tabs); full suite 62/62. Handbook E10.
+- Also committed (not yet deployed): research calls tagged with their job id (2a09b46). Deploy waits for the 14-series research job to finish.
+- **Research job progress:** Stellar Swordmaster done — 8 characters (Vlad, The Voice/Kihaano Frausen, Jemina, Josef Vayezid, Alicia Heinal, Jorge, Mircea Dragulia, Zayar) with pronouns and looks, 29 sources (4 official, 19 trusted, 4 wiki, 2 other), verified story around ch.129, 6 disputes (official vs fan spellings: Vayezid/Bayezid, Schoarra/Soara; Karl Ravnoma = Charlotte). Measured ~$0.05 per series (two calls), ~4 min each.

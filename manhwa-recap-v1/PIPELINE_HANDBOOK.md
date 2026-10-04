@@ -787,3 +787,27 @@ source grades, world, story so far, disputes, suggestions, sources; ↻ research
 `POST /api/series/research` (one series, or `missing_only`). Tests:
 `test_series_research.py` 28/28.
 
+## E10. Series board — calendar and watchlist merged (2026-10-04)
+
+Tracker now has **📚 Series** (default) and **✏️ Manage list** (add a title,
+sources, tier/rank). One card per series: cover, tier (**Make now / Next up /
+Watching** — display names; stored ids unchanged), rank, source, latest chapter
+and date, autopilot state, **Made · Next · N more in the plan**, **earlier
+chapters not planned**, **new since last made**, research status (📖 N
+characters, disputes, new names), and controls (▶ make now, ⏸/▶, ↻ retry,
+📖 cast, chapters ▾ → Ingest this chapter / **plan backfill from here**).
+
+- "Made" = projects on disk **plus the autopilot ledger**, so a made-then-
+  deleted chapter stays made (the old "not made yet" counted every chapter
+  since ch.1 and ignored the ledger).
+- "Left in the plan" = autopilot's remaining chapters from its start window.
+- **Backfill** (owner rule: never by default): `POST /api/autopilot/backfill`
+  moves that series' start back to ch.N; autopilot then makes N, N+1, … in story
+  order before that series' newer chapters.
+- Speed: `/api/series/board` carries no chapter arrays; a card's chapter list
+  comes from `/api/series/chapters` when "chapters ▾" is opened; covers load
+  lazily.
+- Filters: All · Next up for autopilot · New since last made · Needs you ·
+  Paused · Caught up. Sort: latest release (calendar) or plan order.
+Tests: `test_series_board.py` 13/13.
+

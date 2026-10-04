@@ -74,7 +74,9 @@ def main():
           [c["chapter"] for c in v["series"][0]["mirrors"][0]["ingested"]] == ["44"])
 
     src = open(os.path.join(HERE, "storyboard.py"), encoding="utf-8").read()
-    check("the Tracker opens on the release calendar", "trkTab('cal')" in src and 'id="trk_cal"' in src)
+    # 2026-10-04 (owner): the calendar and the watchlist merged into ONE Series board
+    check("the Tracker opens on the Series board (calendar + watchlist merged)",
+          "trkTab('series')" in src and 'id="trk_series"' in src and "function sbLoad()" in src)
     check("ONE card per series, with a chapter dropdown that ingests the pick",
           "id=\"calpick_' + esc(i.sid) + '\"" in src and "function calIngest(btn)" in src
           and "wlIngest(btn.dataset.sid, btn.dataset.key, sel.value)" in src)

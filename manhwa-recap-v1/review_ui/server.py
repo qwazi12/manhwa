@@ -5887,6 +5887,120 @@ def series_bible_save(body: BibleIn):
         raise HTTPException(404, str(e))
 
 
+# ================================================================ SERIES BOARD
+# One card per series (owner, 2026-10-04): the Release calendar and the
+# Watchlist merged. "Not made yet" used to count every chapter since ch.1 and
+# ignore the autopilot ledger; the board counts what is LEFT IN THE PLAN (from
+# autopilot's start window, never-repeat ledger included) and shows the back
+# catalogue separately. Chapter lists come per card, on open (the old view drew
+# up to 360 chips per series up front).
+def _made_by_series(view, st):
+    import providers as _prov
+    made = {}
+    for sx in view:
+        got = {str(c) for c in sx.get("ingested") or []}
+        keys = {_prov.canonical_key(m.get("series_key", "")) for m in sx.get("mirrors") or []}
+        for k, e in st["ledger"].items():
+            if e.get("status") in _autopilot.MADE and (e.get("series_id") == sx["id"] or k.split("|")[0] in keys):
+                got.add(str(e.get("chapter")))
+        made[sx["id"]] = {_autopilot.norm_chapter(c.split(" ")[0]) for c in got if c}
+    return made
+
+
+@app.get("/api/series/board")
+def series_board():
+    deps = _ap_deps()
+    view = deps["view"]()
+    with _autopilot._lock:
+        st = _autopilot.load(_ingest_mod.PROJECTS)
+        rows = {r["series_id"]: r for r in _autopilot.candidates(
+            st, view, deps["canon"], deps["live_projects"](), time.time())}
+        _autopilot.save(_ingest_mod.PROJECTS, st)
+    made = _made_by_series(view, st)
+    out = []
+    for sx in view:
+        r = rows.get(sx["id"], {})
+        best = next((m for m in sx.get("mirrors") or [] if m.get("series_key") == (sx.get("preferred_mirror") or sx.get("best_mirror"))),
+                    (sx.get("mirrors") or [None])[0])
+        chs = sorted({_autopilot.norm_chapter(c) for c in (best or {}).get("chapters") or []}, key=_autopilot.chap_key)
+        start = r.get("start_from")
+        mine = made.get(sx["id"], set())
+        top = max((_autopilot.chap_key(c) for c in mine), default=None)
+        earlier = [c for c in chs if start and _autopilot.chap_key(c) < _autopilot.chap_key(start) and c not in mine]
+        latest = chs[-1] if chs else None
+        rd = ((best or {}).get("release_dates") or {}).get(latest) if latest else None
+        bible = None
+        try:
+            b = _research.existing_bible(sx)
+            if b:
+                bible = {"characters": len(b.get("characters") or []),
+                         "researched_at": (b.get("research") or {}).get("at"),
+                         "disputes": len((b.get("research") or {}).get("disputes") or []),
+                         "suggested": len(b.get("suggested_characters") or [])}
+        except Exception:
+            pass
+        out.append({
+            "id": sx["id"], "title": sx["title"], "tier": sx.get("tier"), "tier_label": sx.get("tier_label"),
+            "rank": sx.get("rank"), "source": (best or {}).get("label") or (best or {}).get("source"),
+            "series_key": (best or {}).get("series_key"), "cover": bool((best or {}).get("cover")),
+            "latest": latest, "latest_date": rd[0] if rd else None, "latest_approx": bool(rd and rd[1]),
+            "made": sorted(mine, key=_autopilot.chap_key), "next": r.get("next"),
+            "left_in_plan": r.get("remaining") or [], "plan_from": start,
+            "earlier_not_planned": len(earlier),
+            "new_since_made": [c for c in chs if top is not None and _autopilot.chap_key(c) > top],
+            "state": r.get("state"), "reason": r.get("reason"), "made_by_autopilot": r.get("made_by_autopilot", 0),
+            "bible": bible, "checked": sx.get("checked"),
+            "source_status": (best or {}).get("status"), "source_checked": (best or {}).get("last_checked"),
+        })
+    return {"series": out, "autopilot": {"enabled": bool(st["settings"].get("enabled")),
+                                         "paused": st["settings"].get("paused_series") or []}}
+
+
+@app.get("/api/series/chapters")
+def series_chapters(series_id: str):
+    """One series' chapters, newest first, with date and made — for its card."""
+    view = _wl_view()["series"]
+    sx = next((x for x in view if x["id"] == series_id), None)
+    if sx is None:
+        raise HTTPException(404, "unknown series")
+    st = _autopilot.load(_ingest_mod.PROJECTS)
+    mine = _made_by_series([sx], st)[series_id]
+    best = next((m for m in sx.get("mirrors") or [] if m.get("series_key") == (sx.get("preferred_mirror") or sx.get("best_mirror"))),
+                (sx.get("mirrors") or [None])[0]) or {}
+    dates = best.get("release_dates") or {}
+    chs = sorted({_autopilot.norm_chapter(c) for c in best.get("chapters") or []}, key=_autopilot.chap_key, reverse=True)
+    return {"series_id": series_id, "series_key": best.get("series_key"),
+            "chapters": [{"ch": c, "date": (dates.get(c) or [None])[0], "approx": bool((dates.get(c) or [0, 0])[1]),
+                          "made": c in mine} for c in chs]}
+
+
+class BackfillIn(BaseModel):
+    series_id: str
+    from_chapter: str
+
+
+@app.post("/api/autopilot/backfill")
+def autopilot_backfill(body: BackfillIn):
+    """Plan a series' back catalogue from ch.N: autopilot then makes N, N+1, …
+    in story order (before newer chapters of THAT series). Owner rule: never
+    by default, only through this button."""
+    view = _wl_view()["series"]
+    sx = next((x for x in view if x["id"] == body.series_id), None)
+    if sx is None:
+        raise HTTPException(404, "unknown series")
+    ch = _autopilot.norm_chapter(body.from_chapter)
+    listed = {_autopilot.norm_chapter(c) for m in sx.get("mirrors") or [] for c in m.get("chapters") or []}
+    if ch not in listed:
+        raise HTTPException(400, f"ch.{ch} is not listed on the source")
+    with _autopilot._lock:
+        st = _autopilot.load(_ingest_mod.PROJECTS)
+        before = st["start_from"].get(body.series_id)
+        st["start_from"][body.series_id] = ch
+        _autopilot.save(_ingest_mod.PROJECTS, st)
+    _autopilot.audit("backfill_planned", series=body.series_id, before=before, after=ch)
+    return {"ok": True, "series_id": body.series_id, "plan_from": ch, "before": before}
+
+
 class JobResumeIn(BaseModel):
     job_id: str
 

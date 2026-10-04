@@ -317,8 +317,9 @@ def main():
     _tbody = _t.group(1) if _t else ""
     r.append(("...and the watchlist view has a loader behind it",
               "wlLoad" in _tbody))
-    r.append(("...and the new-chapters view still calls loadTracker",
-              "loadTracker" in _tbody))
+    # 2026-10-04: "New chapters" became a filter on the Series board
+    r.append(("...and the Series board view has its loader",
+              "sbLoad" in _tbody))
     r.append(("no drawer loader is stranded in an uncalled function",
               "_navNoop" not in bhtml))
     # The board's placeholders say "loading..."; if a loader never runs the tab
