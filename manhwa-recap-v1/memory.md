@@ -8512,3 +8512,64 @@ Owner test run (ch.30, A Regressor's Tale of Cultivation): rows 82–96 a "serio
 6. Cleanup.
 
 Each step gets its own commit, tests, a live phone check, and a push only when nothing is running.
+
+---
+
+## PLAN — 2026-10-04 (night, owner request) — Recap Studio Rebuild: one app, one look, one status (FOR REVIEW)
+
+**Owner:** "go a step further — scrapper, omnistream, socialpilot_Ai — 'they were built at different times' shouldn't be an excuse… so many tabs and buttons… so many disconnects… we need smooth connectivity and ease of use." Plan page: https://claude.ai/artifact/34Y9kcB1jSzWYtARqYxnqs. It extends the evening plan above, which stays as step 1.
+
+**Repos studied (cloned and read):**
+- **Scrapper** (8e41f83: `frontend/app/page.tsx`, `QueuePanel.tsx`, `StudioPanel.tsx`, `studio/drive_store.py`, `social/queue_manager.py`):
+  - 6 sidebar items, each with live count badges; a footer with storage and health;
+  - one posting queue with chips (Needs review / Ready / Posted archive / Errors / All); Approve takes the next free slot; posted rows archive themselves;
+  - the LongForm project page is a numbered step strip with run / redo-from-here;
+  - Drive copy, then footage freed;
+  - in-page confirms and Undo.
+- **SocialPilot AI** (`UI_SPEC.md`, `components/`):
+  - 5 pages (Dashboard, Schedule, Library, Config, Jobs);
+  - the dashboard opens with velocity, queue health and a next-drop countdown;
+  - a master switch in the sidebar footer;
+  - status shown as colour + icon + label.
+- **OmniStream** (`drive_api.py`, `run_manhwa_resume.py`, `AUTOMATION_SPEC.md`): Drive is the store (folders by path, `supportsAllDrives`), Drive counts are the source of truth for resume, and the job queue has pause / resume / retry.
+
+**Our site, counted:**
+- 10 sidebar items, plus hidden Test and Split buttons;
+- 141 click handlers on the main page and 26 on Video review; about 13 buttons per board row (≈1,100 on ch.30);
+- chapter status in 3 different vocabularies (Projects, Studio, Tracker);
+- videos listed in 3 places and jobs in 4;
+- 2 paste boxes, 2 "Approve"s, 3 autopilot control spots;
+- the 2 page systems (board and Video review) look different.
+- All 102 server endpoints that the pages call exist, so the backend is not the problem.
+
+**Disconnect table** (16 rows: cause → fix), all in the plan page.
+
+**Proposal:**
+- **Six places:**
+  - **Home**: one paste box, today's numbers, "Needs you";
+  - **Library**: series and chapters with one status pill each;
+  - **Chapter**: a step strip, then the Board / Issues / Video & publish tabs;
+  - **Queue**: one list with chips and the schedule bar;
+  - **Activity**;
+  - **Settings**: everything editable; Test lab and Split lab move under Tools.
+- **Sidebar footer:** autopilot master switch, spend today, disk.
+- **One server-computed status per chapter:** Found → Making → To review → Rendering → Video ready → Scheduled → Posted → Archived, plus Failed / Paused / Waiting for budget.
+- **One set of shared components.** Board rows show the tick, narration, length and status; everything else goes into a "More" menu (≈1,100 → ≈350 buttons).
+- **Frontend options:** (A) rebuild inside today's Python-rendered pages, or (B) a new frontend in Scrapper's stack (Next.js on Vercel) over the unchanged backend, cut over page by page. **Recommended: B.**
+
+**Build order:**
+1. The fixes from the evening plan (splitter, publishing correctness, voice in Settings).
+2. The one status model.
+3. Shared parts and the new shell (Home, Activity, Settings).
+4. Library and Queue.
+5. The Chapter page (replaces Video review).
+6. Drive, disk freeing and cleanup.
+
+**Owner decisions needed:**
+1. Option B or A.
+2. The six names.
+3. Approve = next free slot.
+4. Drive: confirm the robot is a Content manager on Shared Drive 0AOlNsRvSE9zcUk9PVA, and the folder layout `Series / Ch N`.
+5. Step 1 can start now.
+
+Mock-up figures are live: 9 chapters ready for review, $8.25 of $10 today, 3.1 of 29 GB disk, autopilot on.
