@@ -78,6 +78,7 @@ def main():
     b = sr.to_bible("Murim Psychopath", ["Crazy Demon"], rec)
     names = [c["name"] for c in b["characters"]]
     check("fan-wiki-backed names and pronouns are kept (owner rule)", "Yu Shin" in names and "Yeon Yeong-ha" in names)
+    check("the research text is kept (rebuild without searching again)", b["research"]["text"])
     check("a character backed only by low sources is rejected", "Rumour Guy" not in names
           and b["research"]["rejected_characters"] == ["Rumour Guy"])
     check("world facts need an official/trusted source (wikipedia: yes)", b["world_setting"].get("universe") == "Murim")
@@ -104,6 +105,21 @@ def main():
     check("...but known names and one-off words are not", "Yu Shin" not in sug and "Elder" not in sug)
 
     # ---- service + routes (temp projects root, fake research)
+    # structuring cut off by thinking tokens -> retried with more room
+    class Cut:
+        def __init__(self): self.n = 0; self.budgets = []
+        def __call__(self, req, timeout=None, context=None):
+            body = json.loads(req.data); self.n += 1
+            self.budgets.append(body["generationConfig"]["maxOutputTokens"])
+            if self.n == 1:
+                return io.BytesIO(json.dumps({"candidates": [{"finishReason": "MAX_TOKENS",
+                    "content": {"parts": [{"text": '{"world_setting": {"univ'}]}}]}).encode())
+            return io.BytesIO(json.dumps({"candidates": [{"finishReason": "STOP",
+                "content": {"parts": [{"text": json.dumps(STRUCT)}]}}]}).encode())
+    cut = Cut()
+    out = sr.structure("Murim", "text", rec["sources"], "AQ.x", _urlopen=cut)
+    check("a cut-off cast list is retried with double the room", cut.budgets == [32768, 65536] and out.get("characters"))
+
     import ingest
     import server
     import series_bible

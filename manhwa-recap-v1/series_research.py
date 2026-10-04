@@ -50,7 +50,10 @@ LOW = ("reddit.com", "quora.com", "tiktok.com", "x.com", "twitter.com", "faceboo
        "instagram.com", "youtube.com", "pinterest.com", "medium.com", "blogspot.com",
        "wordpress.com", "tumblr.com", "discord.com", "discord.gg")
 FACT_TIERS = ("official", "trusted")
-NAME_TIERS = ("official", "trusted", "wiki")
+# Names, pronouns and looks: fan wikis and unlisted sites ("other") are allowed
+# (owner's fan-wiki rule; 2026-10-04 live run: Fog Land's 7 characters were
+# cited only to unlisted sites and got dropped). Forums/social never count.
+NAME_TIERS = ("official", "trusted", "wiki", "other")
 
 
 # ------------------------------------------------------------------ sources
@@ -199,17 +202,32 @@ def research(title, aliases, series_url, latest, window, api_key, _urlopen=None,
         sources.append({"title": web.get("title", ""), "url": url, "domain": host, "tier": tier(host)})
     claims = [{"text": (s.get("segment") or {}).get("text", ""),
                "sources": s.get("groundingChunkIndices", [])} for s in meta.get("groundingSupports", [])]
-    structured = {}
-    if text:
-        data2 = _post({"contents": [{"parts": [{"text": structure_prompt(title, text, _number(sources))}]}],
-                       "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192,
-                                            "responseMimeType": "application/json"}}, api_key, _urlopen)
-        try:
-            structured = _parse_json(_text(data2))
-        except ValueError:
-            structured = {}
+    structured = structure(title, text, sources, api_key, _urlopen) if text else {}
     return {"at": time.time(), "model": MODEL, "text": text, "sources": sources, "claims": claims,
             "queries": meta.get("webSearchQueries", []), "structured": structured}
+
+
+def structure(title, text, sources, api_key, _urlopen=None):
+    """Research text -> bible JSON. Gemini 3.x THINKING tokens count toward
+    maxOutputTokens: the first live run spent 7,866 of 8,192 on thinking and
+    cut the JSON off after 319 tokens (5 of 14 series came back empty). So
+    give it room, and retry once with double when it still stops at the limit."""
+    budget = 32768
+    for _ in range(2):
+        d = _post({"contents": [{"parts": [{"text": structure_prompt(title, text, _number(sources))}]}],
+                   "generationConfig": {"temperature": 0.1, "maxOutputTokens": budget,
+                                        "responseMimeType": "application/json"}}, api_key, _urlopen)
+        finish = ((d.get("candidates") or [{}])[0]).get("finishReason")
+        try:
+            out = _parse_json(_text(d))
+            if out:
+                return out
+        except ValueError:
+            pass
+        if finish != "MAX_TOKENS":
+            break
+        budget *= 2
+    return {}
 
 
 def to_bible(title, aliases, rec):
@@ -239,6 +257,7 @@ def to_bible(title, aliases, rec):
         "characters": chars,
         "research": {
             "at": rec.get("at"), "model": rec.get("model"), "queries": rec.get("queries"),
+            "text": rec.get("text", ""),      # kept: the cast list can be rebuilt without searching again
             "sources": src, "claims": rec.get("claims"),
             "world_unverified": {} if world_ok else world,
             "factions": st.get("factions") or [], "terms": st.get("terms") or [],

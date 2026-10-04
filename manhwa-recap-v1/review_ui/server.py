@@ -5838,6 +5838,7 @@ def _run_research(job_id, ids):
 
 class ResearchIn(BaseModel):
     series_id: str = ""
+    series_ids: list[str] = []
     missing_only: bool = True
 
 
@@ -5846,8 +5847,8 @@ def series_research_start(body: ResearchIn):
     """Research one series, or every watchlist series (missing_only: those
     without a bible). One background job, one series at a time."""
     import watchlist as _wl
-    if body.series_id:
-        ids = [body.series_id]
+    if body.series_id or body.series_ids:
+        ids = list(dict.fromkeys(([body.series_id] if body.series_id else []) + list(body.series_ids)))
     else:
         ids = []
         for s in _wl.load(_wl_root())["series"]:
