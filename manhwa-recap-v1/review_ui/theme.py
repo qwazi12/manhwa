@@ -490,44 +490,50 @@ JOBS_CSS = """
 
 JOBS_JS = """
 (function () {
-  var ACTIVE = ['queued', 'running', 'paused', 'stopping'];
-  var NAMES = { finalize: 'Render & export', render: 'Render', publish: 'Publish',
-                ingest: 'Ingest', lab: 'Lab run', validate: 'Check' };
-  function get(u) {
-    return fetch(u, { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; });
-  }
+  // 2026-10-04: one light feed (/api/jobsbar: in-memory only) instead of two
+  // full job listings every 4 s; readable names; ▶ for jobs waiting on a
+  // restart or the spend cap; two-tap Stop (confirm() can be silently blocked
+  // in in-app browsers — the Scrapper lesson).
+  var ICON = { ingest: '📥', autopilot: '🤖', finalize: '🎬', render: '🎬', publish: '📺',
+               research: '📖', validate: '🛡', lab: '🧪' };
   function esc(x) { return String(x == null ? '' : x).replace(/[&<>"]/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function post(u, body) {
+    return fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body) }).then(load, load);
+  }
   function paint(jobs) {
     var box = document.getElementById('jobsbar');
-    if (!box) return;
-    box.innerHTML = jobs.map(function (j) {
-      var pct = j.total ? Math.round(100 * (j.done || 0) / j.total) : (j.pct || 0);
-      var icon = j.status === 'queued' ? '⏸' : j.status === 'paused' ? '⏸' : j.status === 'stopping' ? '✋' : '⏳';
-      return '<div class="jobrow"><span class="jl">' + icon + ' ' + esc(NAMES[j.type || 'ingest'] || j.type) +
-        (j.project ? ' · ' + esc(j.project) : '') + '</span><span class="jm">' +
-        esc(j.control === 'stop' ? 'stopping…' : (j.msg || j.stage || j.status)) +
-        (pct ? ' · ' + pct + '%' : '') + '</span>' +
-        (j.control === 'stop' ? '' : '<button class="danger" data-job="' + esc(j.job) + '" onclick="jobsStop(this.dataset.job)">⏹ Stop</button>') +
-        (pct ? '<span class="jp"><i style="width:' + pct + '%"></i></span>' : '') + '</div>';
+    if (!box || box.querySelector('[data-armed]')) return;
+    var html = jobs.map(function (j) {
+      var wait = j.status === 'budget_paused' || j.status === 'interrupted';
+      var el = j.elapsed >= 60 ? Math.round(j.elapsed / 60) + ' min' : (j.elapsed || 0) + ' s';
+      return '<div class="jobrow' + (wait ? ' err' : '') + '"><span class="jl">' + (ICON[j.kind] || '⚙') + ' ' + esc(j.name) +
+        '</span><span class="jm">' + esc(String(j.status).replace('_', ' ')) + (j.stage ? ' · ' + esc(j.stage) : '') +
+        (j.msg ? ' · ' + esc(j.msg) : '') + (j.pct != null ? ' · ' + j.pct + '%' : '') + ' · ' + el + '</span>' +
+        (wait ? '<button data-job="' + esc(j.id) + '" onclick="jobsResume(this.dataset.job)">▶ resume</button>'
+              : '<button data-job="' + esc(j.id) + '" onclick="jobsPause(this.dataset.job)">⏸</button>') +
+        '<button class="danger" data-job="' + esc(j.id) + '" onclick="jobsStop(this)">⏹ Stop</button>' +
+        (j.pct != null ? '<span class="jp"><i style="width:' + j.pct + '%"></i></span>' : '') + '</div>';
     }).join('');
+    if (html !== box.dataset.last) { box.innerHTML = html; box.dataset.last = html; }
   }
   function load() {
     if (document.hidden) return;
-    Promise.all([get('/api/jobs?limit=20'), get('/api/logs/ingest')]).then(function (r) {
-      var seen = {}, jobs = [];
-      [].concat((r[0] && r[0].jobs) || [], (r[1] && r[1].jobs) || []).forEach(function (j) {
-        if (!j || !j.job || seen[j.job] || ACTIVE.indexOf(j.status) < 0) return;
-        seen[j.job] = 1; jobs.push(j);
-      });
-      paint(jobs);
-    });
+    fetch('/api/jobsbar', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d) paint(d.jobs || []); }).catch(function () {});
   }
-  window.jobsStop = function (id) {
-    if (!confirm('Stop this job? It stops after the current step; work already done is kept.')) return;
-    fetch('/api/jobs/control', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: id, action: 'stop' }) }).then(load, load);
+  window.jobsBarLoad = load;
+  window.jobsPause = function (id) { post('/api/jobs/control', { job_id: id, action: 'pause' }); };
+  window.jobsResume = function (id) { post('/api/jobs/resume', { job_id: id }); };
+  window.jobsStop = function (btn) {
+    if (btn.dataset.armed) {
+      delete btn.dataset.armed; btn.textContent = '…';
+      post('/api/jobs/control', { job_id: btn.dataset.job, action: 'stop' });
+      return;
+    }
+    btn.dataset.armed = '1'; btn.textContent = 'tap again to stop';
+    setTimeout(function () { if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = '⏹ Stop'; } }, 3000);
   };
   load();
   setInterval(load, 4000);

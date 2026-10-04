@@ -931,6 +931,18 @@ body.not-board header button, body.not-board header label {{ display:none !impor
   <button class="navbtn navtest" data-d="test" onclick="toggleDrawer('test')"><span class="ic">🧪</span>TEST</button>
   <button class="navbtn" data-d="split" onclick="toggleDrawer('split')"><span class="ic">✂️</span>Split</button>
   -->
+<style>
+.term {{ background:#0b0f0d; color:#d6e2da; border:1px solid var(--rule); border-radius:8px; padding:10px 12px;
+         font:11.5px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace; height:52vh; overflow-y:auto; }}
+.term .t {{ color:#7e8f85; }} .term .k {{ color:#8fb8ff; }} .term .ok {{ color:#5fd39a; }}
+.term .warn {{ color:#f0b35a; }} .term .error {{ color:#f08a80; }}
+.jgrp {{ margin:12px 0 4px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink3); font-weight:700; }}
+.spendcard {{ border:1px solid var(--rule); border-radius:8px; padding:10px 12px; margin-bottom:10px; background:var(--panel); }}
+.meter {{ height:8px; background:var(--rule); border-radius:4px; overflow:hidden; margin:4px 0; }}
+.meter i {{ display:block; height:100%; background:var(--accent); }}
+.daybars {{ display:flex; align-items:flex-end; gap:3px; height:70px; margin-top:6px; }}
+.daybars i {{ flex:1; background:var(--accent); border-radius:2px 2px 0 0; min-height:1px; }}
+</style>
 <div class="drawer" id="d_ingest">
   <style>
   .apcard {{ border:1px solid var(--rule); border-radius:10px; padding:12px 14px; margin:0 0 18px; background:var(--panel); }}
@@ -1155,16 +1167,33 @@ body.not-board header button, body.not-board header label {{ display:none !impor
 </div>
 <div class="drawer" id="d_logs">
   <h3 style="margin-bottom:4px">LOGS &amp; ACTIVITY <span id="logstamp" class="hint" style="font-weight:400;font-size:11px"></span></h3>
-  <div class="segtabs"><button type="button" id="lt_jobs" class="on" onclick="logsTab('jobs')">⏳ Jobs &amp; usage</button><button type="button" id="lt_work" onclick="logsTab('work')">🗒 What changed</button></div>
+  <div class="segtabs">
+    <button type="button" id="lt_live" class="on" onclick="logsTab('live')">🔴 Live</button>
+    <button type="button" id="lt_jobs" onclick="logsTab('jobs')">⏳ Jobs</button>
+    <button type="button" id="lt_spend" onclick="logsTab('spend')">💰 Spend</button>
+    <button type="button" id="lt_work" onclick="logsTab('work')">🗒 What changed</button>
+  </div>
+  <div id="logs_live">
+    <div class="calchips" id="livef" style="margin-bottom:6px"><span class="hint">Show:</span>
+      <button type="button" class="on" data-k="" onclick="liveFilter('', this)">All</button>
+      <button type="button" data-k="autopilot" onclick="liveFilter('autopilot', this)">Autopilot</button>
+      <button type="button" data-k="ingest" onclick="liveFilter('ingest', this)">Ingest</button>
+      <button type="button" data-k="render" onclick="liveFilter('render', this)">Render</button>
+      <button type="button" data-k="research" onclick="liveFilter('research', this)">Research</button>
+      <button type="button" data-k="!error" onclick="liveFilter('!error', this)">Errors</button>
+      <input id="liveq" placeholder="search" oninput="livePaint()" style="width:110px">
+    </div>
+    <div id="livefeed" class="term">loading…</div>
+  </div>
   <div id="logs_work" style="display:none">
     <div class="hint" style="margin-bottom:8px">Every change made to the system, newest first — what changed, why,
     what was tested, and the evidence (cut sheets, listening clips, before/after tables). It is read from the
     project log that ships with each deploy, so it always matches what is live. <span id="workstamp"></span></div>
     <div id="worklist" style="font-size:12px">loading…</div>
   </div>
-  <div id="logs_jobs">
-  <div class="hint" style="margin-bottom:6px">Every ingest, render and export — newest first. Pause and stop take effect at
-  the next step (between pipeline stages, or between clips), so a stop lands within seconds rather than instantly.</div>
+  <div id="logs_jobs" style="display:none">
+  <div class="hint" style="margin-bottom:6px">Every ingest, autopilot chapter, research, render and export. Pause and stop
+  land at the next step (between pipeline stages, or between clips).</div>
   <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:12px;flex-wrap:wrap">
     <label style="cursor:pointer"><input type="checkbox" id="joball" onchange="toggleAllJobs(this)"> select all</label>
     <button id="jobstopbtn" onclick="bulkJobs('stop')" disabled class="mini">⏹ stop selected (<span id="jobseln">0</span>)</button>
@@ -1172,7 +1201,10 @@ body.not-board header button, body.not-board header label {{ display:none !impor
     <button class="mini" onclick="loadLogs()">↻ refresh</button>
   </div>
   <div id="joblist">loading…</div>
-  <div class="section"><h3>API usage</h3><div id="logusage" class="hint">loading…</div></div>
+  </div>
+  <div id="logs_spend" style="display:none">
+    <div id="spendbox">loading…</div>
+    <div class="section"><h3>Every call</h3><div id="logusage" class="hint">loading…</div></div>
   </div>
 </div></div>
 </div>
@@ -1662,7 +1694,7 @@ let CURRENT_VIEW = 'board', _viewFromHistory = false;
 const VIEWS = ['ingest','projects','tracker','validate','logs','exports','test','split'];
 function toggleDrawer(name) {{
   // Work was merged into Logs: old links to it land on the "What changed" tab.
-  let logsWant = name === 'work' ? 'work' : 'jobs';
+  let logsWant = name === 'work' ? 'work' : 'live';
   if (name === 'work') name = 'logs';
   if (VIEWS.indexOf(name) < 0) name = 'board';
   CURRENT_VIEW = name;
@@ -1692,12 +1724,14 @@ function toggleDrawer(name) {{
   apPolling(name === 'ingest');
 }}
 function showView(name) {{ toggleDrawer(name); }}
+let LOGS_TAB = 'live';
 function logsTab(which) {{
-  document.getElementById('logs_jobs').style.display = which === 'work' ? 'none' : 'block';
-  document.getElementById('logs_work').style.display = which === 'work' ? 'block' : 'none';
-  document.getElementById('lt_jobs').classList.toggle('on', which !== 'work');
-  document.getElementById('lt_work').classList.toggle('on', which === 'work');
-  if (which === 'work') loadWork();
+  LOGS_TAB = which;
+  ['live', 'jobs', 'spend', 'work'].forEach(t => {{
+    document.getElementById('logs_' + t).style.display = t === which ? 'block' : 'none';
+    document.getElementById('lt_' + t).classList.toggle('on', t === which);
+  }});
+  if (which === 'work') loadWork(); else loadLogs();
 }}
 window.addEventListener('popstate', function () {{
   _viewFromHistory = true;
@@ -3639,115 +3673,142 @@ async function activateProj(id) {{
   location.href = '/storyboard';
 }}
 let logsPolling = false;
-async function loadLogs() {{
-  // ONE list. Ingest jobs and render/export jobs used to live in separate
-  // sections with different shapes, and only the ingest list auto-refreshed.
-  const box = document.getElementById('joblist');
-  const pill = (txt, bg, fg) => `<span style="background:${{bg}};color:${{fg}};font-size:10px;font-weight:700;
-      padding:1px 7px;border-radius:99px;letter-spacing:.03em">${{txt}}</span>`;
-  const STAT = {{
-    running:['var(--sa-bg)','var(--sa-ink)'], queued:['var(--gray-bg)','var(--gray-ink)'], paused:['var(--warnb-bg)','var(--warn)'],
-    pausing:['var(--warnb-bg)','var(--warn)'], done:['var(--okb-bg)','var(--okb-ink)'], error:['var(--badb-bg)','var(--bad)'],
-    cancelled:['var(--gray-bg)','var(--gray-ink)'], budget_paused:['var(--warnb-bg)','var(--warn)'],
-    interrupted:['var(--warnb-bg)','var(--warn)']
-  }};
-  const waiting = st => ['budget_paused','interrupted'].includes(st);
-  const resumable = x => (x.kind === 'ingest' || x.kind === 'autopilot' || x.kind === 'finalize') &&
-    ['cancelled','error','budget_paused','interrupted'].includes(x.status);
-  const live = st => ['running','queued','paused','pausing'].includes(st);
-
-  async function rows() {{
-    const [ij, rj] = await Promise.all([
-      j('/api/logs/ingest').catch(() => ({{jobs:[]}})),
-      j('/api/jobs').catch(() => ({{jobs:[]}})),
-    ]);
-    const out = [];
-    for (const x of (ij.jobs || [])) out.push({{
-      id: x.job, kind: x.source === 'autopilot' ? 'autopilot' : 'ingest', status: x.status || 'queued',
-      title: (x.url || '').replace('https://','').replace(/^www\\./,''),
-      detail: [x.stage, (x.pct != null ? x.pct + '%' : null), x.msg].filter(Boolean).join(' · '),
-      error: x.error, ts: x.ts || 0
-    }});
-    for (const x of (rj.jobs || [])) out.push({{
-      id: x.job, kind: x.type || 'render', status: x.status || 'queued',
-      title: x.project || '(project)',
-      detail: [x.stage, (x.total ? ('clip ' + x.done + '/' + x.total) : null),
-               (x.export ? ('→ ' + x.export) : null)].filter(Boolean).join(' · '),
-      error: x.error, ts: x.ts || 0
-    }});
-    return out.sort((a,b) => (b.ts||0) - (a.ts||0)).slice(0, 30);
-  }}
-
-  const keep = new Set(_jobsChecked().map(c => c.value));   // survive a re-render
+/* ---- LOGS (owner, 2026-10-04: like Scrapper's — one live feed, named jobs, spend) ---- */
+let LIVE = {{ last: 0, lines: [], f: '' }};
+function liveFilter(k, btn) {{
+  LIVE.f = k;
+  document.querySelectorAll('#livef button').forEach(b => b.classList.toggle('on', b === btn));
+  livePaint();
+}}
+function livePaint() {{
+  const box = document.getElementById('livefeed');
+  if (!box) return;
+  const q = (document.getElementById('liveq') || {{}}).value || '';
+  const near = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  const rows = LIVE.lines.filter(e => (!LIVE.f || (LIVE.f === '!error' ? e.level === 'error' : e.kind === LIVE.f)) &&
+    (!q || (e.msg || '').toLowerCase().includes(q.toLowerCase())));
+  box.innerHTML = rows.length ? rows.map(e => {{
+    const t = new Date(e.ts * 1000).toLocaleTimeString([], {{ hour: '2-digit', minute: '2-digit', second: '2-digit' }});
+    return `<div><span class="t">${{t}}</span> <span class="k">[${{esc(e.kind)}}]</span> <span class="${{esc(e.level)}}">${{esc(e.msg)}}</span></div>`;
+  }}).join('') : '<span class="t">waiting for activity…</span>';
+  if (near) box.scrollTop = box.scrollHeight;     // follow, unless you scrolled up to read
+}}
+async function liveLoad() {{
   try {{
-    const list = await rows();
-    const html = list.length ? list.map(x => {{
-      const [bg,fg] = STAT[x.status] || STAT.queued;
-      const ctl = live(x.status)
-        ? `<button class="mini" title="pause at the next step" onclick="jobCtl('${{x.id}}','pause')">⏸</button>
-           <button class="mini" title="resume" onclick="jobCtl('${{x.id}}','resume')">▶</button>
-           <button class="mini" title="stop this job" onclick="jobCtl('${{x.id}}','stop')">⏹</button>`
-        : (resumable(x) ? `<button class="mini" title="continue it — cached work is reused" onclick="jobResume('${{x.id}}')">▶</button>` : '') +
-          (waiting(x.status) ? `<button class="mini" title="stop this waiting job" onclick="jobCtl('${{x.id}}','stop')">⏹</button>` : '') +
-          `<button class="mini" title="remove this record" onclick="jobCtl('${{x.id}}','delete')">🗑</button>`;
-      return `<div style="border-bottom:1px solid var(--rule);padding:7px 0;display:flex;gap:8px;align-items:flex-start">
-        <input type="checkbox" class="jobsel" value="${{x.id}}" data-live="${{live(x.status)?1:0}}" onchange="updateJobSel()" style="margin-top:3px">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            ${{pill(x.kind, 'var(--sa-bg)', 'var(--sa-ink)')}} ${{pill(x.status, bg, fg)}}
-            <span style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis">${{x.title}}</span>
-          </div>
-          <div class="hint" style="font-size:11px;word-break:break-all">${{x.detail || ''}}</div>
-          ${{x.error ? `<div style="color:var(--bad);font-size:11px">⚠ ${{x.error}}</div>` : ''}}
-        </div>
-        <div style="display:flex;gap:3px;flex-shrink:0">${{ctl}}</div>
-      </div>`;
-    }}).join('') : 'No jobs yet.';
-    // Rebuild only when something changed, so a 5 s refresh does not reset
-    // the page under your thumb while you scroll.
+    const d = await j('/api/events?after=' + LIVE.last + '&limit=400');
+    if ((d.events || []).length) {{
+      LIVE.lines = LIVE.lines.concat(d.events).slice(-1000);
+      LIVE.last = d.last;
+      livePaint();
+    }} else if (!LIVE.lines.length) livePaint();
+  }} catch (e) {{}}
+}}
+const JK = {{ ingest: '📥', autopilot: '🤖', export: '📤', finalize: '🎬', render: '🎬', publish: '📺', research: '📖', validate: '🛡', lab: '🧪' }};
+function jobRow(x) {{
+  const STAT = {{ running: ['var(--sa-bg)', 'var(--sa-ink)'], queued: ['var(--gray-bg)', 'var(--gray-ink)'],
+    paused: ['var(--warnb-bg)', 'var(--warn)'], pausing: ['var(--warnb-bg)', 'var(--warn)'], done: ['var(--okb-bg)', 'var(--okb-ink)'],
+    error: ['var(--badb-bg)', 'var(--bad)'], cancelled: ['var(--gray-bg)', 'var(--gray-ink)'],
+    budget_paused: ['var(--warnb-bg)', 'var(--warn)'], interrupted: ['var(--warnb-bg)', 'var(--warn)'] }};
+  const [bg, fg] = STAT[x.status] || STAT.queued;
+  const live = ['running', 'queued', 'paused', 'pausing'].includes(x.status);
+  const waiting = ['budget_paused', 'interrupted'].includes(x.status);
+  const resumable = ['ingest', 'autopilot', 'finalize'].includes(x.kind) && ['cancelled', 'error', 'budget_paused', 'interrupted'].includes(x.status);
+  const el = x.elapsed != null ? (x.elapsed >= 3600 ? Math.round(x.elapsed / 360) / 10 + ' h' : x.elapsed >= 60 ? Math.round(x.elapsed / 60) + ' min' : x.elapsed + ' s') : '';
+  const btns = live
+    ? `<button class="mini" title="pause at the next step" onclick="jobCtl('${{x.id}}','pause')">⏸</button>
+       <button class="mini" title="resume" onclick="jobCtl('${{x.id}}','resume')">▶</button>
+       <button class="mini" title="stop" onclick="stopTwoTap(this, '${{x.id}}')">⏹</button>`
+    : (resumable ? `<button class="mini" title="continue it — cached work is reused" onclick="jobResume('${{x.id}}')">▶</button>` : '') +
+      (waiting ? `<button class="mini" title="stop this waiting job" onclick="stopTwoTap(this, '${{x.id}}')">⏹</button>` : '') +
+      `<button class="mini" title="remove this record" onclick="jobCtl('${{x.id}}','delete')">🗑</button>`;
+  return `<div style="border-bottom:1px solid var(--rule);padding:7px 0;display:flex;gap:8px;align-items:flex-start">
+    <input type="checkbox" class="jobsel" value="${{x.id}}" data-live="${{live ? 1 : 0}}" onchange="updateJobSel()" style="margin-top:3px">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span>${{JK[x.kind] || '⚙'}}</span><b style="font-size:12.5px">${{esc(x.name)}}</b>
+        ${{apPill(String(x.status).replace('_', ' '), bg, fg)}} <span class="hint">${{esc(x.kind)}}</span>
+        ${{x.deleted ? '<span class="hint">(deleted)</span>' : ''}}
+      </div>
+      <div class="hint" style="font-size:11px">${{[x.stage, x.pct != null ? x.pct + '%' : null, x.msg, el, x.cost ? '$' + x.cost.toFixed(2) : null, x.export ? '→ ' + x.export : null].filter(Boolean).map(esc).join(' · ')}}</div>
+      ${{x.error ? `<div style="color:var(--bad);font-size:11px">⚠ ${{esc(x.error)}}</div>` : ''}}
+    </div>
+    <div style="display:flex;gap:3px;flex-shrink:0">${{btns}}</div>
+  </div>`;
+}}
+async function jobsLoad() {{
+  const box = document.getElementById('joblist');
+  const keep = new Set(_jobsChecked().map(c => c.value));
+  try {{
+    const g = await j('/api/logs/jobs');
+    const sec = (label, rows) => rows.length ? `<div class="jgrp">${{label}} (${{rows.length}})</div>` + rows.map(jobRow).join('') : '';
+    const html = sec('Running', g.running) + sec('Waiting', g.waiting) + sec('Finished today', g.today) + sec('Earlier', g.earlier) || 'No jobs yet.';
     if (html !== box.dataset.last) {{ box.innerHTML = html; box.dataset.last = html; }}
-    if (keep.size) {{
-      document.querySelectorAll('.jobsel').forEach(c => {{ c.checked = keep.has(c.value); }});
-    }}
+    if (keep.size) document.querySelectorAll('.jobsel').forEach(c => {{ c.checked = keep.has(c.value); }});
     updateJobSel();
-  }} catch (e) {{ box.innerHTML = `<span style="color:var(--bad)">⚠ could not load jobs — ${{e.message || e}}</span>`; }}
-
+  }} catch (e) {{ box.innerHTML = `<span style="color:var(--bad)">⚠ could not load jobs — ${{esc(e.message || e)}}</span>`; }}
+}}
+async function spendLoad() {{
+  const box = document.getElementById('spendbox');
+  try {{
+    const d = await j('/api/spend');
+    const pct = (a, b) => b ? Math.min(100, Math.round(100 * a / b)) : 0;
+    const max = Math.max(0.01, ...d.month.days.map(x => x[1]));
+    box.innerHTML = `<div class="spendcard"><b>Today (ET ${{esc(d.day)}})</b>
+        <div class="hint">Whole site $${{d.today.spent.toFixed(2)}} of $${{(d.today.cap || 0).toFixed(2)}} (hard stop)</div>
+        <div class="meter"><i style="width:${{pct(d.today.spent, d.today.cap)}}%"></i></div>
+        <div class="hint">Autopilot $${{(d.autopilot.spent || 0).toFixed(2)}} of $${{(d.autopilot.budget || 0).toFixed(2)}}</div>
+        <div class="meter"><i style="width:${{pct(d.autopilot.spent, d.autopilot.budget)}}%"></i></div></div>
+      <div class="spendcard"><b>${{esc(d.month.label)}} so far: $${{d.month.total.toFixed(2)}}</b>
+        <div class="daybars" title="spend per day">${{d.month.days.map(x => `<i title="${{esc(x[0])}}: $${{x[1].toFixed(2)}}" style="height:${{Math.max(2, Math.round(70 * x[1] / max))}}px"></i>`).join('')}}</div>
+        <div class="hint">${{Object.entries(d.month.by_provider).map(([k, v]) => esc(k) + ' $' + v.toFixed(2)).join(' · ')}}</div></div>
+      <div class="spendcard"><b>Recent chapters</b>${{d.chapters.length ? d.chapters.map(c => `<div class="hint">${{esc(c.name)}} — $${{(c.cost || 0).toFixed(2)}}</div>`).join('') : '<div class="hint">none yet</div>'}}</div>
+      <div class="hint">${{esc(d.note)}}</div>`;
+  }} catch (e) {{ box.innerHTML = 'spend unavailable: ' + esc(e.message || e); }}
   try {{
     const uj = await j('/api/logs/usage?limit=60');
-    const su = uj.summary || {{}}, life = su.lifetime || {{}};
-    document.getElementById('logusage').innerHTML =
-      `<div style="font-size:12px;margin-bottom:6px"><b>${{su.gemini_calls || 0}}</b> Gemini · <b>${{(su.tts_chars || 0).toLocaleString()}}</b> TTS chars ·
-       est <b>$${{(su.est_cost_usd || 0).toFixed(3)}}</b> on ${{su.date || ''}} (ET)<br>
-       all-time: <b>${{(life.gemini_calls || 0) + (su.gemini_calls || 0)}}</b> Gemini ·
-       <b>$${{((life.est_cost_usd || 0) + (su.est_cost_usd || 0)).toFixed(2)}}</b></div>` +
-      (uj.calls || []).slice(-40).reverse().map(c =>
-        `<div class="hint" style="border-bottom:1px solid var(--rule);padding:2px 0">
-         ${{c.kind}} · ${{c.model || ''}} · ${{c.units}} ${{c.unit || ''}}${{c.metered
-           ? ` · ${{(c.prompt_tokens || 0).toLocaleString()}} in / ${{(c.output_tokens || 0).toLocaleString()}} out` +
-             (c.thought_tokens ? ` (${{c.thought_tokens.toLocaleString()}} thinking)` : '') +
-             (c.service_tier && c.service_tier !== 'standard' ? ` · ${{c.service_tier}}` : '')
-           : (c.unit === 'chars' ? '' : ' · <span style="color:var(--warn)" title="no token count came back — this is an estimate">estimate</span>')}}
-         · $${{(c.est_cost_usd || 0).toFixed(4)}}</div>`).join('');
+    document.getElementById('logusage').innerHTML = (uj.calls || []).slice(-60).reverse().map(c =>
+      `<div class="hint" style="border-bottom:1px solid var(--rule);padding:2px 0">
+       ${{c.kind}} · ${{c.model || ''}} · ${{c.units}} ${{c.unit || ''}}${{c.metered
+         ? ` · ${{(c.prompt_tokens || 0).toLocaleString()}} in / ${{(c.output_tokens || 0).toLocaleString()}} out` +
+           (c.thought_tokens ? ` (${{c.thought_tokens.toLocaleString()}} thinking)` : '') +
+           (c.service_tier && c.service_tier !== 'standard' ? ` · ${{c.service_tier}}` : '')
+         : (c.unit === 'chars' ? '' : ' · <span style="color:var(--warn)">estimate</span>')}}
+       · $${{(c.est_cost_usd || 0).toFixed(4)}}</div>`).join('');
   }} catch (e) {{ document.getElementById('logusage').innerHTML = 'usage unavailable'; }}
-
+}}
+async function loadLogs() {{
+  if (LOGS_TAB === 'live') await liveLoad();
+  if (LOGS_TAB === 'jobs') await jobsLoad();
+  if (LOGS_TAB === 'spend') await spendLoad();
   const stamp = document.getElementById('logstamp');
   if (stamp) stamp.textContent = 'updated ' + new Date().toLocaleTimeString();
-
   if (!logsPolling) {{
     logsPolling = true;
     (async () => {{
       while (document.getElementById('d_logs').style.display === 'block') {{
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, LOGS_TAB === 'live' ? 3000 : 6000));
         if (document.getElementById('d_logs').style.display !== 'block') break;
-        // Never refresh out from under a selection — the re-render replaces
-        // every row and the ticks vanish, which reads as boxes unticking
-        // themselves. A selection means the user is mid-action; wait.
-        if (_jobsChecked().length) continue;
+        if (_jobsChecked().length || document.hidden) continue;   // never re-render under a selection
         await loadLogs();
       }}
       logsPolling = false;
     }})();
   }}
+}}
+/* Two-tap Stop (Scrapper lesson): confirm() can be silently blocked in in-app
+   browsers, so the first tap arms the button and the second, within 3 s, stops. */
+function stopTwoTap(btn, id) {{
+  if (btn.dataset.armed) {{
+    delete btn.dataset.armed;
+    j('/api/jobs/control', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{job_id: id, action: 'stop'}})}})
+      .then(() => {{ loadLogs(); if (window.jobsBarLoad) window.jobsBarLoad(); }}).catch(e => alert('Could not stop: ' + (e.message || e)));
+    btn.textContent = '…';
+    return;
+  }}
+  btn.dataset.armed = '1';
+  const was = btn.textContent;
+  btn.textContent = 'tap again to stop';
+  setTimeout(() => {{ if (btn.dataset.armed) {{ delete btn.dataset.armed; btn.textContent = was; }} }}, 3000);
 }}
 function _jobsChecked() {{
   return Array.from(document.querySelectorAll('.jobsel')).filter(c => c.checked);

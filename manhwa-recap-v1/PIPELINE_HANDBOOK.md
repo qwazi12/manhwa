@@ -811,3 +811,27 @@ characters, disputes, new names), and controls (▶ make now, ⏸/▶, ↻ retry
   Paused · Caught up. Sort: latest release (calendar) or plan order.
 Tests: `test_series_board.py` 13/13.
 
+## E11. Logs & Activity — like Scrapper's (2026-10-04)
+
+- **🔴 Live** (default): one line per event, `time [kind] message`, coloured
+  by level; filters (Autopilot · Ingest · Render · Research · Errors) and
+  search; follows new lines unless you scroll up. Source:
+  `review_ui/events.py` → `projects/_events.jsonl` (newest 5,000), read with
+  `GET /api/events?after=<id>` every 3 s (polling, no held-open connections).
+  Emitted by: ingest (start, each stage, image check, research, finish with
+  cost / paused / stopped / failed), autopilot decisions in plain words
+  (`autopilot._SAY`), approve → re-voice → render → export, research per
+  series, archive, scheduler failures.
+- **⏳ Jobs**: grouped Running · Waiting · Finished today · Earlier
+  (`GET /api/logs/jobs`), each with a readable chapter name, kind icon, stage,
+  progress, elapsed, cost (from the usage log), "(deleted)" when the project is
+  gone; export records labelled as exports. Pause / ▶ resume / two-tap ⏹ / 🗑.
+- **💰 Spend**: today vs the $10 site cap and the $6 autopilot budget, the month
+  by day, by provider, recent chapter costs, and every call with real tokens
+  (`GET /api/spend`).
+- **🗒 What changed**: unchanged.
+- **Jobs bar on every page** (`theme.JOBS_JS`, board and Review): now reads the
+  light `GET /api/jobsbar` (in-memory) instead of two full listings every 4 s;
+  readable names, ⏸, ▶ resume for restart/cap-waiting jobs, **two-tap Stop**.
+Tests: `test_logs.py` 18/18.
+

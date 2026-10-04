@@ -131,11 +131,38 @@ def save(root, st):
     os.replace(tmp, _path(root))
 
 
+_SAY = {
+    "chapter_queued": lambda f: (f"picked {f.get('series')} ch.{f.get('chapter')} (round robin)", "info"),
+    "chapter_requested": lambda f: (f"made on request: {f.get('series')} ch.{f.get('chapter')}", "info"),
+    "chapter_done": lambda f: (f"{f.get('key')} done", "ok"),
+    "chapter_failed": lambda f: (f"{f.get('key')} failed: {f.get('error')}", "error"),
+    "chapter_stopped": lambda f: (f"{f.get('key')} stopped by you", "warn"),
+    "chapter_budget_paused": lambda f: (f"{f.get('key')} paused by the spend cap", "warn"),
+    "settings_changed": lambda f: ("settings: " + ", ".join(
+        f"{k} {f.get('before', {}).get(k)} → {v}" for k, v in (f.get("after") or {}).items()
+        if (f.get("before") or {}).get(k) != v) or "settings saved", "info"),
+    "backfill_planned": lambda f: (f"{f.get('series')}: back catalogue planned from ch.{f.get('after')}", "info"),
+    "refresh_failed": lambda f: (f"reading series pages failed: {f.get('error')}", "warn"),
+    "project_archived": lambda f: (f"archived {f.get('project')} ({f.get('reason')})", "info"),
+    "archived_project_deleted": lambda f: (f"deleted archived {f.get('project')} (freed {f.get('freed_mb')} MB)", "warn"),
+}
+
+
 def audit(event, **fields):
-    """Structured line for every decision and change (rule 23/24)."""
+    """Structured line for every decision and change (rule 23/24), and the same
+    decision in plain words on the Logs → Live feed."""
     rec = {"ts": datetime.now(timezone.utc).isoformat(), "level": "info",
            "service": "autopilot", "event": event, **fields}
     print(json.dumps(rec, default=str), flush=True)
+    try:
+        import events
+        say = _SAY.get(event)
+        msg, lvl = say(fields) if say else (event.replace("_", " ") + " " + ", ".join(
+            f"{k}={v}" for k, v in fields.items() if isinstance(v, (str, int, float)))[:200], "info")
+        kind = "archive" if event.startswith(("project_", "archived_")) else "autopilot"
+        events.emit(kind, msg, lvl)
+    except Exception:
+        pass
 
 
 def settings(root):

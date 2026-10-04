@@ -8259,3 +8259,12 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - **Voice — cause:** studio default changed 2026-10-04 18:29 to style "energetic, fast-paced YouTube recap host" (Charon), but every existing chapter is pinned (tts.json) to "dramatic, engaging manhwa recap narrator" and render reuses existing audio. **Fix:** the Approve job now re-voices first when the chapter's voice/style ≠ studio default (`_revoice_if_outdated`): re-pin tts.json, re-record every line (TTS cache key includes the style), coalesce sliced lines, re-fit automatically-sized segments (hand-lengthened ones keep their length), re-time, mark clips stale → re-render. ~$0.14 TTS per chapter + re-render CPU.
 - **1.25×:** `EXPORT_SPEED` (env, default **1.25**) used by approve-and-render; only the sped-up file is kept (the 1.0× copy is deleted after a successful speed pass). `EXPORT_SPEED=1.0` to revert.
 - Tests: new `test_approve_voice.py` 14/14 (real silent MP3s); full suite 63/63.
+
+---
+
+### 2026-10-04 — BUILT step 2: Logs & Activity redesign (Live · Jobs · Spend · What changed) + lighter jobs bar
+
+- `review_ui/events.py` live feed (`_events.jsonl`, 5,000 lines, `/api/events`), emitted from ingest stages/finish (with cost), autopilot decisions in plain words, approve→re-voice→render→export, research, archive, scheduler errors.
+- Logs tabs: 🔴 Live (filters, search, follow) · ⏳ Jobs (`/api/logs/jobs`: grouped, named "Murim Psychopath ch.44", kind icons, cost, "(deleted)", exports labelled correctly) · 💰 Spend (`/api/spend`: today vs $10 cap, autopilot vs $6, month by day, by provider, chapter costs, every call with tokens) · 🗒 What changed.
+- Existing every-page jobs bar (theme.JOBS_JS) upgraded: `/api/jobsbar` (in-memory, replaces polling `/api/jobs` + `/api/logs/ingest` every 4 s), readable names, ⏸, ▶ resume for waiting jobs, two-tap Stop (no confirm()). (`/api/jobs/active` was first tried and clashed with `/api/jobs/{job_id}`.)
+- Tests: new `test_logs.py` 18/18; full suite 64/64. Handbook E11.

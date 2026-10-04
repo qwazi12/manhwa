@@ -3078,6 +3078,8 @@ def _run_finalize_job(job_id):
     j["status"] = "running"
     j["stage"] = "render"
     _persist_job(job_id)
+    _fname = _pretty(j.get("project") or "")
+    _ev("render", f"{_fname} approved → render + export")
     try:
         pdir = active_project_dir()
         segs = load_segments()
@@ -3104,6 +3106,7 @@ def _run_finalize_job(job_id):
         # (cached lines cost nothing), re-timed, and its clips re-rendered.
         nv = _revoice_if_outdated(pdir, j, job_id)
         if nv:
+            _ev("render", f"{_fname}: re-voiced {nv} lines in the studio voice")
             segs = load_segments()
             ticked = video_segments(segs)
             missing = needs_render(ticked, pdir)
@@ -3123,12 +3126,15 @@ def _run_finalize_job(job_id):
         j["url"] = res.get("url")
         j["status"] = "done"
         j["ended"] = time.time()
+        _ev("render", f"{_fname} exported → {res.get('output')} ({EXPORT_SPEED}x)", "ok")
     except HTTPException as e:
         j["status"] = "error"
         j["error"] = str(e.detail)
     except Exception as e:  # noqa
         j["status"] = "error"
         j["error"] = str(e)
+    if j.get("status") == "error":
+        _ev("render", f"{_fname} render failed: {str(j.get('error'))[:160]}", "error")
     _persist_job(job_id)
 
 
@@ -3599,17 +3605,49 @@ def _active_ingest_for_url(url, variant=""):
     return None
 
 
+def _ev(kind, msg, level="info", **f):
+    try:
+        import events
+        events.emit(kind, msg, level, **f)
+    except Exception:
+        pass
+
+
+def _pretty(url_or_pid, variant=""):
+    """'murim-psychopath_44-img' / a chapter URL -> 'Murim Psychopath ch.44 (img)'."""
+    import ingest as _i
+    try:
+        if "://" in (url_or_pid or ""):
+            series, ch = _i.parse_series_chapter(url_or_pid)
+        else:
+            series, _, ch = (url_or_pid or "").rpartition("_")
+            ch, _, variant = ch.partition("-") if not variant else (ch, "", variant)
+        name = _i.to_title_case(_i.clean_series_slug(series))
+        return f"{name} ch.{ch}" + (f" ({variant})" if variant else "")
+    except Exception:
+        return url_or_pid or "(unknown)"
+
+
 def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
                     direct=None):
     import ingest
     INGEST[job_id]["status"] = "running"
     _persist_ingest(job_id)
+    who = "autopilot" if INGEST[job_id].get("source") == "autopilot" else "ingest"
+    name = _pretty(url, variant)
+    _ev(who, f"{name} → started")
+    last = {"stage": None}
 
     def progress(stage, msg, pct):
         # the one place an ingest can be paused or stopped
         _control_gate(INGEST, job_id, _persist_ingest)
         INGEST[job_id].update(stage=stage, msg=msg, pct=pct)
         _persist_ingest(job_id)
+        if stage != last["stage"]:
+            last["stage"] = stage
+            _ev(who, f"{name} → {stage}")
+        if str(msg).startswith(("Image check", "Researching", "Series research")):
+            _ev(who, f"{name}: {msg}")
 
     try:
         # Autopilot chapters run on Gemini's Flex tier (half price, may queue);
@@ -3635,6 +3673,16 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
     INGEST[job_id]["ended"] = time.time()
     _persist_ingest(job_id)
     _after_ingest(job_id)
+    st = INGEST[job_id].get("status")
+    cost = _job_cost(job_id)
+    if st == "done":
+        _ev(who, f"{name} done → Projects: Ready for review · ${cost:.2f}", "ok")
+    elif st == "budget_paused":
+        _ev(who, f"{name} paused by the spend cap — resumes after midnight ET", "warn")
+    elif st == "cancelled":
+        _ev(who, f"{name} stopped by you", "warn")
+    else:
+        _ev(who, f"{name} failed: {(INGEST[job_id].get('error') or '')[:160]}", "error")
 
 
 def _job_cost(job_id):
@@ -5814,6 +5862,7 @@ def _scheduler_pass():
         except Exception as e:  # noqa — one failing part must not stop the rest
             _SCHED["last_error"] = f"{name}: {e}"
             print(f"[scheduler] {name} failed: {e}", flush=True)
+            _ev("scheduler", f"{name} step failed: {e}", "error")
 
 
 def _scheduler_loop():
@@ -5918,13 +5967,15 @@ def _run_research(job_id, ids):
         j["current"] = sid
         _persist_job(job_id)
         try:
-            _research.build(sid)
+            b = _research.build(sid)
             done.append(sid)
+            _ev("research", f"{b.get('canonical_title', sid)}: {(_research.STATUS.get(sid) or {}).get('summary', 'done')}", "ok")
         except usage.UsageCapExceeded as e:
             j.update(status="error", error=f"spend cap reached: {e}")
             break
         except Exception as e:  # noqa — one series failing must not stop the rest
             j.setdefault("failed", []).append({"id": sid, "error": str(e)[:200]})
+            _ev("research", f"{sid}: research failed: {str(e)[:160]}", "error")
         j["done"] += 1
         _persist_job(job_id)
     if j.get("status") == "running":
@@ -6097,6 +6148,157 @@ def autopilot_backfill(body: BackfillIn):
         _autopilot.save(_ingest_mod.PROJECTS, st)
     _autopilot.audit("backfill_planned", series=body.series_id, before=before, after=ch)
     return {"ok": True, "series_id": body.series_id, "plan_from": ch, "before": before}
+
+
+# ================================================================ LOGS (step 2)
+# Owner, 2026-10-04: Logs like Scrapper's — a live feed, a jobs bar on every
+# page, jobs with real names and costs, and spend in one place.
+import events as _events
+
+_COST_CACHE = {"key": None, "by_job": {}, "by_day": {}, "by_kind": {}}
+
+
+def _usage_index():
+    """Per-job and per-day spend from the usage log, cached by file size."""
+    try:
+        st = os.stat(usage.LOG_PATH)
+        key = (st.st_size, st.st_mtime)
+    except OSError:
+        return _COST_CACHE
+    if _COST_CACHE["key"] == key:
+        return _COST_CACHE
+    by_job, by_day, by_kind = {}, {}, {}
+    with open(usage.LOG_PATH, encoding="utf-8") as f:
+        for line in f:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            c = e.get("est_cost_usd") or 0.0
+            jid = e.get("job_id") or "?"
+            by_job[jid] = by_job.get(jid, 0.0) + c
+            try:
+                day = _autopilot.et_day(datetime.fromisoformat(e["ts"]).timestamp())
+            except Exception:
+                continue
+            by_day[day] = by_day.get(day, 0.0) + c
+            k = (day[:7], e.get("provider") or e.get("kind") or "?")
+            by_kind[k] = by_kind.get(k, 0.0) + c
+    _COST_CACHE.update(key=key, by_job=by_job, by_day=by_day, by_kind=by_kind)
+    return _COST_CACHE
+
+
+@app.get("/api/events")
+def events_feed(after: int = 0, limit: int = 300, kind: str = ""):
+    ev = _events.since(after, min(max(limit, 1), 1000), kind or None)
+    return {"events": ev, "last": ev[-1]["id"] if ev else after}
+
+
+_LIVE = ("running", "queued", "paused", "pausing")
+_WAITING = ("budget_paused", "interrupted")
+
+
+def _job_rows():
+    import ingest as _i
+    projects = set(os.listdir(_i.PROJECTS)) if os.path.isdir(_i.PROJECTS) else set()
+    cost = _usage_index()["by_job"]
+    rows = []
+    for x in _all_ingest_jobs():
+        url = x.get("url") or ""
+        pid = (x.get("project") or {}).get("id") if isinstance(x.get("project"), dict) else None
+        pid = pid or (_i.project_id(url, x.get("variant", "")) if "://" in url else None)
+        kind = "export" if url.startswith("/export") else ("autopilot" if x.get("source") == "autopilot" else "ingest")
+        rows.append({"id": x["job"], "kind": kind, "name": _pretty(url, x.get("variant", "")) if "://" in url else (url or "(no chapter recorded)"),
+                     "project": pid, "status": x.get("status") or "queued", "stage": x.get("stage"),
+                     "pct": x.get("pct"), "msg": x.get("msg"), "error": x.get("error"),
+                     "ts": x.get("ts") or 0, "ended": x.get("ended"), "cost": round(cost.get(x["job"], 0.0), 3),
+                     "deleted": bool(pid) and pid not in projects and x.get("status") == "done"})
+    disk = {}
+    try:
+        for fn in os.listdir(_jobs_dir()):
+            if fn.startswith("render_") and fn.endswith(".json"):
+                try:
+                    disk[fn[7:-5]] = json.load(open(os.path.join(_jobs_dir(), fn)))
+                except (OSError, ValueError):
+                    pass
+    except OSError:
+        pass
+    disk.update(JOBS)
+    for jid, x in disk.items():
+        t = x.get("type") or x.get("kind") or "render"
+        proj = x.get("project") or ""
+        rows.append({"id": jid, "kind": t, "name": _pretty(proj) if proj and "series" not in str(proj) else (proj or t),
+                     "project": proj, "status": x.get("status") or "queued", "stage": x.get("stage"),
+                     "pct": (round(100 * x.get("done", 0) / x["total"]) if x.get("total") else None),
+                     "msg": x.get("note") or (f"{x.get('done', 0)}/{x.get('total')}" if x.get("total") else ""),
+                     "error": x.get("error"), "ts": x.get("ts") or x.get("heartbeat") or 0, "ended": x.get("ended"),
+                     "cost": round(cost.get(jid, 0.0), 3), "export": x.get("export"),
+                     "deleted": bool(proj) and "series" not in str(proj) and proj not in projects})
+    now = time.time()
+    for r in rows:
+        r["elapsed"] = round((r["ended"] or now) - r["ts"]) if r["ts"] else None
+    rows.sort(key=lambda r: r["ts"] or 0, reverse=True)
+    return rows
+
+
+@app.get("/api/logs/jobs")
+def logs_jobs(limit: int = 80):
+    rows = _job_rows()
+    day = _autopilot.et_day()
+    groups = {"running": [], "waiting": [], "today": [], "earlier": []}
+    for r in rows:
+        if r["status"] in _LIVE:
+            groups["running"].append(r)
+        elif r["status"] in _WAITING:
+            groups["waiting"].append(r)
+        elif r["ts"] and _autopilot.et_day(r["ts"]) == day:
+            groups["today"].append(r)
+        else:
+            groups["earlier"].append(r)
+    groups["earlier"] = groups["earlier"][:limit]
+    return groups
+
+
+@app.get("/api/jobsbar")
+def jobs_active():
+    """Light: in-memory only, for the jobs bar on every page."""
+    out = []
+    for jid, x in list(INGEST.items()):
+        if x.get("status") in _LIVE + _WAITING:
+            url = x.get("url") or ""
+            out.append({"id": jid, "kind": "autopilot" if x.get("source") == "autopilot" else "ingest",
+                        "name": _pretty(url, x.get("variant", "")), "status": x.get("status"),
+                        "stage": x.get("stage"), "pct": x.get("pct"), "msg": x.get("msg"),
+                        "elapsed": round(time.time() - (x.get("ts") or time.time()))})
+    for jid, x in list(JOBS.items()):
+        if x.get("status") in _LIVE:
+            out.append({"id": jid, "kind": x.get("type") or x.get("kind") or "render",
+                        "name": _pretty(x.get("project") or "") if x.get("project") else (x.get("type") or "job"),
+                        "status": x.get("status"), "stage": x.get("stage"),
+                        "pct": round(100 * x.get("done", 0) / x["total"]) if x.get("total") else None,
+                        "msg": x.get("note") or "", "elapsed": round(time.time() - (x.get("ts") or time.time()))})
+    return {"jobs": out}
+
+
+@app.get("/api/spend")
+def spend_summary():
+    idx = _usage_index()
+    day = _autopilot.et_day()
+    month = day[:7]
+    days = sorted((d, round(v, 3)) for d, v in idx["by_day"].items() if d.startswith(month))
+    spent, cap = _ap_deps()["spend"]()
+    st = _autopilot.load(_ingest_mod.PROJECTS)
+    chapters = [{"name": _pretty(e.get("project") or ""), "cost": e.get("cost"), "at": e.get("updated_at")}
+                for e in sorted(st["ledger"].values(), key=lambda e: e.get("updated_at") or 0, reverse=True)
+                if e.get("cost")][:15]
+    return {"day": day, "today": {"spent": round(spent, 3), "cap": cap},
+            "autopilot": {"spent": _ap_spent_today(), "budget": st["settings"].get("budget_usd")},
+            "month": {"label": month, "days": days, "total": round(sum(v for _, v in days), 2),
+                      "by_provider": {k[1]: round(v, 3) for k, v in idx["by_kind"].items() if k[0] == month}},
+            "chapters": chapters,
+            "rates": usage.rate_card(),
+            "note": "Measured from real tokens since 2026-10-03; earlier Gemini Flash calls were under-counted. "
+                    "Google billing is the ground truth."}
 
 
 class JobResumeIn(BaseModel):
