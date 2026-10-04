@@ -9,7 +9,14 @@ Source files: `scraper.py`, `panel-split/split_panels.py`,
 `panel-split/vision_segment.py`, `panel-describe/describe.py`, `narrate.py`,
 `beat_segmenter.py`, `matcher.py`, `shot_planner.py`,
 `hyperframes/segments.py`, `review_ui/claude_lab.py`,
-`review_ui/claude_pipeline.py`.
+`review_ui/claude_pipeline.py`; for running it (Part E): `review_ui/autopilot.py`,
+`review_ui/project_archive.py`, `review_ui/usage.py`, `gemini_tts.py`.
+
+> **Updated 2026-10-03.** Describe and narrate moved to **Gemini 3.8 Flash**
+> (`PIPELINE_MODEL`); autopilot chapters run on Google's **Flex** tier; spend is
+> now metered from real token counts at published prices; the voice default is
+> Gemini 3.8 Flash TTS. New **Part E** covers Chapter Autopilot, the review
+> inbox, stop/resume, archiving, and cost.
 
 ---
 
@@ -29,9 +36,13 @@ Two stages are genuinely shared, byte for byte:
   `MIN_PLAUSIBLE_PAGES = 5`; `_sequence_warning` detects gaps in the image
   numbering and sets `LAST_WARNING`, which the UI surfaces — added because a
   chapter that scraped 3 of 11 pages looked completely successful.
-- **Voice** (`server._synth_rest`). Chirp REST + API key with certifi's CA
-  bundle. Results cached by `hash(voice + text)` in `projects/_ttscache`, so an
-  unchanged sentence re-synthesises for free. Timeline rhythm is scene-aware:
+- **Voice** (`gemini_tts.py`). Default **Gemini 3.8 Flash TTS**, voice
+  *Charon*, style "dramatic, engaging manhwa recap narrator"; metered per call
+  ($0.50 / 1M text in, $9.00 / 1M audio out at 25 audio tokens per second; both
+  double on 2027-01-01). Chirp 3 HD (`server._synth_rest`, REST + API key) is
+  still one pick away in the voice picker, and a chapter keeps the voice it was
+  first voiced with. Results cached by `hash(voice + text)` in
+  `projects/_ttscache`, so an unchanged sentence re-synthesises for free. Timeline rhythm is scene-aware:
   **0.6s** pause at a scene boundary, **0.25s** within a scene, **0.35s** flat
   when there is no provenance.
 
@@ -151,9 +162,21 @@ highest-priority match signal."**
 `--merge` mode re-describes only panels whose dimensions changed; usage-gated;
 a cap breach halts the whole run rather than being swallowed per panel.
 
+**Model and tier (since 2026-10-03):** `PIPELINE_MODEL`, default
+`gemini-3.8-flash` (was 3.5 Flash; rollback = set the env var). Runs as a
+subprocess, so an autopilot chapter's tier arrives as `RECAP_SERVICE_TIER=flex`
+and is sent as `"service_tier": "flex"`, with a 900 s timeout because Flex can
+queue. A 429/503 on Flex is retried once on Standard: Google has no server-side
+fallback. Token counts come from `usage.parse_gemini_usage` (see E5).
+
 ## A3. Write the script — `narrate.py`
 
 The most constrained stage in the system, and a **two-pass** one.
+
+Model: `narrate.DEFAULT_MODEL` = `PIPELINE_MODEL` (default `gemini-3.8-flash`),
+the same setting as describe. Same Flex behaviour for autopilot chapters,
+requested through `usage.set_tier()` on the ingest thread (narrate runs
+in-process, single-threaded).
 
 ### Pass 1 — draft, per scene
 
@@ -241,7 +264,9 @@ having been there `r+1` consecutive beats.
 - advance → any later panel, free
 
 **Scoring:** Gemini embeddings (`gemini-embedding-2`, task
-`SEMANTIC_SIMILARITY`), disk-cached, `EMBED_BATCH = 32`, `EMBED_RETRIES = 4`,
+`SEMANTIC_SIMILARITY`; $0.20 / 1M tokens; the response carries no token count,
+so each batch is metered with the free `count_tokens` call; Flex does not apply
+to embeddings), disk-cached, `EMBED_BATCH = 32`, `EMBED_RETRIES = 4`,
 transient-error detection, and a one-off probe that drops to per-text embedding
 if the installed SDK does not honour batching. Deterministic lexical fallback
 (`OCR_WEIGHT = 0.55`, `DESC_WEIGHT = 0.45`) so it runs with no external service.
@@ -511,3 +536,137 @@ lab's prompts are first drafts.
 
 So the present result measures **tuned Gemini against untuned Claude**, not
 Gemini against Claude. Items 1–4 above would make it closer to a fair test.
+
+---
+
+# PART E — running it: autopilot, review, spend (added 2026-10-03)
+
+Operator runbook with every knob: `docs/AUTOPILOT_RUNBOOK.md`. This part
+explains the design and why.
+
+## E1. Chapter Autopilot — `review_ui/autopilot.py`
+
+Ingests new chapters by itself so they appear in **Projects** ready to review.
+It reuses the ordinary ingest queue, one chapter at a time; it is not a second
+pipeline.
+
+- **What it picks:** every watchlist (Tracker) series. Each series starts at its
+  **latest 3 chapters**, fixed the first time autopilot sees the series (stored
+  in `start_from`, so the window does not slide), then continues in story order
+  through every new release.
+- **Order — round robin:** the next chapter goes to the series autopilot has
+  made the fewest chapters for; ties go to watchlist order (tier, then rank).
+  So each pass serves the top-ranked series first, then the rest.
+- **When:** a scheduler thread (`server._scheduler_loop`, every 10 min, first
+  pass 60 s after boot) starts at most one chapter, only if the ingest queue is
+  empty, today's count is under `per_day` (default **4**, America/New_York day),
+  and one chapter's estimate fits both autopilot's budget and the site cap (E4).
+- **Engine:** Gemini only, on the Flex tier (`AUTOPILOT_TIER`, default `flex`).
+- **Never repeat:** a ledger in `projects/_autopilot.json` records every chapter
+  autopilot queued and every manual ingest that finished. It survives project
+  deletes, so a chapter you deleted on purpose is not re-made. Chapters deleted
+  before 2026-10-03 predate the ledger and are not in it.
+- **Failures:** the first failure waits an hour before a retry; a second blocks
+  the series ("needs you") with the error, so story order is never skipped.
+- **Never hijacks the board:** autopilot jobs are tagged `source: autopilot`.
+  The page never adopts or auto-opens them, so a chapter finishing in the
+  background cannot switch the board away from the one you are reviewing.
+- **Card (Ingest page):** ON/OFF, next chapter, why it's waiting, today's count
+  (editable), spend vs budget and cap, last chapter, last check, undo; per-series
+  pause / resume / retry; ↻ check now re-reads every series page (free).
+
+## E2. Review inbox — Projects
+
+Status is derived from files the studio already writes, with no new state:
+**Ready for review** (ingested, not approved) → **Approved** (`storyboard.json`)
+→ **Rendering** (finalize job running) → **Rendered** (an `.mp4` in
+`exports/`) → **Published** (a `publishes.json` result is `published`) →
+**Archived**. Rows show an `auto` badge, the free story-check count
+(`validation.json`, run in `rules` mode after every ingest), and Claude-lab
+copies are labelled so they no longer read as duplicate chapters. The sidebar
+shows "N to review". Approve still renders and exports automatically.
+
+## E3. Stop and resume — everything
+
+| What | Stop | Resume |
+|---|---|---|
+| All of autopilot | card → Switch off (nothing new starts) | Switch on |
+| One series | card → ⏸ pause | ▶ resume |
+| A running ingest | Logs → ⏸ / ⏹ (lands between pipeline steps) | Logs → ▶ |
+| A stopped / failed ingest | — | Logs → ▶ re-queues the same record, reusing cached stages |
+| An approve-render | board's ⏹ | Logs → ▶ (open that project first) |
+
+A chapter you stopped is never re-picked by autopilot on its own; its series
+shows "stopped by you" until ▶ or ↻ retry.
+
+What happens without you:
+- **Deploy/restart:** an ingest cut off in the last 6 h becomes `interrupted`
+  and is re-queued at startup (`RESUME_MAX = 2`). Older or owner-stopped ones
+  are written off as before. Railway volumes cannot attach to two containers,
+  so an old and a new server never run the same job.
+- **Spend cap hit:** the ingest becomes `budget_paused` (not an error) and is
+  re-queued first after midnight ET.
+- **Archive:** a project with a published video is archived and its folder is
+  deleted **14 days** later unless you press **Keep**; Unarchive cancels it.
+  The open project is never deleted. Exports are separately kept 7 days.
+
+## E4. Spend limits
+
+- **Site cap** `MAX_DAILY_SPEND_USD` = **$10** (Railway). Checked before every
+  paid call, every job, manual or automatic: the hard stop.
+- **Autopilot budget** `budget_usd` = **$6** (card). Counted from autopilot
+  jobs' own metered spend today; decides whether a chapter *starts*, so a
+  chapter started under budget can finish slightly above it.
+- **Estimate** used for both checks: mean metered cost of the last 5 autopilot
+  chapters ($0.80 until there are any).
+
+## E5. Metering — real tokens at published prices (`usage.py`)
+
+The fix of 2026-10-03, and why the earlier numbers were wrong:
+
+- The Interactions API (our `AQ.` key) reports `usage.total_input_tokens /
+  total_output_tokens / total_thought_tokens / total_cached_tokens` plus
+  `service_tier`. The readers looked for generateContent names, got 0, and
+  `Meter.tokens(0, 0)` counted that as a real report: **3,145 calls from
+  2026-09-12 were logged at $0.00.** Earlier calls were priced at a flat
+  $0.001 each.
+- `usage.parse_gemini_usage` reads both shapes. **Thinking tokens are billed
+  as output** (a one-word answer used 57–78 thinking tokens), cached input at
+  the caching rate, Batch/Flex at half.
+- A zero report is never "free": the call keeps its estimate and is logged
+  `metered: false`.
+- Each log row carries `prompt_tokens`, `output_tokens`, `thought_tokens`,
+  `service_tier`; Logs → API usage shows them per call.
+- Published Standard rates (ai.google.dev, read 2026-10-03), per 1M tokens:
+
+| Model | In | Out (incl. thinking) | Flex / Batch |
+|---|---|---|---|
+| gemini-3.8-flash | $0.75 | $3.75 | half; **doubles 2027-01-01** (applied automatically) |
+| gemini-3.5-flash | $1.50 | $9.00 | half |
+| gemini-3.1-pro-preview (≤200k) | $2.00 | $12.00 | — |
+| gemini-2.5-flash (crop planner) | $0.30 | $2.50 | — |
+| gemini-embedding-2 | $0.20 | — | no Flex |
+| gemini-3.8-flash-tts | $0.50 text | $9.00 audio | doubles 2027-01-01 |
+
+Env `PRICE_*` overrides still win. Live proof call (`meter-check-20261003`):
+8 in / 65 out (64 thinking) = **$0.000597**, exactly the sheet price.
+
+## E6. What a chapter costs
+
+Calibrated to the owner's Google bill ($53 to 2026-10-03): those ~8,000
+under-counted Gemini calls really averaged **$0.0053** each on 3.5 Flash. A
+median chapter is about 57 segments, 8 minutes of video, 162 describe+narrate
+calls, 7,900 voice characters.
+
+| Setup | Per chapter | 4 a day: day / month / year |
+|---|---|---|
+| 3.5 Flash, Standard (before 2026-10-03) | ~$1.15 | $4.88 / $146 / $1,782 |
+| 3.8 Flash, Standard (manual ingests now) | ~$0.68 | $2.98 / $89 / $1,088 |
+| **3.8 Flash, Flex (autopilot now)** | **~$0.49** | **$2.22 / $67 / $811** |
+
+Per chapter = describe + narrate + voice (~$0.14) + matching (~$0.005) +
+server (~$0.15). Days include ~$8/month fixed Railway (memory is its largest
+line). Not included: Upload-Post ($24/month, shared with Scrapper). These are
+estimates until the first autopilot chapters are metered end to end; the card's
+"~$ a chapter" switches to the measured average by itself. Disk is ~250 MB a
+chapter against a 28 GB volume, so archiving matters.

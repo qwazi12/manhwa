@@ -8119,3 +8119,10 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 **$53 Google bill reconciled:** our log attributes $17.75 to Google (Claude excluded): $10.79 measured/per-character + ~8,000 Gemini calls flat-estimated (4,850, $6.96) or logged $0 (3,145). If the $53 is all Recap Studio, those calls really cost $42.21 → **$0.0053/call** on 3.5 Flash (≈1,140 in / 400 out tokens) — about half the 4-sample assumption, so the $1.99/chapter projection was too high. **Calibrated, at 4 chapters/day:** 3.5 Flash Standard $1.15/chapter ($146/month); 3.8 Flash Standard $0.68 ($89/month); **3.8 Flash Flex (autopilot) $0.49/chapter → ~$2.22/day · $15.50/week · $67/month · $811/year; ~18 chapters fit the $6 budget.** Caveat: if the Google bill also covers Scrapper's Gemini use, real per-call cost is a bit lower. Cost report v3 (same link).
 
 **Tests:** new `test_pipeline_tier.py` 12/12 (captured request bodies: model, Flex tier, long timeout, Standard retry on 503/429, manual stays Standard, describe subprocess via env); `test_autopilot.py` 44/44 (+ scroll/refresh guards); `test_engine_merge.py` text match loosened for the new `tier=` kwarg (assertion unchanged); full suite 59/59; panel-describe 1/1.
+
+---
+
+### 2026-10-03 (late) — Autopilot switched ON by the owner; handbook updated
+
+- Owner switched autopilot on. First chapter queued: **The Stellar Swordmaster ch.129** (round robin, rank 1); next in line: The Extra's Academy Survival Guide ch.114.
+- `PIPELINE_HANDBOOK.md` updated: source list; voice stage (default Gemini 3.8 Flash TTS, Charon; Chirp in the picker); A2/A3 model = `PIPELINE_MODEL` (3.8 Flash) with Flex for autopilot; A5 embedding metering via `count_tokens`; new **Part E** — E1 Chapter Autopilot, E2 review inbox, E3 stop/resume table + automatic behaviour, E4 spend limits ($10 site cap, $6 autopilot budget), E5 metering fix + published price table, E6 cost per chapter (bill-calibrated).
