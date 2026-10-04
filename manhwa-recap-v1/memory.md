@@ -8211,3 +8211,16 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
   - **Added as step 0 (highest impact):** researched Series Bible for every series — fact sheet from the series page; grounded research (cast, pronouns, looks, factions, world rules, premise, where the story is); sources graded (official: webtoons/publisher/Naver/Kakao; trusted: Wikipedia, ANN, MangaUpdates, AniList/MAL; fan wikis allowed for names/pronouns only when panels agree); editable card per series (owner edits win; Murim's bible kept as gold standard); learns suggested characters from our chapters' OCR/descriptions; narrate's existing critique changes surfaced on the board + names/pronouns checked against the bible. Cost < $1 for 14 series.
   - **Other LongForm lessons added (step 7):** per-chapter pipeline strip with per-step re-run and cost; pacing rules (no panel twice, hold cap, alternation — "repeats replaced, not flagged"); motion layer (intro, cast name cards, subscribe lower-third, end screen); −14 LUFS loudness; render-in-side-folder swap + two-tap in-page Stop (replace confirm()); Google Drive copy before archive deletion; free disk after a safe copy (Scrapper hit 97.6%); posting hard cap per channel/day after Scrapper's Oct 3 incident (12 posts instead of 3); channel "mk" belongs to Recap (Scrapper now refuses it).
   - New suggested order: 0 story research → 1 Series board → 2 Logs → 3 Settings → 4 Publishing → 5 schedule → 6 demand research → 7 LongForm lessons. Still NOT BUILT; awaiting owner.
+
+---
+
+### 2026-10-04 — Owner approved the Studio Redesign plan (v2) — decisions
+
+1. Build order as planned: 0 story research → 1 Series board → 2 Logs → 3 Settings & Channels → 4 Publishing Studio → 5 posting schedule → 6 demand research → 7 LongForm lessons.
+1b. Fan wikis: yes — names/pronouns only, only when panels agree.
+2. Automatic posting schedule: yes, built but OFF by default.
+3. Channel: 🦩 **Flamingo Remix (YouTube)**, Upload-Post profile **mk**, privacy **public**.
+4. Demand research: yes.
+5. Rename tiers: yes ("Make now / Next up / Watching").
+6. Back catalogue: no by default; per-series "plan backfill from ch.N" button.
+7. NEW: also learn from Scrapper's thumbnail generation styles and logic.
