@@ -8358,3 +8358,11 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - 🛡 Check has a new "📝 What the script editor changed" section (collapsed until opened): "N issues found · M parts rewritten (at most 3 per chapter)", the list of issues, and each rewrite with the old text struck through.
 - Only chapters scripted from now on have notes; older chapters say so.
 - Tests: new `test_critique_notes.py` 8/8, with model calls faked; full suite 71/71.
+
+---
+
+### 2026-10-04 — BUILT step 7 (part 3): exports appear only when finished
+
+- Found: clips were already written atomically, but `_do_export` wrote straight to `exports/final_<time>.mp4`, and so did the speed-up. A stopped or failed export would therefore leave a half-written video visible in Exports, the Publishing Studio and the publish picker.
+- Fix (LongForm's render swap): the whole export (concat, music bed, loudness, speed-up) is built in a hidden `exports/.partial/` folder, and only the finished file is `os.replace`d into `exports/`. The next export clears any leftovers. Listings, the cleanup and the studio only read `*.mp4` directly in `exports/`, so the side folder is invisible.
+- Tests: new `test_export_swap.py` 6/6 runs real ffmpeg on generated clips. It covers success (the 1.25× file lands, loudness is applied, the side folder ends empty) and a failed speed-up (it raises and adds nothing to exports/). Full suite 72/72.

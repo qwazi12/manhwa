@@ -544,7 +544,17 @@ def _do_export(speed=1.0):
     from datetime import datetime
     from zoneinfo import ZoneInfo
     _stamp = datetime.now(ZoneInfo("America/New_York")).strftime("%b%d_%I.%M%p")
-    out = os.path.join(active_exports_dir(), f"final_{_stamp}.mp4")
+    # LongForm lesson (step 7): build the video in a hidden side folder and
+    # move only the FINISHED file into exports/, so a stopped or failed export
+    # never leaves a half-written video in Exports / the Publishing Studio.
+    part_dir = os.path.join(active_exports_dir(), ".partial")
+    os.makedirs(part_dir, exist_ok=True)
+    for _old in os.listdir(part_dir):            # leftovers of a killed export
+        try:
+            os.remove(os.path.join(part_dir, _old))
+        except OSError:
+            pass
+    out = os.path.join(part_dir, f"final_{_stamp}.mp4")
     # cards are stream-matched by _title_card, so always stream-copy (a
     # re-encode pads each clip's video to its audio tail — accumulating
     # frozen frames across the whole export)
@@ -579,6 +589,9 @@ def _do_export(speed=1.0):
                 os.remove(out)        # keep only the version that will be posted
             except OSError:
                 pass
+    done = os.path.join(active_exports_dir(), os.path.basename(final))
+    os.replace(final, done)                      # appears in Exports only now
+    final = done
     return {"ok": True, "clips": len(approved), "output": os.path.basename(final),
             "url": f"/export/{os.path.basename(final)}", "loudness": loud}
 
