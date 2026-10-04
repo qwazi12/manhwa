@@ -1606,6 +1606,54 @@ def validate_timeline(pdir, segs=None):
                              "msg": f"crop keeps only {crop_area(s['crop_bbox_norm'])*100:.1f}% "
                                     f"of the panel — below the usable floor, so the full "
                                     f"panel renders; use 'full panel' to make it explicit"})
+    warnings.extend(pacing_warnings(segs))
     return {"ok": not errors, "errors": errors, "warnings": warnings,
             "n_errors": len(errors), "n_warnings": len(warnings),
             "n_segments": len(segs)}
+
+
+# LongForm pacing lessons (owner plan step 7, 2026-10-04). Warnings only: they
+# inform the review, they never block a render or export.
+HOLD_CAP = 12.0          # seconds on the SAME shot (panel + crop) in a row
+PANEL_CAP = 20.0         # seconds on the same panel in a row, across crops
+
+
+def pacing_warnings(segs):
+    inc = [s for s in segs if s.get("user_included")]
+    out = []
+    i = 0
+    while i < len(inc):
+        j = i
+        while j + 1 < len(inc) and inc[j + 1].get("panel_id") == inc[i].get("panel_id"):
+            j += 1
+        run = inc[i:j + 1]
+        total = sum(float(x.get("dur") or 0) for x in run)
+        k = 0
+        while k < len(run):                       # same shot = same panel AND same crop
+            m = k
+            while m + 1 < len(run) and run[m + 1].get("crop_bbox_norm") == run[k].get("crop_bbox_norm"):
+                m += 1
+            shot = sum(float(x.get("dur") or 0) for x in run[k:m + 1])
+            if shot > HOLD_CAP:
+                out.append({"seg": run[k]["seg_index"], "rule": "P1-long-hold",
+                            "msg": f"the same shot stays on screen {shot:.0f}s "
+                                   f"(segments {run[k]['seg_index']}–{run[m]['seg_index']}); over {HOLD_CAP:.0f}s "
+                                   f"viewers drift — split it with another crop or panel"})
+            k = m + 1
+        if total > PANEL_CAP and len({str(x.get('crop_bbox_norm')) for x in run}) > 1:
+            out.append({"seg": run[0]["seg_index"], "rule": "P1-long-hold",
+                        "msg": f"panel {run[0].get('panel_id')} stays on screen {total:.0f}s across "
+                               f"{len(run)} crops (over {PANEL_CAP:.0f}s)"})
+        i = j + 1
+    first = {}
+    prev = None
+    for s in inc:
+        pid = s.get("panel_id")
+        if pid is not None and pid != prev and pid in first:
+            out.append({"seg": s["seg_index"], "rule": "P2-repeat-panel",
+                        "msg": f"panel {pid} was already shown at segment {first[pid]} — "
+                               f"fine for a deliberate callback, otherwise pick a new panel"})
+        if pid is not None:
+            first.setdefault(pid, s["seg_index"])
+        prev = pid
+    return out

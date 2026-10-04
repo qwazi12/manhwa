@@ -8332,3 +8332,15 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - **Never changes a tier by itself.** The Series board card shows "📈 Demand: high · 1.2k views/day typical · 5 recaps (2 in 90 days) · suggest Make now [apply]". The apply button uses the existing `/api/watchlist/update`.
 - Runs weekly from the scheduler (`demand` step) when a YouTube API key is set, or on demand with "📈 check demand" on the Series board. Results go to `projects/_demand.json`; routes `GET /api/demand` and `POST /api/demand/run`. No money, only YouTube quota (14 series ≈ 1,414 of 10,000 daily units, once a week).
 - Tests: new `test_demand_research.py` 19/19; full suite 68/68.
+
+---
+
+### 2026-10-04 — BUILT step 7 (part 1): LongForm lessons — loudness and pacing
+
+- **Loudness:** every export is normalised to **-14 LUFS**, YouTube's playback level (`review_ui/audio_level.py`). It is a two-pass ffmpeg `loudnorm` (measure, then linear), with the video stream-copied and the audio set to AAC 192k at 48 kHz. It runs after the optional music bed and before the speed-up. The approve job's event line shows "loudness X → -14 LUFS". `EXPORT_LUFS` (Railway) sets the target, and `EXPORT_LUFS=off` skips it. Best-effort: any failure keeps the original audio and never costs the export. Tests `test_loudness.py` 9/9 run real ffmpeg on a −30 dB tone, which comes out at −14 ±1 with a byte-identical video stream.
+- **Pacing (warnings only, never blocking):** `storyboard_edit.pacing_warnings`, reached through `validate_timeline`, so they show in 🛡 Check and in the review's quality card:
+  - **P1-long-hold:** the same shot (panel and crop) on screen for more than 12 s, or the same panel for more than 20 s across several crops.
+  - **P2-repeat-panel:** a panel shown again after other panels. That may be a deliberate callback.
+  - On the local Swordmaster's Youngest Son ch.1 (87 segments in the video) it flags 5 long holds and 1 repeat: useful, not noisy.
+  - Tests `test_pacing.py` 8/8.
+- Full suite 70/70.

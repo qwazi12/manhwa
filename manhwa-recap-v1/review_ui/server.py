@@ -562,6 +562,11 @@ def _do_export(speed=1.0):
              "-c:v", "copy", "-shortest", tmp], capture_output=True)
         if r.returncode == 0:
             os.replace(tmp, out)
+    # LongForm lesson (step 7): YouTube plays at about -14 LUFS, so the export
+    # is normalised to it (EXPORT_LUFS, 'off' to skip). Best-effort: never
+    # costs the video.
+    import audio_level as _al
+    loud = _al.normalise(out)
     final = out
     if abs(speed - 1.0) > 1e-3:
         sped = out.replace(".mp4", f"_{speed}x.mp4")
@@ -575,7 +580,7 @@ def _do_export(speed=1.0):
             except OSError:
                 pass
     return {"ok": True, "clips": len(approved), "output": os.path.basename(final),
-            "url": f"/export/{os.path.basename(final)}"}
+            "url": f"/export/{os.path.basename(final)}", "loudness": loud}
 
 
 @app.get("/export/{name}")
@@ -3153,7 +3158,11 @@ def _run_finalize_job(job_id):
         j["url"] = res.get("url")
         j["status"] = "done"
         j["ended"] = time.time()
-        _ev("render", f"{_fname} exported → {res.get('output')} ({speed}x)", "ok")
+        _ld = res.get("loudness") or {}
+        j["loudness"] = _ld
+        _ev("render", f"{_fname} exported → {res.get('output')} ({speed}x"
+                      + (f", loudness {_ld['before']} → {_ld['target']:g} LUFS" if _ld.get("applied") else
+                         f", loudness unchanged: {_ld.get('why')}" if _ld else "") + ")", "ok")
     except HTTPException as e:
         j["status"] = "error"
         j["error"] = str(e.detail)

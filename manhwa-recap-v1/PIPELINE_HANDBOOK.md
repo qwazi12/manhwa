@@ -897,3 +897,10 @@ The left-menu item **📺 Publishing Studio** (it replaced "Review & Publish") o
 - **Levels:** high is ≥ 500 views/day, medium is ≥ 100, anything lower is low. Unknown means nobody recaps it yet, which can itself be an opening.
 - **Suggestions:** high → Make now, medium → Next up, low → Watching. When the suggestion differs from the series' current tier, the card shows **apply**. Nothing changes until you tap it.
 - **Cost:** no money. It uses about 101 YouTube quota units per series, out of 10,000 a day.
+
+## E16. LongForm lessons, part 1 (2026-10-04)
+
+- **Loudness:** every export is levelled to **−14 LUFS**, where YouTube plays videos back, so ours never sound quieter than the next video. Only the audio is re-encoded; the picture is copied untouched. Set `EXPORT_LUFS` on Railway to change the target, or to `off` to skip it. If levelling ever fails, the export keeps its original audio and the Logs line says why.
+- **Pacing warnings**, shown in 🛡 Check and on the video's quality card, never blocking:
+  - *Long hold:* the same shot on screen for more than 12 s, or the same panel for more than 20 s even with moving crops. Split it with another crop or panel.
+  - *Repeat panel:* a panel shown again later in the video. Keep it if it's a deliberate callback.
