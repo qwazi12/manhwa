@@ -6203,6 +6203,17 @@ def series_board():
                                          "paused": st["settings"].get("paused_series") or []}}
 
 
+@app.get("/api/critique")
+def critique_view(project: str = ""):
+    """What the narration's second pass (the script editor) flagged and rewrote."""
+    pdir = project_dir_for(project)
+    try:
+        with open(os.path.join(pdir, "critique.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"missing": True}
+
+
 @app.get("/api/demand")
 def demand_view():
     import demand_research as _dr

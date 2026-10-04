@@ -480,6 +480,9 @@ def select_direct_lines(panels, global_beatsheet, model=DEFAULT_MODEL):
 # The last run's direct-speech record, for project.json (same idiom as
 # LAST_USAGE): which lines were approved and what the final audit found.
 LAST_DIRECT_SPEECH = {}
+# What the critique pass (A3) found and changed, for the owner to see
+# (LongForm lesson, step 7): issues, and each rewritten unit before/after.
+LAST_CRITIQUE = {}
 
 
 def narrate_scene(scene_panels, model=DEFAULT_MODEL, global_beatsheet=None,
@@ -621,6 +624,8 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
     # A3: critique-and-revise — one reviewer call over the whole draft, then
     # regenerate at most MAX_REVISED_UNITS flagged units with editor notes.
     api_key = os.environ.get("GEMINI_API_KEY")
+    LAST_CRITIQUE.clear()
+    LAST_CRITIQUE.update(status="not run", issues=[], revised=[])
     try:
         if progress_cb:
             progress_cb(len(scenes), len(scenes), "review")
@@ -630,6 +635,9 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
         issues = code_issues + critique_units(
             results, model, api_key,
             direct_by_unit={u: _direct(u) for u in range(len(results))})
+        LAST_CRITIQUE.update(status="done", issues=[
+            {"unit": it.get("unit"), "type": it.get("type"), "problem": str(it.get("problem") or "")[:300],
+             "fix": str(it.get("fix") or "")[:300]} for it in issues[:40]])
         if issues:
             by_unit = {}
             for it in issues:
@@ -644,6 +652,10 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
                                         direct_lines=_direct(u))
                     if fixed and fixed.strip():
                         results[u] = (scene, fixed.strip())
+                        LAST_CRITIQUE["revised"].append({
+                            "unit": u, "panels": [p["panel_id"] for p in scene],
+                            "before": strip_anchored_tags(draft)[:1500],
+                            "after": strip_anchored_tags(fixed.strip())[:1500]})
             print(f"critique: {len(issues)} issue(s), revised "
                   f"{min(len(by_unit), MAX_REVISED_UNITS)} unit(s)", file=sys.stderr)
     except (usage.UsageCapExceeded if usage else ()) :
@@ -651,6 +663,7 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
     except Exception as e:
         # The review pass is a quality net, never a job-killer.
         print(f"critique pass skipped: {e}", file=sys.stderr)
+        LAST_CRITIQUE["status"] = f"skipped: {str(e)[:200]}"
 
     left, summary = _audit()
     LAST_DIRECT_SPEECH.clear()

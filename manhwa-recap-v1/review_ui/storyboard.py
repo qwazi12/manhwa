@@ -1025,6 +1025,10 @@ body.not-board header button, body.not-board header label {{ display:none !impor
     Re-run the check automatically after applying a fix</label>
   <div id="vstatus" class="hint" style="margin-top:10px">loading…</div>
   <div id="vfindings" style="margin-top:10px"></div>
+  <details id="critbox" style="margin-top:12px" ontoggle="if (this.open) loadCritique()">
+    <summary style="cursor:pointer;font-weight:600">📝 What the script editor changed</summary>
+    <div id="critbody" class="hint" style="margin-top:6px">loading…</div>
+  </details>
 </div>
 <div class="drawer wide" id="d_test">
   <h3>🧪 TEST LAB — an independent Claude pipeline</h3>
@@ -1754,7 +1758,7 @@ function toggleDrawer(name) {{
   if (name === 'exports') loadExports();
   if (name === 'settings') loadSettings();
   if (name === 'publish') loadStudio();
-  if (name === 'validate') loadValidation();
+  if (name === 'validate') {{ loadValidation(); if (document.getElementById('critbox').open) loadCritique(); }}
   if (name === 'test') loadLab();
   if (name === 'split') loadSplit();
   if (name === 'ingest') {{ paintIngest(); loadVoices(); if (activeJob()) startIngestPoller(); }}
@@ -2896,6 +2900,22 @@ async function bibleSaveEdit() {{
     await j('/api/series/bible', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{series_id: BIBLE_SID, bible: b}})}});
     bibleOpen(BIBLE_SID);
   }} catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
+}}
+// ================= SCRIPT EDITOR NOTES (critique pass) =================
+async function loadCritique() {{
+  const box = document.getElementById('critbody');
+  let d;
+  try {{ d = await j('/api/critique'); }} catch (e) {{ box.textContent = e.message || e; return; }}
+  if (d.missing) {{ box.textContent = 'No record for this chapter — its script was written before notes were kept, or came from the cache.'; return; }}
+  const iss = d.issues || [], rev = d.revised || [];
+  let h = `<div>Second-pass review: <b>${{esc(d.status || '')}}</b> · ${{iss.length}} issue(s) found · ${{rev.length}} part(s) rewritten (at most 3 per chapter).</div>`;
+  if (iss.length) h += '<ul style="margin:6px 0;padding-left:18px">' + iss.map(i =>
+    `<li><b>part ${{i.unit + 1}} · ${{esc((i.type || '').replace(/_/g, ' '))}}</b>: ${{esc(i.problem)}}${{i.fix ? ' <i>— ' + esc(i.fix) + '</i>' : ''}}</li>`).join('') + '</ul>';
+  h += rev.map(r => `<div style="border:1px solid var(--rule);border-radius:8px;padding:6px 8px;margin:6px 0">
+    <b>Part ${{r.unit + 1}} rewritten</b> <span class="hint">(panels ${{esc((r.panels || []).join(', '))}})</span>
+    <div style="margin-top:4px"><span class="hint">Before:</span> <span style="text-decoration:line-through;opacity:.7">${{esc(r.before)}}</span></div>
+    <div style="margin-top:4px"><span class="hint">After:</span> ${{esc(r.after)}}</div></div>`).join('');
+  box.innerHTML = h;
 }}
 // ================= PUBLISHING STUDIO =================
 let PS = null, PS_TAB = 'ready', PS_ACCTS = null, PS_STATS = {{}};

@@ -433,6 +433,9 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         open(script_path, "w").write(narrate.strip_anchored_tags(script) if hasattr(narrate, "strip_anchored_tags") else script)
         direct_record = dict(narrate.LAST_DIRECT_SPEECH)
         json.dump(direct_record, open(ds_path, "w"), indent=1, ensure_ascii=False)
+        # what the script editor (critique pass) flagged and rewrote
+        json.dump(dict(getattr(narrate, "LAST_CRITIQUE", {}) or {}),
+                  open(os.path.join(proj, "critique.json"), "w"), indent=1, ensure_ascii=False)
         scenes = narrate.provenance(results)
         json.dump(scenes, open(prov_path, "w"), indent=1)
         try:                       # names the script uses that the bible lacks

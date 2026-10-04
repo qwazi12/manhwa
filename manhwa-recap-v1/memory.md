@@ -8344,3 +8344,17 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
   - On the local Swordmaster's Youngest Son ch.1 (87 segments in the video) it flags 5 long holds and 1 repeat: useful, not noisy.
   - Tests `test_pacing.py` 8/8.
 - Full suite 70/70.
+- **Live (2b33ffa deploy cycle): the first weekly demand research ran by itself.** It covered 14/14 series and used 1,414 YouTube quota units, at $0. Strongest: Iron-Blooded Sword Hound (639 views/day typical, 8 recaps) and Regressed Mercenary (580/day, 14 recaps). Weakest: The Former Supreme (21/day). **7 tier suggestions are waiting for the owner:**
+  - Stellar Swordmaster, Extra's Academy, Mount Hua and Fated Villain: Make now → Next up (medium demand).
+  - Former Supreme: Next up → Watching.
+  - Bountiful Harvest Demon Lord and Too Many Heroes: Watching → Next up.
+  - None has been applied.
+
+---
+
+### 2026-10-04 — BUILT step 7 (part 2): the script editor's notes are visible
+
+- `narrate.generate_narration` now records the critique pass in `narrate.LAST_CRITIQUE`: its status (done or skipped plus the reason), the issues (unit, type, problem, fix; at most 40), and every rewritten unit with its text before and after (panel tags stripped). Ingest saves this as `critique.json` next to the script. `GET /api/critique?project=`.
+- 🛡 Check has a new "📝 What the script editor changed" section (collapsed until opened): "N issues found · M parts rewritten (at most 3 per chapter)", the list of issues, and each rewrite with the old text struck through.
+- Only chapters scripted from now on have notes; older chapters say so.
+- Tests: new `test_critique_notes.py` 8/8, with model calls faked; full suite 71/71.

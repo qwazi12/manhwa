@@ -904,3 +904,7 @@ The left-menu item **📺 Publishing Studio** (it replaced "Review & Publish") o
 - **Pacing warnings**, shown in 🛡 Check and on the video's quality card, never blocking:
   - *Long hold:* the same shot on screen for more than 12 s, or the same panel for more than 20 s even with moving crops. Split it with another crop or panel.
   - *Repeat panel:* a panel shown again later in the video. Keep it if it's a deliberate callback.
+
+### E16b. What the script editor changed (2026-10-04)
+
+The narration is written in two passes. A second reviewer reads the whole draft against the panels and flags problems: made-up names, wrong order, a missed beat, a camera or panel mention, repetition, a spoiled reveal. The worst three parts are then rewritten. You can now see this in 🛡 Check → **📝 What the script editor changed**: every issue it found, and each rewritten part with the old text struck through. Only chapters scripted from 2026-10-04 onward have notes.
