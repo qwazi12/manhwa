@@ -5809,6 +5809,7 @@ import research_service as _research
 
 
 def _run_research(job_id, ids):
+    usage.set_job(job_id)          # research calls show under this job in Logs / Spend
     j = JOBS[job_id]
     j.update(status="running", stage="research", total=len(ids), done=0)
     _persist_job(job_id)
