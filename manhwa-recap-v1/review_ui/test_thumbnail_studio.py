@@ -28,11 +28,15 @@ def check(name, ok):
     R.append((name, bool(ok)))
 
 
-def _img(path, w, h, rgb):
+def _img(path, w, h, rgb, layout=0):
+    # `layout` moves the subject so each panel is a DIFFERENT picture: the
+    # copilot drops look-alikes (same layout and colour), as real panels differ.
     from PIL import Image, ImageDraw
     im = Image.new("RGB", (w, h), rgb)
     d = ImageDraw.Draw(im)
-    d.rectangle([w // 4, h // 4, w * 3 // 4, h * 3 // 4],
+    k = layout % 4
+    x0, y0 = (w // 8 + k * w // 8, h // 8 + (layout // 4) * h // 4) if layout else (w // 4, h // 4)
+    d.rectangle([x0, y0, x0 + w // 2 - k * w // 16, y0 + h // 2],
                 fill=(min(255, rgb[0] + 90), 40, 160))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     im.save(path)
@@ -60,7 +64,7 @@ def make_project(root, pid, series, chapter, panels=6, cover=True):
         pid_i = "page%03d_panel_001" % (i + 1)
         # last one is a tall strip: a poor thumbnail even if the moment is good
         w, h = (760, 1900) if i == panels - 1 else (1280, 720)
-        _img(os.path.join(pdir, "crops", pid_i + ".png"), 240, int(240 * h / w), (20 + i * 12, 30, 60))
+        _img(os.path.join(pdir, "crops", pid_i + ".png"), 240, int(240 * h / w), (20 + i * 12, 30, 60), layout=i + 1)
         descs.append({"panel_id": pid_i, "file": pid_i + ".png",
                       "width": w, "height": h, "ok": True,
                       "ocr_text": "", "visual_description": moods[i % len(moods)]})
@@ -214,6 +218,46 @@ def main():
     # ...but the operator can still deliberately start over
     _k, restyled = ts.ensure_style(root, ch2, meta2, force=True)
     check("'new series style' re-derives on demand", restyled.get("inherited") is False)
+
+    # ================ 7b. Scrapper's picking lessons (owner, 2026-10-04)
+    lab = make_project(root, "lessons_1", "Lessons", "1", panels=6)
+    dl = json.load(open(os.path.join(lab, "descriptions.json")))
+    dl[0]["role"] = "bubble"
+    dl[1]["pix"] = {"ink": 0.01, "std": 4.0, "luma": 8.0}
+    dl[2]["visual_description"] = "Dong Bongsu in a quiet close-up"
+    json.dump(dl, open(os.path.join(lab, "descriptions.json"), "w"))
+    bible = {"characters": [{"name": "Dong Bongsu", "aliases": ["Sosam"], "role": "protagonist"},
+                            {"name": "Yeon Yeong-ha", "role": "assassin"}]}
+    rk = ts.rank_panels(lab, bible=bible)
+    ids = [p["panel_id"] for p in rk]
+    check("a speech-bubble card is never a thumbnail", dl[0]["panel_id"] not in ids)
+    check("a near-black panel is never a thumbnail", dl[1]["panel_id"] not in ids)
+    check("the series lead (by the bible's names) ranks first", ids[0] == dl[2]["panel_id"] and rk[0]["lead"])
+    check("lead names come from the protagonist and aliases", ts.lead_names(bible) == ["dong bongsu", "sosam"])
+    rot = ts.rank_panels(lab, bible=bible, exclude=ids[:2])
+    check("Regenerate offers the next-best first (last picks sink)",
+          rot[0]["panel_id"] not in ids[:2] and set(ids[:2]) <= {p["panel_id"] for p in rot})
+    import shutil
+    shutil.copy(os.path.join(lab, "crops", dl[3]["panel_id"] + ".png"), os.path.join(lab, "crops", dl[4]["panel_id"] + ".png"))
+    ids2 = [p["panel_id"] for p in ts.rank_panels(lab, bible=bible)]
+    check("two look-alike panels are never both offered", not (dl[3]["panel_id"] in ids2 and dl[4]["panel_id"] in ids2))
+    ml = json.load(open(os.path.join(lab, "project.json")))
+    _kl, sl = ts.ensure_style(root, lab, ml)
+    cl = ts.build_concepts(lab, ml, sl, "Title", bible=bible)
+    clean = [c for c in cl if c["composition"] == "clean"]
+    check("a Clean picture option (no text, no badge) features the lead",
+          clean and clean[0]["focal_panel"] == dl[2]["panel_id"] and not clean[0]["overlay_text"])
+    out = ts.render_concept(lab, clean[0], sl, os.path.join(lab, "clean.jpg"))
+    check("...and renders with no text", out["has_text"] is False)
+    tall = dict(clean[0], focal_file=os.path.join(lab, "crops", dl[5]["panel_id"] + ".png"), composition="hero-focus")
+    from PIL import Image
+    ts.render_concept(lab, tall, sl, os.path.join(lab, "tall.jpg"))
+    with Image.open(os.path.join(lab, "tall.jpg")) as im:
+        edge = im.convert("RGB").getpixel((10, 10))
+    with Image.open(tall["focal_file"]) as src:
+        bg = src.convert("RGB").getpixel((1, 1))
+    check("a tall panel is fitted whole on a dimmed blurred backdrop (edges dimmed, not cropped art)",
+          sum(edge) < sum(bg) * 0.6)
 
     # ================ 8. missing imagery degrades, never crashes
     bare = make_project(root, "nopages_1", "No Pages", "1", panels=3, cover=False)

@@ -1216,12 +1216,23 @@ def api_thumbcopilot_generate(body: ThumbGenIn):
     md = {**publish_defaults(pdir), **(store.get(name) or {})}
     title = md.get("title") or ""
 
+    # The series lead's close-up comes from the Series Bible's names; a
+    # Regenerate offers the next-best panels rather than the same picks.
+    bible = None
+    try:
+        import series_bible as _sbib
+        import ingest as _ing
+        slug, _c = _ing.parse_series_chapter(meta.get("url") or "")
+        bible = _sbib.load_series_bible(slug, pdir) if slug else None
+    except Exception:
+        bible = None
+    prev = tstudio.get_concepts(pdir, name) or {}
+    used = [c.get("focal_panel") for c in prev.get("concepts") or []] if not body.new_style else []
     concepts = tstudio.rank_concepts(
-        tstudio.build_concepts(pdir, meta, style, title), style, title)
+        tstudio.build_concepts(pdir, meta, style, title, exclude=used, bible=bible), style, title)
     if not concepts:
         raise HTTPException(422, "no usable panels found for this project — "
                                  "the thumbnail copilot needs extracted panels")
-    prev = tstudio.get_concepts(pdir, name) or {}
     rec = {
         "concepts": concepts,
         "series_key": key,

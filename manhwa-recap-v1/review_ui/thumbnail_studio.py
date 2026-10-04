@@ -217,8 +217,71 @@ def _resolve_panel(pdir, file_field, pid):
     return None
 
 
-def rank_panels(pdir, limit=8):
-    """Best thumbnail candidates, grounded in panels that exist on disk."""
+# Never a thumbnail (image check, panel_stats.classify): speech-bubble cards,
+# slivers/blank strips, credits pages.
+_NOT_THUMB_ROLES = ("bubble", "fragment", "credits")
+
+
+def _not_thumbnail(d):
+    """Why a panel can never be the picture, or '' — the image check's roles
+    plus near-black / flat images it measured."""
+    if d.get("role") in _NOT_THUMB_ROLES:
+        return d["role"]
+    pix = d.get("pix") or {}
+    if pix:
+        if (pix.get("luma") is not None and pix["luma"] < 22) or \
+                (pix.get("std") is not None and pix["std"] < 12):
+            return "blank"
+    return ""
+
+
+def lead_names(bible):
+    """Names and aliases of the series' lead(s) from the Series Bible: the
+    protagonist(s), else the first character listed."""
+    chars = [c for c in (bible or {}).get("characters") or [] if c.get("name")]
+    leads = [c for c in chars if "protagonist" in str(c.get("role") or "").lower()] or chars[:1]
+    out = []
+    for c in leads:
+        for n in [c["name"]] + list(c.get("aliases") or []):
+            n = str(n).strip()
+            if len(n) >= 3 and n.lower() not in out:
+                out.append(n.lower())
+    return out
+
+
+def _dhash(path, size=8):
+    """(64-bit difference hash, mean RGB): the layout and the colour of a
+    panel. Two panels are the same picture only when both are close."""
+    from PIL import Image
+    with Image.open(path) as im:
+        rgb = im.convert("RGB")
+        g = rgb.convert("L").resize((size + 1, size), Image.LANCZOS)
+        px = list(g.getdata())
+        mean = rgb.resize((1, 1), Image.BOX).getpixel((0, 0))
+    bits = 0
+    for y in range(size):
+        for x in range(size):
+            bits = (bits << 1) | (px[y * (size + 1) + x] > px[y * (size + 1) + x + 1])
+    return bits, mean
+
+
+LOOKALIKE_BITS = 10                  # of 64; at or under this = same layout
+LOOKALIKE_RGB = 40                   # summed mean-colour difference
+
+
+def _lookalike(a, b):
+    return (bin(a[0] ^ b[0]).count("1") <= LOOKALIKE_BITS
+            and sum(abs(x - y) for x, y in zip(a[1], b[1])) <= LOOKALIKE_RGB)
+
+
+def rank_panels(pdir, limit=8, exclude=(), bible=None):
+    """Best thumbnail candidates, grounded in panels that exist on disk.
+
+    Scrapper's picking lessons (owner, 2026-10-04): never a bubble, blank or
+    credits panel; the series lead (by the Series Bible's names) ranks up; no
+    two look-alikes; `exclude` (the panels the last set used) sinks to the end
+    so "Regenerate" offers the next-best instead of the same picks.
+    """
     descs = _read(os.path.join(pdir, "descriptions.json"), []) or []
     if isinstance(descs, dict):
         descs = list(descs.values())
@@ -226,18 +289,41 @@ def rank_panels(pdir, limit=8):
     by_panel = {}
     for s in segs:
         by_panel.setdefault(s.get("panel_id"), s)
+    leads = lead_names(bible)
+    excl = set(exclude or ())
     out = []
     for d in descs:
         pid = d.get("panel_id")
+        if _not_thumbnail(d):
+            continue
         f = _resolve_panel(pdir, d.get("file"), pid)
         if not f:
             continue
         sc = score_panel(d, by_panel.get(pid))
-        out.append({"panel_id": pid, "file": f, "score": sc,
+        text = ((d.get("visual_description") or "") + " " + (d.get("ocr_text") or "")).lower()
+        lead = next((n for n in leads if re.search(r"\b" + re.escape(n) + r"\b", text)), "")
+        if lead:
+            sc["lead"] = 14
+            sc["subject"] += 14
+            sc["total"] += 14
+        out.append({"panel_id": pid, "file": f, "score": sc, "lead": lead,
                     "ticked": bool((by_panel.get(pid) or {}).get("user_included")),
                     "why": (d.get("visual_description") or "")[:150]})
-    out.sort(key=lambda x: -x["score"]["total"])
-    return out[:limit]
+    out.sort(key=lambda x: (x["panel_id"] in excl, -x["score"]["total"]))
+    kept, hashes = [], []
+    for c in out:
+        try:
+            h = _dhash(c["file"])
+        except Exception:
+            h = None
+        if h is not None and any(_lookalike(h, k) for k in hashes):
+            continue
+        if h is not None:
+            hashes.append(h)
+        kept.append(c)
+        if len(kept) >= limit:
+            break
+    return kept
 
 
 def _read(path, default=None):
@@ -403,7 +489,7 @@ def _dominant_type(panel):
     return _TYPE_FOR[best] if sc.get(best, 0) > 0 else "character"
 
 
-def build_concepts(pdir, meta, style, title="", n=4):
+def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None):
     """3-5 chapter concepts, all built on the SAME approved series style.
 
     Only three things vary between chapters by design: the focal panel, the
@@ -411,7 +497,7 @@ def build_concepts(pdir, meta, style, title="", n=4):
     badge style, typography — comes from the style pack, which is what makes a
     playlist of these look like one series.
     """
-    panels = rank_panels(pdir, 8)
+    panels = rank_panels(pdir, 8, exclude=exclude, bible=bible)
     chapter = str((meta or {}).get("chapter") or "").strip()
     hook = hook_from_title(title) if title else ""
     pal = (style or {}).get("palette", {})
@@ -438,6 +524,13 @@ def build_concepts(pdir, meta, style, title="", n=4):
     if len(panels) > 1:
         plans.append(("Full-bleed hook panel", "hero-focus", panels[1], bool(hook),
                       "One focal moment at full bleed reads fastest at sidebar size."))
+    if len(panels) > 2:
+        # Scrapper's owner chose a plain picture: no text, no badge, the lead
+        # close-up (when the bible named one) fitted whole.
+        lead = next((p for p in panels if p.get("lead")), panels[2])
+        plans.append(("Clean picture", "clean", lead, False,
+                      "Just the art, no text or badge" + (
+                          " \u2014 the series lead (%s)." % lead["lead"].title() if lead.get("lead") else ".")))
     if len(panels) > 2:
         plans.append(("Textless character focus", comp, panels[2], False,
                       "No overlay: relies on the art alone, useful when the "
@@ -553,6 +646,22 @@ def _cover_crop(im, box_w, box_h):
     return im.crop((left, top, left + box_w, top + box_h))
 
 
+TALL_FIT = 0.6     # a source this much taller than the box is fitted whole
+
+
+def _backdrop_fit(im, box_w, box_h):
+    """A tall webtoon panel shown WHOLE on a blurred, dimmed copy of itself
+    (Scrapper's portrait fit) instead of a crop that cuts the face."""
+    from PIL import Image, ImageEnhance, ImageFilter
+    back = _cover_crop(im, box_w, box_h).filter(ImageFilter.GaussianBlur(max(8, box_w // 40)))
+    back = ImageEnhance.Brightness(back).enhance(0.45)
+    sw, sh = im.size
+    scale = min(box_w / sw, box_h / sh)
+    fg = im.resize((max(1, int(sw * scale)), max(1, int(sh * scale))), Image.LANCZOS)
+    back.alpha_composite(fg, ((box_w - fg.width) // 2, (box_h - fg.height) // 2))
+    return back
+
+
 def _scrim(img, box, rgba=(0, 0, 0, 170), horizontal=False):
     """A gradient wash so overlay text has something to sit on. Without it,
     light artwork and white text collide and neither is readable."""
@@ -628,8 +737,11 @@ def render_concept(pdir, concept, style, out_path, width=W):
         try:
             with Image.open(path) as src:
                 im = src.convert("RGBA")
-                img.alpha_composite(_cover_crop(im, box[2] - box[0], box[3] - box[1]),
-                                    (box[0], box[1]))
+                bw, bh = box[2] - box[0], box[3] - box[1]
+                if im.width and im.height and (im.width / im.height) < (bw / bh) * TALL_FIT:
+                    img.alpha_composite(_backdrop_fit(im, bw, bh), (box[0], box[1]))
+                else:
+                    img.alpha_composite(_cover_crop(im, bw, bh), (box[0], box[1]))
             return True
         except Exception:
             return False
@@ -648,6 +760,8 @@ def render_concept(pdir, concept, style, out_path, width=W):
         ImageDraw.Draw(img).rectangle([split - 4, 0, split + 1, height],
                                       fill=accent + (255,))
         _scrim(img, (0, int(height * 0.52), split, height))
+    elif comp == "clean":
+        place(focal, (0, 0, width, height))
     elif comp == "badge-stack":
         place(focal, (0, 0, width, height))
         _scrim(img, (0, int(height * 0.45), width, height), (0, 0, 0, 190))
@@ -661,7 +775,7 @@ def render_concept(pdir, concept, style, out_path, width=W):
     # Chapter badge — the one element that must change every chapter.
     part = str(concept.get("part") or "").strip()
     ch = part or str(concept.get("chapter") or "").strip()
-    if ch:
+    if ch and comp != "clean":
         label = "%s %s" % ("PART" if part else (concept.get("badge") or "CH"), ch)
         bf = _font(int(height * 0.085))
         tw = draw.textlength(label, font=bf)

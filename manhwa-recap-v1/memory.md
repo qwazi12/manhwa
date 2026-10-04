@@ -8296,3 +8296,17 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - Bug caught by the new tests before shipping: reorder used `list.index` inside an in-place sort, where the list is empty mid-sort.
 - Tests: new `test_publishing_studio.py` 28/28; `test_review` updated for the renamed rail item; full suite 66/66.
 - Next in step 4: the thumbnail picking lessons from Scrapper (lead close-up from the bible, look-dedupe, refresh rotation, blurred-backdrop fit, clean style, never a bubble, blank or credits panel).
+
+---
+
+### 2026-10-04 — BUILT step 4 (part 2): thumbnail picking lessons from Scrapper
+
+- `thumbnail_studio.rank_panels` now applies Scrapper's lessons:
+  - It **never picks a bubble, fragment or credits panel**, nor a near-black or flat one (from the image check's `role` and `pix`: luma < 22 or std < 12).
+  - The **series lead ranks up** (+14) when the panel's description or OCR names them; the names are the Series Bible protagonist and aliases (`lead_names`).
+  - **No two look-alikes** are offered: a dHash within 10/64 bits AND a mean colour within 40.
+  - **Regenerate rotates:** the previous set's panels sink to the end, so you get the next-best picks rather than the same ones. "New series style" does not rotate.
+- New **"Clean picture"** concept (composition `clean`): the art alone, no text and no badge, using the lead's close-up when the bible names one.
+- **Tall panels** (narrower than 0.6 × the box's shape) are shown whole on a blurred, dimmed copy of themselves instead of being cropped.
+- `/api/thumbcopilot/generate` loads the bible by the chapter URL's series slug.
+- Tests: test_thumbnail_studio 112/112. That includes 9 new checks. The fixture panels now differ in layout as well as tint; before, they were one picture in six tints, which the look-alike filter correctly drops. The tall-fit check was proved to fail with the backdrop disabled. Full suite 66/66.

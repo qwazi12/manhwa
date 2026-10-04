@@ -873,3 +873,12 @@ The left-menu item **📺 Publishing Studio** (it replaced "Review & Publish") o
 - **Kept until posted:** queued videos are exempt from the 7-day export cleanup. Once posted or removed, the normal rule applies again.
 - **No automatic posting:** the posting schedule (step 5) will post the next queued video at set times, but only once it's switched on in Settings.
 - Data lives in `projects/_post_queue.json` (`review_ui/publish_queue.py`). Routes: `/api/studio*`. Tests: `test_publishing_studio.py`.
+
+### E13b. How the thumbnail copilot picks its pictures (2026-10-04)
+
+- **Skipped:** bubble cards, slivers, credits pages, and near-black or flat images. These are the same image-check roles that keep such panels out of the video.
+- **Ranked up:** the series lead. A panel whose description names the Series Bible's protagonist or one of their aliases gets +14.
+- **No look-alikes:** two panels with the same layout and colour are never both offered.
+- **↻ Regenerate:** the panels used last time go to the back of the list, so you see the next-best picks.
+- **Clean picture:** one option is always the art alone, with no text and no badge.
+- **Tall panels** are shown whole on a blurred, dimmed copy of themselves instead of being cropped.
