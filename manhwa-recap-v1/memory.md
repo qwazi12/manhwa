@@ -8384,3 +8384,11 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - Step 7 remaining:
   - **Drive copy + disk freeing:** this needs a Google Drive service account on Railway, which is an owner decision and a secret, so it is not built. Disk freeing is already covered by the 7-day export cleanup and the 14-day archive deletion.
   - **Motion layer:** this changes how every video looks, so it should come with an owner-reviewed sample first.
+- **Live check, 368dc96, in a 390 px frame:** Projects → 🧩 steps on a real chapter shows: Pages 139, Panels 130, Descriptions 130, Script 2,292 words, Voice 110 lines (Charon, "dramatic…": the old pin, which Approve now re-voices), Timeline 110, Clips 110/110, Video not exported. The four re-run buttons are present. Page width 373, no sideways scroll.
+
+### Pending / owner decisions (as of 2026-10-04 end of run)
+- Privacy "public": set it in ⚙️ Settings → Channels (the agent's live save was blocked by the permission classifier).
+- 7 demand tier suggestions on the Series board (apply or ignore).
+- Posting schedule is built and OFF; switch it on in Settings when wanted.
+- Step 7 leftovers: Drive copy (needs a Drive service account secret), motion layer (needs an owner-reviewed sample first).
+- No videos exist live right now: approve a chapter to get one into 📺 Publishing Studio.
