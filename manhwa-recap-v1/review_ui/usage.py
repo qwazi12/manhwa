@@ -104,6 +104,7 @@ EST_GEMINI_MODEL_COST_USD = [
     # measured describe call (~2,250 in / ~800 out incl. thinking) at the
     # published $1.50/$9.00 — the old $0.001 under-guessed it ~10x.
     ("gemini-3.5-flash",  _envf("EST_COST_FLASH35_CALL_USD", 0.012)),
+    ("gemini-3.8-flash",  _envf("EST_COST_FLASH38_CALL_USD", 0.005)),
     ("gemini-3.1-flash",  EST_COST_PER_GEMINI_CALL_USD),
 ]
 
@@ -372,6 +373,18 @@ def token_cost(model, prompt_tokens, output_tokens, cached_tokens=0, tier=""):
 
 
 _tier_local = threading.local()
+_req_local = threading.local()
+
+
+def set_tier(tier):
+    """The service tier this thread's Gemini calls should REQUEST ('flex' for
+    autopilot chapters — half price, may queue 1–15 min; '' = Standard)."""
+    _req_local.tier = (tier or "").lower()
+
+
+def requested_tier():
+    """Thread setting first; a subprocess (describe) gets RECAP_SERVICE_TIER."""
+    return getattr(_req_local, "tier", "") or os.environ.get("RECAP_SERVICE_TIER", "").lower()
 
 
 def parse_gemini_usage(res):

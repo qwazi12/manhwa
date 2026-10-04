@@ -149,7 +149,7 @@ def project_id(url, variant=""):
 
 
 def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
-               engine="gemini", variant="", direct=None):
+               engine="gemini", variant="", direct=None, tier=""):
     """Run the pipeline for one chapter URL. `progress(stage, msg, pct)` is
     called as it advances. Returns the finished project dict.
 
@@ -182,6 +182,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     import usage
     job_id = job_id or "unknown"
     usage.set_job(job_id)
+    usage.set_tier(tier)
 
     proj_id = project_id(url, variant)
     proj = os.path.join(PROJECTS, proj_id)
@@ -236,6 +237,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     shutil.rmtree(crops, ignore_errors=True)
     os.makedirs(crops, exist_ok=True)
     subp_env = {**os.environ, "RECAP_JOB_ID": job_id}
+    if tier:                                   # describe runs as a subprocess
+        subp_env["RECAP_SERVICE_TIER"] = tier
     split_log = os.path.join(proj, "split.log")
 
     # SPLITTER. The background-registration splitter is now the production
@@ -350,7 +353,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     progress("describe", "Describing panels (Gemini vision)…", 35)
     desc_log = os.path.join(proj, "describe.log")
     desc_cmd = [PY, os.path.join(ROOT, "panel-describe", "run.py"),
-                "--input", crops, "--out", desc_path, "--model", "gemini-3.5-flash",
+                "--input", crops, "--out", desc_path,
+                "--model", os.environ.get("PIPELINE_MODEL", "gemini-3.8-flash"),
                 "--merge"]
     if os.path.exists(bible_path):
         desc_cmd.extend(["--series-bible", bible_path])

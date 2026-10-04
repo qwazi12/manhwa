@@ -268,6 +268,11 @@ def server_checks():
           "&& x.source !== 'autopilot'" in src and "s.source !== 'autopilot') await activateProj" in src)
     check("Logs offer ▶ resume for stopped, failed, cap-paused and restart-cut jobs",
           "function jobResume(id)" in src and "/api/jobs/resume" in src)
+    check("the 30 s card refresh keeps the series list open, the scroll position, and never overwrites typing",
+          "wasOpen ? ' open' : ''" in src and "window.scrollTo(0, keepY)" in src
+          and "box.contains(ae) && ae.tagName === 'INPUT'" in src)
+    check("Logs only rebuild when something changed (no 5 s reset under your thumb)",
+          "if (html !== box.dataset.last)" in src)
     check("Ingest page has the Autopilot card with an off switch and its undo line",
           'id="apcard"' in src and "Switch off" in src and "d.undo" in src)
 

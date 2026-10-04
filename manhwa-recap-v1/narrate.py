@@ -66,6 +66,10 @@ enemies who was standing on the highest branch of a tree noted that Prince \
 Ash had reached here in half an hour. His comrades laughed and said that \
 they had barely waited for the protagonist."""
 
+# The describe + narrate model (owner, 2026-10-03: Gemini 3.8 Flash — $0.75/
+# $3.75 vs 3.5 Flash's $1.50/$9.00). Rollback: PIPELINE_MODEL=gemini-3.5-flash.
+DEFAULT_MODEL = os.environ.get("PIPELINE_MODEL", "gemini-3.8-flash")
+
 NAME_HINT = "protagonist / the guy / the boy / the prince (rotate naturally; do not repeat one name every sentence)"
 
 
@@ -208,13 +212,18 @@ def call_gemini_rest(model, prompt, api_key):
         import urllib.error
         url = "https://generativelanguage.googleapis.com/v1beta/interactions"
         payload = {"model": model, "input": prompt}
+        # Autopilot chapters ask for Flex (half price, may queue ~1–15 min).
+        tier = usage.requested_tier() if usage else ""
+        if tier:
+            payload["service_tier"] = tier
         data = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json", "X-goog-api-key": api_key}
         last_err = None
         for attempt in range(3):
             req = urllib.request.Request(url, data=data, headers=headers)
             try:
-                with urllib.request.urlopen(req, timeout=300, context=context) as response:
+                with urllib.request.urlopen(req, timeout=900 if payload.get("service_tier") == "flex"
+                                            else 300, context=context) as response:
                     res = json.loads(response.read().decode("utf-8"))
                 _stash_usage(res)
                 break
@@ -229,6 +238,9 @@ def call_gemini_rest(model, prompt, api_key):
                 # bare "HTTP Error 400" because this body was discarded).
                 if e.code in (429, 500, 502, 503) and attempt < 2:
                     last_err = f"{e.code}: {body}"
+                    if payload.pop("service_tier", None):
+                        # Flex has no server-side fallback: retry on Standard
+                        data = json.dumps(payload).encode("utf-8")
                     _time.sleep(8 * (attempt + 1))
                     continue
                 raise RuntimeError(
@@ -382,7 +394,7 @@ Output each panel line prefixed by its ID, in order. Do not include conversation
 Write the panel-anchored narration for this scene now:"""
 
 
-def generate_global_beatsheet(panels, model="gemini-3.5-flash"):
+def generate_global_beatsheet(panels, model=DEFAULT_MODEL):
     """First pass of the narration pipeline: compiles all panel metadata for the chapter
     and generates a cohesive, chronological plot and pacing outline.
     """
@@ -441,7 +453,7 @@ def _gated_call(model, prompt, api_key):
     return call_gemini_rest(model, prompt, api_key)
 
 
-def select_direct_lines(panels, global_beatsheet, model="gemini-3.5-flash"):
+def select_direct_lines(panels, global_beatsheet, model=DEFAULT_MODEL):
     """P2: pick the chapter's 2-3 direct-speech lines (direct_speech.select).
     One call, only when the reader found attributable lines. Never a
     job-killer: on any failure other than a usage cap, the chapter simply
@@ -463,7 +475,7 @@ def select_direct_lines(panels, global_beatsheet, model="gemini-3.5-flash"):
 LAST_DIRECT_SPEECH = {}
 
 
-def narrate_scene(scene_panels, model="gemini-3.5-flash", global_beatsheet=None,
+def narrate_scene(scene_panels, model=DEFAULT_MODEL, global_beatsheet=None,
                   direct_lines=None, series_bible_data=None):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -556,7 +568,7 @@ def revise_unit(scene_panels, draft, unit_issues, model, global_beatsheet, api_k
     return call_gemini_rest(model, prompt, api_key)
 
 
-def generate_narration(panels, model="gemini-3.5-flash", verbose=True,
+def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
                        progress_cb=None, direct=None, series_bible_data=None):
     """Run the full pipeline over `panels` (already filtered/ordered) and
     return (full_script_text, [(scene_panels, scene_text), ...]).
@@ -735,7 +747,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Generate narration from panels")
     ap.add_argument("--limit-panels", type=int, default=10,
                      help="only use the first N (non-junk) panels — for a cheap style-check sample")
-    ap.add_argument("--model", default="gemini-3.5-flash")
+    ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--descriptions", help="override descriptions.json path (e.g. a fresh chapter's subset)")
     args = ap.parse_args()
 

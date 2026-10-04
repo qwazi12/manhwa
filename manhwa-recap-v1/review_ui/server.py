@@ -3518,8 +3518,12 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
         _persist_ingest(job_id)
 
     try:
+        # Autopilot chapters run on Gemini's Flex tier (half price, may queue);
+        # a manual ingest stays on Standard so it is not slowed down.
+        tier = (os.environ.get("AUTOPILOT_TIER", "flex")
+                if INGEST[job_id].get("source") == "autopilot" else "")
         meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh,
-                                 engine=engine, variant=variant, direct=direct)
+                                 engine=engine, variant=variant, direct=direct, tier=tier)
         INGEST[job_id].update(status="done", project=meta, pct=100)
     except JobCancelled as e:
         INGEST[job_id].update(status="cancelled", error=str(e))

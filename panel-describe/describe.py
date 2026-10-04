@@ -175,7 +175,7 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
 
     url = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
-    body = json.dumps({
+    payload = {
         "model": model,
         "input": [
             {
@@ -186,7 +186,14 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
                 ]
             }
         ]
-    }).encode("utf-8")
+    }
+    # Autopilot chapters ask for the Flex tier (half price, may queue up to
+    # ~15 min). Google does not fall back by itself, so a capacity refusal is
+    # retried once on Standard rather than failing the chapter.
+    tier = usage.requested_tier() if usage else os.environ.get("RECAP_SERVICE_TIER", "")
+    if tier:
+        payload["service_tier"] = tier
+    body = json.dumps(payload).encode("utf-8")
 
     ctx = None
     if certifi_path:
@@ -196,8 +203,19 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
         headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
         method="POST")
 
-    with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
-        data = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=900 if tier == "flex" else 60,
+                                    context=ctx) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if not (tier and e.code in (429, 503)):
+            raise
+        payload.pop("service_tier", None)
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
+            data = json.loads(resp.read())
     # This helper returns only the text, so the token counts would be lost.
     # Stash them for the usage gate — describe sends images, and the flat
     # per-call estimate was least accurate exactly here.

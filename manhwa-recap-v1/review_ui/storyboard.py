@@ -2677,6 +2677,14 @@ function apPill(t, bg, fg) {{
 async function loadAutopilot() {{
   const box = document.getElementById('apcard');
   if (!box) return;
+  // The 30 s refresh used to rebuild the card from scratch: it collapsed the
+  // open "All series" list (the page shrank by ~1,500 px and a phone's scroll
+  // jumped toward the top) and overwrote a number being typed. Never refresh
+  // under a box you are typing in; keep the list open and the page in place.
+  const ae = document.activeElement;
+  if (ae && box.contains(ae) && ae.tagName === 'INPUT') return;
+  const wasOpen = !!(box.querySelector('details') || {{}}).open;
+  const keepY = window.scrollY;
   let d;
   try {{ d = await j('/api/autopilot'); }}
   catch (e) {{ box.innerHTML = `<span style="color:var(--bad)">⚠ could not load autopilot — ${{e.message || e}}</span>`; return; }}
@@ -2727,7 +2735,8 @@ async function loadAutopilot() {{
       ${{waitingJobs}}
       <span>Undo</span><span>${{d.undo}}</span>
     </div>
-    <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">All series, in the order autopilot serves them (${{(d.series || []).length}})</summary>${{rows}}</details>`;
+    <details style="margin-top:10px"${{wasOpen ? ' open' : ''}}><summary class="hint" style="cursor:pointer">All series, in the order autopilot serves them (${{(d.series || []).length}})</summary>${{rows}}</details>`;
+  if (Math.abs(window.scrollY - keepY) > 1) window.scrollTo(0, keepY);
 }}
 async function apSet(patch) {{
   try {{ await j('/api/autopilot/settings', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(patch)}}); }}
@@ -3501,7 +3510,7 @@ async function loadLogs() {{
   const keep = new Set(_jobsChecked().map(c => c.value));   // survive a re-render
   try {{
     const list = await rows();
-    box.innerHTML = list.length ? list.map(x => {{
+    const html = list.length ? list.map(x => {{
       const [bg,fg] = STAT[x.status] || STAT.queued;
       const ctl = live(x.status)
         ? `<button class="mini" title="pause at the next step" onclick="jobCtl('${{x.id}}','pause')">⏸</button>
@@ -3523,6 +3532,9 @@ async function loadLogs() {{
         <div style="display:flex;gap:3px;flex-shrink:0">${{ctl}}</div>
       </div>`;
     }}).join('') : 'No jobs yet.';
+    // Rebuild only when something changed, so a 5 s refresh does not reset
+    // the page under your thumb while you scroll.
+    if (html !== box.dataset.last) {{ box.innerHTML = html; box.dataset.last = html; }}
     if (keep.size) {{
       document.querySelectorAll('.jobsel').forEach(c => {{ c.checked = keep.has(c.value); }});
     }}
