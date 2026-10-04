@@ -8322,3 +8322,13 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - Pure decision `publish_queue.decide()`; `next_slot()` is shown in the studio header and in Settings.
 - Fixed before shipping: the post's day was taken from the real clock instead of the slot's, which would have miscounted the cap on a late pass.
 - Tests: new `test_posting_schedule.py` 20/20; full suite 67/67. **Still OFF live.** Switching it on is the owner's call.
+
+---
+
+### 2026-10-04 — BUILT step 6: demand research (weekly, suggestions only)
+
+- New `review_ui/demand_research.py`. For each Tracker series it runs one YouTube search, "<title> manhwa recap" (100 quota units), and one stats call (1 unit), keeping only results whose title carries ≥60% of the distinctive words of the series title or an alias.
+- Signal: the **median views per day** of the matching recaps (high ≥ 500, medium ≥ 100, else low), plus how many were posted in the last 90 days (crowding). The suggested tier is high → Make now, medium → Next up, low → Watching.
+- **Never changes a tier by itself.** The Series board card shows "📈 Demand: high · 1.2k views/day typical · 5 recaps (2 in 90 days) · suggest Make now [apply]". The apply button uses the existing `/api/watchlist/update`.
+- Runs weekly from the scheduler (`demand` step) when a YouTube API key is set, or on demand with "📈 check demand" on the Series board. Results go to `projects/_demand.json`; routes `GET /api/demand` and `POST /api/demand/run`. No money, only YouTube quota (14 series ≈ 1,414 of 10,000 daily units, once a week).
+- Tests: new `test_demand_research.py` 19/19; full suite 68/68.

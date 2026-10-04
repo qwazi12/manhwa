@@ -1101,6 +1101,7 @@ body.not-board header button, body.not-board header label {{ display:none !impor
     <div class="calbar">
       <button type="button" class="primary" id="calcheck" onclick="calCheckAll()">↻ Check all series</button>
       <button type="button" class="mini" onclick="bibleResearchAll()" title="research every series that has no cast list yet (~$0.05 each)">📖 research missing</button>
+      <button type="button" class="mini" onclick="demandRun(this)" title="search YouTube for recaps of every series and measure how they do — free (YouTube quota only), suggestions only; runs by itself weekly">📈 check demand</button>
       <span class="hint" id="calnote">Reads each series page for new chapters, dates and covers — no AI cost.</span>
     </div>
     <div class="calchips" id="sbfilters">
@@ -3312,6 +3313,7 @@ function sbPaint() {{
       <span class="calmeta">${{plan}}</span>
       ${{x.earlier_not_planned ? '<span class="calmeta">Earlier chapters not planned: ' + x.earlier_not_planned + '</span>' : ''}}
       <span class="calmeta">${{bib}}</span>
+      ${{sbDemand(x)}}
       <div style="display:flex;gap:4px;flex-wrap:wrap">
         <button class="mini" onclick="apRunNow('${{esc(x.id)}}', '${{esc(x.next || '')}}')" title="make one chapter now (skips today's limit, not the budget)">▶ make now</button>
         <button class="mini" onclick="apSeries('${{esc(x.id)}}', '${{paused ? 'resume' : 'pause'}}').then(sbLoad)">${{paused ? '▶ resume' : '⏸ pause'}}</button>
@@ -3322,6 +3324,35 @@ function sbPaint() {{
       <div id="sbch_${{esc(x.id)}}"></div>
     </div>`;
   }}).join('');
+}}
+const DEMAND_TIER = {{greenlight: 'Make now', high_upside: 'Next up', watchlist: 'Watching'}};
+function sbDemand(x) {{
+  const d = x.demand;
+  if (!d) return '';
+  if (d.level === 'unknown') return '<span class="calmeta">📈 Demand: no recaps of it found on YouTube</span>';
+  if (d.level === 'error') return '';
+  const col = {{high: 'var(--ok)', medium: 'var(--warn)', low: 'var(--ink3)'}}[d.level] || 'var(--ink3)';
+  const vpd = d.median_vpd >= 1000 ? (d.median_vpd / 1000).toFixed(1) + 'k' : Math.round(d.median_vpd);
+  const top = (d.top || [])[0];
+  return `<span class="calmeta" title="${{top ? esc('Best: ' + top.title + ' — ' + top.channel + ', ' + top.views.toLocaleString() + ' views') : ''}}">📈 Demand: <b style="color:${{col}}">${{d.level}}</b> · ${{vpd}} views/day typical · ${{d.recaps}} recaps (${{d.recent}} in 90 days)
+    ${{d.differs ? ` · suggest <b>${{DEMAND_TIER[d.suggested_tier]}}</b> <button class="mini" onclick="demandApply('${{esc(x.id)}}','${{d.suggested_tier}}', this)">apply</button>` : ''}}</span>`;
+}}
+async function demandApply(sid, tier, btn) {{
+  btn.textContent = '…';
+  try {{ await j('/api/watchlist/update', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{series_id: sid, tier}})}}); sbLoad(); }}
+  catch (e) {{ alert('Could not change the tier: ' + (e.message || e)); }}
+}}
+async function demandRun(btn) {{
+  btn.textContent = '📈 checking…';
+  try {{ await j('/api/demand/run', {{method:'POST'}}); }}
+  catch (e) {{ btn.textContent = '📈 check demand'; alert(e.message || e); return; }}
+  const poll = setInterval(async () => {{
+    try {{
+      const d = await j('/api/demand');
+      if (!d.status.running) {{ clearInterval(poll); btn.textContent = '📈 check demand'; sbLoad(); }}
+      else btn.textContent = '📈 ' + d.status.done + '/' + d.status.total;
+    }} catch (e) {{ clearInterval(poll); btn.textContent = '📈 check demand'; }}
+  }}, 3000);
 }}
 async function sbChapters(sid, btn) {{
   const box = document.getElementById('sbch_' + sid);

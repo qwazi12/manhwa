@@ -5913,10 +5913,28 @@ def _schedule_post_pass(now=None):
     return dec
 
 
+def _demand_series():
+    return [{"id": x["id"], "title": x["title"], "aliases": x.get("aliases") or [], "tier": x.get("tier")}
+            for x in _wl_view()["series"]]
+
+
+def _demand_pass():
+    """Weekly YouTube demand check (step 6). Free (quota only); suggestions only."""
+    import demand_research as _dr
+    import yt_api
+    if not yt_api.configured() or not _dr.due(_ingest_mod.PROJECTS) or _dr.STATUS.get("running"):
+        return None
+    out = _dr.run(_ingest_mod.PROJECTS, _demand_series(), yt_api.Client())
+    sug = [k for k, v in out["series"].items() if v.get("differs")]
+    _ev("research", f"demand research done: {len(out['series'])} series, {len(sug)} tier suggestion(s), "
+                    f"{out.get('quota_used')} YouTube quota units", "ok")
+    return out
+
+
 def _scheduler_pass():
     _SCHED["last_run"] = time.time()
     for name, fn in (("budget", _resume_budget_paused), ("archive", _archive_sweep),
-                     ("posting", _schedule_post_pass),
+                     ("posting", _schedule_post_pass), ("demand", _demand_pass),
                      ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps()))):
         try:
             fn()
@@ -6162,8 +6180,50 @@ def series_board():
             "bible": bible, "checked": sx.get("checked"),
             "source_status": (best or {}).get("status"), "source_checked": (best or {}).get("last_checked"),
         })
+    try:
+        import demand_research as _dr
+        dem = _dr.load(_ingest_mod.PROJECTS).get("series") or {}
+    except Exception:
+        dem = {}
+    for row in out:
+        dv = dem.get(row["id"])
+        if dv:
+            row["demand"] = {k: dv.get(k) for k in ("level", "median_vpd", "recaps", "recent", "suggested_tier", "at", "top")}
+            row["demand"]["differs"] = bool(dv.get("suggested_tier") and dv["suggested_tier"] != row.get("tier"))
     return {"series": out, "autopilot": {"enabled": bool(st["settings"].get("enabled")),
                                          "paused": st["settings"].get("paused_series") or []}}
+
+
+@app.get("/api/demand")
+def demand_view():
+    import demand_research as _dr
+    import yt_api
+    d = _dr.load(_ingest_mod.PROJECTS)
+    return {**d, "status": dict(_dr.STATUS), "configured": yt_api.configured(),
+            "every_days": _dr.EVERY_DAYS}
+
+
+@app.post("/api/demand/run")
+def demand_run():
+    import demand_research as _dr
+    import yt_api
+    if not yt_api.configured():
+        raise HTTPException(409, "no YouTube API key is configured")
+    if _dr.STATUS.get("running"):
+        raise HTTPException(409, "demand research is already running")
+    series = _demand_series()
+
+    def work():
+        try:
+            out = _dr.run(_ingest_mod.PROJECTS, series, yt_api.Client())
+            _ev("research", f"demand research done: {len(out['series'])} series, "
+                            f"{out.get('quota_used')} YouTube quota units", "ok")
+        except Exception as e:  # noqa
+            _dr.STATUS["error"] = str(e)[:300]
+            _ev("research", f"demand research failed: {e}", "error")
+    threading.Thread(target=work, daemon=True).start()
+    _ev("research", f"demand research started for {len(series)} series")
+    return {"ok": True, "series": len(series)}
 
 
 @app.get("/api/series/chapters")

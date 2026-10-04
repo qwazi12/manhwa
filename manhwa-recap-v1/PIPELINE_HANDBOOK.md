@@ -890,3 +890,10 @@ The left-menu item **📺 Publishing Studio** (it replaced "Review & Publish") o
 - **The cap:** a channel never gets more than N posts in one Eastern day, counting your manual Post now presses. A video that would go over the cap waits, and one for another channel may go first.
 - **When nothing posts:** if the queue is empty, everything would go over the cap, or the publish check refuses (not approved, the cut changed, no channel connected), the slot is skipped and the reason appears in Logs → Live. A refused video shows as failed in the Queue with ↻ try again.
 - **To stop:** untick "on" and save. Videos already queued stay queued.
+
+## E15. 📈 Demand research (2026-10-04) — suggestions only
+
+- **What it measures:** once a week (or when you press **📈 check demand** on the Series board), each series gets one YouTube search for recaps of it. Only videos whose titles really name the series count. The signal is the typical (median) **views per day** of those recaps. It also counts how many were posted in the last 90 days, which shows how crowded the topic is.
+- **Levels:** high is ≥ 500 views/day, medium is ≥ 100, anything lower is low. Unknown means nobody recaps it yet, which can itself be an opening.
+- **Suggestions:** high → Make now, medium → Next up, low → Watching. When the suggestion differs from the series' current tier, the card shows **apply**. Nothing changes until you tap it.
+- **Cost:** no money. It uses about 101 YouTube quota units per series, out of 10,000 a day.
