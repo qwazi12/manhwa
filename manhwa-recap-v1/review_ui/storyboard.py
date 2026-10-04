@@ -1252,6 +1252,10 @@ if a cut lands mid-sentence ✂), ⠿ drag a seg card onto ANOTHER ROW to play t
 </table></section></div>
 </section>
 <div id="cands" onclick="this.style.display='none'"><div class="inner" onclick="event.stopPropagation()"><h3>Pick replacement panel</h3><div id="candList"></div></div></div>
+<dialog id="bibleDlg" style="max-width:760px;width:94vw"><div id="bibleBody">loading…</div>
+<p style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="bibleResearch()">↻ research again</button>
+<button onclick="bibleEdit()">✏️ edit</button><button id="bibleSave" style="display:none" onclick="bibleSaveEdit()">save edits</button>
+<button onclick="bibleDlg.close()">close</button></p></dialog>
 <dialog id="editDlg"><h3>Edit narration</h3>
 <p class="hint">One box per spoken line. Edit the text and Save to re-voice just
 that line (costs its TTS characters). 🗑 removes the line from the video
@@ -2706,6 +2710,7 @@ async function loadAutopilot() {{
     else if (r.state !== 'no_source' && r.state !== 'up_to_date') btns.push(`<button class="mini" onclick="apSeries('${{r.series_id}}','pause')" title="autopilot skips this series until you resume it">⏸ pause</button>`);
     if (['stopped', 'blocked', 'cooldown'].includes(r.state)) btns.push(`<button class="mini" onclick="apSeries('${{r.series_id}}','retry')" title="make the chapter pickable again now">↻ retry</button>`);
     if (r.mirror) btns.push(`<button class="mini" onclick="apRunNow('${{r.series_id}}', '${{r.next || ''}}')" title="make one chapter of this series now (skips today's chapter limit, not the budget)">▶ make now</button>`);
+    btns.push(`<button class="mini" onclick="bibleOpen('${{r.series_id}}')" title="who is who: the researched cast & world the AI writes with">📖 cast</button>`);
     const more = r.remaining && r.remaining.length ? ` · ${{r.remaining.length}} to make` : '';
     return `<div class="apser"><div style="min-width:0">
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="hint">#${{r.rank || '—'}}</span>
@@ -2736,7 +2741,8 @@ async function loadAutopilot() {{
       ${{waitingJobs}}
       <span>Undo</span><span>${{d.undo}}</span>
     </div>
-    <details style="margin-top:10px"${{wasOpen ? ' open' : ''}}><summary class="hint" style="cursor:pointer">All series, in the order autopilot serves them (${{(d.series || []).length}})</summary>${{rows}}</details>`;
+    <details style="margin-top:10px"${{wasOpen ? ' open' : ''}}><summary class="hint" style="cursor:pointer">All series, in the order autopilot serves them (${{(d.series || []).length}})</summary>
+      <div style="margin:6px 0"><button class="mini" onclick="bibleResearchAll()" title="research every series that has no cast & world yet (~$0.02 each)">📖 research series without a cast list</button></div>${{rows}}</details>`;
   if (Math.abs(window.scrollY - keepY) > 1) window.scrollTo(0, keepY);
 }}
 async function apSet(patch) {{
@@ -2758,6 +2764,73 @@ async function apRunNow(id, next) {{
     alert('Queued ' + r.series + ' ch.' + r.chapter + ' — it starts when the line is free.');
   }} catch (e) {{ alert('Could not start it: ' + (e.message || e)); }}
   loadAutopilot();
+}}
+// ================= SERIES BIBLE (story research) =================
+let BIBLE_SID = null, BIBLE = null;
+async function bibleOpen(sid) {{
+  BIBLE_SID = sid;
+  const box = document.getElementById('bibleBody');
+  box.innerHTML = 'loading…';
+  document.getElementById('bibleSave').style.display = 'none';
+  bibleDlg.showModal();
+  let d;
+  try {{ d = await j('/api/series/bible?series_id=' + encodeURIComponent(sid)); }}
+  catch (e) {{ box.innerHTML = '<span style="color:var(--bad)">' + esc(e.message || e) + '</span>'; return; }}
+  BIBLE = d.bible;
+  const b = d.bible, st = d.status;
+  if (!b) {{
+    box.innerHTML = `<h3>${{esc(d.title)}}</h3><p class="hint">No cast &amp; world yet — chapters of this series are written without names or pronouns.
+      Research it (~$0.02): sourced cast, pronouns, looks, factions and world.</p>` +
+      (st ? `<p class="hint">Research: ${{esc(st.status)}} ${{esc(st.error || st.summary || '')}}</p>` : '');
+    return;
+  }}
+  const r = b.research || {{}};
+  const tiers = {{}}; (r.sources || []).forEach(x => {{ tiers[x.tier] = (tiers[x.tier] || 0) + 1; }});
+  const ORIG = {{research: 'researched', owner: 'yours', undefined: 'hand-written'}};
+  const chars = (b.characters || []).map(c => `<tr><td><b>${{esc(c.name)}}</b>${{(c.aliases || []).length ? '<br><span class="hint">' + esc(c.aliases.join(', ')) + '</span>' : ''}}</td>
+      <td>${{esc(c.pronouns || c.gender || '')}}</td><td>${{esc(c.role || '')}}</td><td class="hint">${{esc(c.visual_cues || '')}}</td>
+      <td class="hint">${{esc(ORIG[c.origin] || c.origin || 'hand-written')}}${{(c.source_tiers || []).length ? '<br>' + esc(c.source_tiers.join(', ')) : ''}}</td></tr>`).join('');
+  const ws = b.world_setting || {{}};
+  const src = (r.sources || []).map((x, i) => `<li><a href="${{esc(x.url)}}" target="_blank" rel="noreferrer">${{esc(x.domain || x.title)}}</a> <span class="hint">${{esc(x.tier)}}</span></li>`).join('');
+  box.innerHTML = `<h3>📖 ${{esc(b.canonical_title || d.title)}} — cast &amp; world</h3>
+    <p class="hint">${{r.at ? 'Researched ' + new Date(r.at * 1000).toLocaleString() + ' · ' + (r.sources || []).length + ' sources (' + Object.entries(tiers).map(([k, v]) => v + ' ' + k).join(', ') + ')' : 'Hand-written (no research yet)'}}
+      · names and pronouns may come from fan wikis; world and story facts only from official or trusted sources. Your edits always win.</p>
+    <div style="overflow-x:auto"><table style="font-size:12px;width:100%"><tr><th>Character</th><th>Pronouns</th><th>Role</th><th>Look</th><th>From</th></tr>${{chars}}</table></div>
+    <p><b>World:</b> ${{esc([ws.universe, ws.premise].filter(Boolean).join(' — ') || '—')}}${{ws.costume_vs_monster_rule ? '<br><b>Rule:</b> ' + esc(ws.costume_vs_monster_rule) : ''}}</p>
+    ${{r.story_so_far ? '<p><b>Story so far' + (r.story_verified ? '' : ' (unverified — not used in scripts)') + ':</b> ' + esc(r.story_so_far) + '</p>' : ''}}
+    ${{(r.disputes || []).length ? '<p><b>⚠ Sources disagree:</b><br>' + r.disputes.map(esc).join('<br>') + '</p>' : ''}}
+    ${{(b.suggested_characters || []).length ? '<p><b>Names our scripts use that aren’t listed yet:</b> ' + b.suggested_characters.map(esc).join(', ') + ' <span class="hint">(add them with ✏️ edit)</span></p>' : ''}}
+    ${{src ? '<details><summary class="hint" style="cursor:pointer">Sources</summary><ol style="font-size:12px">' + src + '</ol></details>' : ''}}
+    <textarea id="bibleText" style="display:none;width:100%;height:320px;font:12px ui-monospace,monospace"></textarea>`;
+}}
+async function bibleResearch() {{
+  if (!BIBLE_SID) return;
+  try {{
+    await j('/api/series/research', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{series_id: BIBLE_SID}})}});
+    document.getElementById('bibleBody').innerHTML = '<p class="hint">Researching… (about a minute). It shows in Logs; reopen 📖 when done.</p>';
+  }} catch (e) {{ alert('Could not start research: ' + (e.message || e)); }}
+}}
+async function bibleResearchAll() {{
+  try {{
+    const r = await j('/api/series/research', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{missing_only: true}})}});
+    alert(r.job ? 'Researching ' + r.series.length + ' series, one at a time — progress in Logs.' : r.note);
+  }} catch (e) {{ alert('Could not start research: ' + (e.message || e)); }}
+}}
+function bibleEdit() {{
+  const t = document.getElementById('bibleText');
+  if (!t) return;
+  t.value = JSON.stringify(BIBLE || {{canonical_title: '', characters: [], world_setting: {{}}}}, null, 2);
+  t.style.display = 'block';
+  document.getElementById('bibleSave').style.display = '';
+}}
+async function bibleSaveEdit() {{
+  let b;
+  try {{ b = JSON.parse(document.getElementById('bibleText').value); }}
+  catch (e) {{ alert('That is not valid JSON: ' + e.message); return; }}
+  try {{
+    await j('/api/series/bible', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{series_id: BIBLE_SID, bible: b}})}});
+    bibleOpen(BIBLE_SID);
+  }} catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
 }}
 async function apCheck() {{
   try {{ await j('/api/autopilot/check', {{method:'POST'}}); }}

@@ -5803,6 +5803,89 @@ def autopilot_run_now(body: AutopilotRunIn):
         raise HTTPException(409, str(e))
 
 
+# ================================================================ SERIES RESEARCH
+# Story research (owner, 2026-10-04): a sourced Series Bible for every series.
+import research_service as _research
+
+
+def _run_research(job_id, ids):
+    j = JOBS[job_id]
+    j.update(status="running", stage="research", total=len(ids), done=0)
+    _persist_job(job_id)
+    done = []
+    for sid in ids:
+        if JOBS[job_id].get("control") == "stop":
+            j.update(status="cancelled", error="stopped by you")
+            break
+        j["current"] = sid
+        _persist_job(job_id)
+        try:
+            _research.build(sid)
+            done.append(sid)
+        except usage.UsageCapExceeded as e:
+            j.update(status="error", error=f"spend cap reached: {e}")
+            break
+        except Exception as e:  # noqa — one series failing must not stop the rest
+            j.setdefault("failed", []).append({"id": sid, "error": str(e)[:200]})
+        j["done"] += 1
+        _persist_job(job_id)
+    if j.get("status") == "running":
+        j["status"] = "done"
+    j.update(ended=time.time(), researched=done)
+    _persist_job(job_id)
+
+
+class ResearchIn(BaseModel):
+    series_id: str = ""
+    missing_only: bool = True
+
+
+@app.post("/api/series/research")
+def series_research_start(body: ResearchIn):
+    """Research one series, or every watchlist series (missing_only: those
+    without a bible). One background job, one series at a time."""
+    import watchlist as _wl
+    if body.series_id:
+        ids = [body.series_id]
+    else:
+        ids = []
+        for s in _wl.load(_wl_root())["series"]:
+            if not body.missing_only or not _research.existing_bible(s):
+                ids.append(s["id"])
+    if not ids:
+        return {"ok": True, "job": None, "note": "every series already has a bible"}
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {"type": "research", "status": "queued", "stage": "queued", "done": 0,
+                    "total": len(ids), "error": None, "ts": time.time(),
+                    "project": ids[0] if len(ids) == 1 else f"{len(ids)} series"}
+    _persist_job(job_id)
+    threading.Thread(target=_run_research, args=(job_id, ids), daemon=True).start()
+    return {"ok": True, "job": job_id, "series": ids}
+
+
+@app.get("/api/series/bible")
+def series_bible_view(series_id: str):
+    try:
+        return _research.view(series_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+class BibleIn(BaseModel):
+    series_id: str
+    bible: dict
+
+
+@app.post("/api/series/bible")
+def series_bible_save(body: BibleIn):
+    if not isinstance(body.bible.get("characters", []), list):
+        raise HTTPException(400, "characters must be a list")
+    try:
+        return {"ok": True, "bible": _research.save_owner_edit(body.series_id, body.bible)}
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 class JobResumeIn(BaseModel):
     job_id: str
 

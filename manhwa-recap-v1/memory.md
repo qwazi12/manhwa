@@ -8224,3 +8224,11 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 5. Rename tiers: yes ("Make now / Next up / Watching").
 6. Back catalogue: no by default; per-series "plan backfill from ch.N" button.
 7. NEW: also learn from Scrapper's thumbnail generation styles and logic.
+
+---
+
+### 2026-10-04 — BUILT step 0: story research — a sourced Series Bible for every series
+
+- **Found:** only Murim Psychopath had a bible (hand-written 2026-10-01); 13 series had none. A live grounded probe already disagreed with Murim's hand bible: Google's sources say the "Cursed Killing Star" title belongs to **Yeon Yeong-ha**, while our bible (and the narration) treat them as two people — to be confirmed by the research run and shown as a dispute.
+- **Built:** `series_research.py` (grounded Gemini 3.8 Flash + google_search via generateContent — works with the AQ. key; sources resolved + graded official/trusted/wiki/low; structuring call; owner's fan-wiki rule; merge where hand/owner entries win; name suggestions from our scripts), `review_ui/research_service.py` (watchlist series → slugs of every mirror, autopilot window, save/view/owner edit), ingest researches a series with no bible before describe and notes script names after narrate, routes `GET/POST /api/series/bible` + `POST /api/series/research`, board 📖 cast dialog (+ "research series without a cast list"). Handbook E9.
+- **Tests:** new `test_series_research.py` 28/28; full suite 61/61.

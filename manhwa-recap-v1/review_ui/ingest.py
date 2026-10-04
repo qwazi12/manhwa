@@ -346,6 +346,19 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     series_raw, _ = parse_series_chapter(url)
     import series_bible
     bible = series_bible.load_series_bible(series_raw, pdir=proj)
+    if bible is None:
+        # First chapter of a series with no bible: research it now (sourced
+        # cast, pronouns, looks, world — series_research.py), so describe and
+        # narrate know who is who. ~$0.02, once per series.
+        try:
+            progress("describe", "Researching the series (cast & world)…", 33)
+            import research_service
+            if research_service.build_for_url(url):
+                bible = series_bible.load_series_bible(series_raw)
+        except usage.UsageCapExceeded:
+            raise
+        except Exception as e:  # noqa — a chapter must not fail over research
+            progress("describe", f"Series research skipped: {e}", 33)
     bible_path = os.path.join(proj, "series_bible.json")
     if bible and not os.path.exists(bible_path):
         series_bible.save_series_bible(series_raw, bible, pdir=proj)
@@ -422,6 +435,11 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         json.dump(direct_record, open(ds_path, "w"), indent=1, ensure_ascii=False)
         scenes = narrate.provenance(results)
         json.dump(scenes, open(prov_path, "w"), indent=1)
+        try:                       # names the script uses that the bible lacks
+            import research_service
+            research_service.note_suggestions(url, script)
+        except Exception:
+            pass
     if scenes:
         beats = beat_segmenter.segment_beats_scenes(scenes)
     else:

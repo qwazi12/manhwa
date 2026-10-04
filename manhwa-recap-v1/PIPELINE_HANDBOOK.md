@@ -748,3 +748,42 @@ hand), so it shows on Check before review.
 neighbouring panel (Mount Hua 180: 29 bubbles' dialogue; Extra's 114: 24),
 instead of being dropped with the panel.
 
+## E9. Story research — a sourced Series Bible for every series (2026-10-04)
+
+**Before:** the Series Bible (`series_bible.py`; injected by ingest into describe,
+narrate and SEO) existed only for Murim Psychopath, hand-written on 2026-10-01.
+Every other series' chapters were written with no cast, pronouns or world rules.
+
+**Now (`series_research.py` + `review_ui/research_service.py`):**
+1. **Grounded research:** Gemini 3.8 Flash `generateContent` with the
+   `google_search` tool (works with our `AQ.` key via the `X-goog-api-key`
+   header). The answer comes back with `groundingChunks` (sources) and
+   `groundingSupports` (which sentence each source backs).
+2. **Sources resolved and graded:** official (webtoons.com, Naver, Kakao,
+   publishers), trusted (Wikipedia, Anime News Network, MangaUpdates, AniList,
+   MAL, Novel Updates), **wiki** (fandom), low (Reddit, YouTube, social).
+3. **Structured** by a second call (no tools) into the bible schema, each
+   entry citing source numbers. **Owner rules:** characters need an official,
+   trusted or wiki source (fan wikis allowed for names, pronouns and looks; the
+   panels' own image + OCR check is the agreement); world and story facts need
+   official or trusted, otherwise they're kept as "unverified" and not fed to
+   the narrator; disputes between sources are kept for the owner.
+4. **Merge:** what's already there wins (Murim's hand-written bible, owner
+   edits marked `origin: owner`); research only adds characters (an alias match
+   counts as already listed) and fills empty world fields.
+5. **Saved under every mirror's slug**, so ingest finds it whichever source a
+   chapter comes from (Asura slugs drop the rotating code; WEBTOON slugs keep
+   the title number, e.g. `the-stellar-swordmaster-5988`).
+6. **When:** automatically on the first chapter of a series with no bible
+   (ingest, before describe); on demand per series (📖 cast → ↻ research
+   again) or for every series missing one; metered (~$0.02 a series).
+7. **Learns from our chapters:** after each script, capitalised names it keeps
+   using that the bible lacks become `suggested_characters` for the owner to
+   confirm (never added by themselves).
+
+UI: Autopilot card → All series → **📖 cast** (cast table with origin and
+source grades, world, story so far, disputes, suggestions, sources; ↻ research,
+✏️ edit). Moves to the Series board in step 1. Routes: `GET/POST /api/series/bible`,
+`POST /api/series/research` (one series, or `missing_only`). Tests:
+`test_series_research.py` 28/28.
+
