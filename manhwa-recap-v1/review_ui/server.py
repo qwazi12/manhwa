@@ -472,6 +472,12 @@ def export(body: ExportIn):
     return _do_export(speed=body.speed)
 
 
+# Owner, 2026-10-04: finished videos play at 1.25x — the approve-and-render
+# export uses this speed and keeps only the sped-up file. Set EXPORT_SPEED=1.0
+# to go back to normal speed.
+EXPORT_SPEED = float(os.environ.get("EXPORT_SPEED", "1.25"))
+
+
 def _do_export(speed=1.0):
     """Concat ONLY user-included (checkbox, T3) clips, in timeline order."""
     segs = load_segments()
@@ -555,6 +561,11 @@ def _do_export(speed=1.0):
             [sys.executable, os.path.join(RECAP, "speed_up.py"),
              out, sped, str(speed)], check=True, capture_output=True)
         final = sped
+        if os.path.exists(sped) and os.path.getsize(sped) > 0:
+            try:
+                os.remove(out)        # keep only the version that will be posted
+            except OSError:
+                pass
     return {"ok": True, "clips": len(approved), "output": os.path.basename(final),
             "url": f"/export/{os.path.basename(final)}"}
 
@@ -3088,6 +3099,18 @@ def _run_finalize_job(job_id):
             j["done"] += 1
             _persist_job(job_id)
 
+        # Owner, 2026-10-04: approving applies the CURRENT studio voice. A
+        # chapter voiced before the voice/style was changed is re-voiced first
+        # (cached lines cost nothing), re-timed, and its clips re-rendered.
+        nv = _revoice_if_outdated(pdir, j, job_id)
+        if nv:
+            segs = load_segments()
+            ticked = video_segments(segs)
+            missing = needs_render(ticked, pdir)
+            j["stage"] = "render"
+            j["total"] = len(missing)
+            j["done"] = 0
+            _persist_job(job_id)
         # N clips at a time; each is gated against the timeline as it is
         # when its turn comes, and nothing is written back (358-lab-claude
         # seg 66: the old loop re-saved a stale copy after every clip).
@@ -3095,7 +3118,7 @@ def _run_finalize_job(job_id):
         j["stage"] = "export"
         j["current_seg"] = None
         _persist_job(job_id)
-        res = _do_export()
+        res = _do_export(EXPORT_SPEED)
         j["export"] = res.get("output")
         j["url"] = res.get("url")
         j["status"] = "done"
@@ -3107,6 +3130,77 @@ def _run_finalize_job(job_id):
         j["status"] = "error"
         j["error"] = str(e)
     _persist_job(job_id)
+
+
+def _voice_outdated(pdir):
+    """The studio default voice record, if this chapter was voiced in a
+    different voice or style; else None."""
+    import gemini_tts
+    import ingest as _ing
+    want = gemini_tts.load_default(_ing.PROJECTS)
+    if not want:
+        return None
+    try:
+        have = gemini_tts.engine_for_project(pdir)
+    except Exception:
+        return None
+    key = lambda r: (r.get("provider"), r.get("voice"), (r.get("style") or "").strip())
+    return want if key(want) != key(have) else None
+
+
+def _revoice_if_outdated(pdir, j, job_id):
+    """Re-record every line in the studio voice, re-time, mark clips stale.
+    Returns the number of lines re-voiced (0 = already current)."""
+    import gemini_tts
+    import storyboard_edit
+    want = _voice_outdated(pdir)
+    if not want:
+        return 0
+    vid = "chirp:Charon" if want.get("provider") == "chirp" else "gemini:" + str(want.get("voice"))
+    gemini_tts._write_json(os.path.join(pdir, gemini_tts.PIN_FILE),
+                           gemini_tts.parse_choice(vid, want.get("style")))
+    segs = load_segments()
+    for bi in sorted({b["index"] for s in segs for b in s["beats"] if b.get("file")}):
+        storyboard_edit.coalesce_beat(pdir, bi)       # sliced lines are re-recorded whole
+    segs = load_segments()
+    # Which segment lengths were automatic (old narration + the standard gap)?
+    # Those re-fit the new audio; a length set by hand is kept. Without this a
+    # faster voice would leave dead air in every segment (the visual track is
+    # authoritative in _recompute_timeline and only ever grows).
+    auto_fit = set()
+    for sg in segs:
+        if sg["beats"]:
+            occ = max(b["end"] for b in sg["beats"]) - sg.get("start", 0)
+            if abs(sg.get("dur", 0) - (occ + GAP_SEC)) <= 0.6:
+                auto_fit.add(sg["seg_index"])
+    eng = gemini_tts.engine_for_project(pdir)
+    beats = [b for s in segs for b in s["beats"] if (b.get("text") or "").strip()]
+    j.update(stage="revoice", total=len(beats), done=0,
+             note=f"applying the studio voice ({want.get('voice')}, {want.get('style') or 'no style'})")
+    _persist_job(job_id)
+    adir = os.path.join(pdir, "audio")
+    os.makedirs(adir, exist_ok=True)
+
+    def one(b):
+        if j.get("control") == "stop":
+            return
+        b.pop("file", None)
+        _synth_rest(b["text"], os.path.join(adir, f"beat_{b['index']:03d}.mp3"), engine=eng)
+        j["done"] = j.get("done", 0) + 1
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        list(ex.map(one, beats))
+    if j.get("control") == "stop":
+        raise RuntimeError("stopped by you while re-voicing")
+    for sg in segs:
+        if sg["seg_index"] in auto_fit:
+            sg["dur"] = 0              # re-fit to the new narration
+    _recompute_timeline(segs)
+    _write_segments(segs)
+    storyboard_edit._stale(pdir, [s["seg_index"] for s in segs])
+    _persist_job(job_id)
+    return len(beats)
 
 
 def _run_render_job(job_id, seg_indices):
@@ -3982,6 +4076,9 @@ def _add_review_status(items):
         else:
             st = "ready"
         it["review_status"] = st
+        # approved, nothing rendering, no video on disk (deleted by hand or by
+        # retention) — say so instead of a plain "Approved"
+        it["video_missing"] = st == "approved" and not n_exports
 
 
 class ActivateIn(BaseModel):

@@ -2884,6 +2884,7 @@ async function loadProjects() {{
       const label = (p.chapter ? ('Chapter ' + p.chapter) : p.id) + lab;
       const ps = PROJ_STATUS[p.review_status];
       const tags = (ps ? apPill(ps[0], ps[1], ps[2]) : '') + (p.auto ? ' ' + apPill('auto', 'var(--gray-bg)', 'var(--gray-ink)') : '') +
+        (p.video_missing ? ' <span class="hint" style="color:var(--warn)" title="the exported video was deleted; open it and press Approve to export again (clips are reused)">no video — open and approve to export again</span>' : '') +
         (p.checks ? ` <span class="hint" title="free story check found these — open Check after opening the chapter">${{p.checks}} to check</span>` : '');
       const arch = p.archive;
       const archInfo = arch ? (arch.keep ? ' <span class="hint">kept</span>'

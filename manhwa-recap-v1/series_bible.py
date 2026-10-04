@@ -36,21 +36,25 @@ DEFAULT_BIBLES = {
             "recurring_elements": "Martial sects, internal qi, festival performers and lion-dance costumes (not real monsters), assassins.",
             "costume_vs_monster_rule": "In festival, celebration, tournament, or street crowd scenes, dragon and lion heads, puppets, and masks are worn by martial performers and acrobats. They are STAGE PROPS and COSTUMES, NOT demonic entities, golems, or mythical monsters."
         },
+        # Corrected 2026-10-04 from sourced research + ch.44 OCR: the hero is Dong
+        # Bongsu living as "Sosam" (alias Tang Sam) — "Yu Shin" never appears in the
+        # comic — and the Cursed Killing Star is Yeon Yeong-ha's title, not a
+        # separate person (OCR: "HOW DID YEON YOUNGHA KNOW…", "C-CURSED KILLING STAR?").
         "characters": [
             {
-                "name": "Yu Shin",
-                "aliases": ["Young Master Yu", "Lord Yu", "Madman"],
+                "name": "Dong Bongsu",
+                "aliases": ["Sosam", "Tang Sam", "Dong Bong-su", "The Nameless Swordsman"],
                 "gender": "male",
                 "role": "protagonist",
                 "visual_cues": "Wild dark hair tied back, dark noble robes with fur collar/trim, deadpan or sarcastic psychotic smirk, fierce martial stance",
                 "pronouns": "he/him"
             },
             {
-                "name": "Cursed Killing Star",
-                "aliases": ["Lady Assassin", "Demon Sword", "Red Shadow"],
+                "name": "Yeon Yeong-ha",
+                "aliases": ["Cursed Killing Star", "Incarnation of the Extreme Yin Cursed Killing Star", "Yeon Young-ha", "Yeon"],
                 "gender": "female",
                 "role": "rival / assassin",
-                "visual_cues": "Long wild dark hair, fitted dark martial attire, sharp feminine gaze, red blade or blood-red aura",
+                "visual_cues": "Long wild dark hair, fitted dark martial attire, sharp feminine gaze, red blade or blood-red aura, glowing crimson eyes",
                 "pronouns": "she/her"
             }
         ],
