@@ -8127,3 +8127,13 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - Owner switched autopilot on. First chapter queued: **The Stellar Swordmaster ch.129** (round robin, rank 1); next in line: The Extra's Academy Survival Guide ch.114.
 - `PIPELINE_HANDBOOK.md` updated: source list; voice stage (default Gemini 3.8 Flash TTS, Charon; Chirp in the picker); A2/A3 model = `PIPELINE_MODEL` (3.8 Flash) with Flex for autopilot; A5 embedding metering via `count_tokens`; new **Part E** — E1 Chapter Autopilot, E2 review inbox, E3 stop/resume table + automatic behaviour, E4 spend limits ($10 site cap, $6 autopilot budget), E5 metering fix + published price table, E6 cost per chapter (bill-calibrated).
 - **First autopilot chapter done:** The Stellar Swordmaster ch.129 (`the-stellar-swordmaster-5988_129`, job dbd5280f3580) — all stages done, free story check 0 findings, **metered AI cost $0.3746** on Gemini 3.8 Flash + Flex (the estimate was ~$0.34 AI). Autopilot's estimate is now $0.375/chapter; spend today: autopilot $0.37 of $6, site $0.76 of $10. Handbook commit 293fa47 pushed at 03:36:47Z once the queue was empty.
+
+---
+
+### 2026-10-04 — Tracker "New chapters" showed no series: WEBTOON URLs were untrackable (fixed)
+
+**Owner:** screenshot of Tracker → New chapters: "No trackable series yet — ingest a chapter first", while Projects held 3 chapters. Asked whether the tracker is set up right and how the auto tracker works.
+
+**Root cause:** `tracker.series_page_url` only matched Asura-style `…/chapter/N` URLs. WEBTOON chapters are viewer URLs (`…/viewer?title_no=…&episode_no=…`), so every WEBTOON project was skipped without an error. It looked fine before because earlier projects were Asura; after the 2026-10-03 bulk delete, all remaining projects (Fog Land 2, Stellar Swordmaster 129, Extra's Academy 114) are WEBTOON → 0 series. **Fix:** WEBTOON chapter → its `/list?title_no=` series page, and episodes 1..latest are read through `providers.WEBTOON.discover_chapters` (the same reader the Watchlist and autopilot use). Asura path unchanged. `test_tracker.py` 35/35 (+3 WEBTOON cases); suite 59/59.
+
+**Checked live (2026-10-04 ~04:00 UTC):** Watchlist — all 14 series' sources `ok`, re-read 0.3 h earlier by autopilot's 6-hourly refresh; ingested chapters credited correctly (Stellar 129, Extra's 114). Autopilot — ch.129 done $0.37, ch.114 done $0.68, ch.96 (Regressed Mercenary) running. Unaffected by the bug: autopilot never used the "New chapters" tab; it reads the Watchlist.

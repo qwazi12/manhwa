@@ -35,7 +35,20 @@ def series_page_url(chapter_url):
     if not chapter_url:
         return None
     m = re.match(r"^(https?://[^\s]+?)/chapter/[\d.]+/?$", chapter_url.strip())
-    return (m.group(1).rstrip("/") + "/") if m else None
+    if m:
+        return m.group(1).rstrip("/") + "/"
+    # WEBTOON chapters are viewer URLs (?title_no=…&episode_no=…), which the
+    # pattern above never matched — so every WEBTOON project was silently
+    # skipped and the tab read "No trackable series yet" (2026-10-04, when all
+    # remaining projects were WEBTOON). Its series page is the /list URL.
+    try:
+        import providers as _prov
+        p = _prov.for_url(chapter_url)
+        if p is _prov.WEBTOON and p._TITLE_NO.search(chapter_url):
+            return p.normalize_series_url(chapter_url)
+    except Exception:
+        pass
+    return None
 
 
 def _fetch(url):
@@ -51,6 +64,15 @@ def chapter_numbers(series_url, _fetcher=None):
     Raises on a fetch/parse failure — callers must surface that rather than
     treating it as an empty result.
     """
+    try:
+        import providers as _prov
+        if _prov.for_url(series_url) is _prov.WEBTOON:
+            # episodes 1..latest from the list page (same reader the watchlist
+            # and autopilot use); raises on failure like the path below
+            found = _prov.WEBTOON.discover_chapters(series_url, _fetcher=_fetcher or _fetch)
+            return sorted(float(c) for c, _ in found)
+    except ImportError:
+        pass
     page = (_fetcher or _fetch)(series_url)
     nums = set()
     for m in re.findall(r"/chapter/(\d+(?:\.\d+)?)", page):

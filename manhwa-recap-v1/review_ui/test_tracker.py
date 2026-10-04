@@ -175,6 +175,20 @@ def main():
     r.append(("an untracked series is not fetched at all",
               not any("/a/" in c for c in calls)))
 
+    # ---- WEBTOON (viewer URLs used to be silently untrackable)
+    wt = "https://www.webtoons.com/en/action/the-stellar-swordmaster/episode-129/viewer?title_no=5988&episode_no=129"
+    wlist = "https://www.webtoons.com/en/action/the-stellar-swordmaster/list?title_no=5988"
+    r.append(("a WEBTOON chapter url yields its series list page", tracker.series_page_url(wt) == wlist))
+    page = "".join(f'<a href="/episode-{i}/viewer?title_no=5988&episode_no={i}">' for i in (129, 130, 131))
+    r.append(("WEBTOON episodes 1..latest are read from the list page",
+              tracker.chapter_numbers(wlist, _fetcher=lambda u: page)[-1] == 131.0))
+    wres = tracker.build([{"id": "the-stellar-swordmaster-5988_129", "url": wt, "series": "The Stellar Swordmaster",
+                           "chapter": "129"}], tempfile.mkdtemp(prefix="trkw_"), refresh=True,
+                         _fetcher=lambda u: page)
+    ws = wres["series"][0] if wres["series"] else {}
+    r.append(("a WEBTOON project now appears as a tracked series with its next chapter",
+              ws.get("series_url") == wlist and ws.get("highest_have") == "129" and ws.get("latest") == "131"))
+
     for name, ok in r:
         print(("PASS " if ok else "FAIL ") + name)
     n = sum(1 for _, ok in r if ok)
