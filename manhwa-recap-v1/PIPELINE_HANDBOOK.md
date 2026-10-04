@@ -857,3 +857,19 @@ One page (left menu → ⚙️ Settings & Channels) showing every studio setting
 - Every video still needs its own Publish press, because the posting schedule (step 5) is off.
 
 Tests: `test_settings.py`.
+
+## E13. 📺 Publishing Studio (2026-10-04)
+
+The left-menu item **📺 Publishing Studio** (it replaced "Review & Publish") opens inside the main app. The four tabs follow a video's life:
+
+| Tab | What's in it | What you do |
+|---|---|---|
+| 👀 Needs review | Rendered videos not yet approved, or approved before the cut changed | ▶ Watch & review opens the per-video page (verdict, SEO, thumbnail, publish details) |
+| 🎬 Ready to post | Approved and not yet posted | Tick, pick channels and privacy once, then **Send ticked to queue** |
+| 📋 Queue | Waiting to post, in order | ↑/↓, **🚀 Post now** (tap twice), ✕ remove. A failure shows why, with ↻ try again |
+| ✅ Published | Everything posted, with links per channel | 📈 load YouTube views and likes |
+
+- **Post now** uses the same checked publish job as before. The video must be approved, the cut unchanged since approval, the metadata valid, the channel connected, and the video not already posted.
+- **Kept until posted:** queued videos are exempt from the 7-day export cleanup. Once posted or removed, the normal rule applies again.
+- **No automatic posting:** the posting schedule (step 5) will post the next queued video at set times, but only once it's switched on in Settings.
+- Data lives in `projects/_post_queue.json` (`review_ui/publish_queue.py`). Routes: `/api/studio*`. Tests: `test_publishing_studio.py`.

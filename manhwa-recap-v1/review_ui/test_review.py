@@ -194,7 +194,7 @@ def main():
     # ingest it, build it on the board, check it, export it, review it — then
     # the standing tools. Asserted as a SEQUENCE, because "all eight are
     # present" would pass on any shuffle of them.
-    WORKFLOW = ["Ingest", "Board", "Check", "Exports", "Review",
+    WORKFLOW = ["Ingest", "Board", "Check", "Exports", "Publishing Studio",
                 "Projects", "Tracker", "Logs"]
 
     def rail_order(html):
@@ -202,7 +202,7 @@ def main():
         # The rail is the first .nav / #rail block; a label can sit on a
         # <button> or an <a>, so match the label text rather than the tag.
         # The shared sidebar (theme.sidebar_html) labels each item in a
-        # <span class="tt">; "Review & Publish" is the Review step.
+        # <span class="tt">; "Publishing Studio" (was "Review & Publish") is the Review step.
         start = html.find('class="side"')
         block = html[start:start + 8000]
         names = [m.split(" &amp;")[0].split(" &")[0]

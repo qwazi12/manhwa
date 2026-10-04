@@ -196,8 +196,8 @@ header { position:sticky; top:0; z-index:10; border-bottom:1px solid var(--rule)
 __SIDEBAR__
 <div class="shell">
 <header>
-  <h1>📺 Review</h1>
-  <a class="back" href="/storyboard">← Back to the board</a>
+  <h1>📺 Video review</h1>
+  <a class="back" href="/storyboard?open=publish">← Publishing Studio</a>
   <select id="picker" onchange="pick(this.value)"></select>
   <span id="hdrstate"></span>
 </header>

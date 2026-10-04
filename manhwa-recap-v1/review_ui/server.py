@@ -183,9 +183,17 @@ def prune_exports():
     """Delete exports past the retention window. Returns what it removed."""
     cutoff = time.time() - EXPORT_RETENTION_DAYS * 86400
     removed = []
+    # Publishing Studio: a video waiting in the posting queue is kept until it
+    # is posted or taken off the queue.
+    try:
+        import ingest as _ing
+        import publish_queue as _pq
+        keep = _pq.protected(_ing.PROJECTS)
+    except Exception:
+        keep = set()
     for pid, d in _all_export_dirs():
         for f in os.listdir(d):
-            if not f.endswith(".mp4"):
+            if not f.endswith(".mp4") or (pid, f) in keep:
                 continue
             fp = os.path.join(d, f)
             try:
@@ -6361,6 +6369,205 @@ def settings_overview():
         "storage": {"disk": disk, "projects": sizes[:8], "n_projects": len(sizes),
                     "exports_kept_days": EXPORT_RETENTION_DAYS, "archive_days": _archive.ARCHIVE_DAYS},
     }
+
+
+# ---------------------------------------------- 📺 Publishing Studio (step 4)
+import publish_queue as _pq
+
+
+def _yt_id(url):
+    import re as _re
+    m = _re.search(r"(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})", url or "")
+    return m.group(1) if m else None
+
+
+def _pub_status(project, name):
+    try:
+        return load_publishes(project_dir_for(project)).get(name)
+    except HTTPException:
+        return None
+
+
+@app.get("/api/studio")
+def studio_overview():
+    """Every export sorted into the studio's lanes: waiting for review, ready to
+    post, queued, published (plus failed posts, which go back to Ready)."""
+    import ingest as _i
+    import thumbnail as _tb
+    q = _pq.sync(_i.PROJECTS, _pub_status)
+    active = {(x["project"], x["name"]): x for x in q["items"] if x["status"] in _pq.ACTIVE}
+    exports = list_exports()
+    review, ready, queue_rows = [], [], []
+    by_key = {}
+    for e in exports["exports"]:
+        pdir = os.path.join(_i.PROJECTS, e["project"])
+        md = {**publish_defaults(pdir), **(load_publish(pdir).get(e["name"]) or {})}
+        rec = load_publishes(pdir).get(e["name"]) or {}
+        done = [r for r in rec.get("results") or [] if r.get("status") == "published"]
+        try:
+            has_thumb = bool(_tb.path_for(pdir, e["name"]))
+        except Exception:
+            has_thumb = False
+        row = {"project": e["project"], "name": e["name"], "series": e["series"], "chapter": e["chapter"],
+               "label": e["title"], "duration": e["duration"], "created": e["created"], "mtime": e["mtime"],
+               "expires_in_days": e["expires_in_days"], "url": e["url"], "review_url": e["review_url"],
+               "review_status": e["review_status"], "superseded": e["superseded"],
+               "title": md.get("title"), "privacy": md.get("privacy") or "private",
+               "targets": md.get("targets") or [],
+               "thumb": f"/thumbnail?project={e['project']}&name={e['name']}" if has_thumb else None,
+               "last_error": rec.get("error") if rec.get("status") == "failed" else None}
+        by_key[(e["project"], e["name"])] = row
+        if done or (e["project"], e["name"]) in active:
+            continue
+        if e["review_status"] == "approved" and not e["superseded"]:
+            ready.append(row)
+        else:
+            review.append(row)
+    for x in q["items"]:
+        if x["status"] in _pq.ACTIVE or (x["status"] == "failed" and time.time() - x["updated_at"] < 7 * 86400):
+            r = dict(by_key.get((x["project"], x["name"])) or
+                     {"project": x["project"], "name": x["name"], "label": x["name"], "missing": True})
+            r.update(qid=x["id"], qstatus=x["status"], qerror=x.get("error"), added_at=x["added_at"])
+            queue_rows.append(r)
+    try:
+        import studio_settings as _ss
+        sched = _ss.load().get("schedule") or {}
+    except Exception:
+        sched = {}
+    return {"review": review, "ready": ready, "queue": queue_rows, "published": _studio_published(),
+            "retention_days": exports["retention_days"],
+            "schedule": {"enabled": bool(sched.get("enabled")), "built": False},
+            "yt_stats": __import__("yt_api").configured()}
+
+
+def _studio_published():
+    import ingest as _i
+    out = []
+    try:
+        pids = [p for p in os.listdir(_i.PROJECTS) if not p.startswith("_")]
+    except OSError:
+        pids = []
+    for pid in pids:
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if not os.path.isdir(pdir):
+            continue
+        pubs = load_publishes(pdir)
+        if not pubs:
+            continue
+        label = _project_label(pdir)
+        store = load_publish(pdir)
+        for name, rec in pubs.items():
+            ok = [r for r in rec.get("results") or [] if r.get("status") == "published"]
+            if not ok:
+                continue
+            md = store.get(name) or {}
+            out.append({"project": pid, "name": name, "label": label["title"], "series": label["series"],
+                        "chapter": label["chapter"], "title": md.get("title") or label["title"],
+                        "privacy": md.get("privacy") or "private",
+                        "at": max((r.get("published_at") or 0) for r in ok) or rec.get("ended_at"),
+                        "posts": [{"account_id": r.get("account_id"), "username": r.get("username"),
+                                   "url": r.get("url"), "video_id": _yt_id(r.get("url"))} for r in ok],
+                        "partial": len(ok) < len(rec.get("results") or [])})
+    out.sort(key=lambda x: -(x["at"] or 0))
+    return out
+
+
+class StudioQueueIn(BaseModel):
+    items: list[dict]
+    targets: list[str] | None = None
+    privacy: str | None = None
+
+
+@app.post("/api/studio/queue")
+def studio_queue_add(body: StudioQueueIn):
+    """Send approved exports to the posting queue. Channels/privacy picked once
+    are saved onto each video's publish details (its own page can still change them)."""
+    import ingest as _i
+    if body.privacy is not None and body.privacy not in ("private", "unlisted", "public"):
+        raise HTTPException(400, "privacy must be private, unlisted or public")
+    entries = []
+    for it in body.items[:50]:
+        pdir = project_dir_for(str(it.get("project") or ""))
+        name = os.path.basename(str(it.get("name") or ""))
+        if not name.endswith(".mp4") or not os.path.exists(os.path.join(pdir, "exports", name)):
+            raise HTTPException(404, f"no export {name!r} in {it.get('project')!r}")
+        rv = review_state(pdir, name)
+        if rv["status"] != "approved" or rv["superseded"]:
+            raise HTTPException(409, f"{name} is not approved in Video review yet")
+        if body.targets is not None or body.privacy is not None:
+            store = load_publish(pdir)
+            md = {**publish_defaults(pdir), **(store.get(name) or {})}
+            if body.targets is not None:
+                md["targets"] = [t for t in body.targets if isinstance(t, str)]
+            if body.privacy is not None:
+                md["privacy"] = body.privacy
+            store[name] = md
+            save_publish(pdir, store)
+        entries.append({"project": os.path.basename(pdir.rstrip("/")), "name": name})
+    added, skipped = _pq.add(_i.PROJECTS, entries)
+    for a in added:
+        _ev("publish", f"queued for posting: {_pretty(a['project'])}")
+    return {"ok": True, "added": added, "skipped": skipped}
+
+
+class StudioItemIn(BaseModel):
+    id: str
+
+
+@app.post("/api/studio/queue/remove")
+def studio_queue_remove(body: StudioItemIn):
+    import ingest as _i
+    try:
+        it = _pq.remove(_i.PROJECTS, body.id)
+    except KeyError:
+        raise HTTPException(404, "no such queue item")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    _ev("publish", f"taken off the posting queue: {_pretty(it['project'])}")
+    return {"ok": True, "item": it}
+
+
+class StudioOrderIn(BaseModel):
+    ids: list[str]
+
+
+@app.post("/api/studio/queue/reorder")
+def studio_queue_reorder(body: StudioOrderIn):
+    import ingest as _i
+    return {"ok": True, "order": _pq.reorder(_i.PROJECTS, body.ids)}
+
+
+@app.post("/api/studio/queue/post")
+def studio_queue_post(body: StudioItemIn):
+    """Post one queued video now (the same checked publish job as Video review)."""
+    import ingest as _i
+    it = next((x for x in _pq.load(_i.PROJECTS)["items"] if x["id"] == body.id), None)
+    if it is None:
+        raise HTTPException(404, "no such queue item")
+    if it["status"] not in ("queued", "failed"):
+        raise HTTPException(409, f"this item is {it['status']}")
+    r = os_publish(PublishNowIn(project=it["project"], name=it["name"]))
+    _pq.mark(_i.PROJECTS, it["id"], status="posting", job=r.get("job"), error=None)
+    _ev("publish", f"posting {_pretty(it['project'])} ({r.get('privacy')})")
+    return {"ok": True, "job": r.get("job"), "privacy": r.get("privacy")}
+
+
+class StudioStatsIn(BaseModel):
+    video_ids: list[str]
+
+
+@app.post("/api/studio/stats")
+def studio_stats(body: StudioStatsIn):
+    """YouTube views/likes for published videos (1 quota unit per 50 ids)."""
+    import yt_api
+    if not yt_api.configured():
+        raise HTTPException(409, "no YouTube API key is configured")
+    ids = [v for v in body.video_ids if isinstance(v, str) and len(v) == 11][:50]
+    try:
+        st = yt_api.Client().video_stats(ids)
+    except Exception as e:
+        raise HTTPException(502, str(e)[:300])
+    return {"stats": {k: {"views": v["views"], "likes": v["likes"]} for k, v in st.items()}}
 
 
 class StudioSettingsIn(BaseModel):

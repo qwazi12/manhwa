@@ -1165,6 +1165,28 @@ body.not-board header button, body.not-board header label {{ display:none !impor
   <div class="hint" style="margin-bottom:8px">Every exported MP4 for the active project. Click to watch / download.</div>
   <div id="exportlist">loading…</div>
 </div>
+<div class="drawer" id="d_publish">
+  <h3 style="margin-bottom:2px">📺 PUBLISHING STUDIO</h3>
+  <div class="hint" style="margin-bottom:8px">Review → approve → post to your channels through Upload-Post. Videos in the queue are never auto-deleted. <span id="ps_sched"></span></div>
+  <style>
+  .psrow {{ display:flex; gap:10px; align-items:flex-start; border:1px solid var(--rule); border-radius:10px; padding:8px; margin-bottom:8px; background:var(--panel); }}
+  .psrow .th {{ width:112px; aspect-ratio:16/9; border-radius:6px; background:var(--panel2) center/cover no-repeat; flex:0 0 auto; display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--ink3); }}
+  .psrow .bd {{ flex:1; min-width:0; font-size:12.5px; }}
+  .psrow .bd b {{ display:block; overflow:hidden; text-overflow:ellipsis; }}
+  .psrow .act {{ display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }}
+  .psbar {{ position:sticky; bottom:0; background:var(--panel2); border:1px solid var(--rule); border-radius:10px; padding:8px 10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; font-size:12.5px; }}
+  #d_publish a.mini {{ display:inline-flex; align-items:center; padding:4px 10px; border:1px solid var(--rule); border-radius:6px; text-decoration:none; font-size:12px; font-weight:600; }}
+  #d_publish button.mini {{ font-size:12px; padding:4px 10px; }}
+  @media (max-width:520px) {{ .psrow .th {{ width:84px; }} }}
+  </style>
+  <div class="segtabs">
+    <button type="button" id="pt_review" onclick="psTab('review')">👀 Needs review</button>
+    <button type="button" id="pt_ready" class="on" onclick="psTab('ready')">🎬 Ready to post</button>
+    <button type="button" id="pt_queue" onclick="psTab('queue')">📋 Queue</button>
+    <button type="button" id="pt_published" onclick="psTab('published')">✅ Published</button>
+  </div>
+  <div id="psbox"><div class="hint">loading…</div></div>
+</div>
 <div class="drawer" id="d_settings">
   <h3>⚙️ SETTINGS &amp; CHANNELS</h3>
   <style>
@@ -1703,7 +1725,7 @@ setInterval(refreshUsage, 15000);
    move on, and the browser's Back button returns. Nothing slides over the
    board and nothing needs closing. 'board' is the storyboard page itself. */
 let CURRENT_VIEW = 'board', _viewFromHistory = false;
-const VIEWS = ['ingest','projects','tracker','validate','logs','exports','settings','test','split'];
+const VIEWS = ['ingest','projects','tracker','validate','logs','exports','publish','settings','test','split'];
 function toggleDrawer(name) {{
   // Work was merged into Logs: old links to it land on the "What changed" tab.
   let logsWant = name === 'work' ? 'work' : 'live';
@@ -1730,6 +1752,7 @@ function toggleDrawer(name) {{
   if (name === 'work') loadWork();
   if (name === 'exports') loadExports();
   if (name === 'settings') loadSettings();
+  if (name === 'publish') loadStudio();
   if (name === 'validate') loadValidation();
   if (name === 'test') loadLab();
   if (name === 'split') loadSplit();
@@ -2872,6 +2895,130 @@ async function bibleSaveEdit() {{
     await j('/api/series/bible', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{series_id: BIBLE_SID, bible: b}})}});
     bibleOpen(BIBLE_SID);
   }} catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
+}}
+// ================= PUBLISHING STUDIO =================
+let PS = null, PS_TAB = 'ready', PS_ACCTS = null, PS_STATS = {{}};
+function psTab(t) {{
+  PS_TAB = t;
+  ['review', 'ready', 'queue', 'published'].forEach(k => document.getElementById('pt_' + k).classList.toggle('on', k === t));
+  psPaint();
+}}
+async function loadStudio() {{
+  const box = document.getElementById('psbox');
+  try {{
+    const [d, os] = await Promise.all([j('/api/studio'), PS_ACCTS ? null : j('/api/publishing/status').catch(() => null)]);
+    PS = d;
+    if (os) PS_ACCTS = (os.accounts || []).filter(a => a.active);
+  }} catch (e) {{ box.innerHTML = '<span style="color:var(--bad)">' + esc(e.message || e) + '</span>'; return; }}
+  document.getElementById('ps_sched').textContent = PS.schedule.enabled ? '' :
+    'Posting schedule: off — each video posts when you press Post now.';
+  const n = {{review: PS.review.length, ready: PS.ready.length,
+             queue: PS.queue.filter(x => x.qstatus !== 'failed').length, published: PS.published.length}};
+  const lab = {{review: '👀 Needs review', ready: '🎬 Ready to post', queue: '📋 Queue', published: '✅ Published'}};
+  Object.keys(n).forEach(k => document.getElementById('pt_' + k).textContent = lab[k] + ' (' + n[k] + ')');
+  psPaint();
+}}
+function psMins(s) {{ return s ? Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0') : '?'; }}
+function psThumb(r) {{
+  return r.thumb ? `<div class="th" style="background-image:url('${{r.thumb}}')"></div>` : '<div class="th">no thumbnail</div>';
+}}
+function psWho(targets) {{
+  const names = Object.fromEntries((PS_ACCTS || []).map(a => [a.account_id, a.username || a.account_id]));
+  return (targets || []).map(t => names[t] || t).join(', ') || '<span style="color:var(--bad)">no channel picked</span>';
+}}
+function psPaint() {{
+  const box = document.getElementById('psbox');
+  if (!PS) return;
+  const R = PS[PS_TAB] || [];
+  let h = '';
+  if (PS_TAB === 'review') {{
+    h = R.map(r => `<div class="psrow">${{psThumb(r)}}<div class="bd"><b>${{esc(r.label)}}</b>
+      <span class="hint">${{psMins(r.duration)}} · made ${{esc(r.created)}} · ${{r.superseded ? 'the cut changed after approval — review the new render' : esc((r.review_status || 'review_pending').replace('_', ' '))}}
+      · deleted in ${{Math.round(r.expires_in_days)}}d</span>
+      <div class="act"><a class="mini" href="${{r.review_url}}">▶ Watch &amp; review</a></div></div></div>`).join('')
+      || '<div class="hint">Nothing waiting. Approve a chapter on the Board to render it; it shows up here to watch.</div>';
+  }} else if (PS_TAB === 'ready') {{
+    h = R.map((r, i) => `<label class="psrow" style="cursor:pointer"><input type="checkbox" class="psck" data-i="${{i}}" style="margin-top:4px">
+      ${{psThumb(r)}}<div class="bd"><b>${{esc(r.title || r.label)}}</b>
+      <span class="hint">${{esc(r.label)}} · ${{psMins(r.duration)}} · ${{esc(r.privacy)}} → ${{psWho(r.targets)}}</span>
+      ${{r.last_error ? `<div style="color:var(--bad);font-size:12px">last try failed: ${{esc(r.last_error)}}</div>` : ''}}
+      <div class="act"><a class="mini" href="${{r.review_url}}" onclick="event.stopPropagation()">✏️ details, SEO &amp; thumbnail</a></div></div></label>`).join('');
+    if (R.length) {{
+      const accts = (PS_ACCTS || []).map(a => `<label style="white-space:nowrap"><input type="checkbox" class="pstgt" value="${{esc(a.account_id)}}"
+        ${{(R[0].targets || []).includes(a.account_id) ? 'checked' : ''}}> ${{esc(a.username || a.account_id)}}</label>`).join(' ');
+      h += `<div class="psbar"><span>Post to:</span> ${{accts || '<span class="hint">no connected channels — see ⚙️ Settings</span>'}}
+        <select id="pspriv">${{['private', 'unlisted', 'public'].map(p => `<option ${{p === R[0].privacy ? 'selected' : ''}}>${{p}}</option>`).join('')}}</select>
+        <button onclick="psQueue()">Send ticked to queue</button></div>`;
+    }} else h = '<div class="hint">No approved videos waiting. Approve one in 👀 Needs review.</div>';
+  }} else if (PS_TAB === 'queue') {{
+    const live = R.filter(r => r.qstatus === 'queued');
+    h = R.map(r => {{
+      const k = live.indexOf(r);
+      const st = r.qstatus === 'posting' ? '<b>posting…</b>' : r.qstatus === 'failed'
+        ? `<b style="color:var(--bad)">failed</b> ${{esc(r.qerror || '')}}` : (k === 0 ? '<b>next</b>' : '#' + (k + 1));
+      return `<div class="psrow">${{psThumb(r)}}<div class="bd"><b>${{esc(r.title || r.label)}}</b>
+        <span class="hint">${{st}} · ${{esc(r.privacy || '')}} → ${{psWho(r.targets)}} · kept until posted</span>
+        ${{r.missing ? '<div style="color:var(--bad);font-size:12px">the video file is gone — remove this and re-export</div>' : ''}}
+        <div class="act">
+          ${{r.qstatus !== 'posting' && !r.missing ? `<button class="mini" onclick="psPost(this,'${{r.qid}}','${{esc(r.privacy || '')}}')">${{r.qstatus === 'failed' ? '↻ try again' : '🚀 Post now'}}</button>` : ''}}
+          ${{r.qstatus === 'queued' && k > 0 ? `<button class="mini" onclick="psMove('${{r.qid}}',-1)">↑</button>` : ''}}
+          ${{r.qstatus === 'queued' && k < live.length - 1 ? `<button class="mini" onclick="psMove('${{r.qid}}',1)">↓</button>` : ''}}
+          ${{r.qstatus === 'queued' ? `<button class="mini" onclick="psRemove('${{r.qid}}')">✕ remove</button>` : ''}}
+          <a class="mini" href="${{r.review_url || '#'}}">details</a></div></div></div>`;
+    }}).join('') || '<div class="hint">The queue is empty. Tick videos in 🎬 Ready to post and send them here.</div>';
+  }} else {{
+    const ids = R.flatMap(r => r.posts.map(p => p.video_id)).filter(Boolean);
+    h = (ids.length && PS.yt_stats ? `<div style="margin-bottom:8px"><button class="mini" onclick="psStats()">📈 load YouTube views</button></div>` : '') +
+      R.map(r => `<div class="psrow"><div class="bd"><b>${{esc(r.title)}}</b>
+        <span class="hint">${{esc(r.label)}} · ${{r.at ? new Date(r.at * 1000).toLocaleString() : ''}} · ${{esc(r.privacy)}}${{r.partial ? ' · <span style="color:var(--warn)">some channels failed</span>' : ''}}</span>
+        <div class="act">${{r.posts.map(p => {{
+          const s = PS_STATS[p.video_id];
+          return `<a class="mini" href="${{esc(p.url || '#')}}" target="_blank" rel="noopener">▶ ${{esc(p.username || p.account_id)}}</a>` +
+            (s ? `<span class="hint">${{s.views.toLocaleString()}} views · ${{s.likes.toLocaleString()}} likes</span>` : '');
+        }}).join(' ')}}</div></div></div>`).join('') || '<div class="hint">Nothing posted yet.</div>';
+  }}
+  box.innerHTML = h;
+}}
+async function psQueue() {{
+  const items = Array.from(document.querySelectorAll('.psck')).filter(c => c.checked).map(c => PS.ready[+c.dataset.i]);
+  if (!items.length) {{ alert('Tick at least one video.'); return; }}
+  const targets = Array.from(document.querySelectorAll('.pstgt')).filter(c => c.checked).map(c => c.value);
+  if (!targets.length) {{ alert('Pick at least one channel.'); return; }}
+  try {{
+    await j('/api/studio/queue', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{items: items.map(r => ({{project: r.project, name: r.name}})), targets,
+                             privacy: document.getElementById('pspriv').value}})}});
+    PS_TAB = 'queue'; await loadStudio(); psTab('queue');
+  }} catch (e) {{ alert('Could not queue: ' + (e.message || e)); }}
+}}
+function psPost(btn, id, privacy) {{
+  if (!btn.dataset.armed) {{
+    btn.dataset.armed = '1'; const was = btn.textContent;
+    btn.textContent = 'tap again to post' + (privacy ? ' (' + privacy + ')' : '');
+    setTimeout(() => {{ if (btn.dataset.armed) {{ delete btn.dataset.armed; btn.textContent = was; }} }}, 4000);
+    return;
+  }}
+  delete btn.dataset.armed; btn.textContent = '…';
+  j('/api/studio/queue/post', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{id}})}})
+    .then(() => {{ loadStudio(); if (window.jobsBarLoad) window.jobsBarLoad(); }})
+    .catch(e => {{ alert('Not posted: ' + (e.message || e)); loadStudio(); }});
+}}
+async function psMove(id, dir) {{
+  const ids = PS.queue.filter(r => r.qstatus === 'queued').map(r => r.qid);
+  const i = ids.indexOf(id), k = i + dir;
+  if (i < 0 || k < 0 || k >= ids.length) return;
+  [ids[i], ids[k]] = [ids[k], ids[i]];
+  try {{ await j('/api/studio/queue/reorder', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{ids}})}}); loadStudio(); }}
+  catch (e) {{ alert(e.message || e); }}
+}}
+async function psRemove(id) {{
+  try {{ await j('/api/studio/queue/remove', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{id}})}}); loadStudio(); }}
+  catch (e) {{ alert(e.message || e); }}
+}}
+async function psStats() {{
+  const ids = PS.published.flatMap(r => r.posts.map(p => p.video_id)).filter(Boolean);
+  try {{ PS_STATS = (await j('/api/studio/stats', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{video_ids: ids}})}})).stats || {{}}; psPaint(); }}
+  catch (e) {{ alert('YouTube stats: ' + (e.message || e)); }}
 }}
 // ================= SETTINGS & CHANNELS =================
 async function loadSettings() {{

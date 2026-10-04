@@ -8276,6 +8276,23 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - New page (nav item, `d_settings` drawer). Its cards are Connection, Spending, Autopilot, Channels (account checkboxes and privacy), Export speed, Voice, Storage & retention, and Backups. It reads `GET /api/settings/overview` and saves through `POST /api/settings`. The store is `review_ui/studio_settings.py` (`_studio_settings.json`).
 - **Export speed:** approve-and-render now reads `studio_settings.export_speed()`, default 1.25. A Railway `EXPORT_SPEED`, if set, still wins.
 - **Channels:** the default target is `mk:youtube` (🦩 Flamingo Remix).
-- **Privacy:** the owner asked for PUBLIC, but the default stays **private**. That conflicts with the existing guarantee "never public by omission", with test_publish_prep and test_youtube_connect, and with CLAUDE.md's rule of rights gating before anything public. The owner makes it public with one explicit save in Settings → Channels. Logged as an open owner decision.
+- **Privacy:** the owner asked for PUBLIC, but the code default stays **private**. That conflicts with the existing guarantee "never public by omission", with test_publish_prep and test_youtube_connect, and with CLAUDE.md's rule of rights gating before anything public. The owner's choice is meant to be applied as a saved setting. The agent's attempt to save it live through `POST /api/settings` was blocked by the permission classifier, so **the owner sets it in Settings → Channels → public → save (pending)**.
+- Deployed 3fc8652; live overview verified: scheduler running, export 1.25×, targets mk:youtube; spend $7.22 of $10 today ($2.20 autopilot).
 - **Bug caught before ship:** the overview passed `_SCHED` with the key `started`, but the page reads `running`. The overview now maps it to `running`, and a test covers it.
 - Tests: new `test_settings.py` 14/14; test_approve_voice updated (export uses the studio setting); full suite 65/65 (four of them only pass when run from `review_ui/`). Handbook E12.
+
+---
+
+### 2026-10-04 — BUILT step 4 (part 1): 📺 Publishing Studio
+
+- Owner: Review & Publish "looks to have different ui and code" from the rest of the site. **Review & Publish is now 📺 Publishing Studio, a panel of the main app** (same drawer, tabs and cards as Logs and Settings). Its tabs:
+  - 👀 **Needs review**: rendered and not yet approved, or the cut changed since approval. Links to the per-video page.
+  - 🎬 **Ready to post**: approved and not posted. Tick several, pick the channels and privacy once, then "Send ticked to queue".
+  - 📋 **Queue**: ↑/↓ to reorder, 🚀 Post now (two taps; it runs the existing checked publish job, so every eligibility check still applies), ✕ remove. A failed post shows its error and can be tried again. Each row says "kept until posted".
+  - ✅ **Published**: every posted video with its channel links, and a "📈 load YouTube views" button (1 quota unit per 50 videos).
+- The per-video page (/review) keeps all its tools (verdict, SEO, thumbnail copilot, publish details). It is renamed "📺 Video review", and its back button returns to the studio.
+- **Retention exemption:** `prune_exports()` skips any export that is queued or posting (`publish_queue.protected`). Once posted or removed, the normal 7-day rule applies again.
+- New `review_ui/publish_queue.py` (`_post_queue.json`). Routes: `GET /api/studio`, `POST /api/studio/queue`, `/queue/remove`, `/queue/reorder`, `/queue/post`, `/stats`.
+- Bug caught by the new tests before shipping: reorder used `list.index` inside an in-place sort, where the list is empty mid-sort.
+- Tests: new `test_publishing_studio.py` 28/28; `test_review` updated for the renamed rail item; full suite 66/66.
+- Next in step 4: the thumbnail picking lessons from Scrapper (lead close-up from the bible, look-dedupe, refresh rotation, blurred-backdrop fit, clean style, never a bubble, blank or credits panel).
