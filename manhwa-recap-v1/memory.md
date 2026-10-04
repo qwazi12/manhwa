@@ -8182,3 +8182,11 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 **Dry run, all 8 live chapters:** 71 panels go off (23 credits, 29 fragments, 19 bubbles), 10 real scenes come back; bubble dialogue moved into scripts: Mount Hua 29, Extra's 24, Iron-Blooded 16, Murim 10, Stellar 10, Fog Land 9, Regressed 3, Fated Villain 2.
 **Tests:** new `test_panel_roles.py` 20/20; full suite 60/60. Handbook: A5 note + new E8.
 **Applies to:** every NEW ingest (manual and autopilot). Existing chapters need a rebuild to pick it up — Murim 44 and Mount Hua 180 rebuilt as versions for the before/after (next entry).
+- **Before/after (image check), rebuilt as versions — originals untouched:**
+  | | Murim 44 → `-img` | Mount Hua 180 → `-img` |
+  |---|---|---|
+  | bubble/blank/credit panels on screen | **20 (82 s) → 0** | **6 (29 s) → 0** |
+  | segments / length | 101 / 839.5 s → **84 / 717.1 s** (v5 was 727.6 s) | 101 / 921.7 s → 99 / 909.5 s |
+  | story-check findings | 6 → 5 | 10 → 8 |
+  | mountain establishing shot | — | **back on screen** |
+  Bubble dialogue now in the narration, e.g. Murim: "Yu Shin noted the performance had begun long before he stepped into the courtyard…" (was the "I THOUGHT IT WAS JUST A PERFORMANCE" / "BUT THE PERFORMANCE" cards), "…carry word of Yu Shin's identity to Lord Mubon immediately" (was the "MUBON." card); Mount Hua: "…a frantic scream of a thief rang across the compound" ("THIEEEF!!!" card). Jobs a29cb32e6d70 (Murim, $0.69) and 78e1ef0bc3bf (Mount Hua, $0.77), Standard tier (manual queue; full rebuild incl. scrape + describe), done 15:41:47Z.
