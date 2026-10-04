@@ -8190,3 +8190,18 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
   | story-check findings | 6 → 5 | 10 → 8 |
   | mountain establishing shot | — | **back on screen** |
   Bubble dialogue now in the narration, e.g. Murim: "Yu Shin noted the performance had begun long before he stepped into the courtyard…" (was the "I THOUGHT IT WAS JUST A PERFORMANCE" / "BUT THE PERFORMANCE" cards), "…carry word of Yu Shin's identity to Lord Mubon immediately" (was the "MUBON." card); Mount Hua: "…a frantic scream of a thief rang across the compound" ("THIEEEF!!!" card). Jobs a29cb32e6d70 (Murim, $0.69) and 78e1ef0bc3bf (Mount Hua, $0.77), Standard tier (manual queue; full rebuild incl. scrape + describe), done 15:41:47Z.
+
+---
+
+### 2026-10-04 — PLAN FOR REVIEW: Studio redesign (Logs, Publishing Studio, Settings & Channels, Series board) — NOT BUILT
+
+**Owner:** make Logs & Activity as neat as Scrapper's; adapt Scrapper's "SocialPilot AI Studio" header (EXEMPT FROM 5-DAY RETENTION · multi-channel scheduler) into Review & Publish; add a "⚙️ Settings & Channels" page; is research being done on the tracker titles (Watchlist slow, "seed research", Greenlight / High-upside / Watchlist unclear); merge Release calendar + Watchlist; is "not made yet" live and does it count chapters run? Review page: https://claude.ai/artifact/Mik8U9RgHP2Sx5h6xHfS7m
+
+**Answers (verified):**
+- No ongoing research. "⤓ seed research" is a one-time import of the owner's demand list (14 titles, tier, rank, aliases, keywords — hand-set; ranks mix WEBTOON reads and YouTube recap traffic). Tiers = Greenlight now / High-upside secondary / Watchlist; autopilot uses them only for order.
+- "Not made yet" is live (recomputed on each load from projects on disk) but counts every chapter since ch.1 (Fated Villain "359 not made yet") and ignores the autopilot ledger (made-then-deleted chapters count as unmade). `/api/watchlist` answers in 0.13–0.16 s (67 KB); the slowness is client rendering (a chip per chapter, up to 360, plus covers).
+
+**Learned from Scrapper (b6460f7):** one terminal-style live feed (`time [event] message`, level colours, auto-scroll); JobsBar on every tab (running/queued + Stop, recent failures for 60 s); SocialPilot = header card (title, status pill, one-line summary) + sub-tabs (Posting Queue, LongForm, Pacing & Scheduler, Channel Ingest, Drive); Settings = cards (schedule editor, Upload-Post accounts, backups, disk/cleanup, AI voice, Spending with budget & fixed costs).
+
+**Plan:** (1) Series board — one card per series, "Next / left in plan" from the autopilot window + ledger, back catalogue shown separately, lazy chapter lists/covers, autopilot controls on the card, New chapters as a filter, seed button hidden once seeded. (2) Logs — `_events.jsonl` event log (5,000 lines), jobs bar on every page, tabs Live (filters/search/retry) · Jobs (grouped, real names, cost, deleted marked) · Spend · What changed; polling every 3 s, no SSE. (3) Settings & Channels — Connection, Spending, Autopilot, Channels, Posting schedule, Voice, Storage & retention, Backups. (4) Publishing Studio — header + Ready to post · Posting queue · Schedule (off by default) · Published (YouTube stats) · Video review; queued exports exempt from the 7-day deletion. (5) Posting schedule. (6) Optional weekly series research (YouTube recap demand ~1,400 quota units/week, source popularity, release rhythm) → tier suggestions only.
+**Open decisions:** build order; auto-posting on a schedule (suggest built but off); channels + default privacy (suggest private); research yes/later; rename tiers ("Make now / Next up / Watching"); back-catalogue backfill (suggest per-series button only).
