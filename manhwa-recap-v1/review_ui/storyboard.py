@@ -2705,6 +2705,7 @@ async function loadAutopilot() {{
     if (r.state === 'paused') btns.push(`<button class="mini" onclick="apSeries('${{r.series_id}}','resume')" title="let autopilot pick this series again">▶ resume</button>`);
     else if (r.state !== 'no_source' && r.state !== 'up_to_date') btns.push(`<button class="mini" onclick="apSeries('${{r.series_id}}','pause')" title="autopilot skips this series until you resume it">⏸ pause</button>`);
     if (['stopped', 'blocked', 'cooldown'].includes(r.state)) btns.push(`<button class="mini" onclick="apSeries('${{r.series_id}}','retry')" title="make the chapter pickable again now">↻ retry</button>`);
+    if (r.mirror) btns.push(`<button class="mini" onclick="apRunNow('${{r.series_id}}', '${{r.next || ''}}')" title="make one chapter of this series now (skips today's chapter limit, not the budget)">▶ make now</button>`);
     const more = r.remaining && r.remaining.length ? ` · ${{r.remaining.length}} to make` : '';
     return `<div class="apser"><div style="min-width:0">
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="hint">#${{r.rank || '—'}}</span>
@@ -2746,6 +2747,16 @@ async function apSet(patch) {{
 async function apSeries(id, action) {{
   try {{ await j('/api/autopilot/series', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{series_id: id, action}})}}); }}
   catch (e) {{ alert('Could not ' + action + ': ' + (e.message || e)); }}
+  loadAutopilot();
+}}
+async function apRunNow(id, next) {{
+  const ch = prompt('Which chapter should autopilot make now?', next || '');
+  if (!ch) return;
+  try {{
+    const r = await j('/api/autopilot/run', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{series_id: id, chapter: ch.trim()}})}});
+    alert('Queued ' + r.series + ' ch.' + r.chapter + ' — it starts when the line is free.');
+  }} catch (e) {{ alert('Could not start it: ' + (e.message || e)); }}
   loadAutopilot();
 }}
 async function apCheck() {{

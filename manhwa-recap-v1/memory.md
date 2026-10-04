@@ -8148,3 +8148,12 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 **Real gaps (pre-existing, not autopilot):** (1) `narrate.load_panels` drops `is_junk_panel` panels before scripting; bubble/text-only panels are junk → their dialogue never reaches narration. Dialogue words on junk panels: Mount Hua 180 27% (30 panels), Extra's 114 11%, Iron-Blooded 180 10%, Regressed 96 8%, Stellar 129 5%, Fog Land 2 4%, Fated Villain 358 2%. (2) `_ABSTRACT_OVERRIDE` "(extending) down … panel" dropped Mount Hua's 900×3994 establishing shot. Not fixed yet — proposed to owner (needs a go-ahead: it changes scripts).
 **Murim v5:** folder deleted 2026-10-03 16:38 UTC (owner bulk delete). Remaining: job record 9968be66c54c, usage rows, the published video on YouTube (Flamingo Remix, final_Oct01_01.32PM.mp4), memory.md notes. Railway CLI cannot list/restore single backups; a Railway backup restore replaces the WHOLE volume (would wipe the autopilot chapters) — not done.
 **Handbook:** new section E7 with these findings.
+
+---
+
+### 2026-10-04 — Autopilot "make now" + Murim 44 re-run as the v5 comparison test
+
+**Owner:** let autopilot run Murim Psychopath ch.44 again as a test against the v5 notes; v5's published video is "This OP Psychopath Welcomes A Deadly TRAP With A Smile" — https://youtu.be/mUEMbhWHL6E (Flamingo Remix).
+**Why new code:** autopilot alone would make Murim ch.43 first (story order) and Murim is rank 8 (~2 days away); today's 4-chapter limit was also used up (Mount Hua 180, Fated Villain 358, Iron-Blooded 180, Regressed 96; autopilot $1.67 of $6).
+**Built:** `autopilot.run_now()` + `POST /api/autopilot/run {series_id, chapter}` + a "▶ make now" button per series on the card. Same autopilot path (pipeline, Flex tier, ledger entry `requested: true`, counted in today's spend), joins the one-at-a-time line; skips the daily chapter LIMIT only — the $6 autopilot budget and $10 site cap still apply; refuses unlisted, already-made or already-ingesting chapters. `test_autopilot.py` 50/50; suite 59/59.
+**v5 baseline (from the 2026-10-01 entry):** 21 pages → 145 panels; 104 beats; 100 segments; 727.6 s; Cursed Killing Star correctly female; lion dance kept as performers/props (v4 had "golems/monsters"); longest hold 12.6 s (median ~6–7 s); final segs 96–97 clean 1.25 s silent pauses; describe with series bible; Gemini 3.5 Flash Standard.

@@ -5787,6 +5787,22 @@ def autopilot_check_now():
     return {"ok": True, "note": "checking sources — the card updates within a minute"}
 
 
+class AutopilotRunIn(BaseModel):
+    series_id: str
+    chapter: str
+
+
+@app.post("/api/autopilot/run")
+def autopilot_run_now(body: AutopilotRunIn):
+    """Make one specific chapter now through autopilot (skips the daily
+    chapter limit, never the budget or the site cap)."""
+    try:
+        return {"ok": True, **_autopilot.run_now(_ingest_mod.PROJECTS, _ap_deps(),
+                                                 body.series_id, body.chapter)}
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
 class JobResumeIn(BaseModel):
     job_id: str
 

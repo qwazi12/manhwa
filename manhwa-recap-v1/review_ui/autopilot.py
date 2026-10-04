@@ -436,6 +436,60 @@ def tick(root, deps, now=None):
     return started
 
 
+def run_now(root, deps, series_id, chapter, now=None):
+    """Owner asks for ONE specific chapter now ("make ch.44 of Murim now").
+
+    Goes through autopilot's own path — same pipeline, Flex tier, ledger
+    entry, counted in today's chapters and spend — and joins the normal
+    one-at-a-time line. Skips the daily chapter LIMIT (it is an explicit
+    request) but never the money: autopilot's budget and the site cap still
+    apply. Any chapter the source lists may be asked for, inside or outside
+    the start window; one already made or already ingesting is refused."""
+    now = time.time() if now is None else now
+    chapter = norm_chapter(chapter)
+    with _lock:
+        st = load(root)
+        series = next((s for s in deps["view"]() if s["id"] == series_id), None)
+        if series is None:
+            raise ValueError(f"no watchlist series '{series_id}'")
+        rows = candidates(st, [series], deps["canon"], deps["live_projects"](), now)
+        row = rows[0]
+        if row["mirror"] is None:
+            raise ValueError(row["reason"] or "no readable source for this series")
+        best = next(m for m in series["mirrors"] if m["series_key"] == series["best_mirror"])
+        listed = {norm_chapter(c) for c in best.get("chapters") or []}
+        if chapter not in listed:
+            raise ValueError(f"ch.{chapter} is not listed on the source "
+                             f"(latest there is ch.{best.get('latest')})")
+        key = ledger_key(deps["canon"](best["series_key"]), chapter)
+        e = st["ledger"].get(key)
+        if chapter in {norm_chapter(c) for c in series.get("ingested") or []} or \
+                (e and e.get("status") in MADE):
+            raise ValueError(f"ch.{chapter} is already made or in the line")
+        spent, cap = deps["spend"]()
+        ap_spent, est = deps.get("ap_spend", lambda: 0.0)(), estimate(st["ledger"])
+        budget = float(st["settings"].get("budget_usd") or 0)
+        if ap_spent + est > budget:
+            raise ValueError(f"autopilot budget used for today (${ap_spent:.2f} of ${budget:.2f})")
+        if cap and spent + est > cap:
+            raise ValueError(f"site spend cap reached for today (${spent:.2f} of ${cap:.2f})")
+        url = deps["chapter_url"](row, chapter)
+        pid = deps["project_id"](url)
+        if pid in deps["live_projects"]():
+            raise ValueError(f"ch.{chapter} is already ingesting")
+        job = deps["enqueue"](url, st["settings"].get("engine", "gemini"))
+        record_queued(root, key, series_id=series_id, chapter=chapter, project=pid,
+                      job=job, source="autopilot", url=url)
+        save_req = load(root)
+        save_req["ledger"][key]["requested"] = True       # made on request, not by the picker
+        save(root, save_req)
+    started = {"series": series["title"], "chapter": chapter, "job": job, "project": pid,
+               "at": now, "requested": True}
+    runtime["last_started"] = started
+    audit("chapter_requested", **started)
+    return started
+
+
 def status(root, deps, now=None):
     """Rule 40 for the card: state, what happens next, when it last ran, undo."""
     now = time.time() if now is None else now

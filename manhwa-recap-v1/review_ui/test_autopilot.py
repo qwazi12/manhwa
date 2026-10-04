@@ -162,6 +162,30 @@ def main():
     except ValueError:
         check("per-day limit is bounded", True)
 
+    # make-now: one chosen chapter, through autopilot's path
+    n0 = len(fake.queued)
+    ap.update_settings(root, {"per_day": 0})            # today's limit already used up
+    r = ap.run_now(root, fake.deps(), "alpha", "5", now=tomorrow)
+    check("make-now queues the exact chapter asked for, skipping the daily limit",
+          r["chapter"] == "5" and len(fake.queued) == n0 + 1 and fake.queued[-1][0].endswith("/alpha/5"))
+    e = [e for e in ap.load(root)["ledger"].values() if e.get("job") == r["job"]][0]
+    check("...recorded as an autopilot chapter (Flex, ledger, today's spend)",
+          e["source"] == "autopilot" and e.get("requested") is True)
+    for bad, why in ((("alpha", "5"), "already"), (("alpha", "99"), "not listed"), (("nope", "1"), "no watchlist")):
+        try:
+            ap.run_now(root, fake.deps(), *bad, now=tomorrow)
+            check("make-now refuses: " + why, False)
+        except ValueError as ex:
+            check("make-now refuses: " + why, why in str(ex))
+    fake.ap_spent = 5.9
+    try:
+        ap.run_now(root, fake.deps(), "alpha", "6", now=tomorrow)
+        check("make-now still respects autopilot's $ budget", False)
+    except ValueError as ex:
+        check("make-now still respects autopilot's $ budget", "budget" in str(ex))
+    fake.ap_spent = 0.0
+    ap.update_settings(root, {"per_day": 4})
+
     # archive
     import project_archive as arch
     pdir = tempfile.mkdtemp(prefix="arch_")
