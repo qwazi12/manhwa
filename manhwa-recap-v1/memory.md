@@ -8157,3 +8157,16 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 **Why new code:** autopilot alone would make Murim ch.43 first (story order) and Murim is rank 8 (~2 days away); today's 4-chapter limit was also used up (Mount Hua 180, Fated Villain 358, Iron-Blooded 180, Regressed 96; autopilot $1.67 of $6).
 **Built:** `autopilot.run_now()` + `POST /api/autopilot/run {series_id, chapter}` + a "▶ make now" button per series on the card. Same autopilot path (pipeline, Flex tier, ledger entry `requested: true`, counted in today's spend), joins the one-at-a-time line; skips the daily chapter LIMIT only — the $6 autopilot budget and $10 site cap still apply; refuses unlisted, already-made or already-ingesting chapters. `test_autopilot.py` 50/50; suite 59/59.
 **v5 baseline (from the 2026-10-01 entry):** 21 pages → 145 panels; 104 beats; 100 segments; 727.6 s; Cursed Killing Star correctly female; lion dance kept as performers/props (v4 had "golems/monsters"); longest hold 12.6 s (median ~6–7 s); final segs 96–97 clean 1.25 s silent pauses; describe with series bible; Gemini 3.5 Flash Standard.
+- **Murim 44 autopilot test — result** (job bb71a27c4aa9, `murim-psychopath_44`, done 14:31:41Z, metered **$0.53**, Gemini 3.8 Flash + Flex), vs v5 (2026-10-01, 3.5 Flash):
+  | | v5 | autopilot test |
+  |---|---|---|
+  | panels / beats / segments | 145 / 104 / 100 | **145 / 105 / 105** |
+  | length | 727.6 s | **839.5 s** (+112 s) |
+  | longest hold / median | 12.6 s / ~6–7 s | 12.9 s / 8.5 s (5 holds >12 s) |
+  | Cursed Killing Star female | yes | **yes — 8/8 mentions "her"** |
+  | lion dance as performers | yes (v4 had golems/monsters) | **yes** — "festival lion dancers", "lion costume", "hidden acrobats"; 0 monster/golem/beast; "demonic" only for the story's Heavenly Demon Castle/aura |
+  | ending | 2 clean 1.25 s silent pauses | 1.25 s + 1.25 s + 1.0 s silent pauses; opens with a 1.25 s silent title card |
+  | real crops | not recorded | 12 (22 vision-planned) |
+  | dialogue on junk panels | not measured | 12% (51 of 439 words, 38 junk panels) |
+  | story check | — | 6 findings |
+  Conclusion: autopilot reproduces v5's quality fixes on the same chapter; it runs ~15% longer (slower median hold). Dialogue-on-junk gap still present (fix pending owner go-ahead).
