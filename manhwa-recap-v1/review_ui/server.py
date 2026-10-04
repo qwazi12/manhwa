@@ -903,6 +903,9 @@ def save_publish(pdir, data):
     os.replace(tmp, os.path.join(pdir, PUBLISH_NAME))
 
 
+import studio_settings as _studio
+
+
 def publish_defaults(pdir):
     """Sensible starting metadata from what the project already knows."""
     meta = {}
@@ -919,7 +922,11 @@ def publish_defaults(pdir):
                         if series else "A chapter recap."),
         "tags": [t for t in [series, "recap", "manhwa"] if t],
         "category_id": "1",
-        "privacy": "private",       # safe default; never public by default
+        # Owner, 2026-10-04: default channel 🦩 Flamingo Remix (mk:youtube).
+        # Privacy is private unless the owner saved "public" in ⚙️ Settings &
+        # Channels (studio_settings.py) — never public by omission.
+        "privacy": _studio.publish_defaults().get("privacy", "private"),
+        "targets": list(_studio.publish_defaults().get("targets") or []),
         "publish_at": "",
         "playlist": series,
         "made_for_kids": False,
@@ -3121,12 +3128,13 @@ def _run_finalize_job(job_id):
         j["stage"] = "export"
         j["current_seg"] = None
         _persist_job(job_id)
-        res = _do_export(EXPORT_SPEED)
+        speed = _studio.export_speed()
+        res = _do_export(speed)
         j["export"] = res.get("output")
         j["url"] = res.get("url")
         j["status"] = "done"
         j["ended"] = time.time()
-        _ev("render", f"{_fname} exported → {res.get('output')} ({EXPORT_SPEED}x)", "ok")
+        _ev("render", f"{_fname} exported → {res.get('output')} ({speed}x)", "ok")
     except HTTPException as e:
         j["status"] = "error"
         j["error"] = str(e.detail)
@@ -6301,6 +6309,74 @@ def spend_summary():
             "rates": usage.rate_card(),
             "note": "Measured from real tokens since 2026-10-03; earlier Gemini Flash calls were under-counted. "
                     "Google billing is the ground truth."}
+
+
+# ================================================================ SETTINGS & CHANNELS (step 3)
+@app.get("/api/settings/overview")
+def settings_overview():
+    import shutil
+    import gemini_tts
+    import worklog
+    import ingest as _i
+    st = _autopilot.load(_ingest_mod.PROJECTS)
+    try:
+        du = shutil.disk_usage(_i.PROJECTS)
+        disk = {"used_gb": round(du.used / 1e9, 2), "total_gb": round(du.total / 1e9, 2)}
+    except OSError:
+        disk = {}
+    sizes = []
+    for m in _i.list_projects():
+        pd = os.path.join(_i.PROJECTS, m.get("id") or "")
+        tot = 0
+        for rt, _d, fs in os.walk(pd):
+            for fn in fs:
+                try:
+                    tot += os.path.getsize(os.path.join(rt, fn))
+                except OSError:
+                    pass
+        sizes.append({"id": m.get("id"), "name": _pretty(m.get("id") or ""), "mb": round(tot / 1e6)})
+    sizes.sort(key=lambda x: -x["mb"])
+    try:
+        pub = os_status()
+    except Exception as e:  # noqa
+        pub = {"state": "error", "detail": str(e)[:200], "accounts": []}
+    spent, cap = _ap_deps()["spend"]()
+    return {
+        "connection": {"commit": worklog.deployed_commit(), "scheduler": {"running": _SCHED["started"], "last_run": _SCHED["last_run"],
+                                                                        "last_error": _SCHED["last_error"]},
+                       "now": time.time()},
+        "spending": {"today": round(spent, 2), "cap": cap, "autopilot_spent": _ap_spent_today(),
+                     "autopilot_budget": st["settings"].get("budget_usd"),
+                     "prices_read": usage.GEMINI_PRICES_READ},
+        "autopilot": {"enabled": st["settings"].get("enabled"), "per_day": st["settings"].get("per_day"),
+                      "window": st["settings"].get("window"),
+                      "model": os.environ.get("PIPELINE_MODEL", "gemini-3.8-flash"),
+                      "tier": os.environ.get("AUTOPILOT_TIER", "flex")},
+        "channels": {"status": {k: pub.get(k) for k in ("state", "detail", "backend")},
+                     "accounts": [{k: a.get(k) for k in ("account_id", "network", "username", "active")}
+                                  for a in pub.get("accounts") or []],
+                     "defaults": _studio.publish_defaults()},
+        "voice": gemini_tts.load_default(_i.PROJECTS) or {},
+        "export": {"speed": _studio.export_speed(), "env_override": bool(os.environ.get("EXPORT_SPEED"))},
+        "storage": {"disk": disk, "projects": sizes[:8], "n_projects": len(sizes),
+                    "exports_kept_days": EXPORT_RETENTION_DAYS, "archive_days": _archive.ARCHIVE_DAYS},
+    }
+
+
+class StudioSettingsIn(BaseModel):
+    export_speed: float | None = None
+    publish: dict | None = None
+
+
+@app.post("/api/settings")
+def settings_save(body: StudioSettingsIn):
+    try:
+        before, after = _studio.update(body.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _ev("settings", f"settings saved: export {after['export_speed']}x, publish to "
+                    f"{', '.join(after['publish']['targets']) or 'nobody'} as {after['publish']['privacy']}")
+    return {"ok": True, "before": before, "settings": after}
 
 
 class JobResumeIn(BaseModel):

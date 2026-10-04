@@ -1165,6 +1165,18 @@ body.not-board header button, body.not-board header label {{ display:none !impor
   <div class="hint" style="margin-bottom:8px">Every exported MP4 for the active project. Click to watch / download.</div>
   <div id="exportlist">loading…</div>
 </div>
+<div class="drawer" id="d_settings">
+  <h3>⚙️ SETTINGS &amp; CHANNELS</h3>
+  <style>
+  .setgrid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:10px; }}
+  .setcard {{ border:1px solid var(--rule); border-radius:10px; padding:10px 12px; background:var(--panel); font-size:12.5px; }}
+  .setcard h4 {{ margin:0 0 6px; font-size:13px; }}
+  .setcard .r {{ display:flex; justify-content:space-between; gap:8px; border-bottom:1px dashed var(--rule); padding:3px 0; }}
+  .setcard .r:last-child {{ border-bottom:0; }}
+  .setcard .r span:first-child {{ color:var(--ink3); }}
+  </style>
+  <div id="setbox" class="setgrid"><div class="hint">loading…</div></div>
+</div>
 <div class="drawer" id="d_logs">
   <h3 style="margin-bottom:4px">LOGS &amp; ACTIVITY <span id="logstamp" class="hint" style="font-weight:400;font-size:11px"></span></h3>
   <div class="segtabs">
@@ -1691,7 +1703,7 @@ setInterval(refreshUsage, 15000);
    move on, and the browser's Back button returns. Nothing slides over the
    board and nothing needs closing. 'board' is the storyboard page itself. */
 let CURRENT_VIEW = 'board', _viewFromHistory = false;
-const VIEWS = ['ingest','projects','tracker','validate','logs','exports','test','split'];
+const VIEWS = ['ingest','projects','tracker','validate','logs','exports','settings','test','split'];
 function toggleDrawer(name) {{
   // Work was merged into Logs: old links to it land on the "What changed" tab.
   let logsWant = name === 'work' ? 'work' : 'live';
@@ -1717,6 +1729,7 @@ function toggleDrawer(name) {{
   if (name === 'logs') {{ logsTab(logsWant); loadLogs(); }}
   if (name === 'work') loadWork();
   if (name === 'exports') loadExports();
+  if (name === 'settings') loadSettings();
   if (name === 'validate') loadValidation();
   if (name === 'test') loadLab();
   if (name === 'split') loadSplit();
@@ -2859,6 +2872,73 @@ async function bibleSaveEdit() {{
     await j('/api/series/bible', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{series_id: BIBLE_SID, bible: b}})}});
     bibleOpen(BIBLE_SID);
   }} catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
+}}
+// ================= SETTINGS & CHANNELS =================
+async function loadSettings() {{
+  const box = document.getElementById('setbox');
+  let d;
+  try {{ d = await j('/api/settings/overview'); }}
+  catch (e) {{ box.innerHTML = '<span style="color:var(--bad)">' + esc(e.message || e) + '</span>'; return; }}
+  const R = (k, v) => `<div class="r"><span>${{k}}</span><span>${{v}}</span></div>`;
+  const sch = d.connection.scheduler || {{}};
+  const ch = d.channels, defs = ch.defaults || {{}};
+  const accts = (ch.accounts || []).map(a => `<label style="display:flex;gap:6px;align-items:center;padding:2px 0">
+      <input type="checkbox" class="settgt" value="${{esc(a.account_id)}}" ${{(defs.targets || []).includes(a.account_id) ? 'checked' : ''}}>
+      ${{a.network === 'youtube' ? '▶️' : '•'}} ${{esc(a.username || a.account_id)}} <span class="hint">${{esc(a.account_id)}}${{a.active ? '' : ' · inactive'}}</span></label>`).join('');
+  const st = d.storage, disk = st.disk || {{}};
+  box.innerHTML = `
+    <div class="setcard"><h4>🟢 Connection</h4>
+      ${{R('Server', 'live · deploy ' + esc(d.connection.commit || 'local'))}}
+      ${{R('Scheduler', sch.running ? 'running · last check ' + (sch.last_run ? apAgo(sch.last_run) : 'not yet') : '<b style="color:var(--bad)">not running</b>')}}
+      ${{sch.last_error ? R('Last error', '<span style="color:var(--bad)">' + esc(sch.last_error) + '</span>') : ''}}</div>
+    <div class="setcard"><h4>💰 Spending</h4>
+      ${{R('Whole site today', '$' + d.spending.today.toFixed(2) + ' of $' + (d.spending.cap || 0).toFixed(2) + ' (hard stop)')}}
+      ${{R('Autopilot today', '$' + (d.spending.autopilot_spent || 0).toFixed(2) + ' of $' + (d.spending.autopilot_budget || 0).toFixed(2))}}
+      ${{R('Prices', "Google's published rates, read " + esc(d.spending.prices_read))}}
+      <div class="hint" style="margin-top:4px">Change the autopilot budget on the Autopilot card (Ingest). The $${{(d.spending.cap || 0).toFixed(0)}} site cap is the Railway setting MAX_DAILY_SPEND_USD. Details: Logs → 💰 Spend.</div></div>
+    <div class="setcard"><h4>🤖 Autopilot</h4>
+      ${{R('State', d.autopilot.enabled ? '<b>ON</b>' : 'OFF')}}
+      ${{R('Chapters a day', esc(d.autopilot.per_day))}}
+      ${{R('Starts each series at', 'its latest ' + esc(d.autopilot.window) + ' chapters, then in order')}}
+      ${{R('Model / tier', esc(d.autopilot.model) + ' · ' + esc(d.autopilot.tier) + ' (half price)')}}
+      <div class="hint" style="margin-top:4px"><a href="#ingest" onclick="toggleDrawer('ingest');return false">Switch and limits</a> · <a href="#tracker" onclick="toggleDrawer('tracker');return false">Series board</a></div></div>
+    <div class="setcard"><h4>🔗 Channels</h4>
+      ${{R('Upload-Post', esc(ch.status.detail || ch.status.state || ''))}}
+      <div class="hint" style="margin:6px 0 2px">New videos post to:</div>${{accts || '<div class="hint">no connected accounts</div>'}}
+      <div style="display:flex;gap:6px;align-items:center;margin-top:6px">Privacy
+        <select id="setpriv">${{['public', 'unlisted', 'private'].map(p => `<option ${{defs.privacy === p ? 'selected' : ''}}>${{p}}</option>`).join('')}}</select>
+        <button class="mini" onclick="saveChannels()">save</button></div>
+      <div class="hint" style="margin-top:4px">Videos stay private until you save “public” here. You still press Publish on each video; the posting schedule is off.</div></div>
+    <div class="setcard"><h4>🎬 Export</h4>
+      ${{R('Video speed', d.export.speed + '×' + (d.export.env_override ? ' (set by Railway EXPORT_SPEED)' : ''))}}
+      <div style="display:flex;gap:6px;align-items:center;margin-top:6px">Speed
+        <select id="setspeed" ${{d.export.env_override ? 'disabled' : ''}}>${{[1.0, 1.1, 1.25, 1.5].map(v => `<option value="${{v}}" ${{Math.abs(v - d.export.speed) < 1e-6 ? 'selected' : ''}}>${{v}}×</option>`).join('')}}</select>
+        <button class="mini" onclick="saveSpeed()">save</button></div>
+      <div class="hint" style="margin-top:4px">Approve renders and exports at this speed; only that file is kept.</div></div>
+    <div class="setcard"><h4>🎙️ Voice</h4>
+      ${{R('Studio narrator', esc(d.voice.voice || 'Charon') + ' · ' + esc(d.voice.model || ''))}}
+      ${{R('Style', esc(d.voice.style || '—'))}}
+      <div class="hint" style="margin-top:4px">New chapters use it; approving an older chapter re-voices it in this voice first. <a href="#ingest" onclick="toggleDrawer('ingest');return false">Change on Ingest</a>.</div></div>
+    <div class="setcard"><h4>🗄️ Storage &amp; retention</h4>
+      ${{R('Disk', disk.used_gb != null ? disk.used_gb + ' GB of ' + disk.total_gb + ' GB' : '?')}}
+      ${{R('Projects', st.n_projects)}}
+      ${{(st.projects || []).slice(0, 5).map(p => R(esc(p.name), p.mb + ' MB')).join('')}}
+      ${{R('Exports kept', st.exports_kept_days + ' days')}}
+      ${{R('Published chapters', 'archived, deleted ' + st.archive_days + ' days later unless Keep')}}</div>
+    <div class="setcard"><h4>💾 Backups</h4>
+      <div class="hint">Railway keeps volume backups, but a restore replaces the <b>whole</b> disk (every project at once). To keep one chapter safe, download it:</div>
+      ${{(st.projects || []).slice(0, 5).map(p => `<div class="r"><span>${{esc(p.name)}}</span><a href="/api/backup/${{encodeURIComponent(p.id)}}">download</a></div>`).join('')}}</div>`;
+}}
+async function saveChannels() {{
+  const targets = Array.from(document.querySelectorAll('.settgt')).filter(c => c.checked).map(c => c.value);
+  try {{ await j('/api/settings', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+    body: JSON.stringify({{publish: {{targets, privacy: document.getElementById('setpriv').value}}}})}}); loadSettings(); }}
+  catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
+}}
+async function saveSpeed() {{
+  try {{ await j('/api/settings', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+    body: JSON.stringify({{export_speed: parseFloat(document.getElementById('setspeed').value)}})}}); loadSettings(); }}
+  catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
 }}
 async function apCheck() {{
   try {{ await j('/api/autopilot/check', {{method:'POST'}}); }}

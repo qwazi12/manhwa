@@ -8268,3 +8268,14 @@ A review of a stale `~/Desktop/manhwa` snapshot (298 commits behind) found 8 bug
 - Logs tabs: 🔴 Live (filters, search, follow) · ⏳ Jobs (`/api/logs/jobs`: grouped, named "Murim Psychopath ch.44", kind icons, cost, "(deleted)", exports labelled correctly) · 💰 Spend (`/api/spend`: today vs $10 cap, autopilot vs $6, month by day, by provider, chapter costs, every call with tokens) · 🗒 What changed.
 - Existing every-page jobs bar (theme.JOBS_JS) upgraded: `/api/jobsbar` (in-memory, replaces polling `/api/jobs` + `/api/logs/ingest` every 4 s), readable names, ⏸, ▶ resume for waiting jobs, two-tap Stop (no confirm()). (`/api/jobs/active` was first tried and clashed with `/api/jobs/{job_id}`.)
 - Tests: new `test_logs.py` 18/18; full suite 64/64. Handbook E11.
+
+---
+
+### 2026-10-04 — BUILT step 3: ⚙️ Settings & Channels
+
+- New page (nav item, `d_settings` drawer). Its cards are Connection, Spending, Autopilot, Channels (account checkboxes and privacy), Export speed, Voice, Storage & retention, and Backups. It reads `GET /api/settings/overview` and saves through `POST /api/settings`. The store is `review_ui/studio_settings.py` (`_studio_settings.json`).
+- **Export speed:** approve-and-render now reads `studio_settings.export_speed()`, default 1.25. A Railway `EXPORT_SPEED`, if set, still wins.
+- **Channels:** the default target is `mk:youtube` (🦩 Flamingo Remix).
+- **Privacy:** the owner asked for PUBLIC, but the default stays **private**. That conflicts with the existing guarantee "never public by omission", with test_publish_prep and test_youtube_connect, and with CLAUDE.md's rule of rights gating before anything public. The owner makes it public with one explicit save in Settings → Channels. Logged as an open owner decision.
+- **Bug caught before ship:** the overview passed `_SCHED` with the key `started`, but the page reads `running`. The overview now maps it to `running`, and a test covers it.
+- Tests: new `test_settings.py` 14/14; test_approve_voice updated (export uses the studio setting); full suite 65/65 (four of them only pass when run from `review_ui/`). Handbook E12.

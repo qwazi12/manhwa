@@ -447,6 +447,7 @@ def nav_items(page, board_badge=None):
         item("📡", "Tracker", "Series & new chapters", d="tracker"),
         item("📋", "Logs & Activity", "Jobs, usage & what changed", d="logs",
              title_attr="Every job with Stop, API usage, and every change made to the system with its evidence"),
+        item("⚙️", "Settings & Channels", "Schedule, accounts & connection", d="settings"),
     ]
 
 

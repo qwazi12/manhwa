@@ -835,3 +835,25 @@ Tests: `test_series_board.py` 13/13.
   readable names, ⏸, ▶ resume for restart/cap-waiting jobs, **two-tap Stop**.
 Tests: `test_logs.py` 18/18.
 
+
+## E12. ⚙️ Settings & Channels (2026-10-04)
+
+One page (left menu → ⚙️ Settings & Channels) showing every studio setting and its current state. It reads from `GET /api/settings/overview` and saves through `POST /api/settings`. The settings are stored in `projects/_studio_settings.json` and handled by `review_ui/studio_settings.py`.
+
+| Card | Shows | Change it |
+|---|---|---|
+| 🟢 Connection | Deployed commit; scheduler running, its last check and last error | — |
+| 💰 Spending | Site spend today against the $10 hard stop; autopilot spend against its $6 budget; the date the prices were read | Autopilot budget: the Autopilot card. Site cap: Railway `MAX_DAILY_SPEND_USD` |
+| 🤖 Autopilot | On/off, chapters per day, the starting window, model and tier | The Autopilot card on Ingest |
+| 🔗 Channels | Upload-Post status and the connected accounts | Checkboxes for which accounts new videos post to, plus privacy → **save** |
+| 🎬 Export | Video speed (default **1.25×**) | 1.0 / 1.1 / 1.25 / 1.5 → **save**. Locked when the Railway `EXPORT_SPEED` variable is set (that variable wins) |
+| 🎙️ Voice | The studio narrator and style | Ingest. Approving a chapter re-voices it if its voice is out of date (E-section above) |
+| 🗄️ Storage | Disk use, the largest projects, 7-day export retention, archive deletion 14 days after publishing | — |
+| 💾 Backups | A per-chapter download link. A Railway volume restore replaces the whole disk | — |
+
+**Posting defaults:**
+- New videos post to 🦩 Flamingo Remix (`mk:youtube`).
+- Privacy starts **private** and becomes public only once the owner picks "public" and presses **save**. Nothing is made public by omission, which is a standing guarantee and a precondition for rights gating.
+- Every video still needs its own Publish press, because the posting schedule (step 5) is off.
+
+Tests: `test_settings.py`.

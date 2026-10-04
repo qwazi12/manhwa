@@ -84,10 +84,12 @@ def main():
         server._ACTIVE_CACHE["key"] = None
         server.JOBS.pop("t1", None)
 
-    check("exports default to 1.25x", server.EXPORT_SPEED == 1.25)
+    import studio_settings
+    check("exports default to 1.25x (studio setting)", studio_settings.DEFAULTS["export_speed"] == 1.25)
     src = open(os.path.join(HERE, "server.py"), encoding="utf-8").read()
     check("approve-and-render exports at EXPORT_SPEED and applies the voice first",
-          "res = _do_export(EXPORT_SPEED)" in src and "_revoice_if_outdated(pdir, j, job_id)" in src)
+          "speed = _studio.export_speed()" in src and "res = _do_export(speed)" in src
+          and "_revoice_if_outdated(pdir, j, job_id)" in src)
     check("only the sped-up file is kept", "os.remove(out)        # keep only the version that will be posted" in src)
     check("Projects flags an approved chapter whose video was deleted",
           'it["video_missing"] = st == "approved" and not n_exports' in src)
