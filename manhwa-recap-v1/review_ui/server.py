@@ -2323,6 +2323,113 @@ class ExportDelIn(BaseModel):
     project: str = ""
 
 
+# ---- phone playback (owner, 2026-10-05) ----------------------------------
+# Exports sped up before ddf0e15 are 37.5 fps tagged H.264 level 6.2, which
+# iPhones refuse to play. "Fix for phones" re-encodes the same file in place
+# (30 fps, level 4.1, index first), free, then re-copies it to Drive.
+_PHONE_OK = {}
+
+
+def _phone_ok(path):
+    """True/False from ffprobe (cached by size+mtime); None if it can't tell."""
+    try:
+        st_ = os.stat(path)
+    except OSError:
+        return None
+    key = (path, st_.st_size, st_.st_mtime_ns)
+    if key not in _PHONE_OK:
+        try:
+            r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                "stream=level,r_frame_rate", "-of", "json", path],
+                               capture_output=True, text=True, timeout=20)
+            v = json.loads(r.stdout)["streams"][0]
+            num, den = (v.get("r_frame_rate") or "0/1").split("/")
+            fps = float(num) / float(den or 1)
+            _PHONE_OK[key] = int(v.get("level") or 0) <= 42 and fps <= 30.5
+        except Exception:
+            _PHONE_OK[key] = None
+    return _PHONE_OK[key]
+
+
+def _phonefix_job(pid, name):
+    for jid, x in list(JOBS.items()):
+        if x.get("type") == "phonefix" and x.get("project") == pid and x.get("name") == name \
+                and x.get("status") in ("queued", "running"):
+            return {"job": jid, "status": x["status"], "pct": x.get("pct")}
+    return None
+
+
+def _run_phonefix(job_id, pdir, name):
+    j = JOBS[job_id]
+    j["status"] = "running"
+    _persist_job(job_id)
+    src = os.path.join(pdir, "exports", name)
+    tmp = src + ".phone.partial"       # not *.mp4, so it never lists as a video
+    label = _pretty(j["project"])
+    try:
+        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+                                    "csv=p=0", src], capture_output=True, text=True, timeout=30).stdout or 0)
+        cmd = ["ffmpeg", "-y", "-hide_banner", "-nostats", "-progress", "pipe:1", "-i", src,
+               "-map", "0:v:0", "-map", "0:a?", "-vf", "fps=30", "-c:v", "libx264", "-preset", "medium",
+               "-crf", "18", "-pix_fmt", "yuv420p", "-profile:v", "high", "-level:v", "4.1",
+               "-c:a", "copy", "-movflags", "+faststart", "-f", "mp4", tmp]
+        pr = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        for line in pr.stdout:
+            if line.startswith("out_time_us=") and dur:
+                try:
+                    j["pct"] = min(99, round(100 * int(line.split("=")[1]) / 1e6 / dur))
+                    j["done"], j["total"] = j["pct"], 100
+                except ValueError:
+                    pass
+            if j.get("control") == "stop":
+                pr.kill()
+                raise RuntimeError("stopped by you")
+        if pr.wait() != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) < 1000:
+            raise RuntimeError("ffmpeg failed: " + (pr.stderr.read() or "")[-200:])
+        st_ = os.stat(src)
+        os.replace(tmp, src)                 # same name: review, SEO and queue rows stay attached
+        os.utime(src, (st_.st_atime, st_.st_mtime))   # keep its date (retention, "newest")
+        j.update(status="done", pct=100, ended=time.time())
+        _ev("render", f"{label}: {name} re-encoded so it plays on phones", "ok")
+        rec = _drive.record(pdir) or {}
+        if rec.get("video") == name:
+            _drive_copy_later(pdir, name)     # replace the Drive copy too
+    except Exception as e:  # noqa
+        j.update(status="error", error=str(e)[:300], ended=time.time())
+        _ev("render", f"{label}: phone fix failed — {str(e)[:160]}", "error")
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    _persist_job(job_id)
+
+
+class PhoneFixIn(BaseModel):
+    project: str
+    name: str
+
+
+@app.post("/api/exports/phonefix")
+def exports_phonefix(body: PhoneFixIn):
+    pdir = project_dir_for(body.project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    name = os.path.basename(body.name)
+    path = os.path.join(pdir, "exports", name)
+    if not name.endswith(".mp4") or not os.path.exists(path):
+        raise HTTPException(404, "video not found")
+    running = _phonefix_job(pid, name)
+    if running:
+        return {"ok": True, "job": running["job"], "already": True}
+    if _phone_ok(path):
+        return {"ok": True, "job": None, "note": "it already plays on phones"}
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {"type": "phonefix", "status": "queued", "project": pid, "name": name,
+                    "stage": "re-encoding for phones", "pct": 0, "done": 0, "total": 100, "ts": time.time()}
+    _persist_job(job_id)
+    threading.Thread(target=_run_phonefix, args=(job_id, pdir, name), daemon=True).start()
+    return {"ok": True, "job": job_id}
+
+
 @app.post("/api/exports/delete")
 def delete_export(body: ExportDelIn):
     """Remove one export now, rather than waiting out the retention window."""
@@ -6838,7 +6945,9 @@ def chapter_view(pid: str):
                 rs = {}
             vids.append({"name": f, "size_mb": round(st_.st_size / 1e6, 1), "at": st_.st_mtime,
                          "expires_in_days": max(0, round(EXPORT_RETENTION_DAYS - age, 1)),
-                         "review": rs.get("status"), "superseded": rs.get("superseded")})
+                         "review": rs.get("status"), "superseded": rs.get("superseded"),
+                         "phone_ok": _phone_ok(os.path.join(ed, f)),
+                         "phone_fix": _phonefix_job(pid, f)})
     out["videos"] = vids
     ing, _u = _ingest_by_project()
     ij = ing.get(pid)

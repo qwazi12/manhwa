@@ -8907,3 +8907,13 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Fast render logic: the same backend engine (ffmpeg renderer, 3 clips at a time, only missing or outdated clips rebuilt). Railway uses the code defaults (verified).
   - Gaps G1–G10 are listed for the owner's approval (force re-render all, all-videos list, series filters/sorts, release calendar, per-source chapter pick, track again, bulk jobs, manage filters, QC details; drop seed research). **Pending owner decision.**
 - Other tests: drive_store 15/15, export_swap 6/6, loudness 9/9, paste_add 22/22; `next build` ok.
+
+### 2026-10-05 — Owner: "Still can't see/watch the video… the old tool allowed it" — Fix for phones
+- **Evidence** (Vercel request logs, last 2 h): every `/export/final_Oct05_06.19PM_1.25x.mp4` request from the phone returned **206**, so sign-in, cookie and proxy are all fine. The phone downloads the start, reads the format and gives up. That matches the encoding cause found earlier (37.5 fps, level 6.2).
+- **Why the old tool played videos:** the 1.25× export only started on 2026-10-04. Earlier exports were normal 30 fps files. Since then, no phone could play a new export, in either tool.
+- The owner was still viewing the 6:19 PM video, made before ddf0e15.
+- **Fix, so no re-render is needed:**
+  - `/api/chapter` videos carry `phone_ok` (ffprobe, cached by size+mtime) and `phone_fix` (a running job).
+  - `POST /api/exports/phonefix` re-encodes the same file in place: fps=30, level 4.1, faststart, audio copied. Progress comes from ffmpeg's `-progress`; the temp file is `*.phone.partial` and never lists as a video. The name and date are kept, so review, SEO, queue rows and retention stay attached. The Drive copy is replaced when Drive holds that video.
+  - Watch tab: a "This video won't play on a phone → **Fix for phones**" banner, with a progress bar while it runs. The video src carries the size, so the browser loads the new file. Added `playsInline`.
+- **Tests:** new `test_phonefix` 8/8 (real ffmpeg: level-6.2 file flagged, fixed in place, name and date kept, no temp left, idempotent, 404 for unknown). chapter_status 29/29, render_queue 15/15, render_lock 7/7, job_control 51/51, logs 19/19; `next build` ok.

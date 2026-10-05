@@ -41,12 +41,13 @@ export default function Chapter() {
   const rj = c?.render_job;
   const rendering = rj && ["queued", "running", "paused", "pausing"].includes(rj.status);
   const inQueue = c?.render_queue?.status === "waiting" ? c.render_queue : null;
+  const fixing = (c?.videos || []).some((v: any) => v.phone_fix);
   // poll fast while a render runs or waits in the queue; when it finishes, open the new video
   useEffect(() => {
-    if (!rendering && !inQueue) return;
+    if (!rendering && !inQueue && !fixing) return;
     const t = setInterval(reload, 3000);
     return () => clearInterval(t);
-  }, [rendering, !!inQueue, reload]);
+  }, [rendering, !!inQueue, fixing, reload]);
   // Toast when a render ends while this page is open — compared by job id and
   // status, so a render that fails within a second (before any poll saw it
   // running) still says so (owner, 2026-10-05). The first load sets the baseline.
@@ -241,7 +242,20 @@ export default function Chapter() {
                 )}
               </div>
             )}
-            <VideoTab key={shown} id={id} name={shown} status={c.status} onChange={() => { reload(); list.reload(); }} />
+            {(() => {
+              const v = (c.videos || []).find((x: any) => x.name === shown);
+              if (!v || v.phone_ok !== false) return null;
+              return v.phone_fix ? (
+                <div className="banner info"><b>Fixing it for phones…</b> {v.phone_fix.pct ?? 0}%. It plays here when done.
+                  <div className="bar" style={{ marginTop: 6 }}><i style={{ width: `${v.phone_fix.pct || 3}%` }} /></div></div>
+              ) : (
+                <div className="banner warn spread">
+                  <span><b>This video won’t play on a phone.</b> It was made before the phone fix (it plays on a computer and on YouTube). Fixing it re-encodes the same video: free, a few minutes, and the Drive copy is replaced.</span>
+                  <Busy className="sm primary" onClick={() => act(async () => { await api("/api/exports/phonefix", { project: id, name: shown }); reload(); }, "Fixing it for phones — progress shows here")}>Fix for phones</Busy>
+                </div>
+              );
+            })()}
+            <VideoTab key={`${shown}:${(c.videos || []).find((x: any) => x.name === shown)?.size_mb}`} id={id} name={shown} status={c.status} onChange={() => { reload(); list.reload(); }} />
           </>
         ) : (
           <>

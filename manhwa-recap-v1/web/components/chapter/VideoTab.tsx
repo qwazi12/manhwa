@@ -67,7 +67,7 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
     <div className="vgrid">
       <div className="vcol vleft">
         {!draft && <Card title="Watch" right={<span className="small muted">{rv.data.stat?.size_mb} MB · {name}</span>}>
-          <video controls preload="metadata" src={`/export/${enc(name)}?project=${enc(id)}`} />
+          <video controls playsInline preload="metadata" src={`/export/${enc(name)}?project=${enc(id)}&s=${rv.data?.stat?.size_mb ?? ""}`} />
           {review.superseded && <div className="banner warn">The board changed after this video was approved. Render again, then approve the new video.</div>}
           <label className="field">Notes for yourself or the next edit
             <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ minHeight: 60 }} />
