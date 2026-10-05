@@ -4,7 +4,7 @@ import { api, useApi } from "@/lib/api";
 import { ago, money, when } from "@/lib/fmt";
 import { Busy, Card, Chips, ConfirmButton, Empty, PageHead, Pill, Tabs, useAct } from "@/components/ui";
 
-type T = "live" | "jobs" | "spend" | "changes";
+type T = "live" | "jobs" | "spend" | "calls" | "changes";
 const KINDS = ["", "autopilot", "ingest", "render", "publish", "research", "tracker", "settings", "scheduler"];
 
 export default function Activity() {
@@ -15,10 +15,11 @@ export default function Activity() {
   return (
     <>
       <PageHead title="Activity" sub="What the studio is doing, what it did, and what it cost." />
-      <Tabs<T> value={tab} onChange={setTab} tabs={[["live", "Live"], ["jobs", "Jobs"], ["spend", "Spend"], ["changes", "What changed"]]} />
+      <Tabs<T> value={tab} onChange={setTab} tabs={[["live", "Live"], ["jobs", "Jobs"], ["spend", "Spend"], ["calls", "Calls"], ["changes", "What changed"]]} />
       {tab === "live" && <Live />}
       {tab === "jobs" && <Jobs />}
       {tab === "spend" && <Spend />}
+      {tab === "calls" && <Calls />}
       {tab === "changes" && <Changes />}
     </>
   );
@@ -81,6 +82,7 @@ function Jobs() {
                 <div className="row">
                   {k === "running" && <ConfirmButton className="sm danger" confirm="Tap to stop" onConfirm={() => act(async () => { await api("/api/jobs/control", { job_id: j.id, action: "stop" }); reload(); }, "Stopping")}>■ Stop</ConfirmButton>}
                   {k === "waiting" && <Busy className="sm" onClick={() => act(async () => { await api("/api/jobs/resume", { job_id: j.id }); reload(); }, "Resumed")}>▶ Resume</Busy>}
+                  {(k === "today" || k === "earlier") && <ConfirmButton className="sm ghost" confirm="Delete the record?" onConfirm={() => act(async () => { await api("/api/jobs/delete", { job_ids: [j.id] }); reload(); }, "Record deleted")}>✕</ConfirmButton>}
                 </div>
               </div>
             ))}
@@ -130,7 +132,34 @@ function Changes() {
         <details key={e.n} className="it" style={{ display: "block" }}>
           <summary><b>{e.title}</b> <span className="small faint">{e.date}</span></summary>
           <div className="small muted" style={{ whiteSpace: "pre-wrap", marginTop: 6 }}>{e.body}</div>
+          {e.evidence_files && Object.keys(e.evidence_files).length > 0 && (
+            <div className="row small" style={{ marginTop: 6 }}>Evidence:{Object.entries(e.evidence_files).flatMap(([slug, files]: any) => files.map((f: string) => (
+              <a key={slug + f} href={`/api/evidence/${encodeURIComponent(slug)}/${encodeURIComponent(f)}`} target="_blank" rel="noreferrer">{f}</a>)))}</div>
+          )}
         </details>))}</div>
+    </Card>
+  );
+}
+
+function Calls() {
+  const { data } = useApi<any>("/api/logs/usage?n=150", 20000);
+  const sm = data?.summary || {};
+  return (
+    <Card title={`Every paid call · today ${money(sm.est_cost_usd)} · ${sm.gemini_calls ?? "—"} Gemini, ${sm.claude_calls ?? 0} Claude, ${(sm.tts_chars ?? 0).toLocaleString()} voice characters`} pad={false}>
+      <div className="list" style={{ maxHeight: "70vh", overflowY: "auto" }}>
+        {(data?.calls || []).map((c: any, i: number) => (
+          <div className="it small" key={i}>
+            <span className="row" style={{ flex: 1, minWidth: 0 }}>
+              <span className="mono faint">{new Date(c.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              <b>{c.model || c.kind}</b>
+              <span className="muted">{c.prompt_tokens != null ? `${c.prompt_tokens} in · ${c.output_tokens} out${c.thought_tokens ? ` (${c.thought_tokens} thinking)` : ""}` : `${c.units} ${c.unit}`}{c.service_tier ? ` · ${c.service_tier}` : ""}{c.metered === false ? " · estimated" : ""}</span>
+              <span className="faint">job {String(c.job_id).slice(0, 12)}</span>
+            </span>
+            <span className="num">{money(c.est_cost_usd)}</span>
+          </div>
+        ))}
+        {!data?.calls?.length && <Empty>No calls logged.</Empty>}
+      </div>
     </Card>
   );
 }

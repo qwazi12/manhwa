@@ -148,7 +148,22 @@ export default function Chapter() {
           </div>
         ))}
       </div>
-      {c.busy && !rendering && <div className="banner info">{c.busy}. The page updates by itself.</div>}
+      {c.ingest && (
+        <Card>
+          <div className="spread">
+            <span><b>{["queued", "running"].includes(c.ingest.status) ? "Being made" : c.ingest.status === "error" ? "Stopped with an error" : "Waiting"}</b>
+              {" · "}{c.ingest.stage || c.ingest.status}{c.ingest.msg ? ` — ${c.ingest.msg}` : ""}{c.ingest.error ? ` — ${c.ingest.error}` : ""}</span>
+            <span className="row">
+              {["queued", "running"].includes(c.ingest.status) && (
+                <ConfirmButton className="sm danger" confirm="Stop making it?" onConfirm={() => act(async () => { await api("/api/jobs/control", { job_id: c.ingest.job, action: "stop" }); reload(); }, "Stopping")}>■ Stop</ConfirmButton>)}
+              {["paused", "pausing"].includes(c.ingest.status) && <Busy className="sm" onClick={() => act(async () => { await api("/api/jobs/control", { job_id: c.ingest.job, action: "resume" }); reload(); }, "Resumed")}>▶ Resume</Busy>}
+              {["budget_paused", "interrupted", "error"].includes(c.ingest.status) && <Busy className="sm" onClick={() => act(async () => { await api("/api/jobs/resume", { job_id: c.ingest.job }); reload(); }, "Resumed")}>▶ Resume</Busy>}
+            </span>
+          </div>
+          {["queued", "running"].includes(c.ingest.status) && <div className="bar"><i style={{ width: `${c.ingest.pct || 3}%` }} /></div>}
+        </Card>
+      )}
+      {c.busy && !rendering && !c.ingest && <div className="banner info">{c.busy}. The page updates by itself.</div>}
       {shown && c.drive_ready && (
         <div className="row small">
           {c.drive?.video === c.video ? (

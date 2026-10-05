@@ -20,6 +20,7 @@ export default function Library() {
   const [f, setF] = useState<F>("all");
   const [q, setQ] = useState("");
   const [view, setView] = useState<"series" | "chapters">("series");
+  const act = useAct();
   useEffect(() => { try { if (new URLSearchParams(location.search).get("view") === "chapters") setView("chapters"); } catch {} }, []);
   const series: any[] = data?.series || [];
   const needs = (s: any) => ["to_review", "video_ready", "failed", "waiting"].some((k) => s.counts?.[k]);
@@ -31,7 +32,14 @@ export default function Library() {
     <>
       <PageHead title="Library" sub="Every series you track, with its chapters. Autopilot makes the next chapter of each series in turn." />
       <PasteBox onDone={reload} />
-      <Tabs value={view} onChange={setView} tabs={[["series", "Series"], ["chapters", "All chapters"]]} />
+      <div className="spread">
+        <Tabs value={view} onChange={setView} tabs={[["series", "Series"], ["chapters", "All chapters"]]} />
+        <div className="row">
+          <AddTitle onDone={reload} />
+          <Busy className="sm" title="re-read every series page for new chapters, dates and covers (free)" onClick={() => act(async () => { await api("/api/watchlist/refresh_all", {}); reload(); }, "Every series checked")}>↻ Check all series</Busy>
+          <Busy className="sm" title="YouTube recap demand for every series (free; runs weekly by itself)" onClick={() => act(async () => { await api("/api/demand/run", {}); }, "Checking demand — about a minute")}>📈 Check demand</Busy>
+        </div>
+      </div>
       {view === "chapters" ? <AllChapters /> : <>
       <div className="spread">
         <Chips<F> value={f} onChange={setF} items={[["all", `All (${n("all")})`], ["needs", `Needs you (${n("needs")})`],
@@ -50,7 +58,7 @@ export default function Library() {
 
 function SeriesCard({ s, reload }: { s: any; reload: () => void }) {
   const act = useAct();
-  const [open, setOpen] = useState<null | "chapters" | "cast">(null);
+  const [open, setOpen] = useState<null | "chapters" | "cast" | "manage">(null);
   const d = s.demand;
   const paused = s.state === "paused";
   return (
@@ -112,11 +120,13 @@ function SeriesCard({ s, reload }: { s: any; reload: () => void }) {
             )}
             <button className={`sm ${open === "chapters" ? "primary" : ""}`} onClick={() => setOpen(open === "chapters" ? null : "chapters")}>Chapters ({(s.chapters || []).length} made)</button>
             <button className={`sm ${open === "cast" ? "primary" : ""}`} onClick={() => setOpen(open === "cast" ? null : "cast")}>Cast</button>
+            <button className={`sm ${open === "manage" ? "primary" : ""}`} onClick={() => setOpen(open === "manage" ? null : "manage")}>Manage</button>
           </div>
         </div>
       </div>
       {open === "chapters" && <ChapterList s={s} reload={reload} />}
       {open === "cast" && <Cast s={s} />}
+      {open === "manage" && <Manage s={s} reload={reload} />}
     </Card>
   );
 }
@@ -212,6 +222,62 @@ function Cast({ s }: { s: any }) {
           </ConfirmButton>
         </div>
       )}
+    </div>
+  );
+}
+
+function AddTitle({ onDone }: { onDone: () => void }) {
+  const act = useAct();
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  if (!open) return <button className="sm" onClick={() => setOpen(true)} title="track a series you haven't found a source for yet">＋ Title without a link</button>;
+  return (
+    <span className="row">
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Series title" style={{ width: 200 }} />
+      <Busy className="sm primary" disabled={!title.trim()} onClick={() => act(async () => { await api("/api/watchlist/series", { title: title.trim(), tier: "watchlist" }); setTitle(""); setOpen(false); onDone(); }, "Added — paste its link later")}>Add</Busy>
+      <button className="sm ghost" onClick={() => setOpen(false)}>Cancel</button>
+    </span>
+  );
+}
+
+function Manage({ s, reload }: { s: any; reload: () => void }) {
+  const { data } = useApi<any>("/api/watchlist");
+  const act = useAct();
+  const sx = (data?.series || []).find((x: any) => x.id === s.id);
+  const [aliases, setAliases] = useState<string | null>(null);
+  const [notes, setNotes] = useState<string | null>(null);
+  const [rank, setRank] = useState<string | null>(null);
+  const [mirror, setMirror] = useState("");
+  if (!sx) return <div style={{ borderTop: "1px solid var(--border)", padding: 14 }} className="muted">Loading…</div>;
+  return (
+    <div style={{ borderTop: "1px solid var(--border)", padding: 14, display: "grid", gap: 10 }}>
+      <div className="grid g3" style={{ gap: 8 }}>
+        <label className="field">Other names (comma separated)<input value={aliases ?? (sx.aliases || []).join(", ")} onChange={(e) => setAliases(e.target.value)} /></label>
+        <label className="field">Rank (1 = first)<input inputMode="numeric" value={rank ?? (sx.rank ?? "")} onChange={(e) => setRank(e.target.value)} /></label>
+        <label className="field">Notes<input value={notes ?? (sx.notes || "")} onChange={(e) => setNotes(e.target.value)} /></label>
+      </div>
+      <Busy className="sm primary" onClick={() => act(async () => {
+        await api("/api/watchlist/update", { series_id: s.id,
+          aliases: (aliases ?? (sx.aliases || []).join(", ")).split(",").map((a: string) => a.trim()).filter(Boolean),
+          rank: (rank ?? sx.rank) === "" || (rank ?? sx.rank) == null ? null : Number(rank ?? sx.rank), notes: notes ?? sx.notes ?? "" });
+        reload();
+      }, "Saved")}>Save</Busy>
+      <h3>Sources</h3>
+      {(sx.mirrors || []).map((m: any) => (
+        <div key={m.series_key} className="spread small">
+          <span><b>{m.label || m.source}</b> · {m.status || "unchecked"}{m.latest ? ` · latest ch.${m.latest}` : ""}{m.error ? ` · ${m.error}` : ""} · <a href={m.series_url} target="_blank" rel="noreferrer">open ↗</a></span>
+          {(sx.preferred_mirror === m.series_key || sx.best_mirror === m.series_key) ? <span className="pill t-ok">used for new chapters</span> :
+            <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/watchlist/preferred", { series_id: s.id, series_key: m.series_key }); reload(); }, "This source is used from now on")}>Use this source</Busy>}
+        </div>
+      ))}
+      <div className="row">
+        <input value={mirror} onChange={(e) => setMirror(e.target.value)} placeholder="Another site for the same series (link)" style={{ flex: 1, minWidth: 220 }} />
+        <Busy className="sm" disabled={!/^https?:\/\//.test(mirror)} onClick={() => act(async () => { await api("/api/watchlist/mirror", { series_id: s.id, url: mirror }); setMirror(""); reload(); }, "Source added")}>Add source</Busy>
+      </div>
+      <div className="row">
+        <ConfirmButton className="sm danger" confirm="Stop tracking it? Made chapters stay" onConfirm={() => act(async () => { await api("/api/watchlist/remove", { series_id: s.id, series_key: "" }); reload(); }, "Removed from the library")}>Remove the series</ConfirmButton>
+        <span className="small faint">Chapters already made are kept.</span>
+      </div>
     </div>
   );
 }

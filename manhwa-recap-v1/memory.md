@@ -8785,3 +8785,14 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Library shows series in 2 columns (3 from 1,700 px), and Home's cards are wider.
 - **Keyboard on the board:** J / K moves to the next / previous segment (highlighted and scrolled into view), E edits its line; ignored while typing.
 - Phone layouts are unchanged.
+
+### 2026-10-04 (late night) — BUILT polish step 6: the rest of the parity list, and the Classic page
+- **Board header:** live ingest progress while a chapter is being made (stage, message, progress bar), with ■ Stop, or ▶ Resume when paused, budget-paused, interrupted or failed (`/api/chapter` adds `ingest`).
+- **Library:**
+  - ＋ Title without a link, ↻ Check all series, 📈 Check demand;
+  - each series gets a **Manage** panel: other names, rank, notes; its sources (status, latest chapter, open link), with "Use this source" (preferred) and "Add source" (mirror); Remove the series (two taps; made chapters are kept).
+- **Activity:** a new **Calls** tab (every paid call: model, tokens in/out and thinking, tier, estimated or metered, job, cost; plus today's totals), evidence links on What changed, and ✕ to delete finished job records.
+- **Settings → Autopilot:** ↻ Check now.
+- **Tools:** a Report button on each Claude lab chapter.
+- **Classic page** (`/classic`, linked as "Classic studio" in the sidebar footer and in Settings → Tools): every area of the old studio with its old link and where it lives now (owner note 1).
+- Full suite 79/79.

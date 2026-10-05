@@ -83,7 +83,7 @@ function Frame({ children }: { children: ReactNode }) {
           {h && <Meter label="Spend today" value={h.spend.today} max={h.spend.cap} fmt={money} />}
           {h?.disk?.total_gb ? <Meter label="Disk" value={h.disk.used_gb || 0} max={h.disk.total_gb} fmt={(n) => `${n.toFixed(1)} GB`} /> : null}
           <div className="spread small">
-            <a href="/storyboard" title="the previous board, until every part of it has moved here">Classic board ↗</a>
+            <a href="/classic" title="every area of the previous studio">Classic studio</a>
             <button className="sm ghost" onClick={() => {
               const cur = document.documentElement.dataset.theme === "light" ? "dark" : "light";
               document.documentElement.dataset.theme = cur;

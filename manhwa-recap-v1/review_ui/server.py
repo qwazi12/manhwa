@@ -6583,6 +6583,10 @@ def chapter_view(pid: str):
                          "expires_in_days": max(0, round(EXPORT_RETENTION_DAYS - age, 1)),
                          "review": rs.get("status"), "superseded": rs.get("superseded")})
     out["videos"] = vids
+    ing, _u = _ingest_by_project()
+    ij = ing.get(pid)
+    if ij and ij.get("status") in ("queued", "running", "paused", "pausing", "budget_paused", "interrupted", "error"):
+        out["ingest"] = {k: ij.get(k) for k in ("job", "status", "stage", "pct", "msg", "error", "ts", "source")}
     # a "send back" verdict must reach the board with its notes (classic banner)
     for v in vids:
         if v.get("review") == "sent_back":

@@ -124,6 +124,7 @@ function ClaudeLab() {
               </div>
               <div className="row">
                 <Pill tone={p.ready ? "ok" : p.status === "error" ? "bad" : "warn"}>{p.ready ? "ready" : p.timeline_errors ? `${p.timeline_errors} timing errors` : p.status || "building"}</Pill>
+                <Report project={p.project} />
                 {p.segments > 0 && <Link className="btn sm" href={`/chapter/${p.project}`}>Open →</Link>}
               </div>
             </div>
@@ -131,5 +132,30 @@ function ClaudeLab() {
         </div>
       </Card>
     </div>
+  );
+}
+
+function Report({ project }: { project: string }) {
+  const [r, setR] = useState<any>(null);
+  const [open, setOpen] = useState(false);
+  const act = useAct();
+  return (
+    <>
+      <button className="sm ghost" onClick={async () => { setOpen(!open); if (!r) setR(await act(() => api(`/api/lab/report?project=${encodeURIComponent(project)}`))); }}>Report</button>
+      {open && r && (
+        <div role="dialog" aria-label="Lab report" style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(0,0,0,.55)", display: "grid", placeItems: "center", padding: 16 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+          <div className="card" style={{ width: "min(900px, 100%)", maxHeight: "85vh", overflowY: "auto" }}>
+            <div className="hd"><h2>Lab report · {project}</h2><button className="sm" onClick={() => setOpen(false)}>Close</button></div>
+            <div className="bd">
+              {Object.entries(r).map(([k, v]: any) => (
+                <div key={k} className="kv"><span>{k.replace(/_/g, " ")}</span>
+                  <span className="small" style={{ textAlign: "right", whiteSpace: "pre-wrap" }}>{typeof v === "object" ? JSON.stringify(v, null, 1).slice(0, 600) : String(v)}</span></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

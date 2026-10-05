@@ -42,6 +42,7 @@ function Autopilot({ d, reload }: any) {
       </div>
       <div className="row">
         <Busy className="sm primary" onClick={() => act(async () => { await api("/api/autopilot/settings", { per_day: Number(perDay), budget_usd: Number(budget) }); reload(); ap.reload(); }, "Saved")}>Save</Busy>
+        <Busy className="sm ghost" title="re-read every series page now and run one autopilot check (free)" onClick={() => act(async () => { await api("/api/autopilot/check", {}); ap.reload(); }, "Checking — updates within a minute")}>↻ Check now</Busy>
         <ConfirmButton className={`sm ${on ? "danger" : ""}`} confirm={on ? "Tap to pause" : "Tap to start"}
           onConfirm={() => act(async () => { await api("/api/autopilot/settings", { enabled: !on }); reload(); }, on ? "Paused" : "Running")}>
           {on ? "Pause autopilot" : "Start autopilot"}
@@ -207,7 +208,7 @@ function Tools() {
   return (
     <Card title="Tools">
       <div className="row">
-        <a className="btn sm" href="/storyboard">Classic board</a>
+        <a className="btn sm" href="/classic">Classic studio (every old page)</a>
         <a className="btn sm" href="/tools?tab=split">Split lab</a>
         <a className="btn sm" href="/tools?tab=lab">Claude lab</a>
       </div>
