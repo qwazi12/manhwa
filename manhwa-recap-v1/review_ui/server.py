@@ -6553,7 +6553,8 @@ def home_view():
             "spend": {"today": round(spent, 2), "cap": cap, "autopilot": _ap_spent_today(),
                       "autopilot_budget": st["settings"].get("budget_usd")},
             "autopilot": {"enabled": bool(st["settings"].get("enabled")), "per_day": st["settings"].get("per_day")},
-            "disk": disk, "jobs": jobs_active().get("jobs", [])}
+            "disk": disk, "jobs": jobs_active().get("jobs", []),
+            "n_series": len(_wl_view()["series"])}
 
 
 @app.get("/api/library")
@@ -6597,6 +6598,26 @@ def chapter_view(pid: str):
                           "record": load_publishes(pdir).get(name),
                           "review": review_state(pdir, name),
                           "url": f"/export/{name}?project={pid}"}
+    return out
+
+
+@app.get("/api/board/{pid}")
+def board_view(pid: str, activate: int = 1):
+    """The Chapter page's board as data (board_data.py). Board edits act on the
+    ACTIVE chapter, so opening a chapter here makes it active (activate=1)."""
+    import board_data
+    import matcher
+    pdir = project_dir_for(pid)
+    if activate and get_active_project_id() != pid and os.path.exists(os.path.join(pdir, "segments.json")):
+        activate_project(ActivateIn(id=pid))
+    review = _load_reviews_side(pdir)
+    out = board_data.build(pdir, review, junk_reason=matcher.junk_reason)
+    try:
+        approved = bool(json.load(open(os.path.join(pdir, "storyboard.json"))).get("approved"))
+    except (OSError, ValueError):
+        approved = False
+    out["rendered_once"] = approved
+    out["active"] = get_active_project_id() == pid
     return out
 
 

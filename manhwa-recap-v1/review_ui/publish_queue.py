@@ -79,7 +79,7 @@ def remove(root, item_id):
             raise KeyError(item_id)
         if it["status"] == "posting":
             raise ValueError("this video is being posted right now — stop it from the jobs bar")
-        if it["status"] == "queued":
+        if it["status"] in ("queued", "failed"):
             it.update(status="removed", updated_at=time.time())
             _save(root, d)
         return it
