@@ -8635,3 +8635,14 @@ Decisions:
 - **Tested against the live backend** through a local dev server: every page renders real data (Home, Library, Queue, Settings, and Chapter ch.30 Board / Issues / Video & publish). Tests: `test_board_data.py` 10/10; full suite 78/78.
 - **Vercel:** the project `manhwa-studio` was deploying the **repo root** on every push (root `vercel.json` + `middleware.js` + `api/`). It is switched through the Vercel API to **Root Directory `manhwa-recap-v1/web`, framework Next.js**, so every push now deploys the new frontend. The classic pages stay at `/storyboard` and `/review` (forwarded).
   - Previous production deployment, for rollback: `manhwa-studio-b530eaz2i` (old static proxy). To roll back: `npx vercel rollback` (or set Root Directory back to `.` and framework Other).
+
+### 2026-10-04 (night) — BUILT rebuild step 6: Google Drive copy, cleanup
+- New `review_ui/drive_store.py`: a service-account token from `GOOGLE_SERVICE_ACCOUNT_JSON` (google-auth, which google-genai already installs, so no new dependency), the folder from `Flamingo_Remix_DRIVE_FOLDER_ID`.
+  - Folders are `Series / Ch N` under the Shared Drive, found or created by path (OmniStream's approach).
+  - Uploads are resumable, in 8 MB chunks; every call retries at most 3 times with backoff and jitter.
+  - A re-copy bins the old file (recoverable for 30 days).
+  - The "no storage" error is explained (Scrapper's lesson).
+- After each export, a background copy runs. If the copied video is the newest and nothing is rendering, the render clips are freed. The `drive.json` record holds the folder link. Routes: `GET /api/drive/status`, `POST /api/drive/copy`. Drive status appears in Settings and on the Chapter page ("✓ In Google Drive · Open the folder", or Copy now). The video itself is kept for posting.
+- **Cleanup:** removed `/api/debug/test-planner`, `/api/debug/ps` and `/api/debug/cat`.
+- Tests: new `test_drive_store.py` 15/15 (fake Drive, no real key); full suite 79/79. Handbook E18.
+- **Still to verify live:** the robot's access to Shared Drive 0AOlNsRvSE9zcUk9PVA (Settings → Google Drive shows it).

@@ -923,3 +923,21 @@ Projects → a chapter → **🧩 steps** shows the chapter's progress: Pages, P
 - Re-running takes two taps. It replaces the board, which means hand edits and the approval are lost. Exported videos are never touched.
 - It is refused while the chapter is being made or rendered.
 - Afterwards, open the chapter, check it, and Approve again.
+
+## E18. The new studio (2026-10-04): six places, one status, one look
+
+manhwa.nodepilot.dev now opens the new studio. The old board and the per-video review page stay at `/storyboard` and `/review` (Settings → Tools, or "Classic board" in the sidebar) until everything is checked in daily use.
+
+| Place | What you do there |
+|---|---|
+| **Home** | Paste any Asura or WEBTOON series or chapter link. See what needs you (videos to approve, boards to review, failures, demand suggestions), the next post, and today's spend. |
+| **Library** | Every series: priority, autopilot state, cast list (edit it or research it again), YouTube demand, and its chapters. Use **Make** or **Plan from here** for any chapter. |
+| **Chapter** | The step strip (Pages → Video) with ↻ Redo per step, and **Render video**. Three tabs: **Board** (segments in video order: edit a line, length, in-video, and More for swap, add or remove a line, move the cut, whole panel, duplicate, move), **Issues** (timing and pacing, story check, script editor changes), and **Video & publish** (watch; **Approve & schedule**; title, description, tags, thumbnail; Post now). |
+| **Queue** | To review · Scheduled · Posted · Errors. Approving a video puts it in the next free slot. |
+| **Activity** | Live feed, jobs (stop, resume), spend, what changed. |
+| **Settings** | Autopilot, narrator voice, channels and privacy, posting schedule, export speed, Google Drive, spending, storage, connection, tools. |
+
+- **One status everywhere:** Found → Making → To review → Rendering → Video ready → Scheduled → Posting → Posted → Archived, plus Waiting and Failed. Each is shown as an icon, a word and a colour.
+- **Two taps** for anything that spends money, posts or deletes. There are no pop-up dialogs.
+- **Google Drive:** after every export, the video, thumbnail and script are copied to the Flamingo Remix Shared Drive under `Series / Ch N`. Once the copy is safe, the chapter's render clips are deleted to free disk; the next render rebuilds them. Settings shows whether Drive is connected, and the Chapter page has a **Copy now** button.
+- **Login:** the same login as before. If a login or secret variable goes missing on Vercel, the site shows a configuration error rather than opening up.

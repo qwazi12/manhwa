@@ -63,6 +63,16 @@ export default function Chapter() {
         ))}
       </div>
       {c.busy && <div className="banner info">{c.busy}. The page updates by itself.</div>}
+      {c.video && c.drive_ready && (
+        <div className="row small">
+          {c.drive?.video === c.video ? (
+            <><span className="pill t-ok">✓ In Google Drive</span><a href={c.drive.folder_link} target="_blank" rel="noreferrer">Open the folder ↗</a><span className="muted">copied {when(c.drive.at)}</span></>
+          ) : (
+            <><span className="pill t-muted">Not in Google Drive yet</span>
+              <Busy className="sm" onClick={() => act(async () => { await api("/api/drive/copy", { project: id }); }, "Copying to Drive — it shows here when done")}>Copy now</Busy></>
+          )}
+        </div>
+      )}
       <Tabs<T> value={tab} onChange={setTab} tabs={[["board", "Board"], ["issues", "Issues"], ["video", c.video ? "Video & publish" : "Video & publish (not rendered)"]]} />
       {tab === "board" && <Board id={id} key={boardKey} onChange={() => { reload(); }} />}
       {tab === "issues" && <Issues id={id} onFixed={() => { setBoardKey((n) => n + 1); reload(); }} />}

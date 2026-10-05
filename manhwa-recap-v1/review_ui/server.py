@@ -3219,6 +3219,7 @@ def _run_finalize_job(job_id):
         _ev("render", f"{_fname} exported → {res.get('output')} ({speed}x"
                       + (f", loudness {_ld['before']} → {_ld['target']:g} LUFS" if _ld.get("applied") else
                          f", loudness unchanged: {_ld.get('why')}" if _ld else "") + ")", "ok")
+        _drive_copy_later(active_project_dir(), res.get("output"))
     except HTTPException as e:
         j["status"] = "error"
         j["error"] = str(e.detail)
@@ -5816,83 +5817,8 @@ def health():
     }
 
 
-# POST, not GET: each call spends Gemini quota, so merely opening the URL must not.
-@app.post("/api/debug/test-planner")
-def debug_test_planner():
-    pdir = active_project_dir()
-    segments_path = os.path.join(pdir, "segments.json")
-    if not os.path.exists(segments_path):
-        return {"error": "no segments found"}
-    import sys
-    sys.path.insert(0, os.path.join(RECAP, "hyperframes"))
-    import shot_planner
-    with open(segments_path) as f:
-        segs = json.load(f)
-    # Real panel dimensions; a hardcoded 1000x1000 squashed every crop square.
-    dims = {}
-    desc_file = os.path.join(pdir, "descriptions.json")
-    if os.path.exists(desc_file):
-        dims = {p.get("panel_id"): (p.get("width"), p.get("height"))
-                for p in json.load(open(desc_file))}
-    shots = []
-    for seg in segs:
-        for b in seg["beats"]:
-            shots.append({
-                "index": b["index"],
-                "beat_text": b["text"],
-                "panel_id": seg["panel_id"],
-                "panel_file": os.path.join(pdir, "crops", f"{seg['panel_id']}.png"),
-                "width": dims.get(seg["panel_id"], (None, None))[0] or 1000,
-                "height": dims.get(seg["panel_id"], (None, None))[1] or 1000,
-            })
-    planned = shot_planner.plan_shots(shots[:5], os.path.join(pdir, "descriptions.json"), os.path.join(pdir, "crops"))
-    return {"planned": planned}
-
-
-@app.get("/api/debug/ps")
-def debug_ps():
-    import os
-    try:
-        import ingest
-        proj_dir = os.path.join(ingest.PROJECTS, "dungeon-odyssey_1")
-        if not os.path.exists(proj_dir):
-            return {"ok": True, "msg": "dungeon-odyssey_1 project dir does not exist", "projects_dir": ingest.PROJECTS}
-        files_list = []
-        for root, dirs, files in os.walk(proj_dir):
-            for file in files:
-                rel = os.path.relpath(os.path.join(root, file), proj_dir)
-                files_list.append(rel)
-        return {"ok": True, "files": sorted(files_list)}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-@app.get("/api/debug/cat")
-def debug_cat(path: str, project: str = ""):
-    """Read a text file from a project dir (default: the ACTIVE project —
-    was hardcoded to dungeon-odyssey_1 during Session-21 debugging)."""
-    import os
-    try:
-        import ingest
-        pdir = (os.path.join(ingest.PROJECTS, project) if project
-                else active_project_dir())
-        projects_root = os.path.realpath(ingest.PROJECTS)
-        root = os.path.realpath(pdir)
-        full_path = os.path.realpath(os.path.join(root, path))
-        # Sandbox check, component-wise: a string prefix let "../<project>_10/…"
-        # through, and `project` itself must not climb out of the projects dir.
-        if project and os.path.commonpath([projects_root, root]) != projects_root:
-            return {"ok": False, "error": "access denied"}
-        if os.path.commonpath([root, full_path]) != root:
-            return {"ok": False, "error": "access denied"}
-        if not os.path.exists(full_path):
-            return {"ok": False, "error": "file not found"}
-        with open(full_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        return {"ok": True, "content": content}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
+# Debug endpoints (/api/debug/test-planner, /ps, /cat) removed 2026-10-04 in the rebuild cleanup:
+# they were left over from Session 21 debugging and no page used them.
 
 
 # ================================================================ AUTOPILOT
@@ -6590,7 +6516,8 @@ def chapter_view(pid: str):
     if row is None:
         raise HTTPException(404, "unknown chapter")
     meta = _cs.project_meta(pdir)
-    out = {**row, "steps": _ps.status(pdir), "busy": _chapter_busy(pdir),
+    out = {**row, "steps": _ps.status(pdir), "busy": _chapter_busy(pdir), "drive": _drive.record(pdir),
+           "drive_ready": _drive.configured(),
            "can_rerun": bool(meta.get("url")) and (meta.get("engine") or "gemini") == "gemini"}
     if row.get("video"):
         name = row["video"]
@@ -6620,6 +6547,75 @@ def board_view(pid: str, activate: int = 1):
     out["rendered_once"] = approved
     out["active"] = get_active_project_id() == pid
     return out
+
+
+# ============================================ rebuild step 6: Google Drive copy
+import drive_store as _drive
+_DRIVE_RUNNING = set()
+
+
+def _drive_copy_later(pdir, name):
+    """Copy a finished export to Drive in the background (never blocks or fails the render)."""
+    if not name or not _drive.configured():
+        return
+    threading.Thread(target=_drive_copy, args=(pdir, name), daemon=True).start()
+
+
+def _drive_copy(pdir, name):
+    import thumbnail as _tb
+    pid = os.path.basename(pdir.rstrip("/"))
+    if pid in _DRIVE_RUNNING:
+        return None
+    _DRIVE_RUNNING.add(pid)
+    try:
+        lab = _project_label(pdir)
+        series = _cs.clean_title(lab["series"] or "", _cs.project_meta(pdir).get("url"))
+        try:
+            thumb = _tb.path_for(pdir, name) or None
+        except Exception:
+            thumb = None
+        rec = _drive.copy_chapter(pdir, name, series, lab["chapter"], thumb_path=thumb)
+        msg = f"{_pretty(pid)}: copied to Drive ({series} / Ch {lab['chapter']})"
+        # free the render clips only when this is still the chapter's newest video and nothing is rendering it
+        rendering = any(j.get("type") == "finalize" and j.get("project") == pid and j.get("status") in ("queued", "running")
+                        for j in JOBS.values())
+        latest = _cs._latest_export(pdir)
+        if latest == name and not rendering:
+            mb = _drive.free_clips(pdir)
+            if mb:
+                msg += f" · freed {mb} MB of render clips"
+        _ev("drive", msg, "ok")
+        return rec
+    except Exception as e:  # noqa — a Drive problem never costs the video
+        _ev("drive", f"{_pretty(pid)}: Drive copy failed — {str(e)[:220]}", "error")
+        return None
+    finally:
+        _DRIVE_RUNNING.discard(pid)
+
+
+@app.get("/api/drive/status")
+def drive_status():
+    import ingest as _i
+    return _drive.status(_i.PROJECTS)
+
+
+class DriveCopyIn(BaseModel):
+    project: str
+
+
+@app.post("/api/drive/copy")
+def drive_copy_now(body: DriveCopyIn):
+    """Copy (or re-copy) a chapter's newest video to Drive now."""
+    pdir = project_dir_for(body.project)
+    if not _drive.configured():
+        raise HTTPException(409, "Drive is not set up: GOOGLE_SERVICE_ACCOUNT_JSON and the folder id are needed on Railway")
+    name = _cs._latest_export(pdir)
+    if not name:
+        raise HTTPException(404, "this chapter has no video to copy")
+    if os.path.basename(pdir.rstrip("/")) in _DRIVE_RUNNING:
+        raise HTTPException(409, "a copy of this chapter is already running")
+    _drive_copy_later(pdir, name)
+    return {"ok": True, "video": name}
 
 
 @app.get("/api/critique")
@@ -6910,6 +6906,7 @@ def settings_overview():
                      "defaults": _studio.publish_defaults()},
         "voice": gemini_tts.load_default(_i.PROJECTS) or {},
         "export": {"speed": _studio.export_speed(), "env_override": bool(os.environ.get("EXPORT_SPEED"))},
+        "drive": __import__("drive_store").status(_i.PROJECTS),
         "schedule": {**(_studio.load().get("schedule") or {}),
                      "next": _pq.next_slot(_studio.load().get("schedule") or {}, time.time())},
         "storage": {"disk": disk, "projects": sizes[:8], "n_projects": len(sizes),
