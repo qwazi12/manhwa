@@ -8646,3 +8646,6 @@ Decisions:
 - **Cleanup:** removed `/api/debug/test-planner`, `/api/debug/ps` and `/api/debug/cat`.
 - Tests: new `test_drive_store.py` 15/15 (fake Drive, no real key); full suite 79/79. Handbook E18.
 - **Still to verify live:** the robot's access to Shared Drive 0AOlNsRvSE9zcUk9PVA (Settings → Google Drive shows it).
+- **Verified live (f050ef2):** `/api/drive/status` shows configured, the robot omnistream-bot, Shared Drive 0AOlNsRvSE9zcUk9PVA, `shared_drive: true`, ok. A real copy of Regressor ch.30 (video, thumbnail, script) went to `A Regressors Tale Of Cultivation / Ch 30` (folder 1RJeMwesXe5QTGCYeHwMosqLZRiOlpPeS) and freed 170.4 MB of render clips.
+- **Vercel:** the auto-deploys of 16c4e5c, 033dfa3 and f050ef2 all built the new frontend (Ready). manhwa.nodepilot.dev answers 401 without a login and serves the new Home with one.
+- **Running now:** ch.30 re-run from "describe" (job 0206eadbfa12, ≈$0.50). It re-splits with the flat-gutter rule and describes with the 9-character cast; the result is to be checked against rows 82–96.
