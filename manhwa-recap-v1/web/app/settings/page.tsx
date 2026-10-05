@@ -86,11 +86,19 @@ function Channels({ d, reload }: any) {
     <Card title="Channels & privacy" right={<span className="small muted">{d.channels.status?.detail || d.channels.status?.state}</span>}>
       <div className="grid" style={{ gap: 6 }}>
         {(d.channels.accounts || []).map((a: any) => (
-          <label key={a.account_id} className="check">
-            <input type="checkbox" checked={targets.includes(a.account_id)} onChange={(e) => setTargets(e.target.checked ? [...targets, a.account_id] : targets.filter((t) => t !== a.account_id))} />
-            {a.username || a.account_id} <span className="small faint">{a.account_id}{a.active ? "" : " · inactive"}</span>
-          </label>
+          <div key={a.account_id} className="spread">
+            <label className="check">
+              <input type="checkbox" checked={targets.includes(a.account_id)} onChange={(e) => setTargets(e.target.checked ? [...targets, a.account_id] : targets.filter((t) => t !== a.account_id))} />
+              {a.username || a.account_id} <span className="small faint">{a.account_id}{a.active ? "" : " · inactive"}</span>
+            </label>
+            <ConfirmButton className="sm ghost" confirm="Remove from the studio?" title="forgets it here; it stays linked in Upload-Post"
+              onConfirm={() => act(async () => { await api("/api/publishing/disconnect", { account_id: a.account_id }); reload(); }, "Removed")}>Remove</ConfirmButton>
+          </div>
         ))}
+        <div className="row">
+          <a className="btn sm" href="/api/publishing/connect?network=youtube">＋ Connect a channel</a>
+          <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/publishing/refresh", {}); reload(); }, "Channel list refreshed")}>↻ Refresh the list</Busy>
+        </div>
         {!d.channels.accounts?.length && <span className="muted">No connected channels.</span>}
       </div>
       <label className="field">New videos post as<select id="privacy" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>

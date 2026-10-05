@@ -8769,3 +8769,10 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Use full panel / Restore crop** sit under the frame next to the crop badge ("✂ keeps N%", "crop too small", "▣ full panel (yours)"), plus original ↗.
 - **Cut moves** in More: ±1 s and ±¼ s (the classic −1s / −¼ / +¼ / +1s).
 - Classic chips: dead air, folded, not on the timeline, left out, long holds. A built-with line (engine, match method, splitter, pages, scrape warning). A **sent-back banner** with the reviewer's notes. `/api/chapter` adds `sent_back` and `built_with`.
+
+### 2026-10-04 (late night) — BUILT polish step 4: publishing parity
+- **SEO:** each title shows its score breakdown (relevance, channel fit, discovery, hook) and what it drew from. "Where the suggestions came from" lists confidence with reasons, what was detected (series, chapter, genre, characters), the channel measured, the YouTube search query, the top 5 competing recaps with views, and anything removed. There is a "↻ Re-read the channel too" option (`refresh_style`).
+- **Thumbnail:** drop an image on the panel to upload it; Remove (two taps); "New series look"; "Lock this look for the series" (`/api/thumbcopilot/style/approve`); advisories shown.
+- **Watch:** Download video, **Earlier decisions** history, a **Quality checks** card (matching method with a warning if it's word overlap only, segments and runtime, timing check, long holds, silent segments, scrape warning, render).
+- **Post:** each channel's result (submitted / published / failed with error) and a **Download upload package** link (`/api/publish/package`).
+- **Settings → Channels:** ＋ Connect a channel (Upload-Post connect link), ↻ Refresh the list, Remove per account (two taps; it stays linked in Upload-Post).

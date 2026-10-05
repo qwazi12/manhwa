@@ -4,6 +4,22 @@ import { api, useApi } from "@/lib/api";
 import { enc, mmss, when } from "@/lib/fmt";
 import { Busy, Card, ConfirmButton, Empty, Pill, StatusPill, Status, useAct, useToast } from "@/components/ui";
 
+function QualityCard({ qc }: { qc: any }) {
+  const v = qc.validation || {};
+  return (
+    <Card title="Quality checks">
+      <div className="kv"><span>Pictures matched by</span><span>{qc.semantic ? "meaning (embeddings)" : <b style={{ color: "var(--red)" }}>word overlap only</b>} · {qc.match_method}</span></div>
+      {qc.embed_fallback_reason && <div className="kv"><span>Why</span><span>{qc.embed_fallback_reason}</span></div>}
+      <div className="kv"><span>In the video</span><span>{qc.segments_in_video} of {qc.segments_total} segments · {Math.round(qc.runtime_s)} s</span></div>
+      <div className="kv"><span>Timing check</span><span>{v.ok ? "passes" : `${(v.errors || []).length} error(s)`} · {(v.warnings || []).length} warning(s)</span></div>
+      <div className="kv"><span>Long holds (&gt;12 s on one picture)</span><span>{(qc.long_holds || []).length ? qc.long_holds.map((h: any) => `${h.panel} ${h.seconds}s`).join(", ") : "none"}</span></div>
+      <div className="kv"><span>Silent segments</span><span>{(qc.silent_segments || []).length || "none"}</span></div>
+      {qc.scrape_warning && <div className="kv"><span>Download</span><span style={{ color: "var(--yellow)" }}>{qc.scrape_warning}</span></div>}
+      {qc.render_job && <div className="kv"><span>Render</span><span>{qc.render_job.clips} clips · {qc.render_job.status}</span></div>}
+    </Card>
+  );
+}
+
 /** Watch, approve, and fill in what gets published — one column, the same
  *  parts as every other page. A suggestion fills only its own field. */
 export default function VideoTab({ id, name, status, onChange, draft = false }: { id: string; name: string; status: Status; onChange?: () => void; draft?: boolean }) {
@@ -63,8 +79,16 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
           <Busy onClick={() => verdict("sent_back")}>↩ Send back</Busy>
           <Busy className="ghost" onClick={() => verdict("")}>Save notes</Busy>
           {review.reviewed_at && <span className="small muted">last decision {when(review.reviewed_at)}</span>}
+          <a className="btn sm ghost" href={`/export/${enc(name)}?project=${enc(id)}`} download>Download video</a>
         </div>
+        {(review.history || []).length > 0 && (
+          <details><summary className="small muted">Earlier decisions ({review.history.length})</summary>
+            {review.history.slice().reverse().map((h: any, i: number) => (
+              <div key={i} className="small"><b>{h.status}</b> · {when(h.at)}{h.notes ? ` — ${h.notes}` : ""}</div>))}
+          </details>
+        )}
       </Card>}
+      {!draft && rv.data.qc && <QualityCard qc={rv.data.qc} />}
 
       <Card title="What gets published">
         <label className="field">Title <span className="count num">{(md.title || "").length}/{lim.title}</span>
@@ -78,7 +102,8 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
                 <div key={i} className="sugg">
                   <div className="spread"><b>{t.text}</b>
                     <button className={`sm ${t.recommended ? "primary" : ""}`} onClick={() => applySeo("title", t.text)}>Use</button></div>
-                  <span className="small muted">{t.why}{t.score ? ` · score ${t.score.total}/100` : ""}</span>
+                  <span className="small muted">{t.why}</span>
+                  {t.score && <span className="small faint">score {t.score.total}/100 · relevance {t.score.relevance} · channel fit {t.score.channel_fit} · discovery {t.score.discovery} · hook {t.score.hook}{(t.influence || []).length ? ` · drawn from ${t.influence.join(", ")}` : ""}</span>}
                 </div>
               ))}
             </div>
@@ -105,7 +130,25 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
             {seo.hashtags?.length > 0 && <button className="sm ghost" onClick={() => applySeo("hashtags")}>Add hashtags</button>}</div>
         )}
         {!seo && <Busy className="sm" onClick={() => act(async () => { await api("/api/seo/generate", { project: id, name }); pub.reload(); }, "Suggestions ready")}>Suggest titles, description and tags</Busy>}
-        {seo && <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/seo/generate", { project: id, name }); pub.reload(); }, "New suggestions")}>↻ New suggestions</Busy>}
+        {seo && (
+          <details>
+            <summary className="small muted">Where the suggestions came from{seo.confidence ? ` · ${seo.confidence.band} confidence (${seo.confidence.score}/100)` : ""}</summary>
+            <div className="small" style={{ display: "grid", gap: 4, marginTop: 6 }}>
+              {(seo.confidence?.reasons || []).length > 0 && <span className="muted">{seo.confidence.reasons.join(" · ")}</span>}
+              {seo.detected_from && <span>Detected: {seo.detected_from.series} ch.{seo.detected_from.chapter} · {seo.detected_from.genre} · characters: {(seo.detected_from.characters || []).join(", ") || "—"}</span>}
+              {seo.sources?.channel && <span>Channel: {seo.sources.channel.label} — {seo.sources.channel.detail}{seo.sources.channel.error ? ` (${seo.sources.channel.error})` : ""}</span>}
+              {seo.sources?.research && <span>YouTube search: {seo.sources.research.detail}{seo.sources.research.query ? ` for “${seo.sources.research.query}”` : ""}{seo.sources.research.error ? ` (${seo.sources.research.error})` : ""}</span>}
+              {(seo.sources?.research?.top || []).slice(0, 5).map((v: any, i: number) => (
+                <a key={i} href={v.url} target="_blank" rel="noreferrer">↳ {v.title} · {(v.views || 0).toLocaleString()} views</a>
+              ))}
+              {(seo.sanitized || []).length > 0 && <span className="muted">Removed before you saw it: {seo.sanitized.join(", ")}</span>}
+            </div>
+          </details>
+        )}
+        {seo && <div className="row">
+          <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/seo/generate", { project: id, name }); pub.reload(); }, "New suggestions")}>↻ New suggestions</Busy>
+          <Busy className="sm ghost" title="re-read the channel's latest uploads first" onClick={() => act(async () => { await api("/api/seo/generate", { project: id, name, refresh_style: true }); pub.reload(); }, "New suggestions with a fresh look at the channel")}>↻ Re-read the channel too</Busy>
+        </div>}
         <div className="grid g3">
           <label className="field">Category<select id="cat" value={md.category_id} onChange={(e) => save({ category_id: e.target.value }, "Saved")}>
             {Object.entries(p.categories || {}).map(([k, v]: any) => <option key={k} value={k}>{v}</option>)}</select></label>
@@ -133,10 +176,25 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
           const r = await fetch(`/api/thumbnail?${q}`, { method: "POST", body: f, headers: { "Content-Type": f.type } });
           if (r.ok) { toast("Thumbnail uploaded"); pub.reload(); setCb(Date.now()); } else toast(await r.text(), true);
         }} /></label></span>}>
-        {p.thumbnail ? (
-          <div className="row"><img src={`/thumbnail?${q}&cb=${cb}`} alt="Current thumbnail" style={{ width: 240, aspectRatio: "16/9", objectFit: "cover", borderRadius: 8 }} />
-            <span className="small muted">Current thumbnail · {p.thumbnail.width}×{p.thumbnail.height} · sent with the video</span></div>
-        ) : <p className="small muted">No thumbnail yet. Pick one below or upload your own.</p>}
+        <div onDragOver={(e) => e.preventDefault()} onDrop={async (e) => {
+            e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (!f) return;
+            const r = await fetch(`/api/thumbnail?${q}`, { method: "POST", body: f, headers: { "Content-Type": f.type } });
+            if (r.ok) { toast("Thumbnail uploaded"); pub.reload(); setCb(Date.now()); } else toast(await r.text(), true);
+          }} style={{ border: "1px dashed var(--border)", borderRadius: 8, padding: 10 }}>
+          {p.thumbnail ? (
+            <div className="row"><img src={`/thumbnail?${q}&cb=${cb}`} alt="Current thumbnail" style={{ width: 240, aspectRatio: "16/9", objectFit: "cover", borderRadius: 8 }} />
+              <div style={{ display: "grid", gap: 6 }}>
+                <span className="small muted">Current thumbnail · {p.thumbnail.width}×{p.thumbnail.height} · sent with the video{(p.thumbnail.advisories || []).length ? ` · ${p.thumbnail.advisories.join("; ")}` : ""}</span>
+                <ConfirmButton className="sm danger" confirm="Remove it?" onConfirm={() => act(async () => { await api("/api/thumbnail/delete", { project: id, name }); pub.reload(); setCb(Date.now()); }, "Thumbnail removed")}>Remove</ConfirmButton>
+              </div></div>
+          ) : <p className="small muted">No thumbnail yet. Pick one below, upload one, or drop an image here.</p>}
+          <span className="small faint">Drop an image here to use it (JPG or PNG, at most 2 MB, at least 640 px wide).</span>
+        </div>
+        <div className="row small">
+          <span className="muted">Series look: {tc.style_approved ? "locked for every chapter" : "draft"}</span>
+          <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/thumbcopilot/generate", { project: id, name, new_style: true }); pub.reload(); setCb(Date.now()); }, "A new series look")}>New series look</Busy>
+          {!tc.style_approved && <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/thumbcopilot/style/approve", { project: id, name }); pub.reload(); }, "Series look locked")}>Lock this look for the series</Busy>}
+        </div>
         {concepts.length === 0 ? <Empty>No options yet — press New options.</Empty> : (
           <div className="thumbs">
             {concepts.map((c: any) => (
@@ -172,11 +230,21 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
             {(p.readiness?.blockers || []).length > 0 ? (
               <div className="banner warn"><b>Not ready to post:</b><ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{p.readiness.blockers.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul></div>
             ) : <div className="banner ok">Ready. It posts at the next free slot, or now if you press Post now.</div>}
+            {rec && (rec.results || []).length > 0 && (
+              <div className="grid" style={{ gap: 4 }}>
+                {rec.results.map((r: any) => (
+                  <div key={r.account_id} className="row small"><Pill tone={r.status === "published" ? "ok" : r.status === "failed" ? "bad" : "warn"}>{r.status}</Pill>
+                    <b>{r.username || r.account_id}</b>{r.error && <span style={{ color: "var(--red)" }}>{r.error}</span>}</div>
+                ))}
+              </div>
+            )}
             {rec?.status === "in_progress" && <div className="banner info">Posting: {rec.stage}</div>}
             {rec?.status === "failed" && <div className="banner bad">Last try failed: {rec.error}</div>}
             <ConfirmButton className="primary" disabled={(p.readiness?.blockers || []).length > 0 || rec?.status === "in_progress"}
               confirm={`Post now as ${md.privacy}? It can't be taken back.`}
               onConfirm={() => act(async () => { await api("/api/publishing/publish", { project: id, name }); pst.reload(); onChange?.(); }, "Posting")}>Post now</ConfirmButton>
+            <a className="btn sm ghost" href={`/api/publish/package?${q}`}>Download upload package</a>
+            <span className="small faint">The package has the details, checklist and thumbnail for a manual upload; the video itself downloads from the player.</span>
           </>
         )}
       </Card>
