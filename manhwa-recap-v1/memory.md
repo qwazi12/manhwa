@@ -8801,3 +8801,9 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - The sweep never archives or deletes such a chapter; it unarchives it if needed and logs that.
   - `/api/pipeline/rerun` unarchives straight away.
   - Tests: `test_chapter_status` 28/28 (a rebuilt archived chapter overdue for deletion comes back, isn't re-archived, and shows Check the board); full suite 79/79.
+
+### 2026-10-05 (00:00 ET) — Rebuilding every chapter from the old Projects list (owner decision)
+- Queued "describe again" (≈$0.50 each, run one at a time) for: Iron-Blooded 180, Mount Hua 180 (img), Murim 44 (img), Fated Villain 358, Regressed Mercenary 96, Extra's Academy 114, Stellar Swordmaster 129, Fog Land 2. Regressor ch.30 was already rebuilt.
+- Murim 44 and Mount Hua 180 were refused: their "(img)" versions share the source link and were queued, and the busy check matched by link. A background watcher queues them once those finish.
+- **Fixed** (committed, pushed only when nothing is running): `_chapter_busy` now compares project ids, so a saved version no longer blocks the original. `test_pipeline_strip` 19/19; full suite 79/79.
+- The spend limit reset at midnight ET; autopilot (4 a day) also runs today.

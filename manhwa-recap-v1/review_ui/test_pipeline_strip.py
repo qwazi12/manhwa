@@ -108,6 +108,10 @@ def main():
         r = c.post("/api/pipeline/rerun", json={"project": pid, "step": "match"})
         check("refused while the chapter is being made", r.status_code == 409 and "ingest" in r.json()["detail"])
         server.INGEST.pop("busy1")
+        server.INGEST["busy2"] = {"status": "queued", "url": URL, "variant": "v2"}
+        r = c.post("/api/pipeline/rerun", json={"project": pid, "step": "match"})
+        check("a queued SAVED VERSION (same link) doesn't block the original", r.status_code == 200)
+        server.INGEST.pop("busy2")
         lab = build(root, "murim-lab-1", engine="claude")
         r = c.post("/api/pipeline/rerun", json={"project": "murim-lab-1", "step": "match"})
         check("Claude-lab chapters can't re-run a step here", r.status_code == 409)

@@ -6350,8 +6350,12 @@ def pipeline_view(project: str = ""):
 def _chapter_busy(pdir):
     pid = os.path.basename(pdir.rstrip("/"))
     url = _read_json(os.path.join(pdir, "project.json")).get("url")
+    import ingest as _ib
     for j in list(INGEST.values()):
-        if j.get("status") in ("queued", "running") and (j.get("project") == pid or (url and j.get("url") == url)):
+        # same chapter = same project id; a saved version (-img, -v2) shares the
+        # URL but is a different chapter (2026-10-04: it blocked the original)
+        jp = j.get("project") or (_ib.project_id(j["url"], j.get("variant") or "") if j.get("url") else None)
+        if j.get("status") in ("queued", "running") and (jp == pid or (not jp and url and j.get("url") == url)):
             return "an ingest of this chapter is " + j["status"]
     for j in list(JOBS.values()):
         if j.get("status") in ("queued", "running") and j.get("project") == pid:
