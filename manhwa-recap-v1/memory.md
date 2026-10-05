@@ -8864,3 +8864,18 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Verified locally** (`next start`, mock credentials, dummy backend): 10/10 — page → 303 /login; API → 401 JSON; wrong password → 401 after 1.0 s; right password → 303 + cookie (Max-Age 7776000, HttpOnly); cookie → 200; tampered cookie → 303; `//evil.com` → `/`; Basic header → 200; logout clears. `tsc` clean, `next build` ok.
 - Gap: rate limiting is only the 1 s delay per attempt, not per IP (there's no shared store in middleware).
 - **Live (73218e0):** checked without signing in: `/` → 303 to `/login?next=/`; `/login` 200; `/api/home` 401 JSON; manifest 200. The real sign-in (and the Secure flag on https) is for the owner to confirm on their phone.
+
+### 2026-10-05 — Owner: "render the current done items… it shouldn't cost me right?"
+- **Checked live**, chapter by chapter (`/api/chapter/{id}` → `revoice`): all 12 "Check the board" chapters are free to render, since every one is already in the studio voice (Charon, no style). Fog Land 38, Murim 44 (+img), Mount Hua 180 (+img), Fog Land 2, Stellar 129, Extra's Academy 114, Mercenary 96, Fated Villain 358, Iron-Blooded 180, Regressor 30.
+  - Ch.30's pin says Charon but its audio is the old energetic voice (see the entry above).
+- **Found before the owner rendered: renders could mix chapters.**
+  - Clip rendering and export read the *active* chapter (`active_project_dir()`, `load_segments()`, plus the `AUDIO_DIR` global) clip by clip.
+  - Opening any other chapter's board activates it (`/api/board/{pid}`), and so does starting a second render.
+  - So browsing to another board mid-render would have switched the render to that chapter's timeline.
+- **Fix:**
+  - `_render_lock()`: while a finalize or clip render is queued or running, `/api/activate` refuses any other chapter with a 409 and a plain reason.
+  - `/api/board/{pid}` still returns the board, with `locked` set. Board.tsx shows a "View only" banner with "Try again" and blocks edits, because edits act on the active chapter.
+  - Starting a second render gets the 409 as a toast, so renders run one at a time.
+- **Tests:** new `test_render_lock` 7/7; full backend suite 74/75.
+  - The one failure, `test_posting_schedule` (KeyError '12:00'), also fails with these changes stashed. It hard-codes 2026-10-05 slots, so it breaks on today's real date. Pre-existing; **pending fix**.
+  - `tsc` clean, `next build` ok.

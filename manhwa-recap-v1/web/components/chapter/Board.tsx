@@ -46,6 +46,8 @@ export default function Board({ id, onChange, sentBack, builtWith }:
   if (error) return <div className="banner bad">{error}</div>;
   if (!b) return <Empty>Loading the board…</Empty>;
   const run = async (path: string, body: any, ok?: string) => {
+    // edits act on the open chapter; while another chapter renders this board is view-only
+    if (b.locked) return act(async () => { throw new Error(`View only: ${b.locked}`); });
     await act(async () => { await api(path, body); await reload(); setStamp(Date.now()); onChange?.(); }, ok);
   };
   const segs: any[] = b.segments;
@@ -58,6 +60,10 @@ export default function Board({ id, onChange, sentBack, builtWith }:
   shownRef.current = shown;
   return (
     <>
+      {b.locked && (
+        <div className="banner warn spread"><span><b>View only.</b> {b.locked}</span>
+          <button className="sm" onClick={() => reload()}>Try again</button></div>
+      )}
       {sentBack && <div className="banner warn"><b>↩ The last video was sent back.</b> {sentBack.notes || "No notes."} Fix it here, then Render again.</div>}
       <Card pad={false}
         title={<div className="row small"><b>{mmss(sm.runtime)}</b><span className="muted">· {sm.in_video} of {sm.segments} segments in the video · {sm.panels} panels</span></div>}

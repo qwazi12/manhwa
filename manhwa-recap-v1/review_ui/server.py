@@ -4723,11 +4723,29 @@ def api_watchlist_ingest(body: WLIngestIn):
     return dict(res, url=url, title=s["title"], chapter=body.chapter)
 
 
+def _render_lock(except_pid=None):
+    """The chapter a render is working on right now, if any other than
+    except_pid. Renders read the ACTIVE chapter's timeline and audio clip by
+    clip, so switching the active chapter mid-render would mix two chapters
+    into one video (found 2026-10-05, before the owner rendered 12 chapters)."""
+    for x in list(JOBS.values()):
+        if ((x.get("type") == "finalize" or "seg_indices" in x)
+                and x.get("status") in ("running", "queued", "paused", "pausing")
+                and x.get("project") and x.get("project") != except_pid):
+            return x["project"]
+    return None
+
+
 @app.post("/api/activate")
 def activate_project(body: ActivateIn):
     """Point the studio at an ingested project: load its segments + audio."""
     global AUDIO_DIR, DESCRIPTIONS
     import ingest
+    busy = _render_lock(body.id)
+    if busy:
+        raise HTTPException(409, f"{_pretty(busy)} is rendering. Only one chapter can be open for "
+                                 f"rendering or editing at a time — try again when it finishes "
+                                 f"(usually a few minutes).")
     proj = os.path.join(ingest.PROJECTS, body.id)
     seg = os.path.join(proj, "segments.json")
     if not os.path.exists(seg):
@@ -6721,8 +6739,14 @@ def board_view(pid: str, activate: int = 1):
     import board_data
     import matcher
     pdir = project_dir_for(pid)
+    locked = None
     if activate and get_active_project_id() != pid and os.path.exists(os.path.join(pdir, "segments.json")):
-        activate_project(ActivateIn(id=pid))
+        try:
+            activate_project(ActivateIn(id=pid))
+        except HTTPException as e:
+            if e.status_code != 409:
+                raise
+            locked = e.detail             # shown read-only until the render ends
     review = _load_reviews_side(pdir)
     out = board_data.build(pdir, review, junk_reason=matcher.junk_reason)
     try:
@@ -6731,6 +6755,7 @@ def board_view(pid: str, activate: int = 1):
         approved = False
     out["rendered_once"] = approved
     out["active"] = get_active_project_id() == pid
+    out["locked"] = locked
     return out
 
 
