@@ -8671,3 +8671,57 @@ Decisions:
   - which older Asura chapters to re-run (≈$0.50 each);
   - motion-layer sample;
   - after a few days of use, retire the classic pages and the root-level Vercel files (they are the rollback path until then).
+
+---
+
+## PLAN — 2026-10-04 (late night, owner review of the live new studio) — Studio Polish (FOR REVIEW, nothing built)
+Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
+
+**Owner notes:**
+1. a separate table for the classic system;
+2. is it desktop friendly?;
+3. too much friction changing chapters — a dropdown to pick the next one;
+4. "Needs you" should have image cards like Library;
+5. put Chapter under Home and call it Board;
+6. what are "Video & publish (not rendered)", "videos to watch and approve" and "boards to review", and how do they differ from Queue?;
+7. drag and drop instead of "move to position", see the pictures when swapping, bring back "use full panel";
+8. Render video then nothing — where do I watch, review and do SEO? Everything at its core must come over.
+
+**Findings:**
+- **Render:** no render ran (no render event after 17:00). The Render button needs a second tap and the first does nothing visible, which is friction I added. "Clips 110/110 · Oct 2" was an earlier render whose export the 7-day cleanup had removed, hence "not exported" / "(not rendered)".
+- **SEO:** it is in Video & publish, but only once a video exists.
+- **Desktop:** the content is capped at 1,240 px in one column.
+- **Parity check** (function by function, classic Board / Review & Publish / Tracker / Exports / Ingest). Missing in the new studio:
+  - SEO research panel (top competing recaps, title scoring, channel refresh);
+  - thumbnail drop / preview / remove / new series style / approve series look;
+  - upload package download;
+  - publish progress timeline;
+  - decision history;
+  - channel account connect / refresh / disconnect;
+  - quality card;
+  - board drag reorder, per-segment approve / reject, tick all/none, per-row undo, stop render, the chips;
+  - Library: mirrors, preferred source, remove series, aliases / rank / notes, check all, release dates;
+  - export versions with delete, live ingest progress, stopping an ingest from its chapter.
+
+**Build order:**
+1. Render and watch without dead ends (one-tap render with a cost sheet, live progress in steps 7–8, automatic switch to the video, Video tab always visible, SEO before render).
+2. Chapter navigation (Board under Home, picker with Previous / Next / "Next to check", Home image cards, "Check the board" / "Watch the video" wording).
+3. Board parity.
+4. Publishing parity.
+5. Desktop layouts.
+6. Library and exports parity, plus a Classic page.
+
+**Still to do from before:**
+- A. Rotate the Anthropic key (urgent, owner).
+- B. Review and render ch.30.
+- C. Privacy while the schedule is on.
+- D. Demand suggestions.
+- E. Which older Asura chapters to rebuild.
+- F. Motion-layer sample.
+- G. Retire classic after a few days.
+
+**Owner decisions needed:**
+1. Build order.
+2. One-tap render with a confirm sheet.
+3. The wording "Check the board" / "Watch the video".
+4. Which older chapters to rebuild.
