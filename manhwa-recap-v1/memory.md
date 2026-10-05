@@ -8811,3 +8811,9 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - The busy-check fix (3248c93) was pushed automatically when the server went idle.
   - The background watcher meant to queue Murim 44 and Mount Hua 180 never succeeded; the cause is unknown (its output was empty). Both were queued by hand.
   - Spend today: $9.13 of $10, so autopilot will pause on the cap for the rest of the day by itself.
+
+### 2026-10-05 — Owner: "Internal Server Error" — fixed
+- **Cause:** a finished ingest stores the whole project dict in its job record's `project` field. `_ingest_by_project()` (behind `/api/chapters`, `/api/home`, `/api/library` and `/api/chapter/{id}`) used that as a dict key, giving `TypeError: unhashable type: 'dict'` → 500. It surfaced once the rebuilds finished. Railway log: `server.py:6414 _ingest_by_project`.
+- **Fix:** `_job_pid()` normalises a job's project id (dict → its `id`, else from the URL) and is used by `_ingest_by_project` and `_chapter_busy`.
+- **Test:** `test_chapter_status` 29/29 adds a finished record with a dict project; full suite 79/79.
+- **Lesson:** the tests used only running ingest records; live data includes finished ones. Test fixtures should include finished-job shapes.

@@ -6354,7 +6354,7 @@ def _chapter_busy(pdir):
     for j in list(INGEST.values()):
         # same chapter = same project id; a saved version (-img, -v2) shares the
         # URL but is a different chapter (2026-10-04: it blocked the original)
-        jp = j.get("project") or (_ib.project_id(j["url"], j.get("variant") or "") if j.get("url") else None)
+        jp = _job_pid(j)
         if j.get("status") in ("queued", "running") and (jp == pid or (not jp and url and j.get("url") == url)):
             return "an ingest of this chapter is " + j["status"]
     for j in list(JOBS.values()):
@@ -6403,13 +6403,26 @@ def pipeline_rerun(body: PipelineRerunIn):
 import chapter_status as _cs
 
 
+def _job_pid(j):
+    """A job record's project id. A FINISHED ingest stores the whole project
+    dict under "project" (not just its id) — using that as a key crashed every
+    chapter list with "unhashable type: dict" (2026-10-05)."""
+    import ingest as _i
+    p = j.get("project")
+    if isinstance(p, dict):
+        p = p.get("id")
+    if not p and j.get("url"):
+        p = _i.project_id(j["url"], j.get("variant") or "")
+    return p if isinstance(p, str) else None
+
+
 def _ingest_by_project():
     """Newest ingest record per project id (and per URL for ones without a folder yet)."""
     import ingest as _i
     out, by_url = {}, {}
     for jid, j in sorted(INGEST.items(), key=lambda kv: kv[1].get("ts") or 0):
         rec = dict(j, job=jid)
-        pid = j.get("project") or (_i.project_id(j["url"], j.get("variant") or "") if j.get("url") else None)
+        pid = _job_pid(j)
         if pid:
             out[pid] = rec
         if j.get("url"):

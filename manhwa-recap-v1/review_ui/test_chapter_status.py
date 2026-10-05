@@ -67,8 +67,13 @@ def main():
     p44 = proj(44)
     p45 = proj(45, video=True)
     server.INGEST["j46"] = {"status": "running", "stage": "voice", "url": URL.format(46), "ts": 9e9}
+    # a FINISHED ingest stores the whole project dict under "project" (live 500, 2026-10-05)
+    server.INGEST["j44done"] = {"status": "done", "url": URL.format(44), "ts": 1, "project": {"id": p44, "segments": []}}
     try:
         c = TestClient(server.app)
+        check("a finished ingest record (project stored as a dict) doesn't break the lists",
+              c.get("/api/chapters").status_code == 200 and c.get(f"/api/chapter/{p44}").status_code == 200
+              and c.get("/api/home").status_code == 200)
         d = c.get("/api/chapters").json()
         st = {r["id"]: r["status"]["key"] for r in d["chapters"]}
         check("the chapters list gives one status each", st[p44] == "to_review" and st[p45] == "video_ready")
