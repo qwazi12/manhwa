@@ -8848,3 +8848,18 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - The ch.30 API answers with `revoice: null`, because the failed run had already re-pinned it to Charon/no style.
   - The failed job record is gone after the restart.
   - So ch.30 now renders free with its existing (energetic) audio. Its pin reads Charon, so any single line re-recorded later would come out in Charon/no style. Owner to decide.
+
+### 2026-10-05 — Owner: "Why do I have to constantly login on my phones?" — sign-in page with a 90-day cookie
+- **Cause:** the site used HTTP Basic Auth (the browser's login popup). Phone browsers keep those credentials only for the browser session, which ends whenever the tab or app is unloaded in the background. Home-screen web apps never keep them.
+- **Fix (web only):**
+  - `middleware.ts` now serves its own `/login` page (no app shell, light/dark). A correct sign-in sets `rs_session`, a signed cookie (HttpOnly, Secure on https, SameSite=Lax) valid for 90 days.
+  - The cookie is signed with HMAC-SHA256 over user|expiry, keyed from SHARED_SECRET + BASIC_AUTH_PASSWORD (`lib/session.ts`). Changing the password on Vercel signs every device out. No new env variable is needed.
+  - `/logout` clears the cookie.
+  - Signed-out page visits redirect to `/login?next=…`; API calls get a 401 JSON `{code, message}` with no popup.
+  - The `next` target is limited to same-site paths (no open redirect).
+  - A wrong password waits 1 s (slows guessing). Comparisons are constant-time.
+  - A Basic Auth header is still accepted, for scripts.
+  - `/manifest.webmanifest` and `/app-icon/*` are open, because phones fetch the home-screen manifest without cookies.
+  - `lib/api.ts` sends the browser to `/login` on a 401.
+- **Verified locally** (`next start`, mock credentials, dummy backend): 10/10 — page → 303 /login; API → 401 JSON; wrong password → 401 after 1.0 s; right password → 303 + cookie (Max-Age 7776000, HttpOnly); cookie → 200; tampered cookie → 303; `//evil.com` → `/`; Basic header → 200; logout clears. `tsc` clean, `next build` ok.
+- Gap: rate limiting is only the 1 s delay per attempt, not per IP (there's no shared store in middleware).

@@ -9,6 +9,9 @@ export async function api<T = any>(path: string, body?: unknown, method?: string
     init.body = JSON.stringify(body);
   }
   const r = await fetch(path, init);
+  if (r.status === 401 && typeof location !== "undefined" && !location.pathname.startsWith("/login")) {
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);   // sign-in expired
+  }
   if (!r.ok) {
     let msg = await r.text();
     try {
