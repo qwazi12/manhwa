@@ -8662,3 +8662,12 @@ Decisions:
   - **Split lab**: preview the splitter on a link or an existing chapter, with optional bubble blur, past runs, a "very tall only" filter and the panel grid.
   - **Claude lab**: build a chapter with the experimental Claude pipeline (two taps, it spends Claude credit), plus a list of lab chapters with cost and readiness and an Open link to the new Chapter page.
   - With this, everything the classic pages did is in the new studio. The classic board stays reachable for a few days as a fallback before it is retired, which needs the owner's go-ahead.
+- **Live check (afcb474, Vercel Ready):** `/tools` serves Split lab with a past run (129 panels; `/splitimg` images load through the proxy) and Claude lab; Library has the All chapters tab. Spend today $8.96 of $10.
+- **Remaining (all owner decisions):**
+  - rotate the exposed Anthropic key;
+  - review and render the rebuilt ch.30;
+  - privacy public or private (the schedule is ON, 11:00/19:00);
+  - 7 demand suggestions;
+  - which older Asura chapters to re-run (≈$0.50 each);
+  - motion-layer sample;
+  - after a few days of use, retire the classic pages and the root-level Vercel files (they are the rollback path until then).
