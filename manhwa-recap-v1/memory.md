@@ -8776,3 +8776,12 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Watch:** Download video, **Earlier decisions** history, a **Quality checks** card (matching method with a warning if it's word overlap only, segments and runtime, timing check, long holds, silent segments, scrape warning, render).
 - **Post:** each channel's result (submitted / published / failed with error) and a **Download upload package** link (`/api/publish/package`).
 - **Settings → Channels:** ＋ Connect a channel (Upload-Post connect link), ↻ Refresh the list, Remove per account (two taps; it stays linked in Upload-Post).
+
+### 2026-10-04 (late night) — BUILT polish step 5: desktop layouts
+- From 1,280 px:
+  - the content uses up to 1,680 px;
+  - **Watch the video is two columns**, with player, quality and post on the left (sticky) and details, SEO and thumbnail on the right;
+  - **Board rows gain a third column** (what the AI saw, text in the picture, panel size) and a larger frame (170 px);
+  - Library shows series in 2 columns (3 from 1,700 px), and Home's cards are wider.
+- **Keyboard on the board:** J / K moves to the next / previous segment (highlighted and scrolled into view), E edits its line; ignored while typing.
+- Phone layouts are unchanged.

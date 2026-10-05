@@ -41,7 +41,7 @@ export default function Library() {
       </div>
       {error && <div className="banner bad">{error}</div>}
       {!data ? <Empty>Loading…</Empty> : shown.length === 0 ? <Empty>No series match. Paste a link above to add one.</Empty> : (
-        <div className="grid">{shown.map((s) => <SeriesCard key={s.id} s={s} reload={reload} />)}</div>
+        <div className="grid sgrid">{shown.map((s) => <SeriesCard key={s.id} s={s} reload={reload} />)}</div>
       )}
       </>}
     </>

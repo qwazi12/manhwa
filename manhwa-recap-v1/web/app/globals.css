@@ -195,3 +195,21 @@ video { width: 100%; border-radius: 8px; background: #000; display: block; }
 .needcard:hover { border-color: var(--faint); text-decoration: none; }
 .needcard img, .needcard .ph { width: 76px; aspect-ratio: 3/4; object-fit: cover; border-radius: 7px; background: var(--panel2); }
 .needcard .nb { display: grid; gap: 5px; align-content: start; min-width: 0; }
+
+/* ---- desktop layouts (owner, 2026-10-04: make it website-friendly, not just phone-friendly) */
+.vgrid { display: grid; gap: 12px; }
+.vcol { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.brow .aicol { display: none; }
+@media (min-width: 1280px) {
+  .content { max-width: 1680px; padding: 22px 32px 60px; }
+  .vgrid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; }
+  .vleft { position: sticky; top: 12px; }
+  .brow { grid-template-columns: 170px minmax(0, 1.3fr) minmax(0, 1fr) auto; }
+  .brow img { width: 170px; max-height: 220px; }
+  .brow .aicol { display: grid; gap: 6px; font-size: 12.5px; color: var(--muted); align-content: start; border-left: 1px solid var(--border); padding-left: 12px; }
+  .brow .txt details { display: none; }
+  .sgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .needgrid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+}
+@media (min-width: 1700px) { .sgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.brow.sel { box-shadow: inset 3px 0 0 var(--blue); background: var(--row); }

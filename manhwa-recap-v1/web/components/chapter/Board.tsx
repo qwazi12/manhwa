@@ -20,6 +20,29 @@ export default function Board({ id, onChange, sentBack, builtWith }:
   const [drag, setDrag] = useState<number | null>(null);
   const [over, setOver] = useState<number | null>(null);
   const [swapFor, setSwapFor] = useState<any>(null);
+  const [sel, setSel] = useState<number | null>(null);
+  const [editSignal, setEditSignal] = useState(0);
+  const shownRef = useRef<any[]>([]);
+  useEffect(() => {
+    // desktop keys: J / K next and previous segment, E edit its narration
+    const h = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      const list = shownRef.current;
+      if (!list.length) return;
+      const i = list.findIndex((x: any) => x.seg_index === sel);
+      if (e.key === "j" || e.key === "k") {
+        const ni = e.key === "j" ? Math.min(list.length - 1, i + 1) : Math.max(0, i < 0 ? 0 : i - 1);
+        const si = list[ni].seg_index;
+        setSel(si);
+        document.getElementById(`seg-${si}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+      } else if (e.key === "e" && sel !== null) {
+        setEditSignal((n) => n + 1);
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [sel]);
   if (error) return <div className="banner bad">{error}</div>;
   if (!b) return <Empty>Loading the board…</Empty>;
   const run = async (path: string, body: any, ok?: string) => {
@@ -32,6 +55,7 @@ export default function Board({ id, onChange, sentBack, builtWith }:
   const sm = b.summary;
   const shown = f === "video" ? segs.filter((s) => s.in_video) : f === "flagged" ? flagged : f === "all" ? segs : [];
   const canDrag = f === "video" || f === "all";
+  shownRef.current = shown;
   return (
     <>
       {sentBack && <div className="banner warn"><b>↩ The last video was sent back.</b> {sentBack.notes || "No notes."} Fix it here, then Render again.</div>}
@@ -54,7 +78,7 @@ export default function Board({ id, onChange, sentBack, builtWith }:
           </div>
           <Chips<F> value={f} onChange={setF} items={[["video", `In the video (${sm.in_video})`], ["flagged", `Needs a look (${flagged.length})`],
             ["out", `Not in the video (${outPanels.length} panels)`], ["all", `All segments (${sm.segments})`]]} />
-          {canDrag && <span className="small faint">Drag a row by ⠿ to move it. On a phone, use More → Move up / Move down.</span>}
+          {canDrag && <span className="small faint">Drag a row by ⠿ to move it (phone: More → Move up / down). Keys: J / K next and previous, E edit the line.</span>}
         </div>
         {f === "out" ? (
           <div className="list">
@@ -84,7 +108,8 @@ export default function Board({ id, onChange, sentBack, builtWith }:
                 style={over === s.seg_index ? { boxShadow: "inset 0 3px 0 var(--blue)" } : undefined}>
                 <SegRow s={s} b={b} stamp={stamp} run={run} canDrag={canDrag}
                   onDragStart={() => setDrag(s.seg_index)} onDragEnd={() => { setDrag(null); setOver(null); }}
-                  onSwap={() => setSwapFor(s)} index={pos(s.seg_index)} last={segs.length - 1} />
+                  onSwap={() => setSwapFor(s)} index={pos(s.seg_index)} last={segs.length - 1}
+                  selected={sel === s.seg_index} editSignal={sel === s.seg_index ? editSignal : 0} />
               </div>
             ))}
           </div>
@@ -96,7 +121,7 @@ export default function Board({ id, onChange, sentBack, builtWith }:
   );
 }
 
-function SegRow({ s, b, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, index, last }: any) {
+function SegRow({ s, b, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, index, last, selected, editSignal }: any) {
   const [edit, setEdit] = useState(false);
   const [texts, setTexts] = useState<Record<number, string>>({});
   const [dur, setDur] = useState(String(s.dur));
@@ -104,6 +129,7 @@ function SegRow({ s, b, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, ind
   const [add, setAdd] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => setDur(String(s.dur)), [s.dur]);
+  useEffect(() => { if (selected && editSignal && s.beats.length) setEdit(true); }, [editSignal]);
   useEffect(() => {
     if (!menu) return;
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setMenu(false); };
@@ -114,7 +140,7 @@ function SegRow({ s, b, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, ind
   const text = s.beats.map((x: any) => x.text).join(" ");
   const st = s.review;
   return (
-    <div className={`brow ${s.in_video ? "" : "out"}`}>
+    <div className={`brow ${s.in_video ? "" : "out"} ${selected ? "sel" : ""}`} id={`seg-${s.seg_index}`}>
       <div style={{ display: "grid", gap: 6, justifyItems: "start" }}>
         <a href={`/segimg/${s.seg_index}`} target="_blank" rel="noreferrer" title="the exact frame the video shows">
           <img src={`/thumb/${s.seg_index}?t=${stamp}`} alt="" loading="lazy" />
@@ -169,6 +195,11 @@ function SegRow({ s, b, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, ind
             <button className="sm ghost" onClick={() => setAdd(null)}>Cancel</button>
           </div>
         )}
+      </div>
+      <div className="aicol">
+        <b>What the AI saw</b><span>{panel.seen || "—"}</span>
+        <b>Text in the picture</b><span>{panel.ocr || "none"}</span>
+        <span className="faint">{panel.panel_id} · {panel.width}×{panel.height}</span>
       </div>
       <div className="ctl">
         <label className="check small"><input type="checkbox" checked={s.in_video}
