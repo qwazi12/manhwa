@@ -6583,6 +6583,14 @@ def chapter_view(pid: str):
                          "expires_in_days": max(0, round(EXPORT_RETENTION_DAYS - age, 1)),
                          "review": rs.get("status"), "superseded": rs.get("superseded")})
     out["videos"] = vids
+    # a "send back" verdict must reach the board with its notes (classic banner)
+    for v in vids:
+        if v.get("review") == "sent_back":
+            out["sent_back"] = {"video": v["name"], "notes": (load_reviews(pdir).get(v["name"]) or {}).get("notes", "")}
+            break
+    out["built_with"] = {"match": meta.get("match_method"), "engine": meta.get("engine") or "gemini",
+                         "split": (meta.get("split_coverage") or {}).get("engine") or (meta.get("split_coverage") or {}).get("format"),
+                         "pages": meta.get("n_pages"), "scrape_warning": meta.get("scrape_warning") or None}
     if row.get("video"):
         name = row["video"]
         store = load_publish(pdir)

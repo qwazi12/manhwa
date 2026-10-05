@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, useApi } from "@/lib/api";
 import { mmss } from "@/lib/fmt";
 import { Busy, Card, Chips, ConfirmButton, Empty, Pill, useAct } from "@/components/ui";
@@ -9,66 +9,99 @@ const PLACE: Record<string, [string, string]> = {
   on_screen: ["ok", "in the video"], left_out: ["muted", "left out"], folded: ["warn", "folded into a paragraph"], unplaced: ["bad", "unplaced"],
 };
 
-export default function Board({ id, onChange }: { id: string; onChange?: () => void }) {
+/** Check the board: every segment in video order. Everything the classic board
+ *  did, with the secondary actions in a More menu (owner, 2026-10-04). */
+export default function Board({ id, onChange, sentBack, builtWith }:
+  { id: string; onChange?: () => void; sentBack?: { notes: string } | null; builtWith?: any }) {
   const { data: b, reload, error } = useApi<any>(`/api/board/${encodeURIComponent(id)}`);
   const [f, setF] = useState<F>("video");
   const act = useAct();
   const [stamp, setStamp] = useState(Date.now());
+  const [drag, setDrag] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  const [swapFor, setSwapFor] = useState<any>(null);
   if (error) return <div className="banner bad">{error}</div>;
   if (!b) return <Empty>Loading the board…</Empty>;
   const run = async (path: string, body: any, ok?: string) => {
     await act(async () => { await api(path, body); await reload(); setStamp(Date.now()); onChange?.(); }, ok);
   };
   const segs: any[] = b.segments;
-  const flagged = segs.filter((s) => s.flags.length || (s.crop.status === "sub" && (s.crop.keeps ?? 100) < 30));
+  const pos = (si: number) => segs.findIndex((s) => s.seg_index === si);
+  const flagged = segs.filter((s) => s.flags.length || (s.crop.status === "sub" && (s.crop.keeps ?? 100) < 30) || s.silent);
   const outPanels = b.panels.filter((p: any) => p.place !== "on_screen");
   const sm = b.summary;
   const shown = f === "video" ? segs.filter((s) => s.in_video) : f === "flagged" ? flagged : f === "all" ? segs : [];
+  const canDrag = f === "video" || f === "all";
   return (
-    <Card pad={false}
-      title={<div className="row small"><b>{mmss(sm.runtime)}</b><span className="muted">· {sm.in_video} of {sm.segments} segments in the video · {sm.panels} panels ({sm.left_out} left out, {sm.folded} folded) · {sm.long_holds} long holds</span></div>}
-      right={<div className="row">
-        <Busy className="sm" onClick={() => run("/api/storyboard/undo", {}, "Undone")} title="undo the last board change">↶ Undo</Busy>
-      </div>}>
-      <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
-        <Chips<F> value={f} onChange={setF} items={[["video", `In the video (${sm.in_video})`], ["flagged", `Needs a look (${flagged.length})`],
-          ["out", `Not in the video (${outPanels.length} panels)`], ["all", `All segments (${sm.segments})`]]} />
-      </div>
-      {f === "out" ? (
-        <div className="list">
-          {outPanels.length === 0 ? <Empty>Every panel is in the video.</Empty> : outPanels.map((p: any) => (
-            <div className="brow out" key={p.panel_id}>
-              <img src={`/panelimg/${encodeURIComponent(p.panel_id)}?thumb=1`} alt="" loading="lazy" />
-              <div className="txt">
-                <div className="row"><Pill tone={PLACE[p.place][0]}>{PLACE[p.place][1]}</Pill><span className="small faint">#{p.n} · {p.panel_id} · {p.width}×{p.height}</span></div>
-                {p.left_out_why && <div className="meta">Why: {p.left_out_why}</div>}
-                {p.unit_text && <div className="meta">Folded into ¶{p.unit}: {p.unit_text}</div>}
-                {p.ocr && <div className="meta">Text in the picture: {p.ocr}</div>}
-                <div className="meta">{p.seen}</div>
-              </div>
-              <div className="ctl">
-                <Busy className="sm" onClick={() => run("/api/storyboard/include", { panel_id: p.panel_id }, "Put in the video as a silent hold")}>Put in video</Busy>
-              </div>
-            </div>
-          ))}
+    <>
+      {sentBack && <div className="banner warn"><b>↩ The last video was sent back.</b> {sentBack.notes || "No notes."} Fix it here, then Render again.</div>}
+      <Card pad={false}
+        title={<div className="row small"><b>{mmss(sm.runtime)}</b><span className="muted">· {sm.in_video} of {sm.segments} segments in the video · {sm.panels} panels</span></div>}
+        right={<div className="row">
+          <Busy className="sm" onClick={() => run("/api/storyboard/set_included", { all: true, included: true }, "Every segment ticked")}>Tick all</Busy>
+          <ConfirmButton className="sm" confirm="Untick every segment?" onConfirm={() => run("/api/storyboard/set_included", { all: true, included: false }, "Every segment unticked")}>Tick none</ConfirmButton>
+          <Busy className="sm" onClick={() => run("/api/storyboard/undo", {}, "Undone")} title="undo the last board change">↶ Undo</Busy>
+        </div>}>
+        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", display: "grid", gap: 8 }}>
+          <div className="row small">
+            <Pill tone={sm.silent ? "warn" : "ok"}>{sm.silent ? `${sm.silent} silent hold(s)` : "no dead air"}</Pill>
+            <Pill tone={sm.folded ? "warn" : "muted"}>{sm.folded} folded</Pill>
+            <Pill tone={sm.unplaced ? "bad" : "muted"}>{sm.unplaced} not on the timeline</Pill>
+            <Pill tone="muted">{sm.left_out} left out</Pill>
+            <Pill tone={sm.long_holds ? "warn" : "muted"}>{sm.long_holds} long hold(s)</Pill>
+            {builtWith && <span className="faint">built with: {[builtWith.engine, builtWith.match, builtWith.split, builtWith.pages ? `${builtWith.pages} pages` : null].filter(Boolean).join(" · ")}</span>}
+            {builtWith?.scrape_warning && <span style={{ color: "var(--yellow)" }}>⚠ {builtWith.scrape_warning}</span>}
+          </div>
+          <Chips<F> value={f} onChange={setF} items={[["video", `In the video (${sm.in_video})`], ["flagged", `Needs a look (${flagged.length})`],
+            ["out", `Not in the video (${outPanels.length} panels)`], ["all", `All segments (${sm.segments})`]]} />
+          {canDrag && <span className="small faint">Drag a row by ⠿ to move it. On a phone, use More → Move up / Move down.</span>}
         </div>
-      ) : shown.length === 0 ? <Empty>{f === "flagged" ? "Nothing needs a look." : "No segments."}</Empty> : (
-        <div className="list">
-          {shown.map((s) => <SegRow key={s.seg_index} s={s} b={b} stamp={stamp} run={run} />)}
-        </div>
-      )}
-    </Card>
+        {f === "out" ? (
+          <div className="list">
+            {outPanels.length === 0 ? <Empty>Every panel is in the video.</Empty> : outPanels.map((p: any) => (
+              <div className="brow out" key={p.panel_id}>
+                <img src={`/panelimg/${encodeURIComponent(p.panel_id)}?thumb=1`} alt="" loading="lazy" />
+                <div className="txt">
+                  <div className="row"><Pill tone={PLACE[p.place][0]}>{PLACE[p.place][1]}</Pill><span className="small faint">#{p.n} · {p.panel_id} · {p.width}×{p.height}</span></div>
+                  {p.left_out_why && <div className="meta">Why: {p.left_out_why}</div>}
+                  {p.unit_text && <div className="meta">Folded into ¶{p.unit}: {p.unit_text}</div>}
+                  {p.ocr && <div className="meta">Text in the picture: {p.ocr}</div>}
+                  <div className="meta">{p.seen}</div>
+                </div>
+                <div className="ctl">
+                  <Busy className="sm" onClick={() => run("/api/storyboard/include", { panel_id: p.panel_id }, "Put in the video as a silent hold")}>Put in video</Busy>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : shown.length === 0 ? <Empty>{f === "flagged" ? "Nothing needs a look." : "No segments."}</Empty> : (
+          <div className="list">
+            {shown.map((s) => (
+              <div key={s.seg_index}
+                onDragOver={(e) => { if (drag !== null) { e.preventDefault(); setOver(s.seg_index); } }}
+                onDragLeave={() => setOver((o) => (o === s.seg_index ? null : o))}
+                onDrop={(e) => { e.preventDefault(); if (drag !== null && drag !== s.seg_index) run("/api/storyboard/move", { seg_index: drag, to: pos(s.seg_index) }, "Moved"); setDrag(null); setOver(null); }}
+                style={over === s.seg_index ? { boxShadow: "inset 0 3px 0 var(--blue)" } : undefined}>
+                <SegRow s={s} b={b} stamp={stamp} run={run} canDrag={canDrag}
+                  onDragStart={() => setDrag(s.seg_index)} onDragEnd={() => { setDrag(null); setOver(null); }}
+                  onSwap={() => setSwapFor(s)} index={pos(s.seg_index)} last={segs.length - 1} />
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      {swapFor && <SwapPicker seg={swapFor} panels={b.panels} onClose={() => setSwapFor(null)}
+        onPick={async (pid: string) => { await run(`/api/segments/${swapFor.seg_index}/panel`, { panel_id: pid }, "Picture swapped"); setSwapFor(null); }} />}
+    </>
   );
 }
 
-function SegRow({ s, b, stamp, run }: { s: any; b: any; stamp: number; run: (p: string, body: any, ok?: string) => Promise<void> }) {
+function SegRow({ s, b, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, index, last }: any) {
   const [edit, setEdit] = useState(false);
   const [texts, setTexts] = useState<Record<number, string>>({});
   const [dur, setDur] = useState(String(s.dur));
   const [menu, setMenu] = useState(false);
-  const [swap, setSwap] = useState(false);
   const [add, setAdd] = useState<string | null>(null);
-  const [moveTo, setMoveTo] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => setDur(String(s.dur)), [s.dur]);
   useEffect(() => {
@@ -79,19 +112,31 @@ function SegRow({ s, b, stamp, run }: { s: any; b: any; stamp: number; run: (p: 
   }, [menu]);
   const panel = b.panels.find((p: any) => p.panel_id === s.panel_id) || {};
   const text = s.beats.map((x: any) => x.text).join(" ");
+  const st = s.review;
   return (
     <div className={`brow ${s.in_video ? "" : "out"}`}>
-      <a href={`/segimg/${s.seg_index}`} target="_blank" rel="noreferrer" title="the exact frame the video shows">
-        <img src={`/thumb/${s.seg_index}?t=${stamp}`} alt="" loading="lazy" />
-      </a>
+      <div style={{ display: "grid", gap: 6, justifyItems: "start" }}>
+        <a href={`/segimg/${s.seg_index}`} target="_blank" rel="noreferrer" title="the exact frame the video shows">
+          <img src={`/thumb/${s.seg_index}?t=${stamp}`} alt="" loading="lazy" />
+        </a>
+        <div className="row small" style={{ gap: 4 }}>
+          {s.crop.status === "sub" && <Pill tone={(s.crop.keeps ?? 100) < 30 ? "bad" : (s.crop.keeps ?? 100) < 60 ? "warn" : "muted"}>✂ keeps {s.crop.keeps}%</Pill>}
+          {s.crop.status === "tiny" && <Pill tone="bad">crop too small</Pill>}
+          {s.crop.status === "full" && <Pill>▣ full panel{s.crop.full_override ? " (yours)" : ""}</Pill>}
+        </div>
+        {(s.crop.status === "sub" || s.crop.status === "tiny") && <Busy className="sm" onClick={() => run("/api/storyboard/use_full_panel", { seg_index: s.seg_index }, "Whole panel used")}>Use full panel</Busy>}
+        {s.crop.restorable && <Busy className="sm ghost" onClick={() => run("/api/storyboard/restore_crop", { seg_index: s.seg_index }, "Crop restored")}>Restore crop</Busy>}
+        <a className="small" href={`/segimg/${s.seg_index}?full=1`} target="_blank" rel="noreferrer">original ↗</a>
+      </div>
       <div className="txt">
         <div className="row small">
+          {canDrag && <span draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragStart(); }} onDragEnd={onDragEnd}
+            title="drag to move" style={{ cursor: "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }} aria-label="Drag to move">⠿</span>}
           <b>{s.video_start != null ? `${mmss(s.video_start)}–${mmss(s.video_start + s.dur)}` : "not in the video"}</b>
           <span className="faint">seg {s.seg_index} · {s.motion}</span>
           {s.flags.map((x: string) => <Pill key={x} tone="warn">{x}</Pill>)}
-          {s.crop.status === "sub" && <Pill tone={(s.crop.keeps ?? 100) < 30 ? "bad" : (s.crop.keeps ?? 100) < 60 ? "warn" : "muted"}>crop keeps {s.crop.keeps}%</Pill>}
-          {s.crop.full_override && <Pill>full panel</Pill>}
-          {s.review === "rejected" && <Pill tone="bad">rejected</Pill>}
+          {st === "approved" && <Pill tone="ok">✓ approved</Pill>}
+          {st === "rejected" && <Pill tone="bad">✕ rejected</Pill>}
         </div>
         {edit ? (
           <div className="grid" style={{ gap: 6 }}>
@@ -113,26 +158,10 @@ function SegRow({ s, b, stamp, run }: { s: any; b: any; stamp: number; run: (p: 
             {text || <span className="muted">Silent hold (no narration)</span>}
           </div>
         )}
-        <details className="meta"><summary>Picture: {panel.panel_id}</summary>
-          {panel.ocr && <div>Text in the picture: {panel.ocr}</div>}
-          <div>{panel.seen}</div>
+        <details className="meta"><summary>Picture {panel.panel_id}{panel.ocr ? " · has text" : ""}</summary>
+          {panel.ocr && <div><b>Text in the picture:</b> {panel.ocr}</div>}
+          <div><b>What the AI saw:</b> {panel.seen}</div>
         </details>
-        {swap && (
-          <div className="row">
-            <select defaultValue="" onChange={(e) => e.target.value && run("/api/storyboard/assign", { seg_index: s.seg_index, panel_id: e.target.value }, "Picture swapped").then(() => setSwap(false))} aria-label="Choose a picture">
-              <option value="">Choose a different picture…</option>
-              {b.panels.filter((p: any) => p.role === "art" || p.role === undefined).map((p: any) => <option key={p.panel_id} value={p.panel_id}>#{p.n} {p.panel_id} — {(p.seen || "").slice(0, 70)}</option>)}
-            </select>
-            <button className="sm ghost" onClick={() => setSwap(false)}>Cancel</button>
-          </div>
-        )}
-        {moveTo !== null && (
-          <div className="row">
-            <input value={moveTo} onChange={(e) => setMoveTo(e.target.value)} placeholder="Position in the video (1 = first)" inputMode="numeric" style={{ maxWidth: 240 }} />
-            <Busy className="sm primary" disabled={!/^\d+$/.test(moveTo)} onClick={async () => { await run("/api/storyboard/move", { seg_index: s.seg_index, to: Math.max(0, Number(moveTo) - 1) }, "Moved"); setMoveTo(null); }}>Move</Busy>
-            <button className="sm ghost" onClick={() => setMoveTo(null)}>Cancel</button>
-          </div>
-        )}
         {add !== null && (
           <div className="row">
             <input value={add} onChange={(e) => setAdd(e.target.value)} placeholder="A new line of narration after this one" />
@@ -151,26 +180,71 @@ function SegRow({ s, b, stamp, run }: { s: any; b: any; stamp: number; run: (p: 
           <Busy className="sm" onClick={() => run("/api/storyboard/duration", { seg_index: s.seg_index, dur: Number(dur) }, "Length set")}>Set</Busy>
         </div>
         <div className="row">
+          <button className={`sm ${st === "approved" ? "primary" : ""}`} title="approve this segment"
+            onClick={() => run(`/api/segments/${s.seg_index}/status`, { status: st === "approved" ? "pending" : "approved", note: "" })}>✓</button>
+          <button className={`sm ${st === "rejected" ? "danger" : ""}`} title="reject: take it out of the video (one click back)"
+            onClick={() => run(`/api/segments/${s.seg_index}/status`, { status: st === "rejected" ? "pending" : "rejected", note: "" })}>✕</button>
+          <button className="sm" onClick={onSwap}>🖼 Swap</button>
           {s.beats.length > 0 && <button className="sm" onClick={() => setEdit(true)}>✎ Edit</button>}
           <div className="menu" ref={ref}>
             <button className="sm" onClick={() => setMenu(!menu)} aria-expanded={menu}>More ▾</button>
             {menu && (
               <div className="pop" onClick={() => setMenu(false)}>
-                <button onClick={() => setSwap(true)}>🖼 Swap the picture</button>
                 <button onClick={() => setAdd("")}>＋ Add a line after</button>
                 {s.beats.map((x: any) => (
                   <button key={x.index} onClick={() => run("/api/storyboard/delline", { seg_index: s.seg_index, beat_index: x.index }, "Line removed")}>✕ Remove line “{x.text.slice(0, 28)}…”</button>
                 ))}
                 <button onClick={() => run("/api/storyboard/boundary", { seg_index: s.seg_index, delta: -1 }, "Cut moved")}>⇤ Cut 1 s earlier</button>
+                <button onClick={() => run("/api/storyboard/boundary", { seg_index: s.seg_index, delta: -0.25 }, "Cut moved")}>⇤ Cut ¼ s earlier</button>
+                <button onClick={() => run("/api/storyboard/boundary", { seg_index: s.seg_index, delta: 0.25 }, "Cut moved")}>⇥ Cut ¼ s later</button>
                 <button onClick={() => run("/api/storyboard/boundary", { seg_index: s.seg_index, delta: 1 }, "Cut moved")}>⇥ Cut 1 s later</button>
-                {s.crop.status !== "full" && <button onClick={() => run("/api/storyboard/use_full_panel", { seg_index: s.seg_index }, "Whole panel used")}>▣ Use the whole panel</button>}
-                {s.crop.restorable && <button onClick={() => run("/api/storyboard/restore_crop", { seg_index: s.seg_index }, "Crop restored")}>✂ Restore the planned crop</button>}
+                <button disabled={index <= 0} onClick={() => run("/api/storyboard/move", { seg_index: s.seg_index, to: index - 1 }, "Moved up")}>↑ Move up</button>
+                <button disabled={index >= last} onClick={() => run("/api/storyboard/move", { seg_index: s.seg_index, to: index + 1 }, "Moved down")}>↓ Move down</button>
                 <button onClick={() => run("/api/storyboard/duplicate", { seg_index: s.seg_index }, "Duplicated")}>⧉ Duplicate</button>
-                <button onClick={() => setMoveTo("")}>↕ Move to position…</button>
+                <button onClick={() => run("/api/storyboard/delete", { seg_index: s.seg_index }, "Segment deleted")}>🗑 Delete the segment</button>
               </div>
             )}
           </div>
-          <ConfirmButton className="sm danger" confirm="Delete?" onConfirm={() => run("/api/storyboard/delete", { seg_index: s.seg_index }, "Deleted")}>🗑</ConfirmButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Pick a new picture by seeing it: the matcher's suggestions first, then every
+ *  usable picture of the chapter, searchable. */
+function SwapPicker({ seg, panels, onClose, onPick }: any) {
+  const sug = useApi<any>(`/api/segments/${seg.seg_index}/candidates?k=8`);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const all = useMemo(() => panels.filter((p: any) => (p.role || "art") === "art" &&
+    (!q || `${p.panel_id} ${p.seen} ${p.ocr}`.toLowerCase().includes(q.toLowerCase()))), [panels, q]);
+  const pick = async (pid: string) => { setBusy(pid); await onPick(pid); setBusy(null); };
+  const Tile = ({ p, note }: { p: any; note?: string }) => (
+    <button className={`tc ${p.panel_id === seg.panel_id ? "on" : ""}`} disabled={!!busy || p.panel_id === seg.panel_id}
+      onClick={() => pick(p.panel_id)} title={p.seen || p.desc} style={{ padding: 0, display: "grid", textAlign: "left", background: "var(--panel)" }}>
+      <img src={`/panelimg/${encodeURIComponent(p.panel_id)}?thumb=1`} alt="" loading="lazy" style={{ aspectRatio: "auto", maxHeight: 180, objectFit: "contain", background: "var(--panel2)" }} />
+      <span className="m"><b>{p.panel_id === seg.panel_id ? "current" : busy === p.panel_id ? "swapping…" : p.panel_id}</b>
+        <span className="faint">{(note || p.seen || p.desc || "").slice(0, 70)}</span></span>
+    </button>
+  );
+  return (
+    <div role="dialog" aria-label="Swap the picture" style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(0,0,0,.55)", display: "grid", placeItems: "center", padding: 16 }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="card" style={{ width: "min(1100px, 100%)", maxHeight: "90vh", overflowY: "auto" }}>
+        <div className="hd"><h2>Swap the picture · seg {seg.seg_index}</h2><button className="sm" onClick={onClose}>Close</button></div>
+        <div className="bd">
+          <div className="small muted">“{seg.beats.map((x: any) => x.text).join(" ").slice(0, 200)}”</div>
+          <h3>Best matches for this line</h3>
+          {!sug.data ? <Empty>Loading…</Empty> : (
+            <div className="thumbs" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
+              {sug.data.candidates.map((c: any) => <Tile key={c.panel_id} p={c} note={`match ${Math.round(c.score * 100)}% · ${c.desc}`} />)}
+            </div>
+          )}
+          <div className="spread"><h3>Every picture ({all.length})</h3><input placeholder="Search pictures" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 260 }} /></div>
+          <div className="thumbs" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
+            {all.map((p: any) => <Tile key={p.panel_id} p={p} />)}
+          </div>
         </div>
       </div>
     </div>

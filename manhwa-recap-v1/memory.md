@@ -8760,3 +8760,12 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Home:** "Needs you" shows **image cards with the series cover**. The tiles say "videos to watch (then approve)" and "boards to check (then render)" and open the first one.
 - **Wording everywhere:** the statuses are now "Check the board" and "Watch the video"; Queue's first chip is "To watch".
 - **Backend:** `/api/chapter` adds `render_job` and `videos`; chapter rows carry `series_id` and `cover`. Full suite 79/79.
+
+### 2026-10-04 (late night) — BUILT polish step 3: board parity with the classic board
+- **Drag a row by ⠿ to move it** (desktop; HTML5 drag onto the target row, saved through `/api/storyboard/move`), plus More → Move up / Move down for phones.
+- **Per-segment ✓ approve and ✕ reject** (`/api/segments/{i}/status`; reject takes it out of the video, one click back), with pills on the row.
+- **Tick all / Tick none** (the second needs two taps).
+- **🖼 Swap** opens a picture picker: the matcher's 8 best matches for the line first (`/api/segments/{i}/candidates`, with match %), then every usable picture with search. Choosing one swaps it via `/api/segments/{i}/panel`, as the classic board did.
+- **Use full panel / Restore crop** sit under the frame next to the crop badge ("✂ keeps N%", "crop too small", "▣ full panel (yours)"), plus original ↗.
+- **Cut moves** in More: ±1 s and ±¼ s (the classic −1s / −¼ / +¼ / +1s).
+- Classic chips: dead air, folded, not on the timeline, left out, long holds. A built-with line (engine, match method, splitter, pages, scrape warning). A **sent-back banner** with the reviewer's notes. `/api/chapter` adds `sent_back` and `built_with`.

@@ -160,7 +160,7 @@ export default function Chapter() {
         </div>
       )}
       <Tabs<T> value={tab} onChange={setTab} tabs={[["board", "Check the board"], ["issues", "Issues"], ["video", rendering ? "Watch the video (rendering…)" : shown ? "Watch the video" : "Watch the video (not rendered yet)"]]} />
-      {tab === "board" && <Board id={id} key={boardKey} onChange={() => { reload(); }} />}
+      {tab === "board" && <Board id={id} key={boardKey} onChange={() => { reload(); }} sentBack={c.sent_back} builtWith={c.built_with} />}
       {tab === "issues" && <Issues id={id} onFixed={() => { setBoardKey((n) => n + 1); reload(); }} />}
       {tab === "video" && (
         rendering ? (
