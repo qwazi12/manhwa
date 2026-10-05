@@ -8817,3 +8817,11 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Fix:** `_job_pid()` normalises a job's project id (dict → its `id`, else from the URL) and is used by `_ingest_by_project` and `_chapter_busy`.
 - **Test:** `test_chapter_status` 29/29 adds a finished record with a dict project; full suite 79/79.
 - **Lesson:** the tests used only running ingest records; live data includes finished ones. Test fixtures should include finished-job shapes.
+
+### 2026-10-05 — Owner: "make a tab for the old tool in the new one… call it legacy and release the new tool"
+- My earlier version was only a small "Classic studio" footer link to `/classic`; the owner asked for a tab. Fixed:
+  - **Legacy** is now a main sidebar tab (`/legacy`, renamed from `/classic`). It has an "Open the old studio ↗" button and the table of every old area with its link and where it lives in the new studio.
+  - The footer link reads "Old studio ↗".
+  - Settings → Tools links to Legacy.
+- The old studio's sidebar has a **✨ New studio** entry at the top, linking back to `/`.
+- The new studio is the released site at manhwa.nodepilot.dev (Vercel builds `manhwa-recap-v1/web` on every push); the old one lives at `/storyboard` and `/review` under Legacy.

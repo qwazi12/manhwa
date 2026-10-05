@@ -437,6 +437,8 @@ def nav_items(page, board_badge=None):
     else:
         board["href"] = "/storyboard"
     return [
+        # the old studio is "Legacy" now (owner, 2026-10-05): one click back to the new one
+        dict(icon="✨", title="New studio", sub="Back to the new studio", href="/"),
         item("🔗", "Ingest", "Paste a chapter link", d="ingest"),
         board,
         item("🛡", "Check", "Story mistakes", d="validate"),

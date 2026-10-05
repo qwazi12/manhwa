@@ -208,11 +208,11 @@ function Tools() {
   return (
     <Card title="Tools">
       <div className="row">
-        <a className="btn sm" href="/classic">Classic studio (every old page)</a>
+        <a className="btn sm" href="/legacy">Legacy (the old studio)</a>
         <a className="btn sm" href="/tools?tab=split">Split lab</a>
         <a className="btn sm" href="/tools?tab=lab">Claude lab</a>
       </div>
-      <p className="small muted">Everything the classic pages did is now in the new studio. The classic board stays available for a few days as a fallback.</p>
+      <p className="small muted">Everything the old pages did is in the new studio. The old studio stays under Legacy for whenever you want it.</p>
     </Card>
   );
 }

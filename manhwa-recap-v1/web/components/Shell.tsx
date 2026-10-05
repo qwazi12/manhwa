@@ -49,6 +49,7 @@ function Frame({ children }: { children: ReactNode }) {
       (c.video_ready || 0) + (h?.queue?.scheduled || 0), (c.video_ready || 0) > 0],
     ["/activity", "Activity", "Live, jobs, spend", h?.jobs?.length || null, (h?.jobs?.length || 0) > 0],
     ["/settings", "Settings", "Everything you can change", null, false],
+    ["/legacy", "Legacy", "The old studio, any time", null, false],
   ];
   const isOn = (href: string) => (href === "/" ? path === "/" : href.startsWith("/chapter") || href.includes("view=chapters")
     ? path.startsWith("/chapter") : path.startsWith(href.split("?")[0].split("/").slice(0, 2).join("/")));
@@ -83,7 +84,7 @@ function Frame({ children }: { children: ReactNode }) {
           {h && <Meter label="Spend today" value={h.spend.today} max={h.spend.cap} fmt={money} />}
           {h?.disk?.total_gb ? <Meter label="Disk" value={h.disk.used_gb || 0} max={h.disk.total_gb} fmt={(n) => `${n.toFixed(1)} GB`} /> : null}
           <div className="spread small">
-            <a href="/classic" title="every area of the previous studio">Classic studio</a>
+            <a href="/storyboard" title="open the old studio directly">Old studio ↗</a>
             <button className="sm ghost" onClick={() => {
               const cur = document.documentElement.dataset.theme === "light" ? "dark" : "light";
               document.documentElement.dataset.theme = cur;

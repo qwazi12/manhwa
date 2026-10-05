@@ -1,7 +1,7 @@
 import { Card, PageHead } from "@/components/ui";
 
-// Owner, 2026-10-04: "make another table for the classic system so I can go to
-// it when needed". Every area of the previous studio, with where it lives now.
+// Owner, 2026-10-04/05: a "Legacy" tab for the old tool, so it is always one
+// click away. Every area of the previous studio, with where it lives now.
 const ROWS: [string, string, string, string][] = [
   ["Board", "/storyboard", "Script, panels, timing for the open chapter", "Board (Check the board)"],
   ["Ingest", "/storyboard?open=ingest", "Paste a chapter link, voice, autopilot card", "Home paste box (Options), Settings"],
@@ -17,10 +17,10 @@ const ROWS: [string, string, string, string][] = [
   ["Split lab", "/storyboard?open=split", "Splitter preview", "Tools → Split lab"],
 ];
 
-export default function Classic() {
+export default function Legacy() {
   return (
     <>
-      <PageHead title="Classic studio" sub="The previous studio, kept as a fallback. Each area opens in the old layout; the right column says where it lives now." />
+      <PageHead title="Legacy" sub="The old studio, available whenever you want it. Each area opens in the old layout; the right column says where it lives in the new one." right={<a className="btn primary" href="/storyboard">Open the old studio ↗</a>} />
       <Card pad={false}>
         <div className="list">
           {ROWS.map(([name, href, what, now]) => (
@@ -31,13 +31,13 @@ export default function Classic() {
               </div>
               <div className="row">
                 <span className="small faint">now: {now}</span>
-                <a className="btn sm" href={href}>Open classic ↗</a>
+                <a className="btn sm" href={href}>Open ↗</a>
               </div>
             </div>
           ))}
         </div>
       </Card>
-      <p className="small muted">The classic pages act on the chapter that is open in the studio (the last one you opened on the Board).</p>
+      <p className="small muted">The old pages act on the chapter that is open in the studio (the last one you opened on the Board).</p>
     </>
   );
 }
