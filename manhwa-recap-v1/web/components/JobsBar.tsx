@@ -1,21 +1,33 @@
 "use client";
+import Link from "next/link";
+import { useState } from "react";
 import { api, useApi } from "@/lib/api";
 import { ConfirmButton, useAct } from "./ui";
 
-type Job = { id: string; kind: string; name: string; status: string; stage?: string; pct?: number | null; msg?: string; elapsed?: number };
+type Job = { id: string; kind: string; name: string; project?: string; status: string; stage?: string; pct?: number | null; msg?: string; elapsed?: number };
 const WAITING = ["budget_paused", "interrupted", "paused", "pausing", "cancelled"];
 
 /** Everything running, on every page, with pause / resume / stop. */
 export default function JobsBar({ onChange }: { onChange?: () => void }) {
-  const { data, reload } = useApi<{ jobs: Job[] }>("/api/jobsbar", 5000);
+  const { data, reload } = useApi<{ jobs: Job[] }>("/api/jobsbar?failed=1", 5000);
   const act = useAct();
-  const jobs = data?.jobs || [];
+  const [hidden, setHidden] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("jobsbar-hidden") || "[]"); } catch { return []; } });
+  const hide = (id: string) => { const h = [...hidden, id].slice(-50); setHidden(h); try { localStorage.setItem("jobsbar-hidden", JSON.stringify(h)); } catch {} };
+  const jobs = (data?.jobs || []).filter((j) => !(j.status === "error" && hidden.includes(j.id)));
   if (!jobs.length) return null;
   const control = (id: string, action: string) =>
     act(async () => { await api("/api/jobs/control", { job_id: id, action }); await reload(); onChange?.(); });
   return (
     <div className="jobsbar" aria-live="polite">
       {jobs.map((j) => {
+        if (j.status === "error") return (
+          <div className="job" key={j.id} style={{ borderColor: "var(--red)" }}>
+            <b>🎬 {j.name}</b>
+            <span style={{ color: "var(--red)" }}>Render failed{j.msg ? " · " + j.msg : ""}</span>
+            {j.project && <Link className="btn sm" href={`/chapter/${encodeURIComponent(j.project)}`}>Open</Link>}
+            <button className="sm ghost" aria-label="Dismiss" onClick={() => hide(j.id)}>✕</button>
+          </div>
+        );
         const waiting = WAITING.includes(j.status);
         return (
           <div className="job" key={j.id}>

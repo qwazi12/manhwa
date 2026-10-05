@@ -8825,3 +8825,22 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Settings → Tools links to Legacy.
 - The old studio's sidebar has a **✨ New studio** entry at the top, linking back to `/`.
 - The new studio is the released site at manhwa.nodepilot.dev (Vercel builds `manhwa-recap-v1/web` on every push); the old one lives at `/storyboard` and `/review` under Legacy.
+
+### 2026-10-05 — Owner: "Render failed but [didn't] get notified nor did I see a progress bar… Does rendering cost money why did it fail"
+- **Why it failed** (job `7bd9bf30f748`):
+  - The studio voice default is now Charon with **no style**, and ch.30 was voiced with the "energetic…" style. Approving re-voices an outdated chapter (paid TTS), and the first TTS call hit the daily cap ("MAX_DAILY_SPEND_USD=$10.0 would be exceeded today ($10.0184 + $0.0024 est.)"). The $10.02 was the overnight rebuilds ($9.13) plus autopilot.
+  - Rendering clips and exporting are free; only the re-voice costs money (about $0.17 for 71 lines). Nothing was spent on this render.
+  - Who changed the studio style to "no style" is unknown: saving the voice emitted no event. It does now.
+- **Damage from the failed run:** the old `_revoice_if_outdated` re-pinned `tts.json` to the new voice and coalesced the timeline *before* recording anything. ch.30's audio is still the old energetic voice, but its pin now says Charon/no style.
+  - I couldn't read the live volume: production reads over `railway ssh` are blocked for the agent. The original pin can't be recovered (no backup existed). The owner decides: render as-is (old audio) or re-voice after the cap resets.
+- **Fixes:**
+  - Re-voice is all-or-nothing. The budget is checked up front with a plain reason ("Nothing was changed…"). New lines are recorded to `audio/.revoice`; only when every line is in are the audio, pin and timeline swapped. Any failure restores `segments.json` and removes the side folder.
+  - `ApproveIn.keep_voice`: render in the chapter's own voice, no re-voice (free).
+  - `/api/chapter/{id}` adds `revoice` {from, to, lines, est_usd, spent_today, cap, fits}; `render_job` adds `note` and `keep_voice`. A failed render records `ended`.
+  - Render sheet: when the voice changed it shows old → new voice, cost and today's spend, with two buttons: "Render in this chapter's voice (free)" and "Re-record in the new voice (~$x)". The second is disabled when it wouldn't fit today's budget.
+  - Scrapper-style progress card on the chapter page: Re-record voice (paid, if any) → Render clips x/y → Export → Copy to Drive, with elapsed time and a bar.
+  - A persistent "The last render failed … : reason" banner with "Try again…" and "Open Activity".
+  - The toast now compares job id and status, so a render that fails within a second still notifies.
+  - Jobs bar (new studio only, `/api/jobsbar?failed=1`) keeps failed renders from the last 2 h, with Open and dismiss. The classic bar is unchanged.
+  - Saving the studio voice logs a "settings" event in Activity.
+- **Tests:** `test_approve_voice` 21/21 (new: over-budget refusal leaves pin, timeline and audio byte-identical; cap hit mid-way leaves the chapter unchanged with no side folder; plan fields; keep_voice; voice event). `test_chapter_status` 29/29, `test_job_control` 51/51, `test_logs` 19/19, `test_gemini_tts_config` 32/32, `test_mobile_layout` 39/39. `tsc` clean, `next build` ok.

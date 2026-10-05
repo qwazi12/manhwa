@@ -11,6 +11,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
 os.environ["AUTOPILOT_SCHEDULER"] = "0"
+os.environ.setdefault("GEMINI_API_KEY", "test-not-a-key")   # mock: TTS is faked below
 R = []
 
 
@@ -79,6 +80,46 @@ def main():
               not os.path.exists(os.path.join(pdir, "clips", "seg_000.mp4")))
         check("approving again with the same voice re-voices nothing",
               server._revoice_if_outdated(pdir, {}, "t1") == 0)
+
+        # Owner, 2026-10-05 (ch.30): a re-voice that can't finish must leave the
+        # chapter exactly as it was — pin, timeline and audio.
+        gemini_tts._write_json(os.path.join(root, gemini_tts.DEFAULT_FILE),
+                               {"provider": "gemini", "model": "gemini-3.8-flash-tts", "voice": "Charon", "style": ""})
+        plan = server._revoice_plan(pdir)
+        check("the render sheet gets the re-voice plan (lines, cost, budget)",
+              plan and plan["lines"] == 2 and plan["est_usd"] >= 0 and "no style" in plan["to"]
+              and "energetic" in plan["from"])
+        before = {f: open(os.path.join(pdir, f), "rb").read() for f in ("tts.json", "segments.json", "audio/beat_000.mp3")}
+        same = lambda: all(open(os.path.join(pdir, f), "rb").read() == v for f, v in before.items())
+        real_summary = server.usage.daily_summary
+        server.usage.daily_summary = lambda: {"est_cost_usd": server.usage.MAX_DAILY_SPEND_USD}
+        recorded.clear()
+        try:
+            server._revoice_if_outdated(pdir, {}, "t1")
+            check("over budget -> refused", False)
+        except RuntimeError as e:
+            check("over budget -> refused up front with a plain reason",
+                  "Nothing was changed" in str(e) and "chapter's own voice" in str(e))
+        finally:
+            server.usage.daily_summary = real_summary
+        check("over budget -> nothing recorded, chapter untouched", not recorded and same())
+        calls = []
+
+        def failing_synth(text, out_path, style=None, engine=None):
+            calls.append(text)
+            if len(calls) == 2:
+                raise server.usage.UsageCapExceeded("MAX_DAILY_SPEND_USD would be exceeded")
+            mp3(out_path, 2.0)
+        server._synth_rest = failing_synth
+        try:
+            server._revoice_if_outdated(pdir, {}, "t1")
+            check("cap hit mid-way -> error", False)
+        except server.usage.UsageCapExceeded:
+            pass
+        check("cap hit mid-way -> pin, timeline and audio unchanged; no half-voiced chapter",
+              same() and not os.path.exists(os.path.join(pdir, "audio", ".revoice")))
+        check("the chapter still reads as needing the new voice", server._voice_outdated(pdir) is not None)
+        server._synth_rest = fake_synth
     finally:
         ingest.PROJECTS, server.WORK, server._synth_rest = saved
         server._ACTIVE_CACHE["key"] = None
@@ -90,6 +131,10 @@ def main():
     check("approve-and-render exports at EXPORT_SPEED and applies the voice first",
           "speed = _studio.export_speed()" in src and "res = _do_export(speed)" in src
           and "_revoice_if_outdated(pdir, j, job_id)" in src)
+    check("render in the chapter's own voice skips the re-voice",
+          'nv = 0 if j.get("keep_voice") else _revoice_if_outdated(pdir, j, job_id)' in src
+          and "keep_voice: bool = False" in src)
+    check("saving the studio voice is logged in Activity", 'f"Studio voice set to {_voice_label(rec)}' in src)
     check("only the sped-up file is kept", "os.remove(out)        # keep only the version that will be posted" in src)
     check("Projects flags an approved chapter whose video was deleted",
           'it["video_missing"] = st == "approved" and not n_exports' in src)

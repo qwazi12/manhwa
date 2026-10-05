@@ -2263,6 +2263,8 @@ def api_voices_default(body: VoiceIn):
         rec = _gt.save_default(_ing.PROJECTS, body.voice, body.style)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    _ev("settings", f"Studio voice set to {_voice_label(rec)}. Chapters voiced differently are "
+                    f"re-recorded (paid) when rendered, unless rendered with their own voice.")
     return {"ok": True, "default": {"id": _gt.choice_id(rec), "style": rec.get("style", "")}}
 
 
@@ -3225,7 +3227,7 @@ def _run_finalize_job(job_id):
         # Owner, 2026-10-04: approving applies the CURRENT studio voice. A
         # chapter voiced before the voice/style was changed is re-voiced first
         # (cached lines cost nothing), re-timed, and its clips re-rendered.
-        nv = _revoice_if_outdated(pdir, j, job_id)
+        nv = 0 if j.get("keep_voice") else _revoice_if_outdated(pdir, j, job_id)
         if nv:
             _ev("render", f"{_fname}: re-voiced {nv} lines in the studio voice")
             segs = load_segments()
@@ -3261,6 +3263,7 @@ def _run_finalize_job(job_id):
         j["status"] = "error"
         j["error"] = str(e)
     if j.get("status") == "error":
+        j["ended"] = time.time()
         _ev("render", f"{_fname} render failed: {str(j.get('error'))[:160]}", "error")
     _persist_job(job_id)
 
@@ -3281,51 +3284,129 @@ def _voice_outdated(pdir):
     return want if key(want) != key(have) else None
 
 
+def _voice_label(rec):
+    if not rec:
+        return "unknown voice"
+    if rec.get("provider") == "chirp":
+        return "legacy Chirp voice"
+    st = (rec.get("style") or "").strip()
+    return f"{rec.get('voice')}, " + (f"style “{st[:40]}{'…' if len(st) > 40 else ''}”" if st else "no style")
+
+
+def _revoice_plan(pdir):
+    """What approving would re-record, and what it would cost, before any
+    file is touched. None when the chapter is already in the studio voice."""
+    import gemini_tts
+    want = _voice_outdated(pdir)
+    if not want:
+        return None
+    try:
+        have = gemini_tts.engine_for_project(pdir)
+    except Exception:
+        have = None
+    try:
+        with open(os.path.join(pdir, "segments.json"), encoding="utf-8") as f:
+            segs = json.load(f)
+    except (OSError, ValueError):
+        segs = []
+    texts = [b.get("text") or "" for s in segs for b in s.get("beats", []) if (b.get("text") or "").strip()]
+    model = want.get("model") or ""
+    est = sum(usage._est_cost("tts", len(t), model) for t in texts)
+    spent = float(usage.daily_summary().get("est_cost_usd") or 0.0)
+    cap = float(usage.MAX_DAILY_SPEND_USD)
+    return {"from": _voice_label(have), "to": _voice_label(want), "lines": len(texts),
+            "est_usd": round(est, 3), "spent_today": round(spent, 3), "cap": cap,
+            "fits": spent + est <= cap}
+
+
+def _revoice_engine(want):
+    import gemini_tts
+    if want.get("provider") == "chirp":
+        key = gemini_tts.env_any_case("TTS_API_KEY")
+        if not key:
+            raise RuntimeError("TTS_API_KEY is not set")
+        return gemini_tts._chirp_cfg(key)
+    key = gemini_tts.env_any_case("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+    return {"provider": "gemini", "api_key": key, "model": want.get("model") or gemini_tts.DEFAULT_MODEL,
+            "voice": want.get("voice") or gemini_tts.DEFAULT_VOICE, "style": want.get("style", "")}
+
+
 def _revoice_if_outdated(pdir, j, job_id):
     """Re-record every line in the studio voice, re-time, mark clips stale.
-    Returns the number of lines re-voiced (0 = already current)."""
+    Returns the number of lines re-voiced (0 = already current).
+
+    All-or-nothing (owner, 2026-10-05: ch.30 failed on the daily cap after the
+    pin and timeline had already been rewritten): the budget is checked first,
+    new lines are recorded to a side folder, and only when every line is in
+    are the pin, the audio and the timeline swapped in. A failure leaves the
+    chapter exactly as it was, still in its own voice."""
+    import shutil
     import gemini_tts
     import storyboard_edit
     want = _voice_outdated(pdir)
     if not want:
         return 0
+    plan = _revoice_plan(pdir) or {}
+    if not plan.get("fits", True):
+        left = max(0.0, plan["cap"] - plan["spent_today"])
+        raise RuntimeError(
+            f"the studio voice changed ({plan['from']} → {plan['to']}), so all {plan['lines']} lines "
+            f"need re-recording, about ${plan['est_usd']:.2f} — but only ${left:.2f} of today's "
+            f"${plan['cap']:.0f} budget is left. Nothing was changed. Render with the chapter's own "
+            f"voice (free), or try again after midnight ET.")
+    eng = _revoice_engine(want)
+    seg_path = os.path.join(pdir, "segments.json")
+    with open(seg_path, "rb") as f:
+        seg_backup = f.read()
+    try:
+        segs = load_segments()
+        for bi in sorted({b["index"] for s in segs for b in s["beats"] if b.get("file")}):
+            storyboard_edit.coalesce_beat(pdir, bi)       # sliced lines are re-recorded whole
+        segs = load_segments()
+        # Which segment lengths were automatic (old narration + the standard gap)?
+        # Those re-fit the new audio; a length set by hand is kept. Without this a
+        # faster voice would leave dead air in every segment (the visual track is
+        # authoritative in _recompute_timeline and only ever grows).
+        auto_fit = set()
+        for sg in segs:
+            if sg["beats"]:
+                occ = max(b["end"] for b in sg["beats"]) - sg.get("start", 0)
+                if abs(sg.get("dur", 0) - (occ + GAP_SEC)) <= 0.6:
+                    auto_fit.add(sg["seg_index"])
+        beats = [b for s in segs for b in s["beats"] if (b.get("text") or "").strip()]
+        j.update(stage="revoice", total=len(beats), done=0,
+                 note=f"re-recording in the studio voice ({_voice_label(want)})")
+        _persist_job(job_id)
+        adir = os.path.join(pdir, "audio")
+        side = os.path.join(adir, ".revoice")
+        shutil.rmtree(side, ignore_errors=True)
+        os.makedirs(side, exist_ok=True)
+
+        def one(b):
+            if j.get("control") == "stop":
+                raise RuntimeError("stopped by you while re-voicing")
+            _synth_rest(b["text"], os.path.join(side, f"beat_{b['index']:03d}.mp3"), engine=eng)
+            j["done"] = j.get("done", 0) + 1
+
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            list(ex.map(one, beats))
+    except Exception:
+        with open(seg_path, "wb") as f:                 # back to how it was
+            f.write(seg_backup)
+        shutil.rmtree(os.path.join(pdir, "audio", ".revoice"), ignore_errors=True)
+        raise
+    # Every line is in: swap it all at once.
+    for b in beats:
+        b.pop("file", None)
+        os.replace(os.path.join(side, f"beat_{b['index']:03d}.mp3"),
+                   os.path.join(adir, f"beat_{b['index']:03d}.mp3"))
+    shutil.rmtree(side, ignore_errors=True)
     vid = "chirp:Charon" if want.get("provider") == "chirp" else "gemini:" + str(want.get("voice"))
     gemini_tts._write_json(os.path.join(pdir, gemini_tts.PIN_FILE),
                            gemini_tts.parse_choice(vid, want.get("style")))
-    segs = load_segments()
-    for bi in sorted({b["index"] for s in segs for b in s["beats"] if b.get("file")}):
-        storyboard_edit.coalesce_beat(pdir, bi)       # sliced lines are re-recorded whole
-    segs = load_segments()
-    # Which segment lengths were automatic (old narration + the standard gap)?
-    # Those re-fit the new audio; a length set by hand is kept. Without this a
-    # faster voice would leave dead air in every segment (the visual track is
-    # authoritative in _recompute_timeline and only ever grows).
-    auto_fit = set()
-    for sg in segs:
-        if sg["beats"]:
-            occ = max(b["end"] for b in sg["beats"]) - sg.get("start", 0)
-            if abs(sg.get("dur", 0) - (occ + GAP_SEC)) <= 0.6:
-                auto_fit.add(sg["seg_index"])
-    eng = gemini_tts.engine_for_project(pdir)
-    beats = [b for s in segs for b in s["beats"] if (b.get("text") or "").strip()]
-    j.update(stage="revoice", total=len(beats), done=0,
-             note=f"applying the studio voice ({want.get('voice')}, {want.get('style') or 'no style'})")
-    _persist_job(job_id)
-    adir = os.path.join(pdir, "audio")
-    os.makedirs(adir, exist_ok=True)
-
-    def one(b):
-        if j.get("control") == "stop":
-            return
-        b.pop("file", None)
-        _synth_rest(b["text"], os.path.join(adir, f"beat_{b['index']:03d}.mp3"), engine=eng)
-        j["done"] = j.get("done", 0) + 1
-
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        list(ex.map(one, beats))
-    if j.get("control") == "stop":
-        raise RuntimeError("stopped by you while re-voicing")
     for sg in segs:
         if sg["seg_index"] in auto_fit:
             sg["dur"] = 0              # re-fit to the new narration
@@ -5663,6 +5744,7 @@ def sb_addline(body: AddLineIn):
 class ApproveIn(BaseModel):
     approved: bool
     rerender_all: bool = False   # force: rebuild every ticked clip
+    keep_voice: bool = False     # render in the chapter's own voice, no re-voice
 
 
 class DelLineIn(BaseModel):
@@ -5735,7 +5817,7 @@ def storyboard_approve(body: ApproveIn):
     JOBS[job_id] = {"type": "finalize", "status": "queued", "stage": "queued",
                     "done": 0, "total": 0, "current_seg": None, "error": None,
                     "export": None, "url": None, "ts": time.time(),
-                    "project": get_active_project_id()}
+                    "project": get_active_project_id(), "keep_voice": bool(body.keep_voice)}
     _persist_job(job_id)
     threading.Thread(target=_run_finalize_job, args=(job_id,),
                      daemon=True).start()
@@ -6594,7 +6676,8 @@ def chapter_view(pid: str):
     rj.sort(key=lambda j: j.get("ts") or 0)
     if rj:
         last = rj[-1]
-        out["render_job"] = {k: last.get(k) for k in ("id", "status", "stage", "done", "total", "error", "export", "ts", "ended")}
+        out["render_job"] = {k: last.get(k) for k in ("id", "status", "stage", "done", "total", "error", "export", "ts", "ended", "note", "keep_voice")}
+    out["revoice"] = _revoice_plan(pdir)
     vids = []
     ed = os.path.join(pdir, "exports")
     for f in sorted(os.listdir(ed) if os.path.isdir(ed) else [], key=lambda f: -os.path.getmtime(os.path.join(ed, f))):
@@ -6920,7 +7003,7 @@ def logs_jobs(limit: int = 80):
 
 
 @app.get("/api/jobsbar")
-def jobs_active():
+def jobs_active(failed: int = 0):
     """Light: in-memory only, for the jobs bar on every page."""
     out = []
     for jid, x in list(INGEST.items()):
@@ -6937,6 +7020,15 @@ def jobs_active():
                         "status": x.get("status"), "stage": x.get("stage"),
                         "pct": round(100 * x.get("done", 0) / x["total"]) if x.get("total") else None,
                         "msg": x.get("note") or "", "elapsed": round(time.time() - (x.get("ts") or time.time()))})
+    # ?failed=1 (new studio): a render that failed in the last 2 hours stays
+    # on the bar, so a failure that happens in a second is still seen
+    # (owner, 2026-10-05). The classic bar doesn't ask, so it is unchanged.
+    for jid, x in list(JOBS.items()) if failed else []:
+        if (x.get("type") == "finalize" and x.get("status") == "error"
+                and time.time() - (x.get("ended") or x.get("ts") or 0) < 7200):
+            out.append({"id": jid, "kind": "render", "name": _pretty(x.get("project") or ""),
+                        "project": x.get("project"), "status": "error", "stage": x.get("stage"),
+                        "pct": None, "msg": str(x.get("error") or "")[:240], "elapsed": None})
     return {"jobs": out}
 
 

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, useApi } from "@/lib/api";
-import { when } from "@/lib/fmt";
+import { money, when } from "@/lib/fmt";
 import { LAST_CHAPTER_KEY } from "@/components/Shell";
 import { Busy, Card, ConfirmButton, Empty, PageHead, StatusPill, Tabs, useAct, useToast } from "@/components/ui";
 import Board from "@/components/chapter/Board";
@@ -46,15 +46,22 @@ export default function Chapter() {
     const t = setInterval(reload, 3000);
     return () => clearInterval(t);
   }, [rendering, reload]);
+  // Toast when a render ends while this page is open — compared by job id and
+  // status, so a render that fails within a second (before any poll saw it
+  // running) still says so (owner, 2026-10-05). The first load sets the baseline.
   useEffect(() => {
+    if (!c) return;
     const was = prevJob.current;
-    if (was && ["queued", "running"].includes(was.status) && rj && rj.status === "done") {
-      toast("The video is ready — watch it and approve");
-      setVideo(null); setTab("video"); list.reload();
+    const now = rj ? `${rj.id}:${rj.status}` : "none";
+    if (was !== null && was !== now && rj) {
+      if (rj.status === "done") {
+        toast("The video is ready — watch it and approve");
+        setVideo(null); setTab("video"); list.reload();
+      }
+      if (rj.status === "error") toast(`Render failed: ${rj.error || "see Activity"}`, true);
     }
-    if (was && ["queued", "running"].includes(was.status) && rj && rj.status === "error") toast(`Render failed: ${rj.error || "see Activity"}`, true);
-    prevJob.current = rj;
-  }, [rj?.status]);
+    prevJob.current = now;
+  }, [c, rj?.id, rj?.status]);
 
   const chapters: any[] = list.data?.chapters || [];
   const queue = useMemo(() => chapters
@@ -75,14 +82,17 @@ export default function Chapter() {
     if (s.key === "export") return { ...s, state: "missing", detail: rj.stage && /export/i.test(rj.stage) ? "exporting…" : "after the clips" };
     return s;
   });
-  async function render() {
+  async function render(keepVoice = false) {
     setSheet(false);
     await act(async () => {
       await api("/api/activate", { id });
-      await api("/api/storyboard/approve", { approved: true });
+      await api("/api/storyboard/approve", { approved: true, keep_voice: keepVoice });
       reload();
-    }, "Rendering — progress shows in steps 7 and 8");
+      setTimeout(reload, 1500);   // a fast failure shows without waiting for the next poll
+    }, "Rendering — progress shows below");
   }
+  const rv = c.revoice;
+  const failed = rj?.status === "error" && !(c.videos?.[0]?.at && rj.ts && c.videos[0].at > rj.ts) ? rj : null;
 
   return (
     <>
@@ -129,10 +139,38 @@ export default function Chapter() {
       {sheet && !rendering && (
         <Card>
           <p><b>Render {c.title}?</b> It makes every clip that’s ticked “in video”, then exports the final video (sped up and levelled for YouTube) and copies it to Google Drive. Usually 3–6 minutes; this page shows the progress.</p>
-          <p className="small muted">Free (it runs on the server), except when the studio narrator changed since this chapter was voiced: then the lines are re-recorded first (about $0.14).</p>
-          <div className="row"><button className="primary" onClick={render}>Render now</button><button className="ghost" onClick={() => setSheet(false)}>Cancel</button></div>
+          {rv ? (
+            <>
+              <div className={`banner ${rv.fits ? "warn" : "bad"}`}>
+                The studio voice changed since this chapter was voiced. It’s in <b>{rv.from}</b>; the studio voice is now <b>{rv.to}</b>.
+                Using the new voice re-records all {rv.lines} lines first: about <b>{money(rv.est_usd)}</b>.
+                {" "}Today: {money(rv.spent_today)} of {money(rv.cap)} spent.
+                {!rv.fits && <> That’s more than what’s left today, so the new voice can’t be used until after midnight ET.</>}
+              </div>
+              <div className="row">
+                <button className="primary" onClick={() => render(true)}>Render in this chapter’s voice (free)</button>
+                <button disabled={!rv.fits} onClick={() => render(false)}>Re-record in the new voice (~{money(rv.est_usd)})</button>
+                <button className="ghost" onClick={() => setSheet(false)}>Cancel</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="small muted">Free: it runs on the server and the voice is already recorded.</p>
+              <div className="row"><button className="primary" onClick={() => render()}>Render now</button><button className="ghost" onClick={() => setSheet(false)}>Cancel</button></div>
+            </>
+          )}
         </Card>
       )}
+      {failed && !rendering && !sheet && (
+        <div className="banner bad">
+          <div><b>The last render failed</b> {when(failed.ended || failed.ts)}{failed.stage ? ` (while ${STAGE_WORD[failed.stage] || failed.stage})` : ""}: {failed.error || "no reason recorded — see Activity"}</div>
+          <div className="row" style={{ marginTop: 8 }}>
+            {canRender && <button className="sm primary" onClick={() => setSheet(true)}>Try again…</button>}
+            <Link className="btn sm ghost" href="/activity">Open Activity</Link>
+          </div>
+        </div>
+      )}
+      {rendering && <RenderProgress rj={rj} />}
       <div className="steps" aria-label="Pipeline steps">
         {steps.map((s: any) => (
           <div key={s.key} className={`step ${s.state}`}>
@@ -179,8 +217,7 @@ export default function Chapter() {
       {tab === "issues" && <Issues id={id} onFixed={() => { setBoardKey((n) => n + 1); reload(); }} />}
       {tab === "video" && (
         rendering ? (
-          <Card><p><b>Rendering…</b> {rj.total ? `clip ${rj.done || 0} of ${rj.total}` : rj.stage || "starting"}. The video opens here when it’s done.</p>
-            <div className="bar"><i style={{ width: `${rj.total ? Math.round(100 * (rj.done || 0) / rj.total) : 5}%` }} /></div></Card>
+          <Card><p><b>Rendering…</b> The video opens here when it’s done — the progress is shown above.</p></Card>
         ) : shown ? (
           <>
             {(c.videos || []).length > 1 && (
@@ -212,5 +249,40 @@ export default function Chapter() {
           <Link className="btn sm" href={`/chapter/${next.id}${next.status.key === "video_ready" ? "?tab=video" : ""}`}>Open ›</Link></div>
       )}
     </>
+  );
+}
+
+const STAGE_WORD: Record<string, string> = { queued: "waiting to start", revoice: "re-recording the voice", render: "rendering clips", export: "exporting" };
+
+/** Scrapper-style progress: every stage of the render, the current one with its count. */
+function RenderProgress({ rj }: { rj: any }) {
+  const st = rj.stage || "queued";
+  const voiced = st === "revoice" || /^re-recording/.test(rj.note || "");
+  const order = [...(voiced ? ["revoice"] : []), "render", "export", "drive"];
+  const at = order.indexOf(st === "queued" ? order[0] : st);
+  const rows: [string, string][] = [
+    ...(voiced ? [["revoice", "Re-record the voice (paid)"] as [string, string]] : []),
+    ["render", "Render the clips (free)"], ["export", "Export the video (free)"], ["drive", "Copy to Google Drive"],
+  ];
+  const pct = rj.total ? Math.round(100 * (rj.done || 0) / rj.total) : null;
+  const secs = rj.ts ? Math.max(0, Math.round(Date.now() / 1000 - rj.ts)) : 0;
+  return (
+    <Card title={<span>🎬 Rendering · {secs >= 60 ? `${Math.floor(secs / 60)} min ${secs % 60} s` : `${secs} s`}{rj.status !== "running" ? ` · ${rj.status}` : ""}</span>}>
+      <div style={{ display: "grid", gap: 8 }}>
+        {rows.map(([key, label], i) => {
+          const state = at < 0 ? "todo" : i < at ? "done" : i === at ? "now" : "todo";
+          return (
+            <div key={key} style={{ display: "grid", gap: 4 }}>
+              <div className="spread small">
+                <span>{state === "done" ? "✓" : state === "now" ? "▶" : "○"} <b style={{ opacity: state === "todo" ? 0.6 : 1 }}>{label}</b></span>
+                <span className="muted">{state === "now" ? (st === "queued" ? "starting…" : rj.total && key !== "export" ? `${rj.done || 0} of ${rj.total}` : "working…") : state === "done" ? "done" : key === "drive" ? "after the export" : ""}</span>
+              </div>
+              {state === "now" && <div className="bar"><i style={{ width: `${pct ?? 8}%` }} /></div>}
+            </div>
+          );
+        })}
+        {rj.note && voiced && <span className="small muted">{rj.note}</span>}
+      </div>
+    </Card>
   );
 }
