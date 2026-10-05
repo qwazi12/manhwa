@@ -101,6 +101,11 @@ def status(pdir):
         state = "done" if n else "missing"
         if key == "render" and segs and 0 < clips < len(segs):
             state = "partial"
+        if key == "render" and not clips and exports and \
+                (_json(j("drive.json"), {}) or {}).get("video") == os.path.basename(exports[-1]):
+            # the clips were cleared after the video was copied to Drive (2026-10-05:
+            # "0 of 71 · not yet" next to a finished video read as a failure)
+            state, detail = "done", f"{len(segs)} clip(s) made; cleared after the Drive copy (rebuilt on the next render)"
         out.append({"key": key, "label": label, "state": state, "detail": detail,
                     "at": _mtime(path) if path else None,
                     "rerun": RERUN.get(key)})

@@ -31,9 +31,15 @@ def atempo_chain(factor):
 def speed_up(src, dst, factor):
     v = f"setpts=PTS/{factor}"
     a = atempo_chain(factor)
+    # Owner, 2026-10-05: the 1.25x export would not play on an iPhone. setpts
+    # alone gave 37.5 fps and x264 tagged it H.264 level 6.2, which iOS refuses.
+    # Hold 30 fps, tag level 4.1 (plays on every phone, fine for YouTube up to
+    # 1080p30), and put the index first so playback starts before the download ends.
     cmd = ["ffmpeg", "-y", "-i", src,
-           "-filter:v", v, "-filter:a", a,
+           "-filter:v", v + ",fps=30", "-filter:a", a,
            "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+           "-pix_fmt", "yuv420p", "-profile:v", "high", "-level:v", "4.1",
+           "-movflags", "+faststart",
            "-c:a", "aac", "-b:a", "192k", dst]
     subprocess.run(cmd, check=True)
     return dst

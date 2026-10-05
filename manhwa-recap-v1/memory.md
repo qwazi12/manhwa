@@ -8896,3 +8896,14 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Activity → **Renders**: rendering and waiting rows with a progress bar per chapter, plus finished rows with ▶ Watch or the error, and Clear finished.
 - `docs/RUNBOOK.md` updated: render several, Activity → Renders, plus failure rows for view-only, budget re-voice and sign-in.
 - **Tests:** new `test_render_queue` 15/15 (order, one at a time, free by default, failure doesn't stop the rest, restart recovery bounded, studio vs classic bar). Full suite 75/76; the one failure is the date-bound `test_posting_schedule`, as before. `tsc` clean, `next build` ok.
+
+### 2026-10-05 — Owner: rendered ch.30 "isn't free to be watched" (won't play on iPhone) + Watch button overflow + legacy audit
+- **Cause** (probed live with ffprobe): `final_Oct05_06.19PM_1.25x.mp4` was H.264 High, **level 6.2, 38 fps**, with the moov index at the end. `speed_up.py` used only `setpts=PTS/1.25`, which turns 30 fps into 37.5 fps, and x264 tagged it level 6.2. iOS Safari won't play level 6.x (the crossed-out play icon). The backend served it correctly: Range → 206 verified.
+- **Fix in `speed_up.py`:** `fps=30`, `-pix_fmt yuv420p -profile:v high -level:v 4.1 -movflags +faststart`. Test: new `test_speed_up_phone` 5/5 (level ≤ 4.2, 30 fps, moov before mdat, still 1.25×).
+- **Existing videos** made before this fix still carry level 6.2. They need **Render again** (free; clips are rebuilt because the Drive copy cleared them).
+- **Step strip:** "Clips · 0 of 71 · not yet" next to a finished video was the Drive copy clearing the clips by design. `pipeline_steps` now shows "done · N clip(s) made; cleared after the Drive copy" when the newest export is the one in Drive. `test_pipeline_strip` 19/19.
+- **Mobile overflow:** the long file name in the Video step card pushed it and its ▶ Watch button past the card edge. `.step .d` now wraps (`overflow-wrap:anywhere`), cards have `min-width:0`, and buttons are capped at the card width.
+- **Legacy parity audit**, button by button (87 /storyboard actions, 14 /review, 18 /legacy calls): https://claude.ai/artifact/XXSVfMi8wsnXtG8XzxJqrm
+  - Fast render logic: the same backend engine (ffmpeg renderer, 3 clips at a time, only missing or outdated clips rebuilt). Railway uses the code defaults (verified).
+  - Gaps G1–G10 are listed for the owner's approval (force re-render all, all-videos list, series filters/sorts, release calendar, per-source chapter pick, track again, bulk jobs, manage filters, QC details; drop seed research). **Pending owner decision.**
+- Other tests: drive_store 15/15, export_swap 6/6, loudness 9/9, paste_add 22/22; `next build` ok.

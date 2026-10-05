@@ -155,7 +155,8 @@ label.field > span.count { justify-self: end; font-weight: 400; }
 .step b { font-size: 13px; }
 .step.done { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .step.partial { border-color: var(--yellow); }
-.step .d { font-size: 11.5px; color: var(--muted); }
+.step .d { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.step { min-width: 0; } .step > button { max-width: 100%; justify-self: start; }
 
 /* ---- board rows */
 .brow { display: grid; grid-template-columns: 112px 1fr auto; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); align-items: start; }
