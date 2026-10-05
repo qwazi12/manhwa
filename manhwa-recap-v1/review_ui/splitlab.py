@@ -80,11 +80,23 @@ def _profile(gray):
     return rows, dx + dy
 
 
-def register(rows, edge):
+FLAT_REG_MIN_ROWS = 20     # flat rows needed before registering from them
+
+
+def register(rows, edge, rstd=None):
     """The modal row-mean is the gutter colour; tolerance is that cluster's
     own spread. Deriving both from the page means a dark page, a light page
-    and a bleed page all take the same code path."""
-    hist, bins = np.histogram(rows, bins=256, range=(0, 255))
+    and a bleed page all take the same code path.
+
+    With `rstd`, the mode is taken over FLAT rows only (2026-10-04): on a page
+    that is mostly art, the commonest row colour is the art, and gutters of a
+    different colour were then missed while art rows were cut."""
+    src = rows
+    if rstd is not None and GUTTER_ROW_STD > 0:
+        flat = rstd <= GUTTER_ROW_STD
+        if int(flat.sum()) >= FLAT_REG_MIN_ROWS:
+            src = rows[flat]
+    hist, bins = np.histogram(src, bins=256, range=(0, 255))
     bg = float(bins[int(hist.argmax())])
     near = np.abs(rows - bg) <= 6.0
     if near.sum() < 3:
@@ -145,7 +157,34 @@ def flat_rows(gray):
     return g.std(axis=1) <= FLAT_STD
 
 
-def breaks(rows, edge, bg, tol, ethr, gray=None):
+# A gutter is FLAT across the width. Measured on A Regressor's Tale of
+# Cultivation ch.30 (owner, 2026-10-04), all 17 pages: every real gutter has a
+# median row std of 0.4-0.6; every false gap 16-95. The false ones came from
+# registration picking the ART as the background on a full-bleed page (page 13,
+# bg=119 blue: 14 strips through one picture) and from rows inside speech
+# bubbles (page 3: 51 cuts through bubbles). 6 is the same calibrated ceiling the
+# flat-band code uses. SPLIT_GUTTER_ROW_STD=0 switches the rule off.
+GUTTER_ROW_STD = float(os.environ.get("SPLIT_GUTTER_ROW_STD", 6.0))
+
+
+def row_std(gray):
+    """Per-row standard deviation across the width."""
+    return gray.astype(np.float32).std(axis=1)
+
+
+def flat_runs(runs, rstd):
+    """Keep only the gaps that are flat across the width (see GUTTER_ROW_STD)."""
+    if rstd is None or GUTTER_ROW_STD <= 0:
+        return runs
+    return [(a, b) for a, b in runs if float(np.median(rstd[a:b])) <= GUTTER_ROW_STD]
+
+
+def breaks(rows, edge, bg, tol, ethr, gray=None, rstd=None):
+    """Gutter runs. `rstd` (per-row std across the width) filters out runs that
+    are not flat — art or bubble interiors that merely match the page colour.
+    Page mode passes `gray`, from which it is computed."""
+    if rstd is None and gray is not None:
+        rstd = row_std(gray)
     mask = (np.abs(rows - bg) <= tol) & (edge <= ethr)
     if gray is not None:
         flat = flat_rows(gray) & (edge <= ethr)
@@ -173,7 +212,7 @@ def breaks(rows, edge, bg, tol, ethr, gray=None):
             st = None
     if st is not None and len(mask) - st >= BREAK_MIN_ROWS:
         runs.append((st, len(mask)))
-    return runs
+    return flat_runs(runs, rstd)
 
 
 def _spans(runs, h):
@@ -514,6 +553,7 @@ def split_into(pages, crops_dir, slug="", on_progress=None):
         if on_progress:
             on_progress(f"assembling {len(pages)} tiles into one scroll")
         means, edges, offs, hs, W = [], [], [], [], None
+        stds = []
         y = 0
         for p in pages:
             g = np.array(Image.open(p).convert("L"))
@@ -521,10 +561,12 @@ def split_into(pages, crops_dir, slug="", on_progress=None):
                 W = g.shape[1]
             r, e = _profile(g)
             means.append(r); edges.append(e); offs.append(y); hs.append(g.shape[0])
+            stds.append(row_std(g))
             y += g.shape[0]
         rows = np.concatenate(means); edge = np.concatenate(edges)
-        bg, tol, ethr = register(rows, edge)
-        rn = breaks(rows, edge, bg, tol, ethr)
+        _rs = np.concatenate(stds)
+        bg, tol, ethr = register(rows, edge, rstd=_rs)
+        rn = breaks(rows, edge, bg, tol, ethr, rstd=_rs)
         sp = _spans(rn, rows.size)
         canvases = []
         for i, (a, b) in enumerate(sp, 1):
@@ -552,9 +594,10 @@ def split_into(pages, crops_dir, slug="", on_progress=None):
             im = Image.open(p).convert("RGB")
             g = np.array(im.convert("L"))
             rows, edge = _profile(g)
-            bg, tol, ethr = register(rows, edge)
+            _rs = row_std(g)
+            bg, tol, ethr = register(rows, edge, rstd=_rs)
             rn = breaks(rows, edge, bg, tol, ethr,
-                        gray=g if FLAT_STD > 0 else None)
+                        gray=g if FLAT_STD > 0 else None, rstd=_rs)
             sp = _spans(rn, g.shape[0])
             n_here = 0
             page_crops = []
@@ -567,7 +610,8 @@ def split_into(pages, crops_dir, slug="", on_progress=None):
                     y0, y1 = a + int(rs[0]), a + int(rs[-1]) + 1
                     x0, x1 = int(cs[0]), int(cs[-1]) + 1
                 else:
-                    y0, y1, x0, x1 = a, b, 0, g.shape[1]
+                    # nothing but gutter colour: a page margin, not a panel
+                    continue
                 if (x1 - x0) < MIN_PANEL_W:
                     x0, x1 = 0, g.shape[1]
                     if (y1 - y0) < MIN_PANEL_PX:
@@ -616,6 +660,7 @@ def run(slug, pages, on_progress=None, blur=False):
     if strip:
         prog(f"assembling {len(pages)} tiles into one scroll")
         means, edges, offs, hs, W = [], [], [], [], None
+        stds = []
         y = 0
         for p in pages:
             g = np.array(Image.open(p).convert("L"))
@@ -624,13 +669,15 @@ def run(slug, pages, on_progress=None, blur=False):
             r, e = _profile(g)
             means.append(r)
             edges.append(e)
+            stds.append(row_std(g))
             offs.append(y)
             hs.append(g.shape[0])
             y += g.shape[0]
         rows = np.concatenate(means)
         edge = np.concatenate(edges)
-        bg, tol, ethr = register(rows, edge)
-        rn = breaks(rows, edge, bg, tol, ethr)
+        _rs = np.concatenate(stds)
+        bg, tol, ethr = register(rows, edge, rstd=_rs)
+        rn = breaks(rows, edge, bg, tol, ethr, rstd=_rs)
         sp = _spans(rn, rows.size)
         stats.append({"page": "(continuous scroll)", "h": int(rows.size),
                       "bg": round(bg, 1), "tol": round(tol, 1),
@@ -663,9 +710,10 @@ def run(slug, pages, on_progress=None, blur=False):
             im = Image.open(p).convert("RGB")
             g = np.array(im.convert("L"))
             rows, edge = _profile(g)
-            bg, tol, ethr = register(rows, edge)
+            _rs = row_std(g)
+            bg, tol, ethr = register(rows, edge, rstd=_rs)
             rn = breaks(rows, edge, bg, tol, ethr,
-                        gray=g if FLAT_STD > 0 else None)
+                        gray=g if FLAT_STD > 0 else None, rstd=_rs)
             sp = _spans(rn, g.shape[0])
             stats.append({"page": os.path.basename(p), "h": int(g.shape[0]),
                           "bg": round(bg, 1), "tol": round(tol, 1),
@@ -680,7 +728,8 @@ def run(slug, pages, on_progress=None, blur=False):
                     y0, y1 = a + int(rs[0]), a + int(rs[-1]) + 1
                     x0, x1 = int(cs[0]), int(cs[-1]) + 1
                 else:
-                    y0, y1, x0, x1 = a, b, 0, g.shape[1]
+                    # nothing but gutter colour: a page margin, not a panel
+                    continue
                 # The trim measures the content box, and a band whose only
                 # content is a thin vertical line trims to a 1px column — one
                 # shipped as 1x86, aspect ratio 86. A panel needs width as

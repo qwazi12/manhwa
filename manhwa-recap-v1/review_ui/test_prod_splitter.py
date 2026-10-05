@@ -81,9 +81,14 @@ def main():
         # line-by-line monologue/credit strips into 4 cards (115 - 9 = 106),
         # listed in manhwa-recap-v1/memory.md. With vision on, 10 bubble-
         # crossed gutters are also cut (116) — checked by eye on a cut sheet.
-        check("count lands within the band of the recorded 106 baseline",
-              abs(n - 106) <= 0.15 * 106)
-        print("   %d crops from %d pages (baseline 106, band +/-15%%)"
+        # Baseline 89 (was 106), re-recorded 2026-10-04 WITH EVIDENCE: the
+        # flat-gutter rule removes 7 "gaps" that ran through caption boxes,
+        # text and art (row std 8-70; real gutters 0.4-0.6 — cut sheet checked
+        # by eye), and 10 crops that were nothing but page margin are no
+        # longer saved as panels (106 - 7 - 10 = 89). Details in memory.md.
+        check("count lands within the band of the recorded 89 baseline",
+              abs(n - 89) <= 0.15 * 89)
+        print("   %d crops from %d pages (baseline 89, band +/-15%%)"
               % (n, len(pages)))
 
         # A strip source must take the scroll path, not the page path.

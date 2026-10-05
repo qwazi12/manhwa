@@ -82,7 +82,11 @@ def update(patch):
         if sch:
             import re
             if "enabled" in sch:
+                was = bool(cur["schedule"].get("enabled"))
                 cur["schedule"]["enabled"] = bool(sch["enabled"])
+                if cur["schedule"]["enabled"] and not was:
+                    import time as _t
+                    cur["schedule"]["enabled_at"] = _t.time()
             if sch.get("times") is not None:
                 times = sch["times"]
                 if (not isinstance(times, list) or not 1 <= len(times) <= 6

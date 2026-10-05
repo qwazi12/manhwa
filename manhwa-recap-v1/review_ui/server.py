@@ -1931,6 +1931,19 @@ def _publish_overall(results):
             else ("partial" if ok else "failed"))
 
 
+def _post_url(hit, network):
+    """The post's link. For a private YouTube upload Upload-Post sends a sentence
+    ("Post uploaded as Private. No public URL available.") where the URL goes;
+    the video id is still there, and the owner can open youtu.be/<id>."""
+    u = hit.get("post_url") or ""
+    if u.startswith("http"):
+        return u
+    pid = hit.get("platform_post_id")
+    if pid and network == "youtube":
+        return f"https://youtu.be/{pid}"
+    return u or None
+
+
 def _resolve_upload_results(mod, results):
     """Ask Upload-Post what the platform did with each submitted target.
     A target stays "submitted" until its request is reported completed."""
@@ -1957,7 +1970,7 @@ def _resolve_upload_results(mod, results):
             r.update(status="failed",
                      error="Upload-Post finished but reported no result for this channel")
         elif hit.get("success"):
-            r.update(status="published", url=hit.get("post_url"),
+            r.update(status="published", url=_post_url(hit, net),
                      platform_post_id=hit.get("platform_post_id"),
                      published_at=time.time(), error=None)
         else:
@@ -2083,6 +2096,14 @@ def os_publish(body: PublishNowIn):
                     stage="queued", started_at=time.time(), results=[])
     threading.Thread(target=_run_publish_job, args=(job_id, pdir, name),
                      daemon=True).start()
+    try:                     # every publish is a queue row, wherever it was pressed
+        import ingest as _ing
+        import publish_queue as _pq0
+        _sch = _studio.load().get("schedule") or {}
+        _pq0.ensure_posting(_ing.PROJECTS, pid, name, job_id,
+                            day=_pq0._local(time.time(), _sch.get("tz")).strftime("%Y-%m-%d"))
+    except Exception as e:  # noqa — the publish itself is already running
+        print(f"[publish] queue row not updated: {e}", flush=True)
     return {"ok": True, "job": job_id, "project": pid, "name": name,
             # report the visibility this publish will actually use
             "privacy": (load_publish(pdir).get(name) or {}).get("privacy", "private")}
@@ -6766,7 +6787,11 @@ def _studio_published():
                         "privacy": md.get("privacy") or "private",
                         "at": max((r.get("published_at") or 0) for r in ok) or rec.get("ended_at"),
                         "posts": [{"account_id": r.get("account_id"), "username": r.get("username"),
-                                   "url": r.get("url"), "video_id": _yt_id(r.get("url"))} for r in ok],
+                                   "url": _post_url({"post_url": r.get("url"), "platform_post_id": r.get("platform_post_id")},
+                                                    r.get("network") or "youtube"),
+                                   "video_id": _yt_id(r.get("url")) or (r.get("platform_post_id")
+                                                                       if (r.get("network") or "youtube") == "youtube" else None)}
+                                  for r in ok],
                         "partial": len(ok) < len(rec.get("results") or [])})
     out.sort(key=lambda x: -(x["at"] or 0))
     return out
@@ -6848,8 +6873,8 @@ def studio_queue_post(body: StudioItemIn):
         raise HTTPException(409, f"this item is {it['status']}")
     r = os_publish(PublishNowIn(project=it["project"], name=it["name"]))
     sched = _studio.load().get("schedule") or {}
-    _pq.mark(_i.PROJECTS, it["id"], status="posting", job=r.get("job"), error=None,
-             posted_day=_pq._local(time.time(), sched.get("tz")).strftime("%Y-%m-%d"))
+    _pq.ensure_posting(_i.PROJECTS, it["project"], it["name"], r.get("job"),
+                       day=_pq._local(time.time(), sched.get("tz")).strftime("%Y-%m-%d"))
     _ev("publish", f"posting {_pretty(it['project'])} ({r.get('privacy')})")
     return {"ok": True, "job": r.get("job"), "privacy": r.get("privacy")}
 

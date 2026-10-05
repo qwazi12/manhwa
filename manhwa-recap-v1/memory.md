@@ -8573,3 +8573,31 @@ Each step gets its own commit, tests, a live phone check, and a push only when n
 5. Step 1 can start now.
 
 Mock-up figures are live: 9 chapters ready for review, $8.25 of $10 today, 3.1 of 29 GB disk, autopilot on.
+
+---
+
+### 2026-10-04 (night) — Owner: "New frontend, yes, yes (approving after reviewing), yes, yes. GO AHEAD AND FIX EVERYTHING, do the whole plan."
+Decisions:
+1. New frontend (option B).
+2. The six places as named.
+3. Approve after reviewing = next free slot.
+4. Drive: the robot is a Content manager; layout `Series / Ch N`.
+5. Start now.
+
+### 2026-10-04 (night) — BUILT rebuild step 1: urgent fixes
+- **Splitter** (`splitlab.py`):
+  - A gap must be flat across the width: median row std ≤ `GUTTER_ROW_STD` 6 (env `SPLIT_GUTTER_ROW_STD`, 0 switches it off).
+  - The gutter colour is registered from flat rows only, so a mostly-art page no longer takes the art as its background.
+  - Spans that are nothing but gutter colour (page margins) are no longer saved as panels.
+  - Checked by eye on cut sheets (Murim ch.43, Swordmaster ch.1, Regressor ch.30): every removed cut ran through caption boxes, text, bubbles or art.
+  - Counts without the vision pass: Murim 106 → 89 (7 false cuts + 10 blank margins); Swordmaster 187 → 154; Regressor ch.30 124 → 101 (page 13 is whole again). `test_prod_splitter` baseline re-recorded 106 → 89 with that evidence.
+- **Image check:** a strip of art under 110 px tall and at least 6× as wide is a "fragment", so it never gets its own narration line.
+- **Publishing:**
+  - Every publish goes through a queue row (`publish_queue.ensure_posting`, called from `/api/publishing/publish`, which Video review uses, and from the studio's Post now).
+  - A queued row whose video was already posted settles as posted (the stranded ch.30 row).
+  - Private YouTube posts get `https://youtu.be/<platform_post_id>` (`_post_url`).
+  - Switching the schedule on records `enabled_at`, and slots that had already passed don't fire that day.
+- **Voice:** editable in ⚙️ Settings (voice, style, ▶ preview, save as default). The Ingest picker now says "for this chapter only".
+- **SEO:** with a cast list, characters are the cast's names only, those used in the script first. A chapter's empty-cast copy falls back to the series' list.
+- **Board:** "APPROVE PROJECT FOR RENDER" became "RENDER VIDEO". The legacy "split coverage 0% / 0%" became "pages → panels".
+- **Tests:** new `test_flat_gutters.py` 6/6 (synthetic pages; scraped art never committed) and `test_publish_fixes.py` 12/12; full suite 76/76.

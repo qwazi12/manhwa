@@ -110,6 +110,25 @@ def mark(root, item_id, **fields):
         return it
 
 
+def ensure_posting(root, project, name, job, day=None):
+    """Every publish goes through a queue row (owner, 2026-10-04: a video posted
+    from Video review stayed 'queued' and the schedule tried it again). Marks
+    the video's open row as posting, or creates one."""
+    with _lock:
+        d = load(root)
+        it = next((x for x in d["items"] if (x["project"], x["name"]) == (project, name)
+                   and x["status"] in ("queued", "failed", "posting")), None)
+        now = time.time()
+        if it is None:
+            it = {"id": uuid.uuid4().hex[:10], "project": project, "name": name, "added_at": now}
+            d["items"].append(it)
+        it.update(status="posting", job=job, error=None, updated_at=now)
+        if day:
+            it["posted_day"] = day
+        _save(root, d)
+        return it
+
+
 def protected(root):
     """(project, name) pairs the export cleanup must not delete."""
     return {(x["project"], x["name"]) for x in load(root)["items"] if x["status"] in ACTIVE}
@@ -122,13 +141,15 @@ def sync(root, publish_status):
     with _lock:
         d = load(root)
         for it in d["items"]:
-            if it["status"] != "posting":
+            if it["status"] not in ("posting", "queued", "failed"):
                 continue
             try:
                 rec = publish_status(it["project"], it["name"]) or {}
             except Exception:
                 continue
             st = rec.get("status")
+            if it["status"] != "posting" and st != "published":
+                continue            # only a confirmed post settles a waiting row
             if st == "published":
                 it.update(status="posted", posted_at=rec.get("ended_at") or time.time(),
                           urls=[r.get("url") for r in rec.get("results") or [] if r.get("url")])
@@ -168,7 +189,14 @@ def decide(sched, d, now, targets_of):
     loc = _local(now, sched.get("tz"))
     day, hm = loc.strftime("%Y-%m-%d"), loc.strftime("%H:%M")
     done = set((d.get("slots_done") or {}).get(day, {}))
-    due = [t for t in sorted(sched.get("times") or []) if t <= hm and t not in done]
+    # slots that had already passed when the schedule was switched on don't
+    # fire that day (owner, 2026-10-04: switching on at 15:51 fired 11:00)
+    since = ""
+    if sched.get("enabled_at"):
+        on = _local(sched["enabled_at"], sched.get("tz"))
+        if on.strftime("%Y-%m-%d") == day:
+            since = on.strftime("%H:%M")
+    due = [t for t in sorted(sched.get("times") or []) if t <= hm and t not in done and t >= since]
     if not due:
         return {"action": "wait", "day": day, "why": "no posting time is due"}
     slot = due[0]

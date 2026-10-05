@@ -115,7 +115,7 @@ def truth_card(pdir):
 
     # Series Bible integration: inject canonical characters and aliases
     bible_data = _read(os.path.join(pdir, "series_bible.json"))
-    if not bible_data and series:
+    if (not bible_data or not bible_data.get("characters")) and series:   # chapter copy may predate the cast
         _RECAP = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         if _RECAP not in sys.path:
             sys.path.insert(0, _RECAP)
@@ -127,9 +127,18 @@ def truth_card(pdir):
 
     if bible_data:
         bible_chars = [c.get("name") for c in bible_data.get("characters", []) if c.get("name")]
-        for bc in reversed(bible_chars):
-            if bc and bc not in characters:
-                characters.insert(0, bc)
+        if bible_chars:
+            # The cast list is the truth (owner, 2026-10-04: the capital-word
+            # guess produced "Eun, Makli, Young, Kim, Refining"). Names the
+            # script actually uses come first.
+            low = (narration or "").lower()
+
+            def _used(c):
+                names = [c.get("name") or ""] + list(c.get("aliases") or [])
+                return any(n and n.lower() in low for n in names) or \
+                    any(len(p) >= 4 and p.lower() in low for p in (c.get("name") or "").split()[1:])
+            chars = [c for c in bible_data.get("characters", []) if c.get("name")]
+            characters = ([c["name"] for c in chars if _used(c)] + [c["name"] for c in chars if not _used(c)])[:6]
         for al in bible_data.get("aliases", []):
             if al and al not in aliases:
                 aliases.append(al)

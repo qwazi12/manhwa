@@ -99,6 +99,10 @@ def _what_is_shown(desc):
     return _NEGATED.sub(" ", _QUOTED.sub(" ", desc or ""))
 
 
+SLIVER_MAX_H = 110      # px: a strip this thin and...
+SLIVER_RATIO = 6.0      # ...this wide (w/h) is a slice, not a panel
+
+
 def classify(panel, pix, chapter_width=None):
     ocr = (panel.get("ocr_text") or "").strip()
     has_text = len(re.findall(r"[A-Za-z]{2,}", ocr)) >= 1
@@ -113,6 +117,10 @@ def classify(panel, pix, chapter_width=None):
         return "fragment"
     if not has_text and pix["std"] < FRAGMENT_STD and pix["ink"] < FRAGMENT_INK:
         return "fragment"               # low contrast AND little ink (a smoke cloud has ink)
+    if not has_text and h and w and h < SLIVER_MAX_H and w / h >= SLIVER_RATIO:
+        # A thin full-width strip of art is a slice of a bigger picture (the
+        # A Regressor's Tale ch.30 failure, 2026-10-04): never its own line.
+        return "fragment"
     shown = _what_is_shown(desc)
     somebody = _subject_re().search(shown) or _CREATURE.search(shown)
     somewhere = _scene_re().search(shown)

@@ -137,6 +137,11 @@ def _coverage_stat(sc):
     lost >15% of its art; green when the whole chapter is fully cropped."""
     if not sc:
         return '<div class="stat"><b>?</b>split coverage</div>'
+    if "min" not in sc:
+        # the current splitter reports pages and crops, not a coverage ratio
+        # (it showed a green "0% / 0%" before, 2026-10-04)
+        return (f'<div class="stat"><b>{int(sc.get("pages") or 0)} → {int(sc.get("panels") or 0)}</b>'
+                f'pages → panels</div>')
     bad = sc.get("pages_below_85", 0)
     color = "var(--warn)" if bad else "var(--ok)"
     warn = f' ⚠ {bad} page(s) &lt;85% (worst: {html.escape(str(sc.get("worst_page","")))})' if bad else ""
@@ -979,7 +984,7 @@ body.not-board header button, body.not-board header label {{ display:none !impor
     <input type="checkbox" id="ingdirect"> Direct speech
     <span style="opacity:.75">(2–3 pivotal lines quoted, in the narrator's own voice — Gemini only)</span></label>
   <div class="voicebox">
-    <div class="vlabel">Narrator voice</div>
+    <div class="vlabel">Narrator voice <span class="hint" style="font-weight:400">— for this chapter only. The studio default is set in ⚙️ Settings.</span></div>
     <div class="vrow">
       <select id="ingvoice" onchange="voiceChanged()"><option>loading voices…</option></select>
       <select id="ingstyle"></select>
@@ -1280,7 +1285,7 @@ body.not-board header button, body.not-board header label {{ display:none !impor
   <button class="mini" onclick="repairTimeline()"
     title="fix the timing faults that block a render: swapped or overlapping slices, beats outside their segment, shared sentences, and audio longer than its window">🔧 repair timeline</button>
   <button id="approveBtn" class="{'on' if approved else ''}" onclick="toggleApproval()">
-    {'✔ APPROVED — click to re-render &amp; re-export' if approved else 'APPROVE PROJECT FOR RENDER'}</button>
+    {'✔ RENDERED — click to render &amp; export again' if approved else 'RENDER VIDEO'}</button>
 </header>
 <div id="jobsbar" class="jobsbar"></div>
 <div id="views"></div>
@@ -3097,6 +3102,7 @@ async function loadSettings() {{
       ${{a.network === 'youtube' ? '▶️' : '•'}} ${{esc(a.username || a.account_id)}} <span class="hint">${{esc(a.account_id)}}${{a.active ? '' : ' · inactive'}}</span></label>`).join('');
   const st = d.storage, disk = st.disk || {{}};
   SET_SCHED_ON = !!(d.schedule || {{}}).enabled;
+  setTimeout(setVoiceLoad, 0);
   box.innerHTML = `
     <div class="setcard"><h4>🟢 Connection</h4>
       ${{R('Server', 'live · deploy ' + esc(d.connection.commit || 'local'))}}
@@ -3134,10 +3140,16 @@ async function loadSettings() {{
         <select id="setspeed" ${{d.export.env_override ? 'disabled' : ''}}>${{[1.0, 1.1, 1.25, 1.5].map(v => `<option value="${{v}}" ${{Math.abs(v - d.export.speed) < 1e-6 ? 'selected' : ''}}>${{v}}×</option>`).join('')}}</select>
         <button class="mini" onclick="saveSpeed()">save</button></div>
       <div class="hint" style="margin-top:4px">Approve renders and exports at this speed; only that file is kept.</div></div>
-    <div class="setcard"><h4>🎙️ Voice</h4>
-      ${{R('Studio narrator', esc(d.voice.voice || 'Charon') + ' · ' + esc(d.voice.model || ''))}}
-      ${{R('Style', esc(d.voice.style || '—'))}}
-      <div class="hint" style="margin-top:4px">New chapters use it; approving an older chapter re-voices it in this voice first. <a href="#ingest" onclick="toggleDrawer('ingest');return false">Change on Ingest</a>.</div></div>
+    <div class="setcard"><h4>🎙️ Voice — studio default</h4>
+      ${{R('Now', esc(d.voice.voice || 'Charon') + ' · ' + esc(d.voice.style || 'no style'))}}
+      <div style="display:grid;gap:6px;margin-top:6px">
+        <select id="setvoice"><option>loading…</option></select>
+        <select id="setstyle"></select>
+        <div style="display:flex;gap:6px;align-items:center"><button class="mini" onclick="setVoicePreview(this)">▶ preview</button>
+          <button class="mini" onclick="setVoiceSave(this)">save as default</button><span class="hint" id="setvmsg"></span></div>
+        <audio id="setvprev" controls preload="none" style="display:none;width:100%"></audio>
+      </div>
+      <div class="hint" style="margin-top:4px">New chapters use it; approving an older chapter re-voices it in this voice first. Ingest can pick a different voice for one chapter.</div></div>
     <div class="setcard"><h4>🗄️ Storage &amp; retention</h4>
       ${{R('Disk', disk.used_gb != null ? disk.used_gb + ' GB of ' + disk.total_gb + ' GB' : '?')}}
       ${{R('Projects', st.n_projects)}}
@@ -3153,6 +3165,35 @@ async function saveChannels() {{
   try {{ await j('/api/settings', {{method:'POST', headers:{{'Content-Type':'application/json'}},
     body: JSON.stringify({{publish: {{targets, privacy: document.getElementById('setpriv').value}}}})}}); loadSettings(); }}
   catch (e) {{ alert('Could not save: ' + (e.message || e)); }}
+}}
+async function setVoiceLoad() {{
+  let v;
+  try {{ v = await j('/api/voices'); }} catch (e) {{ return; }}
+  const d = v.default || {{}};
+  const sv = document.getElementById('setvoice'), ss = document.getElementById('setstyle');
+  if (!sv) return;
+  sv.innerHTML = v.voices.map(x => `<option value="${{esc(x.id)}}" ${{x.id === d.id ? 'selected' : ''}}>${{esc(x.label)}}</option>`).join('');
+  const styles = v.styles.slice();
+  if (d.style && !styles.some(x => x.style === d.style)) styles.push({{style: d.style, label: d.style}});
+  ss.innerHTML = styles.map(x => `<option value="${{esc(x.style)}}" ${{x.style === (d.style || '') ? 'selected' : ''}}>Style: ${{esc(x.label)}}</option>`).join('');
+}}
+async function setVoicePreview(btn) {{
+  const m = document.getElementById('setvmsg'); btn.disabled = true; m.textContent = 'recording a sample…';
+  try {{
+    const r = await j('/api/voices/preview', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{voice: document.getElementById('setvoice').value, style: document.getElementById('setstyle').value}})}});
+    const a = document.getElementById('setvprev'); a.src = r.url; a.style.display = 'block'; m.textContent = '';
+    try {{ await a.play(); }} catch (e) {{}}
+  }} catch (e) {{ m.textContent = 'preview failed: ' + (e.message || e); }}
+  btn.disabled = false;
+}}
+async function setVoiceSave(btn) {{
+  const m = document.getElementById('setvmsg');
+  try {{
+    await j('/api/voices/default', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{voice: document.getElementById('setvoice').value, style: document.getElementById('setstyle').value}})}});
+    VOICE_DATA = null; m.textContent = '✓ saved'; loadSettings();
+  }} catch (e) {{ m.textContent = 'could not save: ' + (e.message || e); }}
 }}
 async function saveSchedule(btn) {{
   const on = document.getElementById('schon').checked;
