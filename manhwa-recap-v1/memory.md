@@ -8879,3 +8879,20 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Tests:** new `test_render_lock` 7/7; full backend suite 74/75.
   - The one failure, `test_posting_schedule` (KeyError '12:00'), also fails with these changes stashed. It hard-codes 2026-10-05 slots, so it breaks on today's real date. Pre-existing; **pending fix**.
   - `tsc` clean, `next build` ok.
+
+### 2026-10-05 — Owner: "Like in scrapper could I multi render, queue? And get progress bars?" — render queue
+- **Backend:**
+  - New `review_ui/render_queue.py`: a persisted list on the volume, `projects/_render_queue.json`.
+  - `server._rq_worker` renders queued chapters **one at a time, in order** (renders read the open chapter, so parallel renders would mix chapters). Each render is in the chapter's own voice (`keep_voice`, free) unless a paid re-voice was explicitly chosen on the chapter page.
+  - A chapter that can't start (e.g. a timeline gap) is marked failed with the reason and the queue carries on. The worker waits while a render started elsewhere is running.
+  - Restart: a row left "rendering" goes back to waiting (at most 2 attempts), and startup restarts the worker.
+  - Endpoints: `GET /api/render-queue`, `POST /api/render-queue/add {projects, keep_voice}` (skips chapters whose board isn't built, busy ones and duplicates, with reasons), `/remove` (waiting rows only), `/clear` (finished rows).
+  - `/api/chapter/{id}` adds `render_queue` {status, place}.
+  - `/api/jobsbar?failed=1` (new studio only) lists waiting chapters and words the render stage ("rendering clips 12 of 40"). The classic bar is unchanged.
+- **Frontend:**
+  - Library → All chapters: **🎬 Render selected (n)**.
+  - The chapter page's Render buttons go through the queue, with a "Waiting in the render queue — #n" banner and **Take out**.
+  - Jobs bar: waiting rows with ✕, and chapter names link to the chapter.
+  - Activity → **Renders**: rendering and waiting rows with a progress bar per chapter, plus finished rows with ▶ Watch or the error, and Clear finished.
+- `docs/RUNBOOK.md` updated: render several, Activity → Renders, plus failure rows for view-only, budget re-voice and sign-in.
+- **Tests:** new `test_render_queue` 15/15 (order, one at a time, free by default, failure doesn't stop the rest, restart recovery bounded, studio vs classic bar). Full suite 75/76; the one failure is the date-bound `test_posting_schedule`, as before. `tsc` clean, `next build` ok.

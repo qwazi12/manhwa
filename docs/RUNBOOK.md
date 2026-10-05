@@ -18,7 +18,8 @@ How to pause, resume, re-run, read the logs, and recover from the usual failures
 | What | How | Cost |
 |---|---|---|
 | One step of a chapter | Chapter → step strip → **↻ Redo** (describe / script / voice / timeline) | ≈ $0.45 / $0.24 / $0.14 / free |
-| Render and export again | Chapter → **Render again** | free (CPU) unless the studio voice changed (re-voice ≈ $0.14) |
+| Render and export again | Chapter → **Render again** (joins the render queue) | free (CPU); the sheet offers a paid re-voice only when the studio voice changed (≈ $0.15–0.25) |
+| Render several chapters | Library → All chapters → tick → **🎬 Render selected**. One at a time, in order, each in its own voice. Progress: jobs bar and Activity → **Renders**; ✕ takes a waiting one out, ■ Stop stops the running one. | free |
 | A chapter from scratch | paste the chapter link → Options → **Make it again from scratch** | ≈ $0.50 |
 | A failed post | Queue → Errors → **↻ Try again** | — |
 | Copy to Drive again | Chapter → **Copy now** | free |
@@ -27,6 +28,7 @@ How to pause, resume, re-run, read the logs, and recover from the usual failures
 ## Logs
 
 - **Activity → Live**: every event (ingest stages, renders, posts, research, Drive, scheduler errors), filter and search.
+- **Activity → Renders**: the render queue (rendering, waiting, finished with errors), with progress bars.
 - **Activity → Jobs**: running, waiting, today, earlier, with cost.
 - **Activity → Spend**: today against the cap, by day, by provider, by chapter. Google billing is the ground truth.
 - Settings → Connection: deployed commit, last scheduler check, last scheduler error.
@@ -45,6 +47,9 @@ How to pause, resume, re-run, read the logs, and recover from the usual failures
 | Drive: "no storage of its own" | folder not in a Shared Drive or robot not a member | add omnistream-bot as Content manager of the Shared Drive |
 | Site shows "Site configuration missing" | a Vercel variable is gone | set `BASIC_AUTH_USER`, `BASIC_AUTH_PASSWORD`, `SHARED_SECRET` on Vercel, redeploy |
 | Every page shows 401 from the backend | `SHARED_SECRET` differs between Vercel and Railway | set the same value on both |
+| Render failed "…budget is left. Nothing was changed" | the studio voice changed and the re-voice wouldn't fit today's cap | Render in the chapter's own voice (free), or re-voice after midnight ET |
+| Board says **View only** | another chapter is rendering (renders read the open chapter) | wait for it; **Try again** on the banner |
+| Signed out on a phone | sign-in cookie expired (90 days) or the password changed | sign in at /login |
 | Job stuck with no progress | a stalled worker | Stop it in the jobs bar, then Resume |
 
 ## Deploy and roll back

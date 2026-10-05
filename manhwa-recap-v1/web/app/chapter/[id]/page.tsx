@@ -40,12 +40,13 @@ export default function Chapter() {
   }, [c?.title, id]);
   const rj = c?.render_job;
   const rendering = rj && ["queued", "running", "paused", "pausing"].includes(rj.status);
-  // poll fast while a render runs; when it finishes, open the new video
+  const inQueue = c?.render_queue?.status === "waiting" ? c.render_queue : null;
+  // poll fast while a render runs or waits in the queue; when it finishes, open the new video
   useEffect(() => {
-    if (!rendering) return;
+    if (!rendering && !inQueue) return;
     const t = setInterval(reload, 3000);
     return () => clearInterval(t);
-  }, [rendering, reload]);
+  }, [rendering, !!inQueue, reload]);
   // Toast when a render ends while this page is open — compared by job id and
   // status, so a render that fails within a second (before any poll saw it
   // running) still says so (owner, 2026-10-05). The first load sets the baseline.
@@ -82,14 +83,16 @@ export default function Chapter() {
     if (s.key === "export") return { ...s, state: "missing", detail: rj.stage && /export/i.test(rj.stage) ? "exporting…" : "after the clips" };
     return s;
   });
-  async function render(keepVoice = false) {
+  // Every render goes through the render queue: it starts straight away when
+  // nothing else is rendering, else waits its turn (one chapter at a time).
+  async function render(keepVoice = true) {
     setSheet(false);
     await act(async () => {
-      await api("/api/activate", { id });
-      await api("/api/storyboard/approve", { approved: true, keep_voice: keepVoice });
+      const r = await api("/api/render-queue/add", { projects: [id], keep_voice: keepVoice });
+      if (!r.added.length) throw new Error(`Not queued: ${r.skipped[0]?.reason || "unknown reason"}`);
       reload();
-      setTimeout(reload, 1500);   // a fast failure shows without waiting for the next poll
-    }, "Rendering — progress shows below");
+      setTimeout(reload, 1500);   // a fast start or failure shows without waiting for the next poll
+    }, "Added to the render queue — it starts as soon as nothing else is rendering");
   }
   const rv = c.revoice;
   const failed = rj?.status === "error" && !(c.videos?.[0]?.at && rj.ts && c.videos[0].at > rj.ts) ? rj : null;
@@ -131,7 +134,7 @@ export default function Chapter() {
             }, "Chapter deleted")}>🗑 Delete</ConfirmButton>
           {rendering ? (
             <ConfirmButton className="sm danger" confirm="Stop the render?" onConfirm={() => act(async () => { await api("/api/jobs/control", { job_id: rj.id, action: "stop" }); reload(); }, "Stopping")}>■ Stop render</ConfirmButton>
-          ) : canRender && !["making"].includes(k) && (
+          ) : inQueue ? null : canRender && !["making"].includes(k) && (
             <button className={k === "to_review" ? "primary" : ""} onClick={() => setSheet(!sheet)}>{shown ? "Render again" : "Render video"}</button>
           )}
         </>}
@@ -171,6 +174,12 @@ export default function Chapter() {
         </div>
       )}
       {rendering && <RenderProgress rj={rj} />}
+      {inQueue && !rendering && (
+        <div className="banner info spread">
+          <span><b>Waiting in the render queue</b> — {inQueue.place === 1 ? "it’s next" : `#${inQueue.place} in line`}. It starts by itself; progress shows here and in the bar at the top.</span>
+          <Busy className="sm" onClick={() => act(async () => { await api("/api/render-queue/remove", { id: inQueue.item }); reload(); }, "Taken out of the queue")}>Take out</Busy>
+        </div>
+      )}
       <div className="steps" aria-label="Pipeline steps">
         {steps.map((s: any) => (
           <div key={s.key} className={`step ${s.state}`}>

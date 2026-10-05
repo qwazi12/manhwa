@@ -20,6 +20,14 @@ export default function JobsBar({ onChange }: { onChange?: () => void }) {
   return (
     <div className="jobsbar" aria-live="polite">
       {jobs.map((j) => {
+        if (j.status === "in_queue") return (
+          <div className="job" key={j.id}>
+            <b>🎬 {j.name}</b>
+            <span className="muted">waiting in the render queue · {j.msg}</span>
+            {j.project && <Link className="btn sm ghost" href={`/chapter/${encodeURIComponent(j.project)}`}>Open</Link>}
+            <button className="sm ghost" aria-label="Take out of the queue" onClick={() => act(async () => { await api("/api/render-queue/remove", { id: j.id }); await reload(); }, "Taken out of the queue")}>✕</button>
+          </div>
+        );
         if (j.status === "error") return (
           <div className="job" key={j.id} style={{ borderColor: "var(--red)" }}>
             <b>🎬 {j.name}</b>
@@ -31,7 +39,7 @@ export default function JobsBar({ onChange }: { onChange?: () => void }) {
         const waiting = WAITING.includes(j.status);
         return (
           <div className="job" key={j.id}>
-            <b>{j.kind === "autopilot" ? "🤖 " : ""}{j.name}</b>
+            <b>{j.kind === "autopilot" ? "🤖 " : j.kind === "finalize" ? "🎬 " : ""}{j.project ? <Link href={`/chapter/${encodeURIComponent(j.project)}`}>{j.name}</Link> : j.name}</b>
             <span className="muted">{waiting ? `waiting (${j.status.replace("_", " ")})` : `${j.stage || j.status}${j.msg ? " · " + j.msg : ""}`}</span>
             {!waiting && <span className="prog"><i style={{ width: `${j.pct ?? 5}%` }} /></span>}
             {waiting ? (

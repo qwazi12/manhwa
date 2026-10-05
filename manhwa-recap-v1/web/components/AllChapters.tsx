@@ -30,6 +30,14 @@ export default function AllChapters() {
       <div className="spread" style={{ padding: "8px 14px", borderBottom: "1px solid var(--border)" }}>
         <label className="check small"><input type="checkbox" checked={allOn}
           onChange={(e) => setSel(e.target.checked ? shown.map((r) => r.id) : [])} /> Select all shown</label>
+        <span className="row">
+        <button className="sm primary" disabled={!sel.length} title="Renders them one after another, each in its own voice (free). Progress shows in the bar at the top."
+          onClick={() => act(async () => {
+            const r = await api("/api/render-queue/add", { projects: sel });
+            setSel([]); reload();
+            toast(`${r.added.length} added to the render queue — progress shows at the top` +
+              (r.skipped.length ? ` · not added: ${r.skipped.map((x: any) => `${x.name} (${x.reason})`).join("; ")}` : ""), r.skipped.length > 0 && !r.added.length);
+          })}>🎬 Render selected ({sel.length})</button>
         <ConfirmButton className="sm danger" disabled={!sel.length} confirm={`Delete ${sel.length}? This can’t be undone`}
           onConfirm={() => act(async () => {
             const r = await api("/api/projects/delete", { ids: sel });
@@ -39,6 +47,7 @@ export default function AllChapters() {
           })}>
           🗑 Delete selected ({sel.length})
         </ConfirmButton>
+        </span>
       </div>
       <div className="list">
         {!data ? <Empty>Loading…</Empty> : shown.length === 0 ? <Empty>No chapters here.</Empty> : shown.map((r) => (

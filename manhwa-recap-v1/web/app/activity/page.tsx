@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { api, useApi } from "@/lib/api";
 import { ago, money, when } from "@/lib/fmt";
 import { Busy, Card, Chips, ConfirmButton, Empty, PageHead, Pill, Tabs, useAct } from "@/components/ui";
 
-type T = "live" | "jobs" | "spend" | "calls" | "changes";
+type T = "live" | "renders" | "jobs" | "spend" | "calls" | "changes";
 const KINDS = ["", "autopilot", "ingest", "render", "publish", "research", "tracker", "settings", "scheduler"];
 
 export default function Activity() {
@@ -15,8 +16,9 @@ export default function Activity() {
   return (
     <>
       <PageHead title="Activity" sub="What the studio is doing, what it did, and what it cost." />
-      <Tabs<T> value={tab} onChange={setTab} tabs={[["live", "Live"], ["jobs", "Jobs"], ["spend", "Spend"], ["calls", "Calls"], ["changes", "What changed"]]} />
+      <Tabs<T> value={tab} onChange={setTab} tabs={[["live", "Live"], ["renders", "Renders"], ["jobs", "Jobs"], ["spend", "Spend"], ["calls", "Calls"], ["changes", "What changed"]]} />
       {tab === "live" && <Live />}
+      {tab === "renders" && <Renders />}
       {tab === "jobs" && <Jobs />}
       {tab === "spend" && <Spend />}
       {tab === "calls" && <Calls />}
@@ -161,5 +163,56 @@ function Calls() {
         {!data?.calls?.length && <Empty>No calls logged.</Empty>}
       </div>
     </Card>
+  );
+}
+
+const STAGE: Record<string, string> = { queued: "starting", revoice: "re-recording the voice", render: "rendering clips", export: "exporting" };
+
+/** The render queue: one row per chapter, in order, with a progress bar while it renders. */
+function Renders() {
+  const { data, reload } = useApi<any>("/api/render-queue", 3000);
+  const act = useAct();
+  const items: any[] = data?.items || [];
+  const live = items.filter((i) => i.status === "rendering" || i.status === "waiting");
+  const done = items.filter((i) => i.status === "done" || i.status === "error").sort((a, b) => (b.ended || 0) - (a.ended || 0));
+  const row = (i: any, n?: number) => {
+    const p = i.progress;
+    const pct = p?.total ? Math.round(100 * (p.done || 0) / p.total) : p?.stage === "export" ? 95 : 4;
+    return (
+      <div className="it" key={i.id} style={{ display: "grid", gap: 6 }}>
+        <div className="spread">
+          <span className="row" style={{ minWidth: 0 }}>
+            <Pill tone={i.status === "done" ? "ok" : i.status === "error" ? "bad" : i.status === "rendering" ? "warn" : "muted"}>
+              {i.status === "waiting" ? (n === 1 ? "next" : `#${n}`) : i.status}</Pill>
+            <Link href={`/chapter/${encodeURIComponent(i.project)}${i.status === "done" ? "?tab=video" : ""}`}><b>{i.name}</b></Link>
+            {!i.keep_voice && <span className="small faint">re-recording voice (paid)</span>}
+          </span>
+          <span className="row small muted">
+            {i.status === "rendering" && p && <span>{STAGE[p.stage] || p.stage}{p.total && p.stage !== "export" ? ` · ${p.done || 0} of ${p.total}` : ""}</span>}
+            {i.ended && <span>{ago(i.ended)}</span>}
+            {i.status === "waiting" && <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/render-queue/remove", { id: i.id }); reload(); }, "Taken out")}>✕</Busy>}
+            {i.status === "rendering" && i.job && <ConfirmButton className="sm danger" confirm="Stop this render?" onConfirm={() => act(async () => { await api("/api/jobs/control", { job_id: i.job, action: "stop" }); reload(); }, "Stopping")}>■ Stop</ConfirmButton>}
+            {i.status === "done" && <Link className="btn sm" href={`/chapter/${encodeURIComponent(i.project)}?tab=video`}>▶ Watch</Link>}
+          </span>
+        </div>
+        {i.status === "rendering" && <div className="bar"><i style={{ width: `${pct}%` }} /></div>}
+        {i.status === "error" && i.error && <span className="small" style={{ color: "var(--red)" }}>{i.error}</span>}
+      </div>
+    );
+  };
+  let w = 0;
+  return (
+    <div className="grid">
+      <Card title={`Rendering and waiting (${live.length})`} pad={false}>
+        <div className="list">{live.length === 0
+          ? <Empty>Nothing queued. Tick chapters in Library → All chapters and press “Render selected”, or press Render on a chapter.</Empty>
+          : live.map((i) => row(i, i.status === "waiting" ? ++w : undefined))}</div>
+      </Card>
+      <Card title={`Finished (${done.length})`} pad={false}
+        right={done.length > 0 && <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/render-queue/clear", {}); reload(); }, "Cleared")}>Clear finished</Busy>}>
+        <div className="list">{done.length === 0 ? <Empty>None yet.</Empty> : done.map((i) => row(i))}</div>
+      </Card>
+      <p className="small muted">Chapters render one at a time, in order, each in its own voice — free. While one renders, other boards are view-only.</p>
+    </div>
   );
 }

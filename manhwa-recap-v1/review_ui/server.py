@@ -6204,6 +6204,12 @@ def _start_background_work():
     except Exception as e:  # noqa
         print(f"[boot] resume failed: {e}", flush=True)
     threading.Thread(target=_scheduler_loop, daemon=True).start()
+    try:
+        if _rq.next_waiting(_ingest_mod.PROJECTS) or any(
+                i["status"] == "rendering" for i in _rq.load(_ingest_mod.PROJECTS)["items"]):
+            _rq_kick()                   # a queue left by a restart carries on
+    except Exception as e:  # noqa
+        print(f"[boot] render queue resume failed: {e}", flush=True)
 
 
 @app.get("/api/autopilot")
@@ -6463,6 +6469,129 @@ def _chapter_busy(pdir):
     return None
 
 
+# ============================================ render queue (owner, 2026-10-05)
+import render_queue as _rq
+_RQ = {"thread": None}
+_RQ_LOCK = threading.Lock()
+_RQ_POLL = 3.0
+
+
+def _rq_job_alive(job_id):
+    return bool(job_id) and (JOBS.get(job_id) or {}).get("status") in ("running", "queued", "paused", "pausing")
+
+
+def _rq_kick():
+    """Start the queue worker if it isn't running (idempotent)."""
+    with _RQ_LOCK:
+        t = _RQ["thread"]
+        if t and t.is_alive():
+            return
+        _RQ["thread"] = threading.Thread(target=_rq_worker, daemon=True)
+        _RQ["thread"].start()
+
+
+def _rq_worker():
+    """Render queued chapters one at a time, each in its own voice unless the
+    owner chose a re-voice for it. Exits when the queue is empty."""
+    root = _ingest_mod.PROJECTS
+    _rq.recover(root, _rq_job_alive)
+    while True:
+        it = _rq.next_waiting(root)
+        if not it:
+            return
+        if _render_lock():                    # a render started by hand: wait for it
+            time.sleep(_RQ_POLL)
+            continue
+        name = _pretty(it["project"])
+        try:
+            activate_project(ActivateIn(id=it["project"]))
+            r = storyboard_approve(ApproveIn(approved=True, keep_voice=it.get("keep_voice", True)))
+            job = r.get("job")
+            if not job:
+                raise RuntimeError(r.get("note") or "nothing to render")
+        except Exception as e:  # noqa
+            why = e.detail if isinstance(e, HTTPException) else str(e)
+            _rq.update(root, it["id"], status="error", error=str(why)[:300], ended=time.time())
+            _ev("render", f"Render queue: {name} couldn't start: {str(why)[:160]}", "error")
+            continue
+        _rq.update(root, it["id"], status="rendering", job=job, started=time.time(),
+                   attempts=it.get("attempts", 0) + 1)
+        _ev("render", f"Render queue: {name} started ({len(_rq.waiting(root))} waiting after it)")
+        while _rq_job_alive(job):
+            time.sleep(_RQ_POLL)
+        j = JOBS.get(job) or {}
+        ok = j.get("status") == "done"
+        _rq.update(root, it["id"], status="done" if ok else "error", ended=time.time(),
+                   error=None if ok else str(j.get("error") or j.get("status") or "the render stopped")[:300])
+
+
+class RenderQueueIn(BaseModel):
+    projects: list[str] = []
+    keep_voice: bool = True       # the queue never re-voices unless asked
+
+
+class RenderQueueItemIn(BaseModel):
+    id: str
+
+
+def _rq_view(i):
+    j = JOBS.get(i.get("job") or "") or {}
+    return {**i, "name": _pretty(i["project"]),
+            "progress": ({k: j.get(k) for k in ("status", "stage", "done", "total", "note", "ts")}
+                         if i["status"] == "rendering" else None)}
+
+
+@app.get("/api/render-queue")
+def render_queue_list():
+    root = _ingest_mod.PROJECTS
+    items = _rq.load(root)["items"]
+    if any(i["status"] == "waiting" for i in items):
+        _rq_kick()
+    return {"items": [_rq_view(i) for i in items]}
+
+
+@app.post("/api/render-queue/add")
+def render_queue_add(body: RenderQueueIn):
+    """Queue chapters to render, in the order given. A chapter that isn't
+    ready (no matched board yet, or busy) is skipped with the reason."""
+    import ingest as _i
+    import pipeline_steps as _ps
+    added, skipped = [], []
+    for pid in dict.fromkeys(p for p in body.projects if p):
+        pdir = os.path.join(_i.PROJECTS, pid)
+        why = None
+        if "/" in pid or ".." in pid or not os.path.exists(os.path.join(pdir, "segments.json")):
+            why = "not found"
+        elif next((s for s in _ps.status(pdir) if s["key"] == "match"), {}).get("state") != "done":
+            why = "its board isn't finished yet"
+        else:
+            why = _chapter_busy(pdir)
+        if not why:
+            it, why = _rq.add(_i.PROJECTS, pid, keep_voice=body.keep_voice)
+        if why:
+            skipped.append({"id": pid, "name": _pretty(pid), "reason": why})
+        else:
+            added.append(pid)
+    if added:
+        _ev("render", f"Render queue: added {len(added)} chapter(s)"
+                      + ("" if body.keep_voice else " (re-recording in the studio voice)"))
+        _rq_kick()
+    return {"added": added, "skipped": skipped}
+
+
+@app.post("/api/render-queue/remove")
+def render_queue_remove(body: RenderQueueItemIn):
+    ok, why = _rq.remove(_ingest_mod.PROJECTS, body.id)
+    if not ok:
+        raise HTTPException(409, why)
+    return {"ok": True}
+
+
+@app.post("/api/render-queue/clear")
+def render_queue_clear():
+    return {"ok": True, "removed": _rq.clear_finished(_ingest_mod.PROJECTS)}
+
+
 class PipelineRerunIn(BaseModel):
     project: str
     step: str
@@ -6696,6 +6825,7 @@ def chapter_view(pid: str):
         last = rj[-1]
         out["render_job"] = {k: last.get(k) for k in ("id", "status", "stage", "done", "total", "error", "export", "ts", "ended", "note", "keep_voice")}
     out["revoice"] = _revoice_plan(pdir)
+    out["render_queue"] = _rq.position(_ingest_mod.PROJECTS, pid)
     vids = []
     ed = os.path.join(pdir, "exports")
     for f in sorted(os.listdir(ed) if os.path.isdir(ed) else [], key=lambda f: -os.path.getmtime(os.path.join(ed, f))):
@@ -7048,6 +7178,21 @@ def jobs_active(failed: int = 0):
     # ?failed=1 (new studio): a render that failed in the last 2 hours stays
     # on the bar, so a failure that happens in a second is still seen
     # (owner, 2026-10-05). The classic bar doesn't ask, so it is unchanged.
+    if failed:
+        words = {"revoice": "re-recording the voice", "render": "rendering clips", "export": "exporting", "queued": "starting"}
+        for o in out:
+            x = JOBS.get(o["id"]) or {}
+            if x.get("type") == "finalize":
+                o["project"] = x.get("project")
+                o["stage"] = words.get(x.get("stage"), x.get("stage"))
+                if x.get("total") and x.get("stage") in ("revoice", "render"):
+                    o["msg"] = f"{x.get('done', 0)} of {x['total']}"
+                elif x.get("stage") == "export":
+                    o["msg"] = ""
+        for n, it in enumerate(_rq.waiting(_ingest_mod.PROJECTS), 1):
+            out.append({"id": it["id"], "kind": "render", "name": _pretty(it["project"]), "project": it["project"],
+                        "status": "in_queue", "stage": None, "pct": None,
+                        "msg": "next" if n == 1 else f"#{n} in line", "elapsed": None})
     for jid, x in list(JOBS.items()) if failed else []:
         if (x.get("type") == "finalize" and x.get("status") == "error"
                 and time.time() - (x.get("ended") or x.get("ts") or 0) < 7200):
