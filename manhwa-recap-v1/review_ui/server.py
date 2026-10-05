@@ -893,8 +893,30 @@ def api_review_save(body: ReviewIn):
         rec["cut_signature"] = cut_signature(pdir=pdir)
     recs[name] = rec
     save_reviews(pdir, recs)
+    scheduled = _schedule_on_verdict(pid, name, status)
     return {"ok": True, "project": pid, "name": name,
-            "review": review_state(pdir, name, rec)}
+            "review": review_state(pdir, name, rec), "scheduled": scheduled}
+
+
+def _schedule_on_verdict(pid, name, status):
+    """Owner, 2026-10-04: approving a video after reviewing it puts it in the
+    next free posting slot; sending it back takes it off the queue."""
+    import ingest as _i
+    import publish_queue as _pq1
+    try:
+        if status == "approved":
+            added, _skip = _pq1.add(_i.PROJECTS, [{"project": pid, "name": name}])
+            if added:
+                _ev("publish", f"{_pretty(pid)} approved → scheduled for the next free slot")
+            return True
+        if status in ("sent_back", "review_pending"):
+            for x in _pq1.load(_i.PROJECTS)["items"]:
+                if (x["project"], x["name"]) == (pid, name) and x["status"] == "queued":
+                    _pq1.remove(_i.PROJECTS, x["id"])
+                    _ev("publish", f"{_pretty(pid)} sent back → taken off the queue")
+    except Exception as e:  # noqa — the verdict itself is saved
+        print(f"[review] queue not updated: {e}", flush=True)
+    return False
 
 
 # ====================================================================
@@ -4158,8 +4180,14 @@ def _add_review_status(items):
         auto = set()
     rendering = {j.get("project") for j in JOBS.values()
                  if j.get("type") == "finalize" and j.get("status") in ("queued", "running", "paused", "pausing")}
+    try:
+        one = {r["id"]: r["status"] for r in _chapter_rows()}     # the single status (rebuild step 2)
+    except Exception:
+        one = {}
     for it in items:
         pid = it.get("id")
+        if pid in one:
+            it["status"] = one[pid]
         pdir = os.path.join(ingest.PROJECTS, pid or "")
         if not pid or not os.path.isdir(pdir):
             continue
@@ -6396,6 +6424,180 @@ def pipeline_rerun(body: PipelineRerunIn):
     _ev("ingest", f"{_pretty(pid)}: re-running from '{_ps.RERUN[body.step]['label']}' "
                   f"({len(removed)} file(s) cleared)")
     return {"ok": True, "job": job, "removed": len(removed)}
+
+
+# ============================================ rebuild step 2: one status model
+import chapter_status as _cs
+
+
+def _ingest_by_project():
+    """Newest ingest record per project id (and per URL for ones without a folder yet)."""
+    import ingest as _i
+    out, by_url = {}, {}
+    for jid, j in sorted(INGEST.items(), key=lambda kv: kv[1].get("ts") or 0):
+        rec = dict(j, job=jid)
+        pid = j.get("project") or (_i.project_id(j["url"], j.get("variant") or "") if j.get("url") else None)
+        if pid:
+            out[pid] = rec
+        if j.get("url"):
+            by_url[j["url"]] = rec
+    return out, by_url
+
+
+def _chapter_rows():
+    """Every chapter the studio knows, with ONE status each."""
+    import ingest as _i
+    import autopilot as _ap
+    import project_archive as _arch
+    ing, _ = _ingest_by_project()
+    rendering = {j.get("project") for j in JOBS.values()
+                 if j.get("type") == "finalize" and j.get("status") in ("queued", "running", "paused", "pausing")}
+    q = _pq.load(_i.PROJECTS)["items"]
+    qby = {}
+    for x in q:
+        qby.setdefault(x["project"], []).append(x)
+    try:
+        auto = {e.get("project") for e in _ap.load(_i.PROJECTS)["ledger"].values() if e.get("source") == "autopilot"}
+    except Exception:
+        auto = set()
+    rows, seen = [], set()
+    try:
+        pids = sorted(p for p in os.listdir(_i.PROJECTS) if not p.startswith("_")
+                      and os.path.isdir(os.path.join(_i.PROJECTS, p)))
+    except OSError:
+        pids = []
+    for pid in pids:
+        pdir = os.path.join(_i.PROJECTS, pid)
+        meta = _cs.project_meta(pdir)
+        if not meta and pid not in ing:
+            continue
+        arch = _arch.view(pdir)
+        f = _cs.gather(pdir, ingest_rec=ing.get(pid), rendering=pid in rendering, queue_rows=qby.get(pid),
+                       review_state=review_state, load_publishes=load_publishes, archived=arch)
+        st = _cs.decide(f)
+        lab = _project_label(pdir)
+        rows.append({"id": pid, "series": lab["series"] or meta.get("series") or "", "chapter": lab["chapter"],
+                     "title": lab["title"], "url": meta.get("url"), "status": st, "video": f.get("video"),
+                     "auto": pid in auto, "engine": meta.get("engine") or "gemini", "archive": arch,
+                     "updated": max((os.path.getmtime(os.path.join(pdir, x)) for x in ("segments.json", "project.json")
+                                     if os.path.exists(os.path.join(pdir, x))), default=None),
+                     "job": (ing.get(pid) or {}).get("job")})
+        seen.add(pid)
+    for pid, j in ing.items():                       # started, no folder yet
+        if pid in seen or j.get("status") not in _cs.LIVE_INGEST + _cs.WAITING_INGEST + ("error",):
+            continue
+        series, chapter = _i.parse_series_chapter(j.get("url") or "")
+        st = _cs.decide({"ingest_status": j.get("status"), "ingest_stage": j.get("stage"),
+                         "ingest_error": j.get("error")})
+        rows.append({"id": pid, "series": _i.to_title_case(_i.clean_series_slug(series or "")), "chapter": chapter,
+                     "title": f"{_i.to_title_case(_i.clean_series_slug(series or ''))} Ch.{chapter}", "url": j.get("url"),
+                     "status": st, "video": None, "auto": j.get("source") == "autopilot", "engine": j.get("engine"),
+                     "archive": None, "updated": j.get("ts"), "job": j.get("job")})
+    rows.sort(key=lambda r: -(r["updated"] or 0))
+    return rows
+
+
+@app.get("/api/chapters")
+def chapters_list(series: str = "", status: str = ""):
+    rows = _chapter_rows()
+    if series:
+        rows = [r for r in rows if r["series"].lower() == series.lower()]
+    if status:
+        rows = [r for r in rows if r["status"]["key"] == status]
+    counts = {}
+    for r in _chapter_rows() if (series or status) else rows:
+        counts[r["status"]["key"]] = counts.get(r["status"]["key"], 0) + 1
+    return {"chapters": rows, "counts": counts, "statuses": [_cs.view(k) for k in _cs.ORDER]}
+
+
+@app.get("/api/home")
+def home_view():
+    """Home: today's numbers and the things that need the owner."""
+    import shutil
+    import ingest as _i
+    rows = _chapter_rows()
+    counts = {}
+    for r in rows:
+        counts[r["status"]["key"]] = counts.get(r["status"]["key"], 0) + 1
+    need = []
+    for r in rows:
+        k = r["status"]["key"]
+        if k in ("to_review", "video_ready", "failed", "waiting"):
+            need.append({"kind": k, "id": r["id"], "title": r["title"], "status": r["status"],
+                         "action": {"to_review": "Review the board", "video_ready": "Watch and approve",
+                                    "failed": "See why and retry", "waiting": "Resume"}[k]})
+    order = {"failed": 0, "waiting": 1, "video_ready": 2, "to_review": 3}
+    need.sort(key=lambda x: order[x["kind"]])
+    try:
+        dem = __import__("demand_research").load(_i.PROJECTS).get("series") or {}
+        tiers = {s["id"]: s.get("tier") for s in _wl_view()["series"]}
+        n_sug = sum(1 for k, v in dem.items() if v.get("suggested_tier") and v["suggested_tier"] != tiers.get(k))
+        if n_sug:
+            need.append({"kind": "demand", "title": f"{n_sug} tier suggestion(s) from demand research",
+                         "status": _cs.view("found"), "action": "Decide in Library"})
+    except Exception:
+        pass
+    q = _pq.sync(_i.PROJECTS, _pub_status)
+    sched = _studio.load().get("schedule") or {}
+    spent, cap = _ap_deps()["spend"]()
+    st = _autopilot.load(_i.PROJECTS)
+    try:
+        du = shutil.disk_usage(_i.PROJECTS)
+        disk = {"used_gb": round(du.used / 1e9, 1), "total_gb": round(du.total / 1e9, 1)}
+    except OSError:
+        disk = {}
+    return {"counts": counts, "need": need[:20],
+            "queue": {"scheduled": sum(1 for x in q["items"] if x["status"] == "queued"),
+                      "next_post": _pq.next_slot(sched, time.time()) if sched.get("enabled") else None,
+                      "schedule_on": bool(sched.get("enabled"))},
+            "spend": {"today": round(spent, 2), "cap": cap, "autopilot": _ap_spent_today(),
+                      "autopilot_budget": st["settings"].get("budget_usd")},
+            "autopilot": {"enabled": bool(st["settings"].get("enabled")), "per_day": st["settings"].get("per_day")},
+            "disk": disk, "jobs": jobs_active().get("jobs", [])}
+
+
+@app.get("/api/library")
+def library_view():
+    """Library: every series with its chapters (made ones with their status,
+    plus the next ones the source has)."""
+    import watchlist as _wl
+    board = series_board()
+    rows = _chapter_rows()
+    data = _wl.load(_wl_root())
+    owner = {}
+    for r in rows:                                   # which series each chapter belongs to, by its source link
+        s_, _m = _wl.find_by_mirror(data, r["url"]) if r.get("url") else (None, None)
+        if s_:
+            owner[r["id"]] = s_["id"]
+    out = []
+    for sx in board["series"]:
+        made = [r for r in rows if owner.get(r["id"]) == sx["id"]]
+        counts = {}
+        for r in made:
+            counts[r["status"]["key"]] = counts.get(r["status"]["key"], 0) + 1
+        out.append({**sx, "chapters": made, "counts": counts})
+    return {"series": out, "autopilot": board["autopilot"]}
+
+
+@app.get("/api/chapter/{pid}")
+def chapter_view(pid: str):
+    """Chapter page: its status, step strip, video and publish details."""
+    import pipeline_steps as _ps
+    pdir = project_dir_for(pid)
+    row = next((r for r in _chapter_rows() if r["id"] == pid), None)
+    if row is None:
+        raise HTTPException(404, "unknown chapter")
+    meta = _cs.project_meta(pdir)
+    out = {**row, "steps": _ps.status(pdir), "busy": _chapter_busy(pdir),
+           "can_rerun": bool(meta.get("url")) and (meta.get("engine") or "gemini") == "gemini"}
+    if row.get("video"):
+        name = row["video"]
+        store = load_publish(pdir)
+        out["publish"] = {"metadata": {**publish_defaults(pdir), **(store.get(name) or {})},
+                          "record": load_publishes(pdir).get(name),
+                          "review": review_state(pdir, name),
+                          "url": f"/export/{name}?project={pid}"}
+    return out
 
 
 @app.get("/api/critique")

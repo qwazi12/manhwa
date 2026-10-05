@@ -8601,3 +8601,15 @@ Decisions:
 - **SEO:** with a cast list, characters are the cast's names only, those used in the script first. A chapter's empty-cast copy falls back to the series' list.
 - **Board:** "APPROVE PROJECT FOR RENDER" became "RENDER VIDEO". The legacy "split coverage 0% / 0%" became "pages → panels".
 - **Tests:** new `test_flat_gutters.py` 6/6 (synthetic pages; scraped art never committed) and `test_publish_fixes.py` 12/12; full suite 76/76.
+- **⚠ Secret exposure (agent error, 2026-10-04 night):** a `railway variables --json` call meant to show only names printed part of `ANTHROPIC_API_KEY` (also stored as `Claude_API_KEY`) into the session output, because the redaction pattern didn't match the pretty-printed JSON. It was not committed or sent anywhere. **Owner: rotate that key and update both Railway variables.** From now on variables are read only by name, inside python.
+
+### 2026-10-04 (night) — BUILT rebuild step 2: one status per chapter
+- New `review_ui/chapter_status.py`: Found → Making → To review → Rendering → Video ready → Scheduled → Posting → Posted → Archived, plus Waiting and Failed. Each status has a label, a tone and a plain hint. `decide(facts)` is pure; `gather()` reads the files, the live ingest/render jobs and the queue.
+- Endpoints for the new frontend:
+  - `GET /api/chapters` (filter by series or status, plus counts);
+  - `GET /api/home` (counts, a "needs you" list, queue and next post, spend, autopilot, disk, jobs);
+  - `GET /api/library` (series with their chapters, matched to a series by source link, Asura's rotating code included);
+  - `GET /api/chapter/{id}` (status, step strip, video and publish details).
+- **Approve after reviewing = scheduled** (owner decision 3): a verdict of `approved` on a video adds it to the queue, and "sent back" removes it.
+- The classic Projects page shows the same status pill (`status` is added to `/api/projects`).
+- Tests: new `test_chapter_status.py` 23/23; full suite 77/77.

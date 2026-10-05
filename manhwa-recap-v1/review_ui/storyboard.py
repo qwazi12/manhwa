@@ -2919,7 +2919,7 @@ async function bibleSaveEdit() {{
 }}
 // ================= TRACKER: paste a link =================
 function qaddCh(u) {{
-  const m = /\/chapter\/(\d+(?:\.\d+)?)\/?$/i.exec(u) || /[?&]episode_no=(\d+)/i.exec(u);
+  const m = /\\/chapter\\/(\\d+(?:\\.\\d+)?)\\/?$/i.exec(u) || /[?&]episode_no=(\\d+)/i.exec(u);
   return m ? m[1] : null;
 }}
 function qaddHint() {{
@@ -3198,7 +3198,7 @@ async function setVoiceSave(btn) {{
 async function saveSchedule(btn) {{
   const on = document.getElementById('schon').checked;
   const times = document.getElementById('schtimes').value.split(',').map(t => t.trim()).filter(Boolean)
-    .map(t => /^\d:\d\d$/.test(t) ? '0' + t : t);
+    .map(t => /^\\d:\\d\\d$/.test(t) ? '0' + t : t);
   if (on && !SET_SCHED_ON && !btn.dataset.armed) {{
     btn.dataset.armed = '1';
     btn.textContent = 'tap again: auto-post at ' + times.join(', ') + ' ET';
@@ -3272,7 +3272,9 @@ async function loadProjects() {{
       const lab = /-lab-/.test(p.id) ? (' · ' + (p.engine === 'claude' ? 'Claude lab' : 'lab')) : '';
       const label = (p.chapter ? ('Chapter ' + p.chapter) : p.id) + lab;
       const ps = PROJ_STATUS[p.review_status];
-      const tags = (ps ? apPill(ps[0], ps[1], ps[2]) : '') + (p.auto ? ' ' + apPill('auto', 'var(--gray-bg)', 'var(--gray-ink)') : '') +
+      const TONE = {{info: ['var(--sa-bg)', 'var(--sa-ink)'], ok: ['var(--okb-bg)', 'var(--okb-ink)'], warn: ['var(--warnb-bg)', 'var(--warnb-ink)'], bad: ['var(--badb-bg, #3a1714)', 'var(--bad)'], muted: ['var(--gray-bg)', 'var(--gray-ink)']}};
+      const one = p.status ? apPill(p.status.label, ...(TONE[p.status.tone] || TONE.muted)) : '';
+      const tags = (one || (ps ? apPill(ps[0], ps[1], ps[2]) : '')) + (p.auto ? ' ' + apPill('auto', 'var(--gray-bg)', 'var(--gray-ink)') : '') +
         (p.video_missing ? ' <span class="hint" style="color:var(--warn)" title="the exported video was deleted; open it and press Approve to export again (clips are reused)">no video — open and approve to export again</span>' : '') +
         (p.checks ? ` <span class="hint" title="free story check found these — open Check after opening the chapter">${{p.checks}} to check</span>` : '');
       const arch = p.archive;
