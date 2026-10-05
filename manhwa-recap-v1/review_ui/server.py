@@ -6476,8 +6476,9 @@ def _chapter_rows():
                        review_state=review_state, load_publishes=load_publishes, archived=arch)
         st = _cs.decide(f)
         lab = _project_label(pdir)
-        rows.append({"id": pid, "series": lab["series"] or meta.get("series") or "", "chapter": lab["chapter"],
-                     "title": lab["title"], "url": meta.get("url"), "status": st, "video": f.get("video"),
+        rows.append({"id": pid, "series": _cs.clean_title(lab["series"] or meta.get("series") or "", meta.get("url")),
+                     "chapter": lab["chapter"],
+                     "title": _cs.clean_title(lab["title"], meta.get("url")), "url": meta.get("url"), "status": st, "video": f.get("video"),
                      "auto": pid in auto, "engine": meta.get("engine") or "gemini", "archive": arch,
                      "updated": max((os.path.getmtime(os.path.join(pdir, x)) for x in ("segments.json", "project.json")
                                      if os.path.exists(os.path.join(pdir, x))), default=None),

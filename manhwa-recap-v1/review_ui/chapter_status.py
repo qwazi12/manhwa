@@ -112,6 +112,15 @@ def gather(pdir, ingest_rec=None, rendering=False, queue_rows=None, review_state
     return f
 
 
+def clean_title(text, url=""):
+    """WEBTOON series names carry their title number ("Fog Land 9299"); readers
+    don't need it."""
+    import re
+    if "webtoons.com" in (url or ""):
+        return re.sub(r"\s+\d{3,6}(?=(\s+Ch\.|$))", "", text or "")
+    return text or ""
+
+
 def project_meta(pdir):
     try:
         with open(os.path.join(pdir, "project.json"), encoding="utf-8") as fh:
