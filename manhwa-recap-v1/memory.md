@@ -8844,3 +8844,7 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Jobs bar (new studio only, `/api/jobsbar?failed=1`) keeps failed renders from the last 2 h, with Open and dismiss. The classic bar is unchanged.
   - Saving the studio voice logs a "settings" event in Activity.
 - **Tests:** `test_approve_voice` 21/21 (new: over-budget refusal leaves pin, timeline and audio byte-identical; cap hit mid-way leaves the chapter unchanged with no side folder; plan fields; keep_voice; voice event). `test_chapter_status` 29/29, `test_job_control` 51/51, `test_logs` 19/19, `test_gemini_tts_config` 32/32, `test_mobile_layout` 39/39. `tsc` clean, `next build` ok.
+- **Live (2d33474):** Railway and Vercel are both Ready.
+  - The ch.30 API answers with `revoice: null`, because the failed run had already re-pinned it to Charon/no style.
+  - The failed job record is gone after the restart.
+  - So ch.30 now renders free with its existing (energetic) audio. Its pin reads Charon, so any single line re-recorded later would come out in Charon/no style. Owner to decide.
