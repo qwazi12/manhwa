@@ -8807,3 +8807,7 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - Murim 44 and Mount Hua 180 were refused: their "(img)" versions share the source link and were queued, and the busy check matched by link. A background watcher queues them once those finish.
 - **Fixed** (committed, pushed only when nothing is running): `_chapter_busy` now compares project ids, so a saved version no longer blocks the original. `test_pipeline_strip` 19/19; full suite 79/79.
 - The spend limit reset at midnight ET; autopilot (4 a day) also runs today.
+- **Rebuilds done (2026-10-05, 00:05–01:31 ET), all now Check the board:** Iron-Blooded 180 $0.49 · Mount Hua 180 (img) $0.81 · Murim 44 (img) $0.68 · Fated Villain 358 $0.40 · Regressed Mercenary 96 $0.59 · Extra's Academy 114 $0.87 · Stellar Swordmaster 129 $0.56 · Fog Land 2 $0.67 · Mount Hua 180 $0.78 · Murim 44 $0.68 (+ Regressor 30 $0.54 earlier).
+  - The busy-check fix (3248c93) was pushed automatically when the server went idle.
+  - The background watcher meant to queue Murim 44 and Mount Hua 180 never succeeded; the cause is unknown (its output was empty). Both were queued by hand.
+  - Spend today: $9.13 of $10, so autopilot will pause on the cap for the rest of the day by itself.
