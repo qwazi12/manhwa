@@ -200,11 +200,10 @@ function Tools() {
     <Card title="Tools">
       <div className="row">
         <a className="btn sm" href="/storyboard">Classic board</a>
-        <a className="btn sm" href="/storyboard?open=test">Test lab</a>
-        <a className="btn sm" href="/storyboard?open=split">Split lab</a>
-        <a className="btn sm" href="/storyboard?open=validate">Story check (classic)</a>
+        <a className="btn sm" href="/tools?tab=split">Split lab</a>
+        <a className="btn sm" href="/tools?tab=lab">Claude lab</a>
       </div>
-      <p className="small muted">The classic pages stay available until every part of them has moved here.</p>
+      <p className="small muted">Everything the classic pages did is now in the new studio. The classic board stays available for a few days as a fallback.</p>
     </Card>
   );
 }
