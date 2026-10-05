@@ -8725,3 +8725,22 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 2. One-tap render with a confirm sheet.
 3. The wording "Check the board" / "Watch the video".
 4. Which older chapters to rebuild.
+
+### 2026-10-04 (late night) — Owner: "Yes, 1 tap, Watch Video, all the items in projects in the old tool. Review the old tool and system and make sure you aren't leaving anything behind…"
+**Decisions:**
+- the build order as planned;
+- one-tap Render (a confirm sheet, not two taps);
+- the video tab is named "Watch the video";
+- **rebuild every chapter from the old Projects list** with the splitter fix. This is queued after the code work, so the many deploys don't interrupt it.
+
+**Parity review** (an exact diff of the endpoints the classic pages call against the new studio, plus every classic button; full table on the plan page):
+- **Board:** drag reorder, per-segment approve/reject, tick all/none, a visual swap using `/api/segments/{i}/candidates`, full panel / restore crop beside the badge, stop render, the sent-back banner, the built-with line.
+- **Video:** export versions with delete, the upload package, thumbnail remove / drop / preview / new series style, decision history, the quality card, publish progress.
+- **SEO:** research sources, score breakdown and influences, channel refresh, preparing before render.
+- **Channels:** connect / refresh / disconnect.
+- **Library:** add a title without a link, mirror, preferred source, remove, aliases / rank / notes, check all, check demand, release dates.
+- **Ingest:** live progress with Stop on the chapter.
+- **Activity:** the per-call usage log, evidence files, deleting job records.
+- **Autopilot:** check now.
+- **Tools:** the lab report.
+- **A Classic page.**
