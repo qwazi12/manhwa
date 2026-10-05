@@ -8613,3 +8613,25 @@ Decisions:
 - **Approve after reviewing = scheduled** (owner decision 3): a verdict of `approved` on a video adds it to the queue, and "sent back" removes it.
 - The classic Projects page shows the same status pill (`status` is added to `/api/projects`).
 - Tests: new `test_chapter_status.py` 23/23; full suite 77/77.
+
+### 2026-10-04 (night) — BUILT rebuild steps 3–5: the new frontend (`manhwa-recap-v1/web`)
+- **Stack:** the same as Scrapper's (Next.js 15, React 19, TypeScript, no UI libraries).
+- **`web/middleware.ts`:** Basic Auth from `BASIC_AUTH_USER` + `BASIC_AUTH_PASSWORD`. It forwards backend paths (`/api`, `/thumb`, `/export`, `/panelimg`, `/segimg`, `/clip`, `/audio`, `/thumbnail`, `/thumbconcept`, the classic `/storyboard` and `/review`, the manifest and icons) to Railway with `SHARED_SECRET`. **On production it fails closed:** a missing credential gives 503, not an open site.
+  - Tested locally in production mode: no or wrong credentials → 401; right ones → 200; a missing secret → 503.
+  - The first draft read `BASIC_AUTH_PASS`, a name that doesn't exist on Vercel. It was caught by listing the Vercel variable names before deploying.
+- **One look:** `app/globals.css` holds the tokens (Scrapper palette, plus a light theme) and the shared parts (card, tabs, chips, status pill with icon + label, two-tap confirm, toast, meters, jobs bar, step strip, board rows). No browser pop-ups.
+- **Six places:**
+  - **Home**: paste box; tiles for videos to approve, boards to review, next post, spend; "Needs you"; latest activity.
+  - **Library**: series cards with cover, priority, autopilot state, chapter counts by status, cast, YouTube demand with one-tap apply, make next, pause/retry; per-series chapters (made ones with status, source ones with Make / Plan from here); a cast viewer and editor with research again.
+  - **Chapter** (`/chapter/[id]`): status plus hint, Render video, the step strip with ↻ Redo per step, and three tabs:
+    - **Board**: segments in video order with frame, time, flags, narration (double-click to edit), in-video tick, length, and a More menu (swap picture, add/remove line, move cut, whole panel/restore crop, duplicate, move to position), delete, undo; "Not in the video" lists left-out and folded panels with Put in video.
+    - **Issues**: timing and pacing, the story check with fix actions, the script editor's changes.
+    - **Video & publish**: player, Approve & schedule / Send back / notes; title with counter and inline suggestions; description; tags; category, privacy, channels; thumbnail options, upload; Post now (two taps) and the posted links.
+  - **Queue**: schedule bar; chips To review · Scheduled · Posted · Errors; Post now, ↑↓, remove, YouTube views.
+  - **Activity**: Live (filter, search), Jobs (stop, resume), Spend (by day, provider, chapter), What changed.
+  - **Settings**: autopilot (on/off, per day, budget), narrator voice (preview, save), channels and privacy, posting schedule, export speed, Drive (step 6), spending, storage and backups, connection, Tools (Classic board, Test lab, Split lab).
+- **Sidebar:** count badges, plus a footer with the autopilot switch, spend meter, disk meter, Classic board link and theme toggle. The jobs bar on every page has pause / resume / stop.
+- **Backend for it:** `GET /api/board/{id}` (`board_data.py`; it activates the chapter, because board edits act on the active one), `n_series` on Home, WEBTOON title numbers stripped from names, failed queue rows removable.
+- **Tested against the live backend** through a local dev server: every page renders real data (Home, Library, Queue, Settings, and Chapter ch.30 Board / Issues / Video & publish). Tests: `test_board_data.py` 10/10; full suite 78/78.
+- **Vercel:** the project `manhwa-studio` was deploying the **repo root** on every push (root `vercel.json` + `middleware.js` + `api/`). It is switched through the Vercel API to **Root Directory `manhwa-recap-v1/web`, framework Next.js**, so every push now deploys the new frontend. The classic pages stay at `/storyboard` and `/review` (forwarded).
+  - Previous production deployment, for rollback: `manhwa-studio-b530eaz2i` (old static proxy). To roll back: `npx vercel rollback` (or set Root Directory back to `.` and framework Other).
