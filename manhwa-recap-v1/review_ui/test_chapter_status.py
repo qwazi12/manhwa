@@ -34,6 +34,10 @@ def main():
     check("uploading -> Posting", D({"has_video": True, "posting": True})["key"] == "posting")
     check("posted -> Posted", D({"has_video": True, "posted": True, "scheduled": True})["key"] == "posted")
     check("archived wins", D({"archived": {"x": 1}, "posted": True})["key"] == "archived")
+    check("a board rebuilt after the last video needs checking again (even if posted/archived)",
+          D({"has_board": True, "has_video": True, "board_newer": True, "posted": True, "archived": {"x": 1}})["key"] == "to_review")
+    check("...but not while it's still being made",
+          D({"has_board": True, "board_newer": True, "ingest_status": "running"})["key"] == "making")
     check("every status has a label, tone and plain hint",
           all(len(v) == 3 and v[2] for v in cs.STATUSES.values()))
 
@@ -53,7 +57,7 @@ def main():
         pid = ingest.project_id(URL.format(ch))
         p = os.path.join(root, pid)
         os.makedirs(os.path.join(p, "exports"), exist_ok=True)
-        json.dump({"url": URL.format(ch), "series": "Murim Psychopath", "chapter": str(ch)},
+        json.dump({"id": pid, "url": URL.format(ch), "series": "Murim Psychopath", "chapter": str(ch)},
                   open(os.path.join(p, "project.json"), "w"))
         if board:
             json.dump([], open(os.path.join(p, "segments.json"), "w"))
@@ -83,6 +87,21 @@ def main():
         check("the Chapter view has the step strip and the video's publish details",
               len(ch["steps"]) == 8 and ch["publish"]["url"].startswith("/export/final_a.mp4"))
         check("unknown chapter -> 404", c.get("/api/chapter/nope").status_code == 404)
+
+        # a chapter posted, archived, then rebuilt is never archived again or deleted
+        import project_archive as arch
+        p47 = proj(47, video=True)
+        pdir47 = os.path.join(root, p47)
+        json.dump({"final_a.mp4": {"status": "published", "results": [{"status": "published"}]}}, open(os.path.join(pdir47, "publishes.json"), "w"))
+        os.utime(os.path.join(pdir47, "exports", "final_a.mp4"), (1, 1))
+        arch.archive(pdir47, "published", now=0)                      # long overdue for deletion
+        server._archive_sweep(now=10 ** 10)
+        check("a rebuilt archived chapter is brought back, not deleted",
+              os.path.isdir(pdir47) and arch.read(pdir47) is None)
+        server._archive_sweep(now=10 ** 10)
+        check("...and the sweep doesn't re-archive it", arch.read(pdir47) is None)
+        st = {x["id"]: x["status"]["key"] for x in c.get("/api/chapters").json()["chapters"]}
+        check("...and it shows as Check the board", st[p47] == "to_review")
 
         r = c.post("/api/review", json={"project": p45, "name": "final_a.mp4", "status": "approved", "notes": ""})
         check("approving a video schedules it (next free slot)", r.json()["scheduled"] is True)

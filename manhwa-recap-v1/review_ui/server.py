@@ -5985,6 +5985,13 @@ def _archive_sweep(now=None):
         if not pid or not os.path.isdir(pdir):
             continue
         st = _archive.read(pdir)
+        if _cs.board_newer(pdir):
+            # being worked on again (re-run / new version after posting):
+            # never archive or delete it; bring it back if it was archived
+            if st is not None:
+                _archive.unarchive(pdir)
+                _ev("archive", f"{_pretty(pid)}: back in the library — its board was rebuilt after the posted video")
+            continue
         if st is None and _archive.is_published(load_publishes(pdir)):
             _archive.archive(pdir, "published", now)
             _autopilot.audit("project_archived", project=pid, reason="published")
@@ -6379,6 +6386,8 @@ def pipeline_rerun(body: PipelineRerunIn):
     if _i.project_id(url, variant) != pid:
         raise HTTPException(409, "could not work out which chapter version this is")
     removed = _ps.prepare_rerun(pdir, body.step)
+    if _archive.read(pdir) is not None:          # a re-run brings an archived chapter back
+        _archive.unarchive(pdir)
     job = _enqueue_ingest(url, variant=variant, source="rerun",
                           why=f"re-running from: {_ps.RERUN[body.step]['label']}")
     _ev("ingest", f"{_pretty(pid)}: re-running from '{_ps.RERUN[body.step]['label']}' "

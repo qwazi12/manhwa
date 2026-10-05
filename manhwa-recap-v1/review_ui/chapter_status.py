@@ -40,7 +40,13 @@ def view(key, **extra):
 
 def decide(f):
     """f: {archived, posted, posting, scheduled, approved_video, has_video,
-    superseded, rendering, has_board, ingest_status, ingest_error}"""
+    superseded, rendering, has_board, board_newer, ingest_status, ingest_error}"""
+    ist = f.get("ingest_status")
+    # a board rebuilt AFTER the last video (a re-run, or a new version of a
+    # posted chapter) needs checking again, whatever happened to the old video
+    # (2026-10-04: ch.30 was re-run after posting and still said "Archived")
+    if f.get("board_newer") and f.get("has_board") and not f.get("rendering") and ist not in LIVE_INGEST:
+        return view("to_review", note="the board was rebuilt after the last video")
     if f.get("archived"):
         return view("archived")
     if f.get("posted"):
@@ -51,7 +57,6 @@ def decide(f):
         return view("scheduled")
     if f.get("rendering"):
         return view("rendering")
-    ist = f.get("ingest_status")
     if ist in LIVE_INGEST:
         return view("making", stage=f.get("ingest_stage"))
     if f.get("has_video"):
@@ -65,6 +70,19 @@ def decide(f):
     if ist == "error":
         return view("failed", reason=f.get("ingest_error"))
     return view("making" if ist else "failed", reason=None if ist else "no board was built")
+
+
+def board_newer(pdir):
+    """True when segments.json changed after the chapter's newest video (a
+    re-run or a new version): the chapter is being worked on again."""
+    name = _latest_export(pdir)
+    seg = os.path.join(pdir, "segments.json")
+    if not name or not os.path.exists(seg):
+        return False
+    try:
+        return os.path.getmtime(seg) > os.path.getmtime(os.path.join(pdir, "exports", name)) + 60
+    except OSError:
+        return False
 
 
 def _latest_export(pdir):
@@ -82,7 +100,8 @@ def gather(pdir, ingest_rec=None, rendering=False, queue_rows=None, review_state
     (ingest record, rendering flag, queue rows for this project, and the
     server's review_state / load_publishes helpers)."""
     name = _latest_export(pdir)
-    f = {"has_board": os.path.exists(os.path.join(pdir, "segments.json")),
+    seg_path = os.path.join(pdir, "segments.json")
+    f = {"has_board": os.path.exists(seg_path), "board_newer": board_newer(pdir),
          "has_video": bool(name), "video": name, "rendering": rendering,
          "archived": bool(archived)}
     if ingest_rec:

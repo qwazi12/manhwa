@@ -8796,3 +8796,8 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Tools:** a Report button on each Claude lab chapter.
 - **Classic page** (`/classic`, linked as "Classic studio" in the sidebar footer and in Settings → Tools): every area of the old studio with its old link and where it lives now (owner note 1).
 - Full suite 79/79.
+- **Found in the live check and fixed:** ch.30 (re-run after posting) still said "Archived". Worse, the archive sweep would have re-archived any unarchived chapter that had a published video and **deleted it 14 days later, even after a rebuild**.
+  - `chapter_status.board_newer()`: a board changed more than 60 s after the newest video means "Check the board", whatever happened to the old video.
+  - The sweep never archives or deletes such a chapter; it unarchives it if needed and logs that.
+  - `/api/pipeline/rerun` unarchives straight away.
+  - Tests: `test_chapter_status` 28/28 (a rebuilt archived chapter overdue for deletion comes back, isn't re-archived, and shows Check the board); full suite 79/79.
