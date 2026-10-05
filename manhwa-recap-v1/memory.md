@@ -8935,3 +8935,7 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - `/api/seo/apply` docstring updated: it runs on a click or from prepare for default fields.
 - **Tests:** new `test_prepare_publish` 9/9 (fills defaults, keeps owner title, no second paid call, over budget still picks a thumbnail, wiring). Full suite 78/79; the only failure is the known date-bound `test_posting_schedule`. `next build` ok.
 - Today's spend is $10.02 of $10, so on live the SEO part waits until midnight ET; thumbnails work now.
+- **Live (89075ac), verified on ch.30** after the owner interrupted the first try:
+  - `POST /api/publish/prepare` produced 4 concepts (Cover art + chapter number, Series anchor + chapter hook, Clean picture, Full-bleed hook panel) and picked the recommended one, a 1280×720 thumbnail (`/thumbnail` 200 image/jpeg).
+  - SEO waits for the cap, as designed: `prepare_note` says it fills in after midnight ET, and the title and tags are still the defaults.
+  - **Found:** the picked "Cover art" thumbnail carries the scraped cover's ASURASCANS.COM watermark (top centre). It should not be posted like that. Pending: pick a non-cover concept by default or crop/mask the watermark; owner to decide.
