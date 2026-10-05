@@ -186,3 +186,6 @@ video { width: 100%; border-radius: 8px; background: #000; display: block; }
 .thumbs .tc .m { padding: 8px; display: grid; gap: 4px; font-size: 12px; }
 .sugg { border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; display: grid; gap: 4px; font-size: 13px; }
 .card > .bd > button, .card > .bd > .btn, .card > .bd > a.btn { justify-self: start; }
+/* grid children may shrink below their content; long log lines wrap (phone width) */
+.content > *, .grid > *, .card { min-width: 0; }
+.list > .it > *, .brow .txt { overflow-wrap: anywhere; }
