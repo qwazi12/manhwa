@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { api, useApi } from "@/lib/api";
 import { enc, when } from "@/lib/fmt";
 import PasteBox from "@/components/PasteBox";
-import { Busy, Card, Chips, ConfirmButton, Empty, PageHead, Pill, StatusPill, useAct } from "@/components/ui";
+import AllChapters from "@/components/AllChapters";
+import { Busy, Card, Chips, ConfirmButton, Empty, PageHead, Pill, StatusPill, Tabs, useAct } from "@/components/ui";
 
 const TIERS: [string, string][] = [["greenlight", "Make now"], ["high_upside", "Next up"], ["watchlist", "Watching"]];
 const AP_STATE: Record<string, [string, string]> = {
@@ -18,6 +19,7 @@ export default function Library() {
   const { data, reload, error } = useApi<any>("/api/library", 30000);
   const [f, setF] = useState<F>("all");
   const [q, setQ] = useState("");
+  const [view, setView] = useState<"series" | "chapters">("series");
   const series: any[] = data?.series || [];
   const needs = (s: any) => ["to_review", "video_ready", "failed", "waiting"].some((k) => s.counts?.[k]);
   const shown = useMemo(() => series.filter((s) =>
@@ -28,6 +30,8 @@ export default function Library() {
     <>
       <PageHead title="Library" sub="Every series you track, with its chapters. Autopilot makes the next chapter of each series in turn." />
       <PasteBox onDone={reload} />
+      <Tabs value={view} onChange={setView} tabs={[["series", "Series"], ["chapters", "All chapters"]]} />
+      {view === "chapters" ? <AllChapters /> : <>
       <div className="spread">
         <Chips<F> value={f} onChange={setF} items={[["all", `All (${n("all")})`], ["needs", `Needs you (${n("needs")})`],
           ["greenlight", `Make now (${n("greenlight")})`], ["high_upside", `Next up (${n("high_upside")})`],
@@ -38,6 +42,7 @@ export default function Library() {
       {!data ? <Empty>Loading…</Empty> : shown.length === 0 ? <Empty>No series match. Paste a link above to add one.</Empty> : (
         <div className="grid">{shown.map((s) => <SeriesCard key={s.id} s={s} reload={reload} />)}</div>
       )}
+      </>}
     </>
   );
 }

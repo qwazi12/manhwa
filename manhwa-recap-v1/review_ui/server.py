@@ -2333,8 +2333,24 @@ def _delete_one_project(pid):
     pdir = os.path.join(_ing.PROJECTS, pid)
     if not os.path.isdir(pdir):
         return False, "unknown project", 0.0
+    busy = _chapter_busy(pdir)
+    if busy:
+        return False, busy + " — stop it first", 0.0
+    try:
+        import publish_queue as _pqd
+        if any(x["project"] == pid and x["status"] in ("queued", "posting") for x in _pqd.load(_ing.PROJECTS)["items"]):
+            return False, "scheduled to post — take it off the queue first", 0.0
+    except Exception:
+        pass
     if os.path.abspath(pdir) == os.path.abspath(active_project_dir()):
-        return False, "currently open — open a different project first", 0.0
+        # the new studio opens whatever chapter you look at; move the studio
+        # to another chapter instead of refusing (2026-10-04)
+        others = sorted((p for p in os.listdir(_ing.PROJECTS) if p != pid and not p.startswith("_")
+                         and os.path.exists(os.path.join(_ing.PROJECTS, p, "segments.json"))),
+                        key=lambda p: -os.path.getmtime(os.path.join(_ing.PROJECTS, p, "segments.json")))
+        if not others:
+            return False, "this is the only chapter — it can't be deleted while open", 0.0
+        activate_project(ActivateIn(id=others[0]))
     size = 0
     for root, _dirs, files in os.walk(pdir):
         for fn in files:

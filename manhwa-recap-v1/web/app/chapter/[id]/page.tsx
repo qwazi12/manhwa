@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, useApi } from "@/lib/api";
 import { when } from "@/lib/fmt";
@@ -19,6 +19,7 @@ export default function Chapter() {
   const [tab, setTab] = useState<T>("board");
   const [boardKey, setBoardKey] = useState(0);
   const act = useAct();
+  const router = useRouter();
   useEffect(() => {
     try { const t = new URLSearchParams(location.search).get("tab") as T; if (t) setTab(t); } catch {}
   }, []);
@@ -41,6 +42,14 @@ export default function Chapter() {
         sub={<span className="row"><StatusPill s={c.status} /><span>{c.status?.hint}</span>{c.status?.reason && <span style={{ color: "var(--red)" }}>{String(c.status.reason).slice(0, 200)}</span>}</span>}
         right={<>
           {c.url && <a className="btn sm ghost" href={c.url} target="_blank" rel="noreferrer">Source ↗</a>}
+          {c.archive && !c.archive.keep && <Busy className="sm" onClick={() => act(async () => { await api("/api/projects/archive", { id, action: "keep" }); reload(); }, "Kept — it won’t be deleted")}>Keep</Busy>}
+          {c.archive && <Busy className="sm" onClick={() => act(async () => { await api("/api/projects/archive", { id, action: "unarchive" }); reload(); }, "Back in the library")}>Unarchive</Busy>}
+          <ConfirmButton className="sm danger" confirm="Delete this chapter? This can’t be undone"
+            onConfirm={() => act(async () => {
+              await api("/api/projects/delete", { id });
+              try { localStorage.removeItem(LAST_CHAPTER_KEY); } catch {}
+              router.push("/library");
+            }, "Chapter deleted")}>🗑 Delete</ConfirmButton>
           {canRender && !["rendering", "making"].includes(k) && (
             <ConfirmButton className={k === "to_review" ? "primary" : ""} confirm="Render the video now?"
               title="renders the ticked segments and exports the final video (re-records the voice first if the studio voice changed)"

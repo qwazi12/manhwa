@@ -42,15 +42,33 @@ def main():
     _proj(root, "new_one", export_age_days=1)       # inside retention
 
     # ---- guards
-    ok, why, _ = srv._delete_one_project("active_one")
-    r.append(("the OPEN project can never be deleted",
-              not ok and "currently open" in why))
+    # 2026-10-04: the new studio opens whatever chapter you look at, so the
+    # open chapter is no longer undeletable — the studio moves to another
+    # chapter first, then deletes.
+    moved = []
+    saved_act = srv.activate_project
+    srv.activate_project = lambda body: moved.append(body.id)
+    _proj(root, "spare_one")
+    open(os.path.join(root, "spare_one", "segments.json"), "w").write("[]")
+    try:
+        ok, why, _ = srv._delete_one_project("active_one")
+    finally:
+        srv.activate_project = saved_act
+    r.append(("deleting the OPEN chapter moves the studio to another chapter first",
+              ok and moved == ["spare_one"] and not os.path.isdir(os.path.join(root, "active_one"))))
     r.append(("path traversal is refused",
               srv._delete_one_project("../etc")[0] is False))
     r.append(("an unknown project is refused",
               srv._delete_one_project("no_such")[1] == "unknown project"))
     r.append(("an internal '_' dir is refused",
               srv._delete_one_project("_jobs")[0] is False))
+
+    import publish_queue as pq
+    _proj(root, "sched_one")
+    pq.add(root, [{"project": "sched_one", "name": "v.mp4"}])
+    ok, why, _ = srv._delete_one_project("sched_one")
+    r.append(("a chapter scheduled to post can't be deleted (take it off the queue first)",
+              not ok and "scheduled to post" in why and os.path.isdir(os.path.join(root, "sched_one"))))
 
     # ---- retention prune
     removed = srv.prune_exports()
@@ -68,13 +86,12 @@ def main():
 
     # ---- bulk: partial success
     _proj(root, "bulk_a"); _proj(root, "bulk_b")
-    res = srv.delete_project(srv.ProjectDelIn(ids=["bulk_a", "active_one", "bulk_b"]))
+    res = srv.delete_project(srv.ProjectDelIn(ids=["bulk_a", "no_such_chapter", "bulk_b"]))
     r.append(("bulk delete removes every deletable project",
               set(res["deleted"]) == {"bulk_a", "bulk_b"}))
-    r.append(("...and skips the open one WITHOUT aborting the batch",
-              [s["id"] for s in res["skipped"]] == ["active_one"]))
-    r.append(("...and the open project survives",
-              os.path.isdir(os.path.join(root, "active_one"))))
+    r.append(("...and skips one it can't delete WITHOUT aborting the batch",
+              [s["id"] for s in res["skipped"]] == ["no_such_chapter"]))
+    r.append(("...with the reason", res["skipped"][0]["reason"] == "unknown project"))
     r.append(("bulk delete reports total freed MB", res["freed_mb"] > 0))
 
     # ---- duplicate ids are collapsed
