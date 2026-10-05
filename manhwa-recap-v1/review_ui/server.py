@@ -1064,6 +1064,8 @@ def _publish_payload(pdir, pid, name, md):
                                  "formats": list(_tb.ALLOWED),
                                  "min_width": _tb.MIN_WIDTH,
                                  "ideal": list(_tb.IDEAL)},
+            "preparing": (pid, name) in _PREPARING,
+            "prepare_note": _PREP_NOTE.get((pid, name)),
             "categories": YT_CATEGORIES, "privacy_options": list(YT_PRIVACY),
             "limits": {"title": YT_TITLE_MAX, "description": YT_DESC_MAX,
                        "tags_chars": YT_TAGS_CHARS_MAX}}
@@ -1572,7 +1574,8 @@ def api_seo_apply(body: SeoApplyIn):
     """Copy ONE suggestion into the real publish metadata.
 
     The publish record stays the source of truth: this is the only path by
-    which a suggestion reaches it, and it only ever runs on an explicit click.
+    which a suggestion reaches it. It runs on a click, or from
+    _prepare_publish for fields still at their automatic default (2026-10-05).
     """
     import seo as _seo
     pdir = project_dir_for(body.project)
@@ -2321,6 +2324,91 @@ def review_page():
 class ExportDelIn(BaseModel):
     name: str
     project: str = ""
+
+
+# ---- ready to publish by itself (owner, 2026-10-05: "Isn't there supposed to
+# be SEO? And thumbnails? Take a look at the scrapper") ----------------------
+# Like Scrapper's LongForm: once a video exists, its title / description /
+# tags are filled from the SEO suggestions and its thumbnail options are made
+# with the best one picked — without a click. Only fields still at their
+# automatic default are filled; anything the owner typed is never replaced.
+_PREPARING = set()
+_PREP_NOTE = {}        # (pid, name) -> why SEO isn't filled yet, shown on the page
+
+
+def _prepare_publish(pdir, name):
+    """SEO (one small model call, budget-gated) then thumbnail options (free,
+    local). Never raises: a failure is logged and the video is unaffected."""
+    import seo as _seo
+    import thumbnail as _tb
+    import thumbnail_studio as tstudio
+    pid = os.path.basename(pdir.rstrip("/"))
+    key = (pid, name)
+    if key in _PREPARING:
+        return
+    _PREPARING.add(key)
+    label = _pretty(pid)
+    filled = []
+    try:
+        try:
+            if not _seo.get(pdir, name):
+                api_seo_generate(SeoGenIn(project=pid, name=name))
+            base = _publish_defaults_base(pdir)
+            md = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
+            for field in ("title", "description", "tags"):
+                if not md.get(field) or md.get(field) == base.get(field):
+                    try:
+                        api_seo_apply(SeoApplyIn(project=pid, name=name, field=field))
+                        filled.append(field)
+                    except HTTPException:
+                        pass
+            _PREP_NOTE.pop(key, None)
+        except usage.UsageCapExceeded as e:
+            _PREP_NOTE[key] = ("Title, description and tags will fill in after midnight ET — today's spend "
+                               "limit is used up (the suggestions cost about 1 cent). The thumbnail is ready.")
+            _ev("publish", f"{label}: SEO suggestions wait for budget — {str(e)[:120]}", "warn")
+        except Exception as e:  # noqa
+            _PREP_NOTE[key] = f"Title suggestions couldn't be made: {str(e)[:160]}"
+            _ev("publish", f"{label}: SEO suggestions failed — {str(e)[:160]}", "warn")
+        try:
+            if not (tstudio.get_concepts(pdir, name) or {}).get("concepts"):
+                api_thumbcopilot_generate(ThumbGenIn(project=pid, name=name))
+            if not _tb.path_for(pdir, name):
+                cs = (tstudio.get_concepts(pdir, name) or {}).get("concepts") or []
+                best = next((c for c in cs if c.get("recommended")), cs[0] if cs else None)
+                if best:
+                    api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=best["id"]))
+                    filled.append("thumbnail")
+        except Exception as e:  # noqa
+            _ev("publish", f"{label}: thumbnail options failed — {str(e)[:160]}", "warn")
+        if filled:
+            _ev("publish", f"{label}: ready to review — filled in {', '.join(filled)} (change anything on Watch the video)", "ok")
+    finally:
+        _PREPARING.discard(key)
+
+
+def _after_export(pdir, name):
+    """Background, after an export: prepare it for publishing, then copy it
+    (with its thumbnail) to Drive."""
+    _prepare_publish(pdir, name)
+    if name and _drive.configured():
+        _drive_copy(pdir, name)
+
+
+class PrepareIn(BaseModel):
+    project: str
+    name: str
+
+
+@app.post("/api/publish/prepare")
+def api_publish_prepare(body: PrepareIn):
+    """Run the automatic SEO + thumbnail step for a video made before it existed."""
+    pdir = project_dir_for(body.project)
+    name = os.path.basename(body.name)
+    if not os.path.exists(os.path.join(pdir, "exports", name)):
+        raise HTTPException(404, "video not found")
+    threading.Thread(target=_prepare_publish, args=(pdir, name), daemon=True).start()
+    return {"ok": True}
 
 
 # ---- phone playback (owner, 2026-10-05) ----------------------------------
@@ -3362,7 +3450,7 @@ def _run_finalize_job(job_id):
         _ev("render", f"{_fname} exported → {res.get('output')} ({speed}x"
                       + (f", loudness {_ld['before']} → {_ld['target']:g} LUFS" if _ld.get("applied") else
                          f", loudness unchanged: {_ld.get('why')}" if _ld else "") + ")", "ok")
-        _drive_copy_later(active_project_dir(), res.get("output"))
+        threading.Thread(target=_after_export, args=(pdir, res.get("output")), daemon=True).start()
     except HTTPException as e:
         j["status"] = "error"
         j["error"] = str(e.detail)

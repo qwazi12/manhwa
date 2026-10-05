@@ -8918,3 +8918,20 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Watch tab: a "This video won't play on a phone → **Fix for phones**" banner, with a progress bar while it runs. The video src carries the size, so the browser loads the new file. Added `playsInline`.
 - **Tests:** new `test_phonefix` 8/8 (real ffmpeg: level-6.2 file flagged, fixed in place, name and date kept, no temp left, idempotent, 404 for unknown). chapter_status 29/29, render_queue 15/15, render_lock 7/7, job_control 51/51, logs 19/19; `next build` ok.
 - **Live (31ee102):** both ch.30 exports were flagged `phone_ok=False`. I ran the fix on `final_Oct05_06.19PM_1.25x.mp4` (job c14c10229b5c): it took about 1 minute (0→40→84%→done), and ffprobe on the live file now shows level 4.1 at 30/1 fps. The Oct 4 version is still unfixed; its button is waiting for the owner. The owner still has to confirm playback on their iPhone.
+
+### 2026-10-05 — Owner: "Isn't there supposed to be SEO? And thumbnails? Look at the scrapper… why does it seem like more and more things are missing"
+- **What the owner saw** (ch.30, Watch the video): bare default title, description and tags with only a "Suggest…" button; the thumbnail said "No options yet — press New options"; and a **broken "current thumbnail" image**.
+- **Causes:**
+  - Both features existed (the SEO copilot is one Gemini call ≈ $0.012; the thumbnail copilot is local and free, built from the chapter's panels), but **only ran on a click**, in both the classic /review page and the new studio.
+  - Scrapper's LongForm generates 3 thumbnail options during the render (poster / lead close-up / key scene), auto-selects one and shows it large, and does auto-SEO before posting (`stage_render.generate_thumbnails_for_project`, `queue_manager.auto_seo`).
+  - The broken image: `/api/publish` returns `thumbnail: {}` when there is none, and VideoTab tested `p.thumbnail` (an empty object is truthy), so it drew an image that 404s.
+- **Fix:**
+  - `_prepare_publish(pdir, name)`: SEO suggestions first (budget-gated), then fill title, description (+ hashtags) and tags **only where the field is still the automatic default** (owner-typed and draft values are never replaced). Then thumbnail concepts, picking the recommended one when no thumbnail is set.
+  - Never raises. Over the budget it records a page note ("fills in after midnight ET… the thumbnail is ready").
+  - `_after_export`: every new render runs prepare, **then** the Drive copy, so the thumbnail goes to Drive with the video.
+  - `POST /api/publish/prepare` handles videos made before this. VideoTab calls it once when SEO, concepts or a thumbnail is missing, shows "Filling in…", polls, then shows the filled values.
+  - The `/api/publish` payload adds `preparing` and `prepare_note`.
+  - The current thumbnail shows large (up to 640 px, accent border), and the `p.thumbnail?.width` check fixes the broken image.
+  - `/api/seo/apply` docstring updated: it runs on a click or from prepare for default fields.
+- **Tests:** new `test_prepare_publish` 9/9 (fills defaults, keeps owner title, no second paid call, over budget still picks a thumbnail, wiring). Full suite 78/79; the only failure is the known date-bound `test_posting_schedule`. `next build` ok.
+- Today's spend is $10.02 of $10, so on live the SEO part waits until midnight ET; thumbnails work now.

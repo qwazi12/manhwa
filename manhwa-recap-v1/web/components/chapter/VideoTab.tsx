@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, useApi } from "@/lib/api";
 import { enc, mmss, when } from "@/lib/fmt";
 import { Busy, Card, ConfirmButton, Empty, Pill, StatusPill, Status, useAct, useToast } from "@/components/ui";
@@ -35,6 +35,30 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
   const [cb, setCb] = useState(Date.now());
   useEffect(() => { if (pub.data?.metadata && !md) setMd(pub.data.metadata); }, [pub.data]);
   useEffect(() => { if (rv.data?.review) setNotes(rv.data.review.notes || ""); }, [rv.data?.review?.reviewed_at]);
+  // Like Scrapper: a video gets its title, description, tags and thumbnail
+  // without a click. New renders are prepared by the server; a video made
+  // before that is prepared once when it is opened here (owner, 2026-10-05).
+  const prep = useRef<{ asked: boolean; started: number }>({ asked: false, started: 0 });
+  const [preparing, setPreparing] = useState(false);
+  useEffect(() => {
+    const d = pub.data;
+    if (draft || !d || d.missing) return;
+    const need = !d.seo || !(d.thumbcopilot?.concepts?.concepts || []).length || !d.thumbnail?.width;
+    if (need && !prep.current.asked) {
+      prep.current = { asked: true, started: Date.now() };
+      setPreparing(true);
+      api("/api/publish/prepare", { project: id, name }).catch(() => setPreparing(false));
+    }
+    if (!prep.current.started) return;
+    if (d.preparing || Date.now() - prep.current.started < 5000) {
+      const t = setTimeout(pub.reload, 2500);
+      return () => clearTimeout(t);
+    }
+    prep.current.started = 0;
+    setPreparing(false);
+    setMd(d.metadata);            // show what was filled in
+    setCb(Date.now());
+  }, [pub.data]);
   if ((!draft && !rv.data) || !pub.data || !md) return <Empty>Loading…</Empty>;
   const p = pub.data;
   const review = rv.data?.review || {};
@@ -167,7 +191,9 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
               <button className="sm" onClick={() => applySeo("tags")}>Use these tags</button>
               {seo.hashtags?.length > 0 && <button className="sm ghost" onClick={() => applySeo("hashtags")}>Add hashtags</button>}</div>
           )}
-          {!seo && <Busy className="sm" onClick={() => act(async () => { await api("/api/seo/generate", { project: id, name }); pub.reload(); }, "Suggestions ready")}>Suggest titles, description and tags</Busy>}
+          {!preparing && !seo && p.prepare_note && <div className="banner warn">{p.prepare_note}</div>}
+          {preparing && <div className="banner info">Filling in the title, description, tags and thumbnail from the chapter… (about 20 seconds)</div>}
+          {!seo && !preparing && <Busy className="sm" onClick={() => act(async () => { await api("/api/seo/generate", { project: id, name }); pub.reload(); }, "Suggestions ready")}>Suggest titles, description and tags</Busy>}
           {seo && (
             <details>
               <summary className="small muted">Where the suggestions came from{seo.confidence ? ` · ${seo.confidence.band} confidence (${seo.confidence.score}/100)` : ""}</summary>
@@ -218,13 +244,13 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
               const r = await fetch(`/api/thumbnail?${q}`, { method: "POST", body: f, headers: { "Content-Type": f.type } });
               if (r.ok) { toast("Thumbnail uploaded"); pub.reload(); setCb(Date.now()); } else toast(await r.text(), true);
             }} style={{ border: "1px dashed var(--border)", borderRadius: 8, padding: 10 }}>
-            {p.thumbnail ? (
-              <div className="row"><img src={`/thumbnail?${q}&cb=${cb}`} alt="Current thumbnail" style={{ width: 240, aspectRatio: "16/9", objectFit: "cover", borderRadius: 8 }} />
-                <div style={{ display: "grid", gap: 6 }}>
+            {p.thumbnail?.width ? (
+              <div style={{ display: "grid", gap: 8 }}><img src={`/thumbnail?${q}&cb=${cb}`} alt="Current thumbnail" style={{ width: "100%", maxWidth: 640, aspectRatio: "16/9", objectFit: "cover", borderRadius: 8, border: "2px solid var(--accent)" }} />
+                <div className="row">
                   <span className="small muted">Current thumbnail · {p.thumbnail.width}×{p.thumbnail.height} · sent with the video{(p.thumbnail.advisories || []).length ? ` · ${p.thumbnail.advisories.join("; ")}` : ""}</span>
                   <ConfirmButton className="sm danger" confirm="Remove it?" onConfirm={() => act(async () => { await api("/api/thumbnail/delete", { project: id, name }); pub.reload(); setCb(Date.now()); }, "Thumbnail removed")}>Remove</ConfirmButton>
                 </div></div>
-            ) : <p className="small muted">No thumbnail yet. Pick one below, upload one, or drop an image here.</p>}
+            ) : <p className="small muted">{preparing ? "Making thumbnail options…" : "No thumbnail yet. Pick one below, upload one, or drop an image here."}</p>}
             <span className="small faint">Drop an image here to use it (JPG or PNG, at most 2 MB, at least 640 px wide).</span>
           </div>
           <div className="row small">
@@ -232,7 +258,7 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
             <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/thumbcopilot/generate", { project: id, name, new_style: true }); pub.reload(); setCb(Date.now()); }, "A new series look")}>New series look</Busy>
             {!tc.style_approved && <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/thumbcopilot/style/approve", { project: id, name }); pub.reload(); }, "Series look locked")}>Lock this look for the series</Busy>}
           </div>
-          {concepts.length === 0 ? <Empty>No options yet — press New options.</Empty> : (
+          {concepts.length === 0 ? <Empty>{preparing ? "Making options from the chapter’s pictures…" : "No options yet — press New options."}</Empty> : (
             <div className="thumbs">
               {concepts.map((c: any) => (
                 <div key={c.id} className={`tc ${chosen === c.id ? "on" : ""}`}>
