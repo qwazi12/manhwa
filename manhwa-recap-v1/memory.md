@@ -8863,3 +8863,4 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - `lib/api.ts` sends the browser to `/login` on a 401.
 - **Verified locally** (`next start`, mock credentials, dummy backend): 10/10 — page → 303 /login; API → 401 JSON; wrong password → 401 after 1.0 s; right password → 303 + cookie (Max-Age 7776000, HttpOnly); cookie → 200; tampered cookie → 303; `//evil.com` → `/`; Basic header → 200; logout clears. `tsc` clean, `next build` ok.
 - Gap: rate limiting is only the 1 s delay per attempt, not per IP (there's no shared store in middleware).
+- **Live (73218e0):** checked without signing in: `/` → 303 to `/login?next=/`; `/login` 200; `/api/home` 401 JSON; manifest 200. The real sign-in (and the Secure flag on https) is for the owner to confirm on their phone.
