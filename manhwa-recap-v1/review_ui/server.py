@@ -954,7 +954,7 @@ def save_publish(pdir, data):
 import studio_settings as _studio
 
 
-def publish_defaults(pdir):
+def _publish_defaults_base(pdir):
     """Sensible starting metadata from what the project already knows."""
     meta = {}
     try:
@@ -983,6 +983,24 @@ def publish_defaults(pdir):
         "synthetic_disclosure": True,
         "thumbnail": None,
     }
+
+
+DRAFT = "_draft"     # per-chapter publish details prepared BEFORE a render (owner, 2026-10-04)
+_DRAFT_FIELDS = ("title", "description", "tags", "category_id", "playlist", "made_for_kids", "synthetic_disclosure")
+
+
+def publish_defaults(pdir):
+    """Starting metadata for a video: what the project knows, then anything the
+    owner prepared for the chapter before it was rendered (the draft)."""
+    md = _publish_defaults_base(pdir)
+    try:
+        draft = load_publish(pdir).get(DRAFT) or {}
+    except Exception:
+        draft = {}
+    for k in _DRAFT_FIELDS:
+        if draft.get(k) not in (None, "", []):
+            md[k] = draft[k]
+    return md
 
 
 def validate_publish(md):
@@ -1036,8 +1054,8 @@ def _publish_payload(pdir, pid, name, md):
     return {"project": pid, "name": name, "metadata": md,
             "problems": validate_publish(md),
             "readiness": publish_readiness(pdir, name),
-            "seo": (__import__("seo").get(pdir, name,
-                    current_signature=cut_signature(pdir=pdir)) or None),
+            "seo": (__import__("seo").get(pdir, name, current_signature=cut_signature(pdir=pdir))
+                    or __import__("seo").get(pdir, DRAFT) or None),
             "youtube_configured": __import__("yt_api").configured(),
             "thumbnail": thumb,
             "thumbcopilot": _thumb_state(pdir, name),
@@ -1080,7 +1098,7 @@ class PublishIn(BaseModel):
 def api_publish_save(body: PublishIn):
     pdir = project_dir_for(body.project)
     name = os.path.basename(body.name)
-    if not name.endswith(".mp4"):
+    if not name.endswith(".mp4") and name != DRAFT:
         raise HTTPException(400, "name must be an export filename")
     md = {**publish_defaults(pdir), **(body.metadata or {})}
     if isinstance(md.get("tags"), str):
@@ -1559,7 +1577,7 @@ def api_seo_apply(body: SeoApplyIn):
     import seo as _seo
     pdir = project_dir_for(body.project)
     name = os.path.basename(body.name or "")
-    rec = _seo.get(pdir, name)
+    rec = _seo.get(pdir, name) or _seo.get(pdir, DRAFT)
     if not rec:
         raise HTTPException(404, "no SEO suggestions for that export yet")
 
@@ -6436,6 +6454,16 @@ def _chapter_rows():
                      "title": f"{_i.to_title_case(_i.clean_series_slug(series or ''))} Ch.{chapter}", "url": j.get("url"),
                      "status": st, "video": None, "auto": j.get("source") == "autopilot", "engine": j.get("engine"),
                      "archive": None, "updated": j.get("ts"), "job": j.get("job")})
+    # each chapter's series (by its source link) and whether that series has a cover
+    try:
+        import watchlist as _wl
+        wl = _wl.load(_wl_root())
+        for r in rows:
+            sx, m = _wl.find_by_mirror(wl, r["url"]) if r.get("url") else (None, None)
+            r["series_id"] = sx["id"] if sx else None
+            r["cover"] = bool(sx and any(mm.get("cover") for mm in sx.get("mirrors") or []))
+    except Exception:
+        pass
     rows.sort(key=lambda r: -(r["updated"] or 0))
     return rows
 
@@ -6467,7 +6495,8 @@ def home_view():
         k = r["status"]["key"]
         if k in ("to_review", "video_ready", "failed", "waiting"):
             need.append({"kind": k, "id": r["id"], "title": r["title"], "status": r["status"],
-                         "action": {"to_review": "Review the board", "video_ready": "Watch and approve",
+                         "series_id": r.get("series_id"), "cover": r.get("cover"), "auto": r.get("auto"),
+                         "action": {"to_review": "Check the board", "video_ready": "Watch the video",
                                     "failed": "See why and retry", "waiting": "Resume"}[k]})
     order = {"failed": 0, "waiting": 1, "video_ready": 2, "to_review": 3}
     need.sort(key=lambda x: order[x["kind"]])
@@ -6535,6 +6564,25 @@ def chapter_view(pid: str):
     out = {**row, "steps": _ps.status(pdir), "busy": _chapter_busy(pdir), "drive": _drive.record(pdir),
            "drive_ready": _drive.configured(),
            "can_rerun": bool(meta.get("url")) and (meta.get("engine") or "gemini") == "gemini"}
+    rj = [dict(j, id=k) for k, j in JOBS.items() if j.get("type") == "finalize" and j.get("project") == pid]
+    rj.sort(key=lambda j: j.get("ts") or 0)
+    if rj:
+        last = rj[-1]
+        out["render_job"] = {k: last.get(k) for k in ("id", "status", "stage", "done", "total", "error", "export", "ts", "ended")}
+    vids = []
+    ed = os.path.join(pdir, "exports")
+    for f in sorted(os.listdir(ed) if os.path.isdir(ed) else [], key=lambda f: -os.path.getmtime(os.path.join(ed, f))):
+        if f.endswith(".mp4"):
+            st_ = os.stat(os.path.join(ed, f))
+            age = (time.time() - st_.st_mtime) / 86400
+            try:
+                rs = review_state(pdir, f)
+            except Exception:
+                rs = {}
+            vids.append({"name": f, "size_mb": round(st_.st_size / 1e6, 1), "at": st_.st_mtime,
+                         "expires_in_days": max(0, round(EXPORT_RETENTION_DAYS - age, 1)),
+                         "review": rs.get("status"), "superseded": rs.get("superseded")})
+    out["videos"] = vids
     if row.get("video"):
         name = row["video"]
         store = load_publish(pdir)

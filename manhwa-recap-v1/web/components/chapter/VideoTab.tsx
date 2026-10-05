@@ -6,11 +6,11 @@ import { Busy, Card, ConfirmButton, Empty, Pill, StatusPill, Status, useAct, use
 
 /** Watch, approve, and fill in what gets published — one column, the same
  *  parts as every other page. A suggestion fills only its own field. */
-export default function VideoTab({ id, name, status, onChange }: { id: string; name: string; status: Status; onChange?: () => void }) {
+export default function VideoTab({ id, name, status, onChange, draft = false }: { id: string; name: string; status: Status; onChange?: () => void; draft?: boolean }) {
   const q = `project=${enc(id)}&name=${enc(name)}`;
-  const rv = useApi<any>(`/api/review?${q}`);
+  const rv = useApi<any>(draft ? null : `/api/review?${q}`);
   const pub = useApi<any>(`/api/publish?${q}`);
-  const pst = useApi<any>(`/api/publishing/publish/status?${q}`, 10000);
+  const pst = useApi<any>(draft ? null : `/api/publishing/publish/status?${q}`, 10000);
   const acc = useApi<any>("/api/publishing/status");
   const act = useAct();
   const toast = useToast();
@@ -19,9 +19,9 @@ export default function VideoTab({ id, name, status, onChange }: { id: string; n
   const [cb, setCb] = useState(Date.now());
   useEffect(() => { if (pub.data?.metadata && !md) setMd(pub.data.metadata); }, [pub.data]);
   useEffect(() => { if (rv.data?.review) setNotes(rv.data.review.notes || ""); }, [rv.data?.review?.reviewed_at]);
-  if (!rv.data || !pub.data || !md) return <Empty>Loading…</Empty>;
+  if ((!draft && !rv.data) || !pub.data || !md) return <Empty>Loading…</Empty>;
   const p = pub.data;
-  const review = rv.data.review || {};
+  const review = rv.data?.review || {};
   const rec = pst.data?.publish;
   const posted = (rec?.results || []).filter((r: any) => r.status === "published");
   const lim = p.limits || { title: 100, description: 5000 };
@@ -49,7 +49,8 @@ export default function VideoTab({ id, name, status, onChange }: { id: string; n
 
   return (
     <div className="grid">
-      <Card title="Watch" right={<span className="small muted">{rv.data.stat?.size_mb} MB · {name}</span>}>
+      {draft && <div className="banner info">Preparing the details before the render. Whatever you set here is used for the video when it’s made. Thumbnails come after the render, because they’re built from the video’s pictures.</div>}
+      {!draft && <Card title="Watch" right={<span className="small muted">{rv.data.stat?.size_mb} MB · {name}</span>}>
         <video controls preload="metadata" src={`/export/${enc(name)}?project=${enc(id)}`} />
         {review.superseded && <div className="banner warn">The board changed after this video was approved. Render again, then approve the new video.</div>}
         <label className="field">Notes for yourself or the next edit
@@ -63,7 +64,7 @@ export default function VideoTab({ id, name, status, onChange }: { id: string; n
           <Busy className="ghost" onClick={() => verdict("")}>Save notes</Busy>
           {review.reviewed_at && <span className="small muted">last decision {when(review.reviewed_at)}</span>}
         </div>
-      </Card>
+      </Card>}
 
       <Card title="What gets published">
         <label className="field">Title <span className="count num">{(md.title || "").length}/{lim.title}</span>
@@ -125,7 +126,7 @@ export default function VideoTab({ id, name, status, onChange }: { id: string; n
         <p className="small muted">Defaults for channels and privacy come from Settings. Changes here apply to this video only.</p>
       </Card>
 
-      <Card title="Thumbnail" right={<span className="row">
+      {!draft && <><Card title="Thumbnail" right={<span className="row">
         <Busy className="sm" onClick={() => act(async () => { await api("/api/thumbcopilot/generate", { project: id, name }); pub.reload(); setCb(Date.now()); }, "New options")}>↻ New options</Busy>
         <label className="btn sm">Upload your own<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={async (e) => {
           const f = e.target.files?.[0]; if (!f) return;
@@ -180,6 +181,7 @@ export default function VideoTab({ id, name, status, onChange }: { id: string; n
         )}
       </Card>
       <p className="small faint">Runtime {mmss(rv.data.qc?.runtime_s)} · {rv.data.qc?.segments_in_video} segments · matched {rv.data.qc?.match_method}</p>
+      </>}
     </div>
   );
 }

@@ -4,7 +4,7 @@ Before this, Projects, the Publishing Studio and the Tracker each worked out a
 chapter's state from different files and called it different things. Now the
 server decides once, here, and every page shows the same word, colour and icon.
 
-    Found → Making → To review → Rendering → Video ready → Scheduled → Posting
+    Found → Making → Check the board → Rendering → Watch the video → Scheduled → Posting
           → Posted → Archived          (+ Waiting, Failed on the side)
 
 `decide(facts)` is pure: it takes what is known about a chapter and returns the
@@ -20,9 +20,9 @@ STATUSES = {
     "making":      ("Making",      "info",  "Pages → panels → script → voice → timeline are running."),
     "waiting":     ("Waiting",     "warn",  "Stopped part-way (budget, a pause or a restart); it can resume."),
     "failed":      ("Failed",      "bad",   "A step failed; the reason is shown and it can be retried."),
-    "to_review":   ("To review",   "info",  "The board is ready: check it, then Render video."),
+    "to_review":   ("Check the board", "info", "The script and pictures are ready: check them, then Render video."),
     "rendering":   ("Rendering",   "info",  "Clips and the final video are being made."),
-    "video_ready": ("Video ready", "info",  "Watch it, fix the details, then Approve & schedule."),
+    "video_ready": ("Watch the video", "info", "The video is rendered: watch it, fill in the details, then Approve & schedule."),
     "scheduled":   ("Scheduled",   "ok",    "Approved; it posts at the next free slot (or when you press Post now)."),
     "posting":     ("Posting",     "warn",  "Uploading; waiting for YouTube to confirm."),
     "posted":      ("Posted",      "ok",    "Live on the channel."),

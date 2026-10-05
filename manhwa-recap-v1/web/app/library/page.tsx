@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, useApi } from "@/lib/api";
 import { enc, when } from "@/lib/fmt";
 import PasteBox from "@/components/PasteBox";
@@ -20,6 +20,7 @@ export default function Library() {
   const [f, setF] = useState<F>("all");
   const [q, setQ] = useState("");
   const [view, setView] = useState<"series" | "chapters">("series");
+  useEffect(() => { try { if (new URLSearchParams(location.search).get("view") === "chapters") setView("chapters"); } catch {} }, []);
   const series: any[] = data?.series || [];
   const needs = (s: any) => ["to_review", "video_ready", "failed", "waiting"].some((k) => s.counts?.[k]);
   const shown = useMemo(() => series.filter((s) =>

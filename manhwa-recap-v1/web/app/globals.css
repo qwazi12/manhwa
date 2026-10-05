@@ -189,3 +189,9 @@ video { width: 100%; border-radius: 8px; background: #000; display: block; }
 /* grid children may shrink below their content; long log lines wrap (phone width) */
 .content > *, .grid > *, .card { min-width: 0; }
 .list > .it > *, .brow .txt { overflow-wrap: anywhere; }
+/* Home "Needs you" cards (owner, 2026-10-04: image cards like Library) */
+.needgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; padding: 12px; }
+.needcard { display: grid; grid-template-columns: 76px 1fr; gap: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 10px; color: inherit; background: var(--row); }
+.needcard:hover { border-color: var(--faint); text-decoration: none; }
+.needcard img, .needcard .ph { width: 76px; aspect-ratio: 3/4; object-fit: cover; border-radius: 7px; background: var(--panel2); }
+.needcard .nb { display: grid; gap: 5px; align-content: start; min-width: 0; }

@@ -16,23 +16,25 @@ export default function Home() {
       <PageHead title="Home" sub="Paste a link to start. Everything that needs you is listed below." />
       <PasteBox onDone={reload} />
       <div className="tiles">
-        <Tile n={(h?.counts?.video_ready || 0)} label="videos to watch and approve" href="/queue" />
-        <Tile n={(h?.counts?.to_review || 0)} label="boards to review" href="/library" />
+        <Tile n={(h?.counts?.video_ready || 0)} label="videos to watch (then approve)" href={firstOf(h, "video_ready")} />
+        <Tile n={(h?.counts?.to_review || 0)} label="boards to check (then render)" href={firstOf(h, "to_review")} />
         <Tile n={h?.queue?.schedule_on ? (h.queue.next_post || "—") : "off"} label={h?.queue?.schedule_on ? `next post · ${h?.queue?.scheduled || 0} scheduled` : "posting schedule"} href="/queue" />
         <Tile n={h ? money(h.spend.today) : "—"} label={h ? `of ${money(h.spend.cap)} today · autopilot ${money(h.spend.autopilot)}` : "spend today"} href="/activity?tab=spend" />
       </div>
       <Card title="Needs you" pad={false}>
         {!h ? <Empty>Loading…</Empty> : h.need.length === 0 ? <Empty>Nothing waiting for you. New chapters arrive here when they are ready.</Empty> : (
-          <div className="list">
+          <div className="needgrid">
             {h.need.map((n: any, i: number) => (
-              <div className="it" key={i}>
-                <div className="row" style={{ minWidth: 0 }}>
-                  <StatusPill s={n.status} />
+              <Link key={i} href={ACTION_HREF(n)} className="needcard">
+                {n.series_id && n.cover ? <img src={`/api/watchlist/cover/${encodeURIComponent(n.series_id)}`} alt="" loading="lazy" /> : <div className="ph" />}
+                <div className="nb">
                   <b>{n.title}</b>
-                  {n.status?.reason && <span className="small muted">{String(n.status.reason).slice(0, 120)}</span>}
+                  <StatusPill s={n.status} />
+                  {n.status?.reason && <span className="small muted">{String(n.status.reason).slice(0, 110)}</span>}
+                  {n.auto && <span className="small faint">made by autopilot</span>}
+                  <span className="btn sm" style={{ justifySelf: "start" }}>{n.action} →</span>
                 </div>
-                <Link className="btn sm" href={ACTION_HREF(n)}>{n.action} →</Link>
-              </div>
+              </Link>
             ))}
           </div>
         )}
@@ -50,6 +52,11 @@ export default function Home() {
       </Card>
     </>
   );
+}
+
+function firstOf(h: any, kind: string) {
+  const n = (h?.need || []).find((x: any) => x.kind === kind);
+  return n ? ACTION_HREF(n) : "/library";
 }
 
 function Tile({ n, label, href }: { n: any; label: string; href: string }) {

@@ -46,7 +46,7 @@ export default function Queue() {
         </div>
       </Card>
       <Chips<Tab> value={tab} onChange={setTab} items={[
-        ["review", `To review (${toReview.length})`], ["scheduled", `Scheduled (${queued.length})`],
+        ["review", `To watch (${toReview.length})`], ["scheduled", `Scheduled (${queued.length})`],
         ["posted", `Posted (${(s?.published || []).length})`], ["errors", `Errors (${failed.length})`]]} />
       {!s ? <Empty>Loading…</Empty> : (
         <Card pad={false}>
@@ -54,7 +54,7 @@ export default function Queue() {
             <div className="list">{toReview.map((r: any) => (
               <div className="it" key={r.id}>
                 <div className="row"><StatusPill s={r.status} /><b>{r.title}</b>{r.status?.superseded && <span className="small" style={{ color: "var(--yellow)" }}>the cut changed after approval</span>}</div>
-                <Link className="btn sm primary" href={`/chapter/${r.id}?tab=video`}>Watch and approve →</Link>
+                <Link className="btn sm primary" href={`/chapter/${r.id}?tab=video`}>Watch the video →</Link>
               </div>))}</div>))}
           {tab === "scheduled" && (queued.length === 0 ? <Empty>Nothing scheduled. Approve a video after watching it and it lands here.</Empty> : (
             <div className="list">{queued.map((r: any, i: number) => (

@@ -8744,3 +8744,19 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Autopilot:** check now.
 - **Tools:** the lab report.
 - **A Classic page.**
+
+### 2026-10-04 (late night) — BUILT polish steps 1–2: render and watch without dead ends; moving between chapters
+- **Render:** one tap opens a short sheet (what it does, time, cost) → **Render now**. While it runs, step 7 shows "clip N of M", step 8 "after the clips / exporting…", the page polls every 3 s, a **■ Stop render** button appears, and the tab reads "Watch the video (rendering…)" with a progress bar. When the render finishes, the page toasts and **opens Watch the video**. A failure is toasted with its reason.
+- **Watch the video** (renamed from "Video & publish"):
+  - always reachable;
+  - before a render, it shows "No video yet → Render video" and **a draft of the title, description, tags and SEO suggestions, prepared before the render**. The draft is `publish.json["_draft"]`; `publish_defaults()` uses it for the video when it's made; SEO generate/apply work on `_draft`, and a video without its own suggestions shows the draft's;
+  - step 8 has ▶ Watch;
+  - a **Version** picker for all of a chapter's videos (date, size, approved, expiry) with delete for older versions.
+- **Moving between chapters:**
+  - a chapter picker in the Board header, grouped (Watch the video · Check the board · Needs attention · Being made · Scheduled & posted · Archived);
+  - **‹ Previous / Next to check ›** in review order (videos first, then boards), with "n of N waiting for you";
+  - after a render or approval, a "Next waiting for you" banner.
+- **Sidebar:** **Board** sits under Home (the chapter you're on, otherwise the All chapters list).
+- **Home:** "Needs you" shows **image cards with the series cover**. The tiles say "videos to watch (then approve)" and "boards to check (then render)" and open the first one.
+- **Wording everywhere:** the statuses are now "Check the board" and "Watch the video"; Queue's first chip is "To watch".
+- **Backend:** `/api/chapter` adds `render_job` and `videos`; chapter rows carry `series_id` and `cover`. Full suite 79/79.
