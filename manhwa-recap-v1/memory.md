@@ -9156,3 +9156,21 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - `chapter_status`: held counts as "making" (Being made), not Needs you. Waiting reasons are in plain words (e.g. "paused by a daily limit — resumes by itself when there is room or at midnight ET") instead of "budget_paused".
   - Jobs bar: "waiting its turn — at most 2 chapters at once" with Stop. The Being-made list labels held and adds a note.
 - **Tests:** new `test_line_max` 8/8; `test_limits_resume` updated (no room → nothing resumes) 6/6. Full suite 86/86. `next build` ok.
+- **Live (5680a22) after the push:** the line is Death Knight 89 running + Iron-Blooded 181 queued; 182 and 183 are "held" (waiting their turn). The runs continue on their own.
+
+### PLAN — Posting schedule like Scrapper's SocialPilot (owner, 2026-10-06: "is that how I want ours to be, work and operate")
+Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts, live refresh, Undo, ⏸/▶ auto-posting; status tabs with counts (👁 Needs Review · ● Ready to Post · ✓ Posted Archive · ⚠ Errors/Retry · All); sort field + direction; 🔀 Mix & Shuffle (round-robin / random / by channel); select rows → bulk (status change, assign accounts, bulk edit, AI rewrite, delete, retry all failed); rows with thumbnail, accounts ("⚠ none picked — choose"), status badge + **planned post time "⏰ Tue 11:00" (📌 pinned)**, posted time, "🗑 deletes <date>"; row actions Approve · ⏫ Post next · Post now · AI caption · Edit · Delete; schedule (posts/day, times) editable on the same screen (`QueueSchedule.tsx`).
+**Ours, to build** (`/queue` = "Posting schedule"):
+1. Backend:
+   - `publish_queue.planned()` projects every queued video's post time from the times, per-channel/day cap and slots already used;
+   - Mix/shuffle with Undo (round-robin by series, random, by series);
+   - ⏫ Post next (to top);
+   - Bulk endpoint: approve review videos, back to review, remove, set channels, post now, redo SEO;
+   - Retry all failed.
+2. Page:
+   - Header: schedule on/off (pause/resume auto-posting), next post, inline times + per-channel/day editor, counts, Undo.
+   - Tabs: Needs review / Ready to post / Posted archive / Errors / All.
+   - Sort and Mix.
+   - Checkboxes with a bulk bar.
+   - Image-card rows with channels, status, planned time, posted time, auto-delete date, and actions.
+3. Tests, memory, push at a gap (or pause and push per the owner's instruction), then live check.
