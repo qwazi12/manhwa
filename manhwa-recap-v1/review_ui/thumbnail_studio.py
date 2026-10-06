@@ -35,7 +35,8 @@ STYLE_VERSION = 1
 CONCEPT_TYPES = ("character", "action", "mystery", "transformation", "emotion")
 
 # Hook text must stay readable at 168px wide in a sidebar, hence the hard cap.
-MAX_HOOK_WORDS = 5
+# Spec 07 §4.1: 1-4 words.
+MAX_HOOK_WORDS = 4
 MAX_HOOK_CHARS = 28
 
 # Words that make a weak overlay — they carry no hook on their own.
@@ -44,37 +45,164 @@ were be this that his her their its it he she they you your my our who what
 when where how chapter part recap manhwa""".split())
 
 
-# --------------------------------------------------------------- typography
-def _font(size, bold=True):
-    """A real bold face on both the container and a dev Mac.
+# --------------------------------------------------------------- hook text
+# Spec 07 (docs/audit/07_THUMBNAIL_RECIPE.md) §1 "Text size floor": cap height
+# on the 1280-wide canvas is set by word count and never goes below 84 px; if
+# the hook does not fit at the floor, words are dropped — never shrunk further.
+CAP_BY_WORDS = {1: 180, 2: 132, 3: 108, 4: 90}
+CAP_FLOOR = 84
+STROKE_PCT, STROKE_MIN = 0.08, 9
+HOOK_FILL = (255, 212, 0)            # #FFD400 — 8/8 top performers
+# "line gap 0.92 x cap height": read as line pitch = 0.92 x the font SIZE (tight
+# leading). The literal reading (gap of 0.92 x cap between lines) cannot fit two
+# lines inside the spec's 222 px text zone at any cap height >= 84.
+LINE_PITCH = 0.92
+MAX_LINES = 2
 
-    The image ships fonts-dejavu-core; macOS has neither DejaVu nor the same
-    paths. Pillow's default bitmap font cannot scale, so falling back to it
-    silently would render unreadable text — worth failing loudly instead.
-    """
-    from PIL import ImageFont
-    cands = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-        "/System/Library/Fonts/Supplemental/Impact.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/Library/Fonts/Arial Bold.ttf",
-    ]
-    if not bold:
-        cands.insert(0, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
-    for p in cands:
+
+def cap_height_for(words):
+    """Cap height (px, on 1280x720) for a hook of `words` words (spec 07 §1)."""
+    if words <= 0:
+        return 0
+    return max(CAP_FLOOR, CAP_BY_WORDS.get(min(int(words), 4), CAP_FLOOR))
+
+
+def stroke_for(cap):
+    return max(STROKE_MIN, int(round(STROKE_PCT * cap)))
+
+
+_CAP_RATIO = {}
+
+
+def font_for_cap(cap):
+    """The hook font sized so its CAPITALS measure `cap` px tall."""
+    f100 = _font(100)
+    key = getattr(f100, "path", "default")
+    if key not in _CAP_RATIO:
+        b = f100.getbbox("H")
+        _CAP_RATIO[key] = max(0.3, (b[3] - b[1]) / 100.0)
+    return _font(max(8, int(round(cap / _CAP_RATIO[key]))))
+
+
+def hook_layout(text, max_w, max_h, measure=None):
+    """Fit a 1-4 word hook into a box at the spec's cap heights.
+
+    Returns {"lines", "cap", "font", "stroke", "words_used", "dropped"} or None.
+    Order: the word-count cap height on one line, then two lines; if it still
+    does not fit, step the cap down — but never below CAP_FLOOR — and only then
+    drop the last word."""
+    words = [w for w in (text or "").upper().split() if w][:MAX_HOOK_WORDS]
+    total = len(words)
+    while words:
+        top = cap_height_for(len(words))
+        for cap in range(top, CAP_FLOOR - 1, -2):
+            f = font_for_cap(cap)
+            st = stroke_for(cap)
+            pitch = int(round(LINE_PITCH * f.size))
+            tl = (lambda t: (measure or f.getlength)(t) + 2 * st) if measure is None else \
+                (lambda t: measure(t, f) + 2 * st)
+            options = [[" ".join(words)]]
+            if len(words) > 1:
+                options += [[" ".join(words[:i]), " ".join(words[i:])] for i in range(1, len(words))]
+                options[1:] = sorted(options[1:], key=lambda ls: max(tl(l) for l in ls))
+            for lines in options:
+                h = cap + (len(lines) - 1) * pitch + 2 * st
+                if len(lines) <= MAX_LINES and max(tl(l) for l in lines) <= max_w and h <= max_h:
+                    return {"lines": lines, "cap": cap, "font": f, "stroke": st, "pitch": pitch,
+                            "words_used": len(words), "dropped": total - len(words)}
+        words = words[:-1]                     # truncate — never shrink past the floor
+    return None
+
+
+def draw_hook(img, layout, x, y_bottom):
+    """Yellow #FFD400 caps, pure-black stroke OUTSIDE the glyph, drop shadow
+    (#000 @55%, offset (0,4), blur 8). Text sits on its bottom edge at y_bottom.
+    Returns the drawn block's bbox (x0, y0, x1, y1)."""
+    from PIL import Image, ImageDraw, ImageFilter
+    f, st, cap, pitch = layout["font"], layout["stroke"], layout["cap"], layout["pitch"]
+    lines = layout["lines"]
+    asc_to_cap = f.getbbox("H")[1]             # empty space above the capitals
+    block_h = cap + (len(lines) - 1) * pitch
+    y_top = y_bottom - block_h - st
+    shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    d = ImageDraw.Draw(img)
+    x1 = x
+    for i, line in enumerate(lines):
+        ty = y_top + i * pitch - asc_to_cap
+        sd.text((x, ty + 4), line, font=f, fill=(0, 0, 0, 140), stroke_width=st, stroke_fill=(0, 0, 0, 140))
+        x1 = max(x1, x + f.getlength(line) + 2 * st)
+    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(8)))
+    for i, line in enumerate(lines):
+        ty = y_top + i * pitch - asc_to_cap
+        # Pillow draws the stroke around the glyph (outside + inside); drawing the
+        # fill again on top keeps the yellow at full width, so the stroke reads as
+        # OUTSIDE the letterform.
+        d.text((x + st, ty), line, font=f, fill=(0, 0, 0, 255), stroke_width=st, stroke_fill=(0, 0, 0, 255))
+        d.text((x + st, ty), line, font=f, fill=HOOK_FILL + (255,))
+    return (x, y_top - st, int(x1), y_bottom)
+
+
+# --------------------------------------------------------------- typography
+# Spec 07 §1 / A8: a CONDENSED HEAVY sans only (Anton, Bebas Neue, Oswald Bold,
+# Archivo Black) — never decorative, serif or the series' logo font. Anton is
+# vendored with its SIL OFL licence (review_ui/fonts/), so the container and a
+# dev Mac resolve the SAME face; system fonts are a last resort and are logged.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+CONDENSED_FONTS = [
+    os.path.join(_HERE, "fonts", "Anton-Regular.ttf"),
+    "/usr/share/fonts/truetype/anton/Anton-Regular.ttf",
+    "/usr/share/fonts/truetype/bebas-neue/BebasNeue-Regular.ttf",
+    "/usr/share/fonts/truetype/oswald/Oswald-Bold.ttf",
+    "/usr/share/fonts/truetype/archivo-black/ArchivoBlack-Regular.ttf",
+]
+CONDENSED_FAMILIES = ("Anton", "Bebas Neue", "Oswald", "Archivo Black")
+_FALLBACK_FONTS = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Impact.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+]
+_FONT_LOGGED = {"path": None}
+
+
+def font_path():
+    """The face every thumbnail uses: the first condensed heavy sans found."""
+    for p in CONDENSED_FONTS + _FALLBACK_FONTS:
         if os.path.exists(p):
-            try:
-                return ImageFont.truetype(p, size)
-            except Exception:
-                continue
+            return p
+    return ""
+
+
+def _font(size, bold=True):
+    """The hook/badge face at `size` px. Logs the resolved path once per
+    process (and a WARNING on a non-condensed fallback) so a silent fall back to
+    DejaVu can never go unnoticed again."""
+    from PIL import ImageFont
+    p = font_path()
+    if p and _FONT_LOGGED["path"] != p:
+        _FONT_LOGGED["path"] = p
+        cond = p in CONDENSED_FONTS
+        print(json.dumps({"service": "thumbnail_studio", "event": "font_resolved", "path": p,
+                          "condensed": cond, "level": "info" if cond else "warning"}), flush=True)
+    if p:
+        try:
+            return ImageFont.truetype(p, size)
+        except Exception:
+            pass
     return ImageFont.load_default()
 
 
 def font_available():
+    """True only when the CONDENSED heavy face is in use (not just any TTF)."""
     from PIL import ImageFont
-    return not isinstance(_font(40), ImageFont.ImageFont)
+    f = _font(40)
+    if isinstance(f, ImageFont.ImageFont):
+        return False
+    try:
+        fam = f.getname()[0]
+    except Exception:
+        return False
+    return any(fam.startswith(c) for c in CONDENSED_FAMILIES)
 
 
 # ------------------------------------------------------------------ palette
@@ -367,6 +495,11 @@ def save_style(root, key, pack):
     os.replace(tmp, p)
     return pack
 
+
+# Spec 07 §3 layout geometry (1280x720). The text block and the face never
+# intersect; when the crop puts the face on the left, the composition mirrors.
+ZONES = {"text": (28, 470, 672, 692), "face": (700, 40, 1252, 560),
+         "badge": (28, 28, 232, 88), "inset": (900, 470, 1252, 692)}
 
 COMPOSITIONS = ("cover-badge", "anchor-split", "hero-focus", "badge-stack", "diptych", "cover-frame")
 
@@ -761,6 +894,8 @@ def render_concept(pdir, concept, style, out_path, width=W):
     is reproducible and always matches the chapter.
     """
     from PIL import Image, ImageDraw
+    print(json.dumps({"service": "thumbnail_studio", "event": "render", "font": font_path(),
+                      "composition": concept.get("composition"), "out": os.path.basename(out_path)}), flush=True)
     width = max(MIN_W, int(width))
     height = int(round(width * 9 / 16.0))
     pal = (concept.get("palette") or (style or {}).get("palette") or {})
@@ -863,21 +998,19 @@ def render_concept(pdir, concept, style, out_path, width=W):
 
     # Hook text — short by construction, and clamped again here.
     txt = validate_hook(concept.get("overlay_text") or "")["text"]
+    text_box = None
     if txt:
-        zone_w = (int(width * 0.42) - pad * 2 if comp == "anchor-split"
-                  else int(width * 0.58) - pad * 2 if comp == "cover-frame"
-                  else width - pad * 2)
-        tf, lines = _fit_text(draw, txt, zone_w, start=int(height * 0.16),
-                              floor=int(height * 0.068))
-        lh = int(tf.size * 1.06)
-        block = lh * len(lines)
-        badge_h = int(height * 0.16) + pad if comp == "badge-stack" else 0     # badge is top-left otherwise
-        ty = height - badge_h - pad - block
-        # A dark stroke keeps the text legible over any artwork beneath it.
-        stroke = max(2, int(height * 0.008))
-        for i, line in enumerate(lines):
-            draw.text((pad, max(pad, ty) + i * lh), line, font=tf, fill=ink + (255,),
-                      stroke_width=stroke, stroke_fill=(0, 0, 0, 255))
+        # Spec 07 §1/§4.1: word-count cap heights, 84 px floor, words dropped
+        # rather than shrunk; text zone x 28..672, y 470..692 (on 1280x720).
+        k = width / float(W)
+        zx0, zy0, zx1, zy1 = (int(v * k) for v in (ZONES["text"][0], ZONES["text"][1], ZONES["text"][2], ZONES["text"][3]))
+        if comp == "anchor-split":
+            zx1 = min(zx1, int(width * 0.42) - int(28 * k))
+        lay = hook_layout(txt, zx1 - zx0, zy1 - zy0)
+        if lay:
+            text_box = draw_hook(img, lay, zx0, zy1)
+            concept["_hook_layout"] = {"lines": lay["lines"], "cap": lay["cap"], "stroke": lay["stroke"],
+                                       "dropped": lay["dropped"]}
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     final = img.convert("RGB")
