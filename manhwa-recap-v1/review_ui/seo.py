@@ -690,9 +690,11 @@ RULES
 - Ground every claim in THE VIDEO. If something is not in the narration or
   panel data, do not state it. Never invent characters, plot points, or a
   different series.
-- Match the channel's measured title SHAPE (part marker, ALLCAPS emphasis,
-  length). If the channel rarely names the series in the title, you should not
-  either — the series name belongs in tags and the description.
+- TITLES: write ONLY the HOOK of each title, at most 60 characters. The
+  publisher builds every title from one fixed format so all chapters of a series
+  look the same: {template}. So the hook must NOT contain the series name, the
+  chapter number or a part marker — those are added for you. Keep the channel's
+  ALLCAPS emphasis on one or two words.
 - But the WORDS should come from what performs. Build each title around the
   hook verbs and power words listed under WHAT ACTUALLY PERFORMS: a concrete
   transformation or stake (dies / regressed / betrayed / becomes / unlocks /
@@ -828,10 +830,17 @@ def _clamp(out, card, style=None, patterns=None):
     """Enforce the hard limits in code. A model that drifts past YouTube's
     caps would otherwise produce metadata the publish step silently rejects."""
     titles = []
+    tmpl = card.get("title_template")
     for t in (out.get("titles") or [])[:5]:
-        txt = (t.get("text") or "").strip()[:YT_TITLE_MAX]
+        hook = (t.get("text") or "").strip()
+        if tmpl and hook:
+            import studio_settings as _ss
+            txt = _ss.build_title(tmpl, hook, card.get("title_series") or card.get("series"),
+                                  card.get("chapter"), YT_TITLE_MAX)
+        else:
+            txt = hook[:YT_TITLE_MAX]
         if txt:
-            titles.append({"text": txt, "why": (t.get("why") or "").strip(),
+            titles.append({"text": txt, "hook": hook if tmpl else None, "why": (t.get("why") or "").strip(),
                            "recommended": bool(t.get("recommended"))})
     # The RECOMMENDATION is computed, not taken from the model. Its own pick
     # reflected the prompt's emphasis rather than measurable strength, which is
@@ -893,6 +902,7 @@ def generate(pdir, name, card, style, res, model=None, _call=None, usage=None):
         style=json.dumps(_style_brief(style), indent=1, ensure_ascii=False),
         research=json.dumps((res or {}).get("patterns", {}), indent=1, ensure_ascii=False),
         web=json.dumps(web or {"note": "no web research available"}, indent=1, ensure_ascii=False),
+        template=(card.get("title_template") or "{hook} | {series} Ch.{chapter}").replace("{", "<").replace("}", ">"),
         series_yt=json.dumps([{"title": t["title"], "views": t["views"]} for t in sy.get("top") or []]
                              or {"note": sy.get("error") or "no series search"}, indent=1, ensure_ascii=False),
         tmax=YT_TITLE_MAX, tagmax=YT_TAGS_CHARS_MAX)

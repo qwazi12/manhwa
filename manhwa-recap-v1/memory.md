@@ -9076,3 +9076,12 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Backend `autopilot.mix()`; `priority_edit` gains mix(mode), undo (snapshot in `settings.priority_prev`, taken before mix, clear, set, group_top and group_remove), group_top and group_remove. API `mode` field; the response includes `can_undo`.
   - The Library Series view no longer has the Make next card (now the tab). The Upcoming page uses the same grouped list. User-facing wording changed: "Schedule for processing", "Scheduled #n", Home tile → `/library?view=scheduled`.
   - Tests: `test_autopilot_priority` 24/24 (mix modes keep story order, undo, groups); `test_autopilot` 50/50. `next build` ok.
+- **Step 4 done (local commit): uniform titles and an explained score.**
+  - `studio_settings.title_template` (default "{hook} | {series} Ch.{chapter}", validated: must contain {hook}; only hook/series/chapter; ≤ 40 fixed characters).
+  - `build_title()` shortens the hook at a word so the series and chapter always fit in 100 characters.
+  - The SEO prompt now asks for **only the hook** (≤ 60 characters, no series name, chapter or part marker). `_clamp` builds every title from the format with `title_series` = the web-research official English title, else the cleaned project series name (webtoon number stripped). Each title keeps its `hook`.
+  - Settings → "Video titles" card (format, live example, Default). The Watch tab's title suggestions explain the score: relevance 0–30, channel fit 0–25, discovery 0–25, hook 0–20; recommended = highest total, computed.
+  - Why it read "relevance 0": the old rule kept the series name out of titles (copied from the channel's habits).
+  - Settings overview adds `title_template`; the save event includes it.
+  - Tests: `test_seo_research` 16/16 (format applied, hook-only prompt, long hook trimmed, format without {hook} refused); `test_seo` 159/159. `next build` ok.
+  - Not done: existing SEO records keep their old titles until "↻ New suggestions" (asking the owner whether to re-run SEO for all waiting videos, a few cents each).

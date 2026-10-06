@@ -1549,6 +1549,15 @@ def api_seo_generate(body: SeoGenIn):
         web_err = f"skipped — {str(e)[:120]}"
     except Exception as e:  # noqa — SEO carries on without it
         web_err = str(e)[:200]
+    # One title format for every chapter (owner, 2026-10-05): the model writes
+    # the hook, the code builds the title with a stable series name.
+    try:
+        card["title_template"] = _studio.title_template()
+        card["title_series"] = ((card.get("web_facts") or {}).get("english_title")
+                                or _cs.clean_title(card.get("series") or "", card.get("source_url") or "")
+                                or card.get("series") or "")
+    except Exception:
+        pass
     style, res = {"titles": {"samples": 0}, "descriptions": {"samples": 0,
                                                              "top_hashtags": []}}, {}
     quota = 0
@@ -7664,6 +7673,7 @@ def settings_overview():
                      "defaults": _studio.publish_defaults()},
         "voice": gemini_tts.load_default(_i.PROJECTS) or {},
         "export": {"speed": _studio.export_speed(), "env_override": bool(os.environ.get("EXPORT_SPEED"))},
+        "title_template": _studio.title_template(),
         "drive": __import__("drive_store").status(_i.PROJECTS),
         "schedule": {**(_studio.load().get("schedule") or {}),
                      "next": _pq.next_slot(_studio.load().get("schedule") or {}, time.time())},
@@ -7878,6 +7888,7 @@ def studio_stats(body: StudioStatsIn):
 
 class StudioSettingsIn(BaseModel):
     export_speed: float | None = None
+    title_template: str | None = None
     publish: dict | None = None
     schedule: dict | None = None
 
@@ -7891,7 +7902,8 @@ def settings_save(body: StudioSettingsIn):
     sch = after.get("schedule") or {}
     _ev("settings", f"settings saved: export {after['export_speed']}x, publish to "
                     f"{', '.join(after['publish']['targets']) or 'nobody'} as {after['publish']['privacy']}; "
-                    f"posting schedule {'ON at ' + ', '.join(sch.get('times') or []) if sch.get('enabled') else 'off'}")
+                    f"posting schedule {'ON at ' + ', '.join(sch.get('times') or []) if sch.get('enabled') else 'off'}; "
+                    f"title format “{after.get('title_template')}”")
     return {"ok": True, "before": before, "settings": after}
 
 

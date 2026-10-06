@@ -16,6 +16,7 @@ export default function Settings() {
         <Channels d={d} reload={reload} />
         <Schedule d={d} reload={reload} />
         <Export d={d} reload={reload} />
+        <TitleFormat d={d} reload={reload} />
         <Drive d={d} />
         <Spending d={d} />
         <Storage d={d} />
@@ -238,5 +239,24 @@ function CapEditor({ sp }: { sp: any }) {
       </div>
       <span className="small faint">The most it can be set to ({money(sp.ceiling)}) is the Railway variable MAX_DAILY_SPEND_CEILING_USD. Undo: “Back to {money(sp.railway_default)}”.</span>
     </div>
+  );
+}
+
+/** One title format for every video (owner, 2026-10-05: "we need uniformity
+ *  for titles, especially since there will be multiple chapters"). */
+function TitleFormat({ d, reload }: any) {
+  const act = useAct();
+  const [t, setT] = useState<string>(d.title_template || "{hook} | {series} Ch.{chapter}");
+  const sample = t.replace("{hook}", "He Finally BREAKS Through").replace("{series}", "A Regressor's Tale of Cultivation").replace("{chapter}", "31");
+  return (
+    <Card title="Video titles">
+      <label className="field">Title format<input id="title-format" value={t} onChange={(e) => setT(e.target.value)} /></label>
+      <div className="small">Example: <b>{sample}</b></div>
+      <div className="row">
+        <Busy className="sm primary" disabled={t === d.title_template} onClick={() => act(async () => { await api("/api/settings", { title_template: t }); reload(); }, "Saved — new suggestions use it")}>Save</Busy>
+        <button className="sm ghost" onClick={() => setT("{hook} | {series} Ch.{chapter}")}>Default</button>
+      </div>
+      <p className="small muted">{"{hook}"} is written by the AI for each chapter; {"{series}"} is the series’ official English title (from the web research) and {"{chapter}"} the chapter number. Every chapter of a series gets the same shape. Titles already filled in keep their text until you press ↻ New suggestions.</p>
+    </Card>
   );
 }

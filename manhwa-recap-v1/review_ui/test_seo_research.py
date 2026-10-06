@@ -84,6 +84,25 @@ def main():
     check("the SEO writer gets the web research and the series' YouTube results",
           "WHAT THE WEB SAYS ABOUT THIS SERIES" in seen["p"] and "Regressor Cultivation" in seen["p"]
           and "WHAT RANKS ON YOUTUBE FOR THIS SERIES" in seen["p"] and "1234" in seen["p"])
+    # one title format for every chapter
+    import studio_settings as ss
+    seen.clear()
+    card2 = {**card, "aliases": [], "chapter": "31", "title_template": "{hook} | {series} Ch.{chapter}",
+             "title_series": "A Regressor's Tale of Cultivation"}
+    out = seo.generate(d, "x.mp4", card2, {}, res, _call=lambda p, m: json.dumps({"titles": [
+        {"text": "He Finally BREAKS Through", "recommended": True}, {"text": "The Sect Turns On Him"}],
+        "description": "D", "tags": ["a"], "hashtags": ["#a"]}))
+    check("titles are built from the format: hook | series Ch.N",
+          all(t["text"].endswith("| A Regressor's Tale of Cultivation Ch.31") for t in out["titles"])
+          and {t["hook"] for t in out["titles"]} == {"He Finally BREAKS Through", "The Sect Turns On Him"})
+    check("the model is told to write only the hook", "write ONLY the HOOK" in seo.PROMPT)
+    check("a long hook is shortened at a word so series and chapter always fit",
+          ss.build_title("{hook} | {series} Ch.{chapter}", "word " * 40, "Series Name", "7").endswith("| Series Name Ch.7"))
+    try:
+        ss.update({"title_template": "{series} Ch.{chapter}"})
+        check("a format without {hook} is refused", False)
+    except ValueError:
+        check("a format without {hook} is refused", True)
     src = open(os.path.join(HERE, "server.py"), encoding="utf-8").read()
     check("generation adds the credit line and shows the web sources",
           "credit_line((web or {}).get(\"facts\"))" in src and '"web": {"label": "Web research (Google)"' in src)

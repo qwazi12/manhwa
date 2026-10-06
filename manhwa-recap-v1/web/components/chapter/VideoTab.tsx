@@ -179,7 +179,15 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
           </label>
           {seo?.titles?.length > 0 && (
             <details open>
-              <summary className="small muted">Title suggestions ({seo.titles.length})</summary>
+              <summary className="small muted">Title suggestions ({seo.titles.length}) · all in your title format (Settings)</summary>
+              <details style={{ marginTop: 4 }}><summary className="small faint">How the score works</summary>
+                <div className="small muted" style={{ display: "grid", gap: 2, marginTop: 4 }}>
+                  <span><b>Relevance (0–30):</b> names this chapter’s characters, key words and the series.</span>
+                  <span><b>Channel fit (0–25):</b> matches your channel’s own titles: ALLCAPS emphasis, part marker, usual length.</span>
+                  <span><b>Discovery (0–25):</b> uses the words and phrases that get views in manhwa-recap searches (from the YouTube research).</span>
+                  <span><b>Hook (0–20):</b> a turn or stakes (betrayed, unlocks, until…).</span>
+                  <span>The highest total is marked recommended. It is computed, not the AI’s opinion.</span>
+                </div></details>
               <div className="grid" style={{ gap: 6, marginTop: 6 }}>
                 {seo.titles.map((t: any, i: number) => (
                   <div key={i} className="sugg">
