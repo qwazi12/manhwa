@@ -34,7 +34,7 @@ The scheduler checks every **10 minutes** (first check 60 s after boot); `AUTOPI
 | demand | weekly | YouTube recap demand per series (suggestions only) |
 | new sources | each check | reads any series source never checked yet |
 | publish prep | each check | up to 5 chapters waiting for you that lack SEO (≈ $0.012 each, only with budget left) or a thumbnail (free) get them. New chapters get SEO when making finishes; new videos get a thumbnail, then the Drive copy, after the render |
-| autopilot | each check, when **on** | makes the next chapter (round robin, N per day); re-reads every series source every 6 h |
+| autopilot | each check, when **on** | makes the next chapter: first the top ready entry of your **Make next** list (Library), else round robin; N per day; re-reads every series source every 6 h |
 | export cleanup | on export listing | deletes exports older than 7 days, except videos still scheduled to post |
 
 ## Settings changed in the app (stored on the volume)

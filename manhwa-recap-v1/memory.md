@@ -8954,3 +8954,19 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Docs:** CONFIG.md adds the scheduler step, the trim settings, and the /login cookie note.
 - **Tests:** `test_prepare_publish` 15/15 (draft SEO before a video, reuse without a second call, catch-up with and without budget, trim size, wiring); `test_thumbnail_studio` 112/112. Full suite 78/79 (only the known date-bound test). `next build` ok.
 - **Live (dfe4656), verified:** I regenerated ch.30's concepts and applied the cover concept (c0). The live `/thumbnail` shows no ASURASCANS.COM badge (top band trimmed); the cover, title art and CH 30 badge are intact. SEO for ch.30 fills in through the `publish prep` step after midnight ET, when the budget resets.
+
+### 2026-10-05 — Owner: "pick what videos the autopilot should do next… check things I want done in order, then it works on them before going on to others" — Make next list
+- **Name:** "Make next". The Library already uses "Next up" for the `high_upside` tier, so the new list got a different name.
+- **Backend (`autopilot.py`):**
+  - `settings["priority"]` is an ordered list of {series_id, chapter, added_at}, capped at 200.
+  - `priority_edit(action=add|remove|top|clear|set)` keeps the ticked order, with no duplicates.
+  - `priority_rows()` annotates each entry: ready / running / waiting (not released yet, or failed-once cooldown) / blocked (failed twice, or stopped by you) / no_source. It **prunes made chapters**.
+  - `decide(..., prio=)`: the first ready entry beats round robin. On/off, chapters a day, the autopilot budget and the site cap all still apply.
+  - A failing entry is skipped, so it never holds up the rest.
+  - Entries may be outside the latest-3 window (old chapters), and they run even if their series is paused (an explicit request).
+  - Activity messages: "Make next: added …", and picks say "(your Make next list)".
+  - `status()` returns `priority`, and `next.from_next_up`.
+- **API:** `POST /api/autopilot/priority {action, series_id, chapters[], order[]}`; `GET /api/autopilot` includes the list.
+- **UI:** Library (Series view) has a **Make next** card at the top: number, chapter, state pill, reason, ↑ ↓ ⤒ ✕, Clear, plus what autopilot does next (or why it waits / that it's off). A series' **Chapters** panel gets tick boxes on not-made chapters, "＋ Add to Make next (n)" (added lowest chapter first), and a "Make next #n" pill.
+- **Docs:** CONFIG.md autopilot row; RUNBOOK re-run row.
+- **Tests:** new `test_autopilot_priority` 14/14 (order kept, list before round robin then fewest-made, running state, made ones leave, failure skipped with reason, unreleased waits, top/set/remove/clear, budget and off still stop it, bad action refused); `test_autopilot` 50/50. Full suite 79/80 (only the known date-bound test). `next build` ok.

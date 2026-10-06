@@ -19,6 +19,7 @@ How to pause, resume, re-run, read the logs, and recover from the usual failures
 |---|---|---|
 | One step of a chapter | Chapter → step strip → **↻ Redo** (describe / script / voice / timeline) | ≈ $0.45 / $0.24 / $0.14 / free |
 | Render and export again | Chapter → **Render again** (joins the render queue) | free (CPU); the sheet offers a paid re-voice only when the studio voice changed (≈ $0.15–0.25) |
+| Choose which chapters autopilot makes next | Library → a series → **Chapters** → tick → **＋ Add to Make next**. The **Make next** card at the top of Library shows the order (↑ ↓ ⤒ ✕). Made chapters leave the list; a failing one is skipped. Same daily limit and budget | ≈ $0.50 each |
 | Render several chapters | Library → All chapters → tick → **🎬 Render selected**. One at a time, in order, each in its own voice. Progress: jobs bar and Activity → **Renders**; ✕ takes a waiting one out, ■ Stop stops the running one. | free |
 | A chapter from scratch | paste the chapter link → Options → **Make it again from scratch** | ≈ $0.50 |
 | A failed post | Queue → Errors → **↻ Try again** | — |

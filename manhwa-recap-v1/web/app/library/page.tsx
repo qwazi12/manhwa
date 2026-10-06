@@ -5,6 +5,7 @@ import { api, useApi } from "@/lib/api";
 import { enc, when } from "@/lib/fmt";
 import PasteBox from "@/components/PasteBox";
 import AllChapters from "@/components/AllChapters";
+import MakeNext from "@/components/MakeNext";
 import { Busy, Card, Chips, ConfirmButton, Empty, PageHead, Pill, StatusPill, Tabs, useAct } from "@/components/ui";
 
 const TIERS: [string, string][] = [["greenlight", "Make now"], ["high_upside", "Next up"], ["watchlist", "Watching"]];
@@ -17,6 +18,7 @@ type F = "all" | "greenlight" | "high_upside" | "watchlist" | "needs" | "paused"
 
 export default function Library() {
   const { data, reload, error } = useApi<any>("/api/library", 30000);
+  const ap = useApi<any>("/api/autopilot", 20000);
   const [f, setF] = useState<F>("all");
   const [q, setQ] = useState("");
   const [view, setView] = useState<"series" | "chapters">("series");
@@ -41,6 +43,7 @@ export default function Library() {
         </div>
       </div>
       {view === "chapters" ? <AllChapters /> : <>
+      <MakeNext ap={ap.data} reload={ap.reload} />
       <div className="spread">
         <Chips<F> value={f} onChange={setF} items={[["all", `All (${n("all")})`], ["needs", `Needs you (${n("needs")})`],
           ["greenlight", `Make now (${n("greenlight")})`], ["high_upside", `Next up (${n("high_upside")})`],
@@ -49,14 +52,14 @@ export default function Library() {
       </div>
       {error && <div className="banner bad">{error}</div>}
       {!data ? <Empty>Loading…</Empty> : shown.length === 0 ? <Empty>No series match. Paste a link above to add one.</Empty> : (
-        <div className="grid sgrid">{shown.map((s) => <SeriesCard key={s.id} s={s} reload={reload} />)}</div>
+        <div className="grid sgrid">{shown.map((s) => <SeriesCard key={s.id} s={s} reload={reload} prio={ap.data?.priority || []} onPrio={ap.reload} />)}</div>
       )}
       </>}
     </>
   );
 }
 
-function SeriesCard({ s, reload }: { s: any; reload: () => void }) {
+function SeriesCard({ s, reload, prio, onPrio }: { s: any; reload: () => void; prio: any[]; onPrio: () => void }) {
   const act = useAct();
   const [open, setOpen] = useState<null | "chapters" | "cast" | "manage">(null);
   const d = s.demand;
@@ -124,21 +127,33 @@ function SeriesCard({ s, reload }: { s: any; reload: () => void }) {
           </div>
         </div>
       </div>
-      {open === "chapters" && <ChapterList s={s} reload={reload} />}
+      {open === "chapters" && <ChapterList s={s} reload={reload} prio={prio} onPrio={onPrio} />}
       {open === "cast" && <Cast s={s} />}
       {open === "manage" && <Manage s={s} reload={reload} />}
     </Card>
   );
 }
 
-function ChapterList({ s, reload }: { s: any; reload: () => void }) {
+function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; prio: any[]; onPrio: () => void }) {
   const src = useApi<any>(`/api/series/chapters?series_id=${enc(s.id)}`);
   const act = useAct();
+  const [tick, setTick] = useState<string[]>([]);
+  const place = (ch: any) => prio.findIndex((r) => r.series_id === s.id && String(r.chapter) === String(ch));
+  // added in story order (lowest chapter first), whatever order they were ticked
+  const addTicked = () => act(async () => {
+    const chapters = [...tick].sort((a, b) => parseFloat(a) - parseFloat(b));
+    await api("/api/autopilot/priority", { action: "add", series_id: s.id, chapters });
+    setTick([]); onPrio();
+  }, `Added ${tick.length} to Make next`);
   const made: Record<string, any> = {};
   for (const r of s.chapters || []) made[String(r.chapter)] = r;
   const list: any[] = src.data?.chapters || [];
   return (
     <div style={{ borderTop: "1px solid var(--border)" }}>
+      <div className="spread" style={{ padding: "8px 14px", borderBottom: "1px solid var(--border)" }}>
+        <span className="small muted">Tick chapters, then add them to <b>Make next</b>: autopilot makes them first, in order.</span>
+        <button className="sm primary" disabled={!tick.length} onClick={addTicked}>＋ Add to Make next ({tick.length})</button>
+      </div>
       <div className="list" style={{ maxHeight: 420, overflowY: "auto" }}>
         {(s.chapters || []).filter((r: any) => !list.some((c) => String(c.ch) === String(r.chapter))).map((r: any) => (
           <ChapterRow key={r.id} label={`Ch.${r.chapter}`} row={r} />
@@ -147,7 +162,11 @@ function ChapterList({ s, reload }: { s: any; reload: () => void }) {
           const r = made[String(c.ch)];
           return r ? <ChapterRow key={c.ch} label={`Ch.${c.ch}`} date={c.date} row={r} /> : (
             <div className="it" key={c.ch}>
-              <div className="row"><b>Ch.{c.ch}</b><span className="small muted">{c.date || ""}</span><StatusPill s={{ key: "found", label: "Not made", tone: "muted" }} /></div>
+              <div className="row">
+                {place(c.ch) < 0 && <input type="checkbox" aria-label={`Tick ch.${c.ch}`} checked={tick.includes(String(c.ch))}
+                  onChange={(e) => setTick(e.target.checked ? [...tick, String(c.ch)] : tick.filter((x) => x !== String(c.ch)))} />}
+                <b>Ch.{c.ch}</b><span className="small muted">{c.date || ""}</span>
+                {place(c.ch) >= 0 ? <Pill tone="info">Make next #{place(c.ch) + 1}</Pill> : <StatusPill s={{ key: "found", label: "Not made", tone: "muted" }} />}</div>
               <div className="row">
                 <ConfirmButton className="sm" confirm="Make it? (~$0.50)" onConfirm={() => act(async () => { await api("/api/autopilot/run", { series_id: s.id, chapter: String(c.ch) }); reload(); }, `Making ch.${c.ch}`)}>Make</ConfirmButton>
                 <ConfirmButton className="sm ghost" confirm={`Plan from ch.${c.ch}?`} title="autopilot makes this chapter and every one after it, in order"

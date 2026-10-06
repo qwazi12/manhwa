@@ -6501,6 +6501,27 @@ def autopilot_check_now():
     return {"ok": True, "note": "checking sources — the card updates within a minute"}
 
 
+class PriorityIn(BaseModel):
+    action: str                   # add | remove | top | clear | set
+    series_id: str = ""
+    chapters: list[str] = []
+    order: list[dict] = []        # for "set": [{series_id, chapter}, ...]
+
+
+@app.post("/api/autopilot/priority")
+def autopilot_priority(body: PriorityIn):
+    """The Make next list: chapters autopilot makes first, in this order
+    (owner, 2026-10-05). Returns the list with each entry's state."""
+    try:
+        _autopilot.priority_edit(_ingest_mod.PROJECTS, body.action, body.series_id,
+                                 body.chapters, body.order)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    st = _autopilot.status(_ingest_mod.PROJECTS, _ap_deps())
+    return {"ok": True, "priority": st["priority"], "next": st["next"], "waiting": st["waiting"],
+            "enabled": st["enabled"]}
+
+
 class AutopilotRunIn(BaseModel):
     series_id: str
     chapter: str

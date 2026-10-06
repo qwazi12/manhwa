@@ -132,7 +132,12 @@ def save(root, st):
 
 
 _SAY = {
-    "chapter_queued": lambda f: (f"picked {f.get('series')} ch.{f.get('chapter')} (round robin)", "info"),
+    "chapter_queued": lambda f: (f"picked {f.get('series')} ch.{f.get('chapter')} ({f.get('why') or 'round robin'})", "info"),
+    "priority_add": lambda f: (f"Make next: added {', '.join('ch.' + str(c) for c in f.get('chapters') or [])} of {f.get('series')} ({f.get('n')} in the list)", "info"),
+    "priority_remove": lambda f: (f"Make next: removed {', '.join('ch.' + str(c) for c in f.get('chapters') or [])} of {f.get('series')}", "info"),
+    "priority_top": lambda f: (f"Make next: moved {f.get('series')} ch.{(f.get('chapters') or [''])[0]} to the top", "info"),
+    "priority_set": lambda f: ("Make next: order changed", "info"),
+    "priority_clear": lambda f: ("Make next: list cleared", "info"),
     "chapter_requested": lambda f: (f"made on request: {f.get('series')} ch.{f.get('chapter')}", "info"),
     "chapter_done": lambda f: (f"{f.get('key')} done", "ok"),
     "chapter_failed": lambda f: (f"{f.get('key')} failed: {f.get('error')}", "error"),
@@ -386,6 +391,106 @@ def candidates(st, series_view, canon, live_projects=(), now=None):
     return rows
 
 
+# ------------------------------------------------------------------ Make next
+# Owner, 2026-10-05: "pick what videos the autopilot should do next — check the
+# things I want done, in order, and it works through them before the others".
+# An ordered list in settings["priority"]: [{series_id, chapter, added_at}].
+# The first READY entry beats round robin. Same limits as everything else
+# (on/off, chapters a day, autopilot budget, site cap); a made chapter leaves
+# the list by itself; a failing one is skipped (with the reason) so it never
+# holds up the rest.
+MAX_PRIORITY = 200
+
+
+def _prio(st):
+    return list(st["settings"].get("priority") or [])
+
+
+def priority_edit(root, action, series_id="", chapters=(), order=None):
+    """add (append, in the order given) | remove | top | clear | set (full order).
+    Returns the new list."""
+    with _lock:
+        st = load(root)
+        cur = _prio(st)
+        keyf = lambda e: (e["series_id"], norm_chapter(e["chapter"]))
+        if action == "add":
+            have = {keyf(e) for e in cur}
+            for c in chapters:
+                k = (series_id, norm_chapter(c))
+                if k not in have:
+                    cur.append({"series_id": series_id, "chapter": k[1], "added_at": time.time()})
+                    have.add(k)
+            if len(cur) > MAX_PRIORITY:
+                raise ValueError(f"the Make next list holds at most {MAX_PRIORITY} chapters")
+        elif action == "remove":
+            drop = {(series_id, norm_chapter(c)) for c in chapters}
+            cur = [e for e in cur if keyf(e) not in drop]
+        elif action == "top":
+            k = (series_id, norm_chapter((list(chapters) or [""])[0]))
+            cur = [e for e in cur if keyf(e) == k] + [e for e in cur if keyf(e) != k]
+        elif action == "clear":
+            cur = []
+        elif action == "set":
+            by = {keyf(e): e for e in cur}
+            new = [by[(o["series_id"], norm_chapter(o["chapter"]))] for o in (order or [])
+                   if (o.get("series_id"), norm_chapter(o.get("chapter"))) in by]
+            cur = new + [e for e in cur if e not in new]
+        else:
+            raise ValueError("action must be add, remove, top, clear or set")
+        st["settings"]["priority"] = cur
+        save(root, st)
+    audit("priority_" + action, series=series_id, chapters=list(chapters), n=len(cur))
+    return cur
+
+
+def priority_rows(st, series_view, canon, live_projects=(), now=None):
+    """The Make next list with each entry's state; prunes made chapters from st.
+    Each row: series_id, title, chapter, state (ready|running|waiting|blocked|
+    no_source), reason, and — when ready — the candidates-style row to start."""
+    now = time.time() if now is None else now
+    view = {s["id"]: s for s in series_view}
+    ledger = st["ledger"]
+    out, keep = [], []
+    for e in _prio(st):
+        sid, ch = e["series_id"], norm_chapter(e["chapter"])
+        s = view.get(sid)
+        row = {"series_id": sid, "chapter": ch, "title": (s or {}).get("title") or sid,
+               "state": "ready", "reason": "", "start": None}
+        if s is None:
+            row.update(state="no_source", reason="this series is no longer tracked")
+            keep.append(e); out.append(row); continue
+        cand = candidates({**st, "start_from": dict(st["start_from"])}, [s], canon, live_projects, now)[0]
+        best = next((m for m in s.get("mirrors") or [] if m.get("series_key") == s.get("best_mirror")), None)
+        if cand["mirror"] is None or best is None:
+            row.update(state="no_source", reason=cand["reason"] or "no readable source")
+            keep.append(e); out.append(row); continue
+        listed = {norm_chapter(c) for c in best.get("chapters") or []}
+        le = ledger.get(ledger_key(canon(best["series_key"]), ch))
+        made = ch in {norm_chapter(c) for c in s.get("ingested") or []} or (le and le.get("status") == "done")
+        if made:
+            continue                                   # done: leaves the list
+        keep.append(e)
+        if le and le.get("status") in LIVE + ("budget_paused",):
+            row.update(state="running", reason="being made now")
+        elif ch not in listed:
+            row.update(state="waiting", reason=f"not on the source yet (latest there is ch.{best.get('latest')})")
+        elif le and le.get("status") == "stopped":
+            row.update(state="blocked", reason="stopped by you — remove it or Retry the series")
+        elif le and le.get("status") == "failed" and le.get("fails", 0) >= FAIL_LIMIT:
+            row.update(state="blocked", reason=f"failed {le['fails']}× — {le.get('error') or 'error'}")
+        elif le and le.get("status") == "failed" and now - (le.get("failed_at") or 0) < FAIL_COOLDOWN:
+            row.update(state="waiting", reason="failed once; tries again within the hour")
+        else:
+            row["start"] = dict(cand, next=ch, priority=True)
+        out.append(row)
+    st["settings"]["priority"] = keep
+    return out
+
+
+def priority_pick(prows):
+    return next((r["start"] for r in prows if r["state"] == "ready" and r["start"]), None)
+
+
 def pick(rows):
     """Round robin: fewest made by autopilot first, then watchlist order."""
     ready = [r for r in rows if r["state"] == "ready" and r["next"] is not None]
@@ -395,8 +500,9 @@ def pick(rows):
 
 
 # ------------------------------------------------------------------ decision
-def decide(st, rows, *, queue_busy, spent, cap, now=None, ap_spent=0.0):
-    """(waiting_reason or None, pick or None). No side effects."""
+def decide(st, rows, *, queue_busy, spent, cap, now=None, ap_spent=0.0, prio=None):
+    """(waiting_reason or None, pick or None). No side effects. `prio`: the
+    first ready Make next entry, which goes before round robin."""
     cfg = st["settings"]
     if not cfg.get("enabled"):
         return "Autopilot is off", None
@@ -413,7 +519,7 @@ def decide(st, rows, *, queue_busy, spent, cap, now=None, ap_spent=0.0):
     if cap and spent + est > cap:
         return (f"not enough budget left today (${spent:.2f} spent, ~${est:.2f} a chapter, "
                 f"cap ${cap:.2f}) — continues after midnight ET"), None
-    p = pick(rows)
+    p = prio or pick(rows)
     if p is None:
         return "no series has a chapter ready (all caught up, paused or blocked)", None
     return None, p
@@ -442,11 +548,14 @@ def tick(root, deps, now=None):
             audit("refresh_failed", error=str(e)[:200])
     with _lock:
         st = load(root)
-        rows = candidates(st, deps["view"](), deps["canon"], deps["live_projects"](), now)
-        save(root, st)                              # start_from for new series
+        view = deps["view"]()
+        live = deps["live_projects"]()
+        rows = candidates(st, view, deps["canon"], live, now)
+        prows = priority_rows(st, view, deps["canon"], live, now)
+        save(root, st)                              # start_from for new series, pruned Next up
         spent, cap = deps["spend"]()
         reason, p = decide(st, rows, queue_busy=deps["queue_busy"](), spent=spent, cap=cap, now=now,
-                           ap_spent=deps.get("ap_spend", lambda: 0.0)())
+                           ap_spent=deps.get("ap_spend", lambda: 0.0)(), prio=priority_pick(prows))
         if reason:
             runtime["last_result"] = "waiting: " + reason
             return None
@@ -458,8 +567,8 @@ def tick(root, deps, now=None):
                       job=job, source="autopilot", url=url)
     started = {"series": p["title"], "chapter": p["next"], "job": job, "project": pid, "at": now}
     runtime["last_started"] = started
-    runtime["last_result"] = f"started {p['title']} ch.{p['next']}"
-    audit("chapter_queued", **started)
+    runtime["last_result"] = f"started {p['title']} ch.{p['next']}" + (" (Make next list)" if p.get("priority") else "")
+    audit("chapter_queued", **started, why="your Make next list" if p.get("priority") else "round robin")
     return started
 
 
@@ -522,13 +631,16 @@ def status(root, deps, now=None):
     now = time.time() if now is None else now
     with _lock:
         st = load(root)
-        rows = candidates(st, deps["view"](), deps["canon"], deps["live_projects"](), now)
+        view = deps["view"]()
+        live = deps["live_projects"]()
+        rows = candidates(st, view, deps["canon"], live, now)
+        prows = priority_rows(st, view, deps["canon"], live, now)
         save(root, st)
     spent, cap = deps["spend"]()
     ap_spent = deps.get("ap_spend", lambda: 0.0)()
     reason, p = decide(st, rows, queue_busy=deps["queue_busy"](), spent=spent, cap=cap, now=now,
-                       ap_spent=ap_spent)
-    nxt = p or (pick(rows) if st["settings"].get("enabled") else None)
+                       ap_spent=ap_spent, prio=priority_pick(prows))
+    nxt = p or ((priority_pick(prows) or pick(rows)) if st["settings"].get("enabled") else None)
     ledger = st["ledger"]
     recent = sorted((dict(e, key=k) for k, e in ledger.items() if e.get("source") == "autopilot"),
                     key=lambda e: e.get("updated_at") or 0, reverse=True)[:8]
@@ -540,7 +652,9 @@ def status(root, deps, now=None):
         "ap_spent_usd": round(ap_spent, 2), "budget_usd": st["settings"].get("budget_usd"),
         "estimate_usd": estimate(ledger),
         "waiting": reason,
-        "next": {"series": nxt["title"], "chapter": nxt["next"], "series_id": nxt["series_id"]} if nxt else None,
+        "next": {"series": nxt["title"], "chapter": nxt["next"], "series_id": nxt["series_id"],
+                 "from_next_up": bool(nxt.get("priority"))} if nxt else None,
+        "priority": [{k: v for k, v in r.items() if k != "start"} for r in prows],
         "last_tick": runtime["last_tick"], "last_result": runtime["last_result"],
         "last_started": runtime["last_started"], "last_refresh": runtime["last_refresh"] or None,
         "tick_seconds": TICK_SECONDS,
