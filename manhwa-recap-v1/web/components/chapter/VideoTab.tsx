@@ -224,6 +224,20 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
                 {(seo.sources?.research?.top || []).slice(0, 5).map((v: any, i: number) => (
                   <a key={i} href={v.url} target="_blank" rel="noreferrer">↳ {v.title} · {(v.views || 0).toLocaleString()} views</a>
                 ))}
+                {seo.sources?.web && (() => {
+                  const w = seo.sources.web, f = w.facts || {};
+                  return <>
+                    <span><b>Web research (Google):</b> {w.detail}{w.error ? ` (${w.error})` : ""}</span>
+                    {f.english_title && <span>Official title: {f.english_title}{f.korean_title ? ` · ${f.korean_title}` : ""}{f.author ? ` · by ${f.author}${f.artist && f.artist !== f.author ? ` & ${f.artist}` : ""}` : ""}{f.platform ? ` · ${f.platform}` : ""}</span>}
+                    {(f.search_names || []).length > 0 && <span>Also searched as: {f.search_names.join(", ")}</span>}
+                    {(f.keywords || []).length > 0 && <span>Keywords: {[...(f.genres || []), ...f.keywords].join(", ")}</span>}
+                    {(w.sources || []).length > 0 && <span className="muted">Sources: {w.sources.map((x: any, i: number) => <a key={i} href={x.url} target="_blank" rel="noreferrer" style={{ marginRight: 6 }}>{x.domain} ({x.tier})</a>)}</span>}
+                  </>;
+                })()}
+                {seo.sources?.series_youtube && <span><b>YouTube for this series:</b> {seo.sources.series_youtube.detail}{seo.sources.series_youtube.query ? ` for “${seo.sources.series_youtube.query}”` : ""}{seo.sources.series_youtube.error ? ` (${seo.sources.series_youtube.error})` : ""}</span>}
+                {(seo.sources?.series_youtube?.top || []).slice(0, 5).map((v: any, i: number) => (
+                  <a key={"s" + i} href={v.url} target="_blank" rel="noreferrer">↳ {v.title} · {(v.views || 0).toLocaleString()} views</a>
+                ))}
                 {(seo.sanitized || []).length > 0 && <span className="muted">Removed before you saw it: {seo.sanitized.join(", ")}</span>}
               </div>
             </details>

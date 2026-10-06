@@ -351,6 +351,28 @@ def channel_style(client, cache_dir, handle=CHANNEL_HANDLE, force=False, limit=5
 
 
 # ============================================================ 3. RESEARCH
+def _series_search(client, card, max_results=10):
+    """What ranks on YouTube for THIS series ("<series> recap"), by real views:
+    one more search.list (100 quota units). The generic "manhwa recap <genre>"
+    search alone said nothing about the series itself."""
+    series = (card.get("web_facts") or {}).get("english_title") or card.get("series") or ""
+    if not series:
+        return {"ok": False, "error": "no series name", "top": [], "n": 0}
+    q = f"{series} manhwa recap"
+    try:
+        hits = client.search_recaps(q, limit=max_results)
+        stats = client.video_stats([h["video_id"] for h in hits])
+    except Exception as e:
+        return {"query": q, "ok": False, "error": str(e)[:200], "top": [], "n": 0}
+    for h in hits:
+        h["views"] = (stats.get(h.get("video_id") or "", {}) or {}).get("views", 0)
+    ranked = sorted(hits, key=lambda h: -h.get("views", 0))
+    return {"query": q, "ok": True, "n": len(ranked),
+            "top": [{"title": h["title"], "channel": h["channel"], "views": h.get("views", 0),
+                     "url": "https://www.youtube.com/watch?v=" + (h.get("video_id") or "")}
+                    for h in ranked[:6]]}
+
+
 def research(client, card, max_results=10):
     """ONE bounded search for comparable recaps, ranked by actual views.
 
@@ -366,6 +388,7 @@ def research(client, card, max_results=10):
     """
     genre = (card.get("genre") or [""])[0].split("/")[0]
     q = " ".join(x for x in ["manhwa recap", genre] if x).strip() or "manhwa recap"
+    series_part = _series_search(client, card)        # owner, 2026-10-05: research THIS series too
     try:
         hits = client.search_recaps(q, limit=max_results)
     except Exception as e:
@@ -394,6 +417,7 @@ def research(client, card, max_results=10):
     return {
         "query": q,
         "ok": True,
+        "series": series_part,
         "n": len(ranked),
         "patterns": {**analyze_titles(titles),
                      **mine_patterns(ranked),
@@ -654,6 +678,14 @@ WHAT ACTUALLY PERFORMS IN THIS NICHE (mined from comparable recaps and
 weighted by real view counts — this is the discovery evidence, use it hard):
 {research}
 
+WHAT THE WEB SAYS ABOUT THIS SERIES (Google-search research with graded
+sources — the names people really search for, credits, genres, keywords):
+{web}
+
+WHAT RANKS ON YOUTUBE FOR THIS SERIES (searched by its name, by real views —
+titles are context only, never copy them):
+{series_yt}
+
 RULES
 - Ground every claim in THE VIDEO. If something is not in the narration or
   panel data, do not state it. Never invent characters, plot points, or a
@@ -669,6 +701,10 @@ RULES
   do not submit four rewrites of one sentence.
 - Tags and hashtags must likewise mix project terms, alias forms, AND the
   discovery phrases listed above — not a generic keyword list.
+- Use the web research: put the official English title AND the most-searched
+  other names (search_names, the Korean title) in the tags and in the first two
+  lines of the description, and draw tags from its genres and keywords. If the
+  web research is empty, rely on the video and say nothing about credits.
 - Write ORIGINAL titles. Never reuse a competitor's title or a distinctive
   phrase from one. Learn the shape, not the words.
 - Titles must be <= {tmax} characters.
@@ -850,10 +886,15 @@ def _clamp(out, card, style=None, patterns=None):
 def generate(pdir, name, card, style, res, model=None, _call=None, usage=None):
     """One gated model call that packages the truth card in the channel's voice."""
     model = model or os.environ.get("SEO_MODEL", "gemini-3.5-flash")
+    web = {k: v for k, v in (card.get("web_facts") or {}).items() if v}
+    sy = (res or {}).get("series") or {}
     prompt = PROMPT.format(
         truth=json.dumps(_compact(card), indent=1, ensure_ascii=False),
         style=json.dumps(_style_brief(style), indent=1, ensure_ascii=False),
         research=json.dumps((res or {}).get("patterns", {}), indent=1, ensure_ascii=False),
+        web=json.dumps(web or {"note": "no web research available"}, indent=1, ensure_ascii=False),
+        series_yt=json.dumps([{"title": t["title"], "views": t["views"]} for t in sy.get("top") or []]
+                             or {"note": sy.get("error") or "no series search"}, indent=1, ensure_ascii=False),
         tmax=YT_TITLE_MAX, tagmax=YT_TAGS_CHARS_MAX)
 
     if _call is not None:                  # tests drive the model

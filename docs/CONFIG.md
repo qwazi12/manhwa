@@ -33,6 +33,7 @@ The scheduler checks every **10 minutes** (first check 60 s after boot); `AUTOPI
 | posting | each check, when the schedule is **on** | at each set time (default 12:00, 18:00; live: 11:00, 19:00), posts the next scheduled video; at most N per channel per day (default 1); slots that passed before switching on are skipped that day |
 | demand | weekly | YouTube recap demand per series (suggestions only) |
 | new sources | each check | reads any series source never checked yet |
+| SEO research | when SEO runs | per series, cached 7 days in `projects/_seo_web/`: a Google-grounded web search (official English title, other names people search, author/artist, platform, genres, keywords, graded sources) + a YouTube search for "<series> manhwa recap"; ≈ 2 Gemini calls per series a week + 200 YouTube quota units per SEO run. "Re-read the channel too" refreshes it |
 | publish prep | each check | up to 5 chapters waiting for you that lack SEO (≈ $0.012 each, only with budget left) or a thumbnail (free) get them. New chapters get SEO when making finishes; new videos get a thumbnail, then the Drive copy, after the render |
 | autopilot | each check, when **on** | makes the next chapter: first the top ready entry of your **Make next** list (Library), else round robin; N per day; re-reads every series source every 6 h |
 | export cleanup | on export listing | deletes exports older than 7 days, except videos still scheduled to post |

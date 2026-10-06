@@ -9016,3 +9016,12 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - `autopilot.forecast()`: Make next entries first, then a round-robin simulation (fewest made first, Make next picks counted, pinned chapters not repeated, running series continue after their current chapter). Each item gets `day` from today's count and chapters-a-day. Returned by `status()` as `forecast`.
   - `/api/home` adds `make_next`. The Library Make next card links to Upcoming.
   - Tests: `test_autopilot_priority` 17/17 (+ forecast order, days, no duplicates).
+- **Step 3 done: SEO research like Scrapper.**
+  - New `review_ui/seo_research.py`: a Gemini Google-grounded web search per series (same engine and source tiers as `series_research`), then a structuring call into english_title, korean_title, search_names, author, artist, platform, genres, keywords and status, each citing sources.
+  - Rules: credits need official or trusted sources; search names and keywords may come from wiki or other sites; forums and social never count.
+  - Cached 7 days in `projects/_seo_web/<series>.json`. A failed refresh keeps the saved research.
+  - `seo.research` adds a YouTube search for "<official title> manhwa recap" (views-ranked).
+  - The prompt gets "WHAT THE WEB SAYS ABOUT THIS SERIES" and "WHAT RANKS ON YOUTUBE FOR THIS SERIES", plus a rule to use the official and searched names in tags and the first description lines.
+  - `api_seo_generate` adds a credit line, built in code with no URLs ("Original work: <title> (<Korean>) by <author> (story) & <artist> (art), published on <platform>. Support the official release."). `sources.web` and `sources.series_youtube` are shown on the Watch tab under "Where the suggestions came from".
+  - Cost: about 2 Gemini calls per series per week plus 1 per chapter; 200 YouTube quota units per run. CONFIG.md updated.
+  - Tests: new `test_seo_research` 12/12; `test_seo` 159/159. Full suite 82/83 (only the known date-bound test). `next build` ok.

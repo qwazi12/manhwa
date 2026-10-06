@@ -1511,6 +1511,20 @@ def api_seo_generate(body: SeoGenIn):
         raise HTTPException(400, "which export are these suggestions for?")
 
     card = _seo.truth_card(pdir)                     # 1. project truth FIRST
+    # 2. web research about the series (Google-grounded, sourced, cached a week)
+    web, web_err = None, None
+    try:
+        import seo_research as _sw
+        import gemini_tts as _gt
+        _meta = _read_json(os.path.join(pdir, "project.json"))
+        web = _sw.get(_yt_root(), card.get("series"), card.get("aliases") or [], _meta.get("url") or "",
+                      _gt.env_any_case("GEMINI_API_KEY"), force=body.refresh_style)
+        if web:
+            card["web_facts"] = web.get("facts") or {}
+    except usage.UsageCapExceeded as e:
+        web_err = f"skipped — {str(e)[:120]}"
+    except Exception as e:  # noqa — SEO carries on without it
+        web_err = str(e)[:200]
     style, res = {"titles": {"samples": 0}, "descriptions": {"samples": 0,
                                                              "top_hashtags": []}}, {}
     quota = 0
@@ -1530,6 +1544,13 @@ def api_seo_generate(body: SeoGenIn):
     except Exception as e:
         raise HTTPException(502, "SEO generation failed: %s" % str(e)[:300])
 
+    try:
+        import seo_research as _sw2
+        credit = _sw2.credit_line((web or {}).get("facts"))
+        if credit and credit not in (out.get("description") or ""):
+            out["description"] = ((out.get("description") or "").rstrip() + "\n\n" + credit)[:YT_DESC_MAX]
+    except Exception:
+        pass
     conf = _seo.confidence(card, style, res)
     prev = _seo.get(pdir, name) or {}
     rec = {
@@ -1556,6 +1577,20 @@ def api_seo_generate(body: SeoGenIn):
             "research": {"label": "YouTube search", "query": res.get("query"),
                          "detail": "%d comparable videos" % res.get("n", 0),
                          "top": res.get("top", []), "error": res.get("error")},
+            "series_youtube": {"label": "YouTube search for this series",
+                               "query": (res.get("series") or {}).get("query"),
+                               "detail": "%d videos" % (res.get("series") or {}).get("n", 0),
+                               "top": (res.get("series") or {}).get("top", []),
+                               "error": (res.get("series") or {}).get("error")},
+            "web": {"label": "Web research (Google)",
+                    "detail": ("%d sources%s" % (len((web or {}).get("sources") or []),
+                                                  " · saved research" if (web or {}).get("from_cache") else ""))
+                              if web else "none",
+                    "facts": (web or {}).get("facts") or {},
+                    "queries": (web or {}).get("queries") or [],
+                    "sources": [{"domain": x.get("domain"), "url": x.get("url"), "tier": x.get("tier")}
+                                for x in ((web or {}).get("sources") or [])[:10]],
+                    "error": web_err or (web or {}).get("refresh_error")},
         },
         "style_signal": style.get("titles", {}),
         "cut_signature": cut_signature(pdir=pdir),
@@ -2404,7 +2439,7 @@ def _prepare_publish(pdir, name, do_seo=True):
             pass
         except usage.UsageCapExceeded as e:
             _PREP_NOTE[key] = ("Title, description and tags will fill in after midnight ET — today's spend "
-                               "limit is used up (the suggestions cost about 1 cent). The thumbnail is ready.")
+                               "limit is used up (the suggestions cost a few cents; the web research is reused for a week). The thumbnail is ready.")
             _ev("publish", f"{label}: SEO suggestions wait for budget — {str(e)[:120]}", "warn")
         except Exception as e:  # noqa
             _PREP_NOTE[key] = f"Title suggestions couldn't be made: {str(e)[:160]}"
