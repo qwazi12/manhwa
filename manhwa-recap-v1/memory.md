@@ -9211,3 +9211,15 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
 - (D) Mobile alignment, through the card layout.
 - (E) Demand card in plain words, linking to the suggestions.
 - Then tests, memory, pause+push+resume, live check.
+- **Built (A–E):**
+  - (A) Jobs bar rewritten like Scrapper: one line per job, no progress bars (⏳ running "stage · pct · elapsed", ⏸ next / waiting its turn / paused by a daily limit…, ⚠ render failed), Resume/⏸/■ where they apply, 3 s refresh, compact CSS. "Being made now" shows a bar only for the running chapter.
+  - (B) `/queue` rebuilt from SocialPilot's code:
+    - Header card: counts, ↻ Live, **"↶ Undo: <label>"** (`prev_label`: "Mix: round-robin", "Post next: <chapter>"), ⏸ Pause posting / ▶ Resume posting; Sort + ↑↓, 🔀 Mix ▾ (purple), **⏰ Schedule · N/day ▾** popover (times chips, ＋Add, per channel a day, next planned slots, Save).
+    - One scrolling tab row with count badges; "Select all N"; sticky bulk bar.
+    - **Cards**: checkbox + status badge, full-width 16:9 thumbnail (tap → video), bold title, meta, green "⏰ Tue, Oct 6 at 11:00 AM ET", channel chips "📺 Flamingo Remix (youtube) ✎" / "⚠ No channel — choose", action row (✓ Approve · ⏫ Post next · 🚀 Post now/↻ Retry · ✨ AI · ✎ Edit · ▶ Watch · ↩ · 🗑).
+    - Backend time label format matches Scrapper; test updated 12/12.
+  - (C) `POST /api/thumbcopilot/rerender_all` → `_rerender_chosen_thumbnails()` re-applies each video's chosen concept with the current layout (small top-left badge). Free; uploaded thumbnails untouched; Activity reports the count.
+  - (D) Mobile: card layout, one column under 700 px. Desktop preview checked locally (cards, header, tabs render; the window resize to phone width didn't apply in the test browser, so phone width was not seen).
+  - (E) Home demand card in plain words ("YouTube demand suggests a new priority for N series", pill "Suggestion", 📈, "See the suggestions" → `/library?f=suggest`). Library gets a "📈 Demand suggestions (n)" filter.
+  - Full suite 87/87; `next build` ok.
+- **Found in the settings log:** posting was switched OFF at 08:36:39 ET from the site (the owner's Pause button, as far as I can tell; I made no change). Default privacy was set to **public** at 07:18 ET. **Flagged to the owner:** CLAUDE.md says scraped content needs the Stage 7 rights gate before anything public.

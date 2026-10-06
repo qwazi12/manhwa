@@ -6,7 +6,7 @@ import { Card, Empty, PageHead, StatusPill } from "@/components/ui";
 import PasteBox from "@/components/PasteBox";
 
 const ACTION_HREF = (n: any) =>
-  n.kind === "demand" ? "/library" : n.kind === "video_ready" ? `/chapter/${n.id}?tab=video` : `/chapter/${n.id}`;
+  n.kind === "demand" ? "/library?f=suggest" : n.kind === "video_ready" ? `/chapter/${n.id}?tab=video` : `/chapter/${n.id}`;
 
 export default function Home() {
   const { data: h, reload } = useApi<any>("/api/home", 15000);
@@ -27,7 +27,7 @@ export default function Home() {
           <div className="needgrid">
             {h.need.map((n: any, i: number) => (
               <Link key={i} href={ACTION_HREF(n)} className="needcard">
-                {n.series_id && n.cover ? <img src={`/api/watchlist/cover/${encodeURIComponent(n.series_id)}`} alt="" loading="lazy" /> : <div className="ph" />}
+                {n.series_id && n.cover ? <img src={`/api/watchlist/cover/${encodeURIComponent(n.series_id)}`} alt="" loading="lazy" /> : <div className="ph" style={{ display: "grid", placeItems: "center", fontSize: 34 }}>{n.kind === "demand" ? "📈" : ""}</div>}
                 <div className="nb">
                   <b>{n.title}</b>
                   <StatusPill s={n.status} />

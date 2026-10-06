@@ -14,7 +14,7 @@ const AP_STATE: Record<string, [string, string]> = {
   paused: ["warn", "paused"], stopped: ["warn", "stopped by you"], cooldown: ["warn", "retrying soon"],
   blocked: ["bad", "needs you"], no_source: ["bad", "no source"],
 };
-type F = "all" | "greenlight" | "high_upside" | "watchlist" | "needs" | "paused";
+type F = "all" | "greenlight" | "high_upside" | "watchlist" | "needs" | "paused" | "suggest";
 
 export default function Library() {
   const { data, reload, error } = useApi<any>("/api/library", 30000);
@@ -23,13 +23,14 @@ export default function Library() {
   const [q, setQ] = useState("");
   const [view, setView] = useState<"series" | "chapters" | "scheduled">("series");
   const act = useAct();
-  useEffect(() => { try { const v = new URLSearchParams(location.search).get("view"); if (v === "chapters" || v === "scheduled") setView(v); } catch {} }, []);
+  useEffect(() => { try { const q = new URLSearchParams(location.search); const v = q.get("view"); if (v === "chapters" || v === "scheduled") setView(v); if (q.get("f") === "suggest") setF("suggest"); } catch {} }, []);
   const series: any[] = data?.series || [];
+  const sug = (s: any) => !!(s.demand?.suggested_tier && s.demand.suggested_tier !== s.tier);
   const needs = (s: any) => ["to_review", "video_ready", "failed", "waiting"].some((k) => s.counts?.[k]);
   const shown = useMemo(() => series.filter((s) =>
-    (f === "all" || s.tier === f || (f === "needs" && needs(s)) || (f === "paused" && s.state === "paused")) &&
+    (f === "all" || s.tier === f || (f === "needs" && needs(s)) || (f === "paused" && s.state === "paused") || (f === "suggest" && sug(s))) &&
     (!q || (s.title || "").toLowerCase().includes(q.toLowerCase()))), [series, f, q]);
-  const n = (k: F) => series.filter((s) => k === "all" || s.tier === k || (k === "needs" && needs(s)) || (k === "paused" && s.state === "paused")).length;
+  const n = (k: F) => series.filter((s) => k === "all" || s.tier === k || (k === "needs" && needs(s)) || (k === "paused" && s.state === "paused") || (k === "suggest" && sug(s))).length;
   return (
     <>
       <PageHead title="Library" sub="Every series you track, with its chapters. Autopilot makes the next chapter of each series in turn." />
@@ -47,7 +48,8 @@ export default function Library() {
       <div className="spread">
         <Chips<F> value={f} onChange={setF} items={[["all", `All (${n("all")})`], ["needs", `Needs you (${n("needs")})`],
           ["greenlight", `Make now (${n("greenlight")})`], ["high_upside", `Next up (${n("high_upside")})`],
-          ["watchlist", `Watching (${n("watchlist")})`], ["paused", `Paused (${n("paused")})`]]} />
+          ["watchlist", `Watching (${n("watchlist")})`], ["paused", `Paused (${n("paused")})`],
+          ...(n("suggest") ? [["suggest", `📈 Demand suggestions (${n("suggest")})`] as [F, string]] : [])]} />
         <input placeholder="Search series" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 260 }} aria-label="Search series" />
       </div>
       {error && <div className="banner bad">{error}</div>}

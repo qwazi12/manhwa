@@ -284,8 +284,9 @@ def planned(sched, d, now, targets_of, days=21):
                 if tg and all(used.get((dstr, c), 0) < cap for c in tg):
                     h, m = (int(v) for v in t.split(":"))
                     at = datetime(day.year, day.month, day.day, h, m, tzinfo=tz).timestamp()
-                    out[x["id"]] = {"at": max(at, now),
-                                    "label": (day.strftime("%a %b %d ") + t) if at >= now
+                    hh = h % 12 or 12
+                    nice = f"{day.strftime('%a, %b')} {day.day} at {hh}:{m:02d} {'AM' if h < 12 else 'PM'} ET"
+                    out[x["id"]] = {"at": max(at, now), "label": nice if at >= now
                                     else f"at the next check ({t} slot)"}
                     for c in tg:
                         used[(dstr, c)] = used.get((dstr, c), 0) + 1
@@ -303,6 +304,10 @@ def _set_order(d, ids):
     d["items"] = new + [x for x in d["items"] if x["status"] != "queued"]
 
 
+def undo_label(d):
+    return d.get("prev_label") if d.get("prev_order") else None
+
+
 def shuffle(root, mode, series_of, rnd=None):
     """Mix & Shuffle the queued videos (Scrapper's modes, by SERIES instead of
     channel): round_robin = one of each series in turn, each series in chapter
@@ -314,6 +319,7 @@ def shuffle(root, mode, series_of, rnd=None):
         d = load(root)
         queued = [x for x in d["items"] if x["status"] == "queued"]
         d["prev_order"] = [x["id"] for x in queued]
+        d["prev_label"] = "Mix: " + mode.replace("_", "-")
         groups = {}
         for x in queued:
             groups.setdefault(series_of(x), []).append(x)
@@ -347,12 +353,13 @@ def undo_order(root):
         if not prev:
             raise ValueError("nothing to undo")
         d["prev_order"] = [x["id"] for x in d["items"] if x["status"] == "queued"]
+        d["prev_label"] = "Redo: " + (d.get("prev_label") or "last change").replace("Redo: ", "")
         _set_order(d, prev)
         _save(root, d)
         return prev
 
 
-def to_top(root, item_id):
+def to_top(root, item_id, label=""):
     """⏫ Post next: first in line, so it takes the next posting time."""
     with _lock:
         d = load(root)
@@ -360,5 +367,6 @@ def to_top(root, item_id):
         if item_id not in queued:
             raise ValueError("only a queued video can be moved")
         d["prev_order"] = queued
+        d["prev_label"] = "Post next" + (f": {label}" if label else "")
         _set_order(d, [item_id] + [i for i in queued if i != item_id])
         _save(root, d)

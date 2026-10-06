@@ -36,13 +36,13 @@ def main():
     plan = pq.planned(sched, d, at(6, 9, ) if False else at(6, "09:00"), lambda x: ["mk:youtube"])
     labels = [plan[ids[p]]["label"] for p in ("a_1", "a_2", "b_1", "c_1", "a_3")]
     check("each video gets its post time, in order, 2 a day", labels == [
-        "Tue Oct 06 11:00", "Tue Oct 06 19:00", "Wed Oct 07 11:00", "Wed Oct 07 19:00", "Thu Oct 08 11:00"])
+        "Tue, Oct 6 at 11:00 AM ET", "Tue, Oct 6 at 7:00 PM ET", "Wed, Oct 7 at 11:00 AM ET", "Wed, Oct 7 at 7:00 PM ET", "Thu, Oct 8 at 11:00 AM ET"])
     plan2 = pq.planned({**sched, "per_channel_per_day": 1}, d, at(6, "12:00"), lambda x: ["mk:youtube"])
     check("an unfired time today posts at the next check; 1 a day spreads over days",
-          plan2[ids["a_1"]]["label"] == "at the next check (11:00 slot)" and plan2[ids["a_2"]]["label"] == "Wed Oct 07 11:00")
+          plan2[ids["a_1"]]["label"] == "at the next check (11:00 slot)" and plan2[ids["a_2"]]["label"] == "Wed, Oct 7 at 11:00 AM ET")
     d3 = dict(d, slots_done={"2026-10-06": {"11:00": "posted"}})
     plan3 = pq.planned({**sched, "per_channel_per_day": 1}, d3, at(6, "12:00"), lambda x: ["mk:youtube"])
-    check("a used time today is skipped", plan3[ids["a_1"]]["label"] == "Tue Oct 06 19:00")
+    check("a used time today is skipped", plan3[ids["a_1"]]["label"] == "Tue, Oct 6 at 7:00 PM ET")
     check("no channel picked: no time is planned", pq.planned(sched, d, at(6, "09:00"), lambda x: []) == {})
     check("schedule off: nothing planned", pq.planned({**sched, "enabled": False}, d, at(6, "09:00"), lambda x: ["y"]) == {})
 

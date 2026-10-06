@@ -1384,6 +1384,37 @@ def thumbconcept(project: str = "", name: str = "", concept_id: str = ""):
                         headers={"Cache-Control": "no-store"})
 
 
+def _rerender_chosen_thumbnails():
+    """Redraw every video's CHOSEN thumbnail with the current design (owner,
+    2026-10-06: the small top-left "CH" badge only reached new thumbnails).
+    Same concept, same panel, same text — only the layout code is newer. Free
+    (local PIL), never touches an uploaded thumbnail."""
+    import ingest as _i
+    import thumbnail_studio as tstudio
+    n, skipped = 0, 0
+    for pid in sorted(os.listdir(_i.PROJECTS)):
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(os.path.join(pdir, "exports")):
+            continue
+        for name, rec in (tstudio.load_concepts(pdir) or {}).items():
+            cid = ((rec or {}).get("chosen") or {}).get("concept_id")
+            if not cid or not os.path.exists(os.path.join(pdir, "exports", name)):
+                continue
+            try:
+                api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=cid))
+                n += 1
+            except Exception:  # noqa
+                skipped += 1
+    _ev("publish", f"thumbnails redrawn with the new chapter badge: {n}" + (f" ({skipped} skipped)" if skipped else ""), "ok")
+    return n
+
+
+@app.post("/api/thumbcopilot/rerender_all")
+def api_thumbcopilot_rerender_all():
+    threading.Thread(target=_rerender_chosen_thumbnails, daemon=True).start()
+    return {"ok": True, "note": "redrawing in the background — Activity shows when it's done"}
+
+
 @app.post("/api/thumbcopilot/apply")
 def api_thumbcopilot_apply(body: ThumbApplyIn):
     """Render the chosen concept and hand it to the EXISTING thumbnail store.
@@ -7305,8 +7336,13 @@ def home_view():
         tiers = {s["id"]: s.get("tier") for s in _wl_view()["series"]}
         n_sug = sum(1 for k, v in dem.items() if v.get("suggested_tier") and v["suggested_tier"] != tiers.get(k))
         if n_sug:
-            need.append({"kind": "demand", "title": f"{n_sug} tier suggestion(s) from demand research",
-                         "status": _cs.view("found"), "action": "Decide in Library"})
+            # owner, 2026-10-06: "what is '3 tier suggestion(s) from demand research'?"
+            need.append({"kind": "demand",
+                         "title": f"YouTube demand suggests a new priority for {n_sug} series",
+                         "status": {"key": "found", "label": "Suggestion", "tone": "info",
+                                    "reason": "The weekly demand check compares YouTube interest in each series and "
+                                              "suggests moving it to Make now, Next up or Watching. Nothing changes until you accept."},
+                         "action": "See the suggestions"})
     except Exception:
         pass
     q = _pq.sync(_i.PROJECTS, _pub_status)
@@ -7899,6 +7935,7 @@ def studio_overview():
     return {"review": review, "ready": ready, "queue": queue_rows, "published": _studio_published(),
             "retention_days": exports["retention_days"],
             "can_undo_order": bool(q.get("prev_order")),
+            "undo_label": _pq.undo_label(q),
             "schedule": {"enabled": bool(sched.get("enabled")), "times": sched.get("times"),
                          "per_channel_per_day": sched.get("per_channel_per_day"),
                          "next": _pq.next_slot(sched, time.time()),
@@ -8063,7 +8100,8 @@ def studio_queue_top(body: StudioItemIn):
     """⏫ Post next: first in line, so it takes the next posting time."""
     import ingest as _i
     try:
-        _pq.to_top(_i.PROJECTS, body.id)
+        it = next((x for x in _pq.load(_i.PROJECTS)["items"] if x["id"] == body.id), None)
+        _pq.to_top(_i.PROJECTS, body.id, _pretty(it["project"]) if it else "")
     except ValueError as e:
         raise HTTPException(409, str(e))
     return {"ok": True}

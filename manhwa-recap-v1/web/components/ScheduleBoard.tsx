@@ -67,7 +67,7 @@ export default function ScheduleBoard() {
                     <b>{j.name}</b>
                     <span className="small muted">{waiting ? <Pill tone="warn">{j.status === "budget_paused" ? "paused by a limit" : j.status === "held" ? "waiting its turn" : String(j.status).replace("_", " ")}</Pill> : <Pill tone="info">{j.stage || j.status}</Pill>}
                       {" "}{String(j.msg || "").slice(0, 160)}</span>
-                    {!waiting && j.pct != null && <div className="bar"><i style={{ width: `${j.pct || 3}%` }} /></div>}
+                    {j.status === "running" && j.pct != null && <div className="bar"><i style={{ width: `${j.pct || 3}%` }} /></div>}
                   </div>
                 </div>
                 {r && <Link className="btn sm ghost" href={`/chapter/${encodeURIComponent(r.id)}`}>Open</Link>}
