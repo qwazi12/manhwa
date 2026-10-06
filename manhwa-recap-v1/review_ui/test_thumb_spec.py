@@ -171,3 +171,116 @@ def test_cover_logo_band_and_corner_mark_are_removed(tmp_path):
                       os.path.join(ART, "a5_logo_untrimmed_control.png"))
     px2 = Image.open(os.path.join(ART, "a5_logo_untrimmed_control.png")).convert("RGB").load()
     assert sum(1 for y in range(0, 720, 3) for x in range(0, 1280, 3) if near(px2[x, y], LOGO)) > 500
+
+
+# ------------------------------------------------------------------ A3 / A4
+SKIN = (232, 180, 150)
+
+
+def _panel(tmp_path, name, face_px, size=(1600, 1000), bubble_px=None):
+    """A synthetic chapter panel: soft noise (never pure black/yellow/white), a
+    flat skin-coloured face block and optionally a white speech bubble."""
+    import random
+    from PIL import Image, ImageDraw
+    rnd = random.Random(3)
+    im = Image.new("RGB", size)
+    d = ImageDraw.Draw(im)
+    for y in range(0, size[1], 10):
+        for x in range(0, size[0], 10):
+            v = rnd.randint(60, 140)
+            d.rectangle([x, y, x + 9, y + 9], fill=(v, v + 10, v + 30))
+    d.rectangle(face_px, fill=SKIN)
+    if bubble_px:
+        d.ellipse(bubble_px, fill=(255, 255, 255))
+    p = tmp_path / name
+    im.save(p)
+    W_, H_ = size
+    nb = lambda b: [b[0] / W_, b[1] / H_, b[2] / W_, b[3] / H_]
+    return str(p), nb(face_px), (nb(bubble_px) if bubble_px else None)
+
+
+def _bbox_of(img, colour, tol=0):
+    px = img.convert("RGB").load()
+    xs, ys = [], []
+    for y in range(0, img.height, 2):
+        for x in range(0, img.width, 2):
+            if sum(abs(a - b) for a, b in zip(px[x, y], colour)) <= tol:
+                xs.append(x)
+                ys.append(y)
+    return (min(xs), min(ys), max(xs), max(ys)) if xs else None
+
+
+def _hero(path, face, **kw):
+    c = {"composition": "panel-hero", "focal_file": path, "face_box": face, "face_is_mc": True,
+         "overlay_text": "HE WON", "chapter": "358", "palette": {"accent": [200, 30, 30]}}
+    c.update(kw)
+    return c
+
+
+def test_text_and_face_zones_do_not_intersect(tmp_path):
+    from PIL import Image
+    # the face sits on the LEFT of the panel, right where the hook goes
+    path, face, _ = _panel(tmp_path, "left_face.png", (180, 380, 520, 760))
+    out = os.path.join(ART, "a4_left_face_mirrored.png")
+    c = _hero(path, face)
+    ts.render_concept(str(tmp_path), c, {}, out)
+    im = Image.open(out)
+    skin = _bbox_of(im, SKIN)
+    text = _bbox_of(im.crop((0, 400, 1280, 720)), YELLOW)
+    assert skin and text
+    text = (text[0], text[1] + 400, text[2], text[3] + 400)
+    # measured on the pixels: the hook's yellow and the face never overlap
+    assert not ts._intersects(skin, text), (skin, text)
+    px = im.convert("RGB").load()
+    inside = sum(1 for y in range(skin[1], skin[3]) for x in range(skin[0], skin[2]) if px[x, y] == YELLOW)
+    assert inside == 0
+    assert c["_mirrored"] is True                      # it had to mirror to get there
+    assert (skin[0] + skin[2]) / 2 > 640               # the face moved to the right
+    # and the zones themselves never overlap
+    assert not ts._intersects(ts.ZONES["text"], ts.ZONES["face"])
+
+
+def test_arrow_tip_stops_short_of_the_face(tmp_path):
+    import numpy as np
+    from PIL import Image
+    path, face, _ = _panel(tmp_path, "right_face.png", (1080, 260, 1300, 520))
+    with_arrow = os.path.join(ART, "a3_arrow.png")
+    c = _hero(path, face)
+    ts.render_concept(str(tmp_path), c, {}, with_arrow)
+    no_arrow = os.path.join(tmp_path, "no_arrow.png")
+    ts.render_concept(str(tmp_path), _hero(path, face, face_is_mc=False), {}, no_arrow)
+    a = np.asarray(Image.open(with_arrow).convert("RGB"), dtype=np.int16)
+    b = np.asarray(Image.open(no_arrow).convert("RGB"), dtype=np.int16)
+    ys, xs = np.nonzero(np.abs(a - b).sum(axis=2) > 30)      # the arrow's own pixels
+    assert len(xs) > 2000, "no arrow drawn"
+    skin = _bbox_of(Image.open(with_arrow), SKIN)
+    fx0, fy0, fx1, fy1 = skin
+
+    def dist(x, y):
+        dx = np.maximum(np.maximum(fx0 - x, 0), x - fx1)
+        dy = np.maximum(np.maximum(fy0 - y, 0), y - fy1)
+        return np.sqrt(dx * dx + dy * dy)
+    d_all = dist(xs, ys)
+    yel = (np.abs(a[ys, xs] - np.array(YELLOW)).sum(axis=1) < 40)
+    d_tip = d_all[yel].min()
+    assert d_all.min() >= 10, d_all.min()               # outline included: never touches
+    assert 17 <= d_tip <= 31, d_tip                     # the yellow tip: 18-30 px short
+    # one arrow, 200-340 px long, from the text block toward the face
+    (sx, sy), (ex, ey) = c["_arrow"]
+    assert 200 <= ((ex - sx) ** 2 + (ey - sy) ** 2) ** 0.5 <= 341
+    assert ex > sx and ey < sy
+
+
+def test_bubble_under_the_hook_is_inpainted(tmp_path):
+    from PIL import Image
+    # a white speech bubble exactly where the hook goes (bottom-left)
+    path, face, bub = _panel(tmp_path, "bubble.png", (1080, 260, 1300, 520), bubble_px=(120, 600, 700, 820))
+    out = os.path.join(ART, "a4_bubble_inpainted.png")
+    c = _hero(path, face, bubbles=[bub])
+    ts.render_concept(str(tmp_path), c, {}, out)
+    ctrl = os.path.join(ART, "a4_bubble_control.png")
+    ts.render_concept(str(tmp_path), _hero(path, face), {}, ctrl)
+    white = lambda p: _bbox_of(Image.open(p).crop((0, 440, 700, 720)), (255, 255, 255), tol=12)
+    assert c["_bubbles_inpainted"] == 1
+    assert white(ctrl) is not None                      # control: the bubble is there
+    assert white(out) is None                           # inpainted: no bubble pixels left

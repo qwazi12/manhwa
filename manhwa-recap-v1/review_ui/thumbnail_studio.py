@@ -1013,32 +1013,45 @@ def _ray_box_exit(px, py, ux, uy, box):
     return min(ts) if ts else None
 
 
+def _box_dist(x, y, box):
+    dx = max(box[0] - x, 0, x - box[2])
+    dy = max(box[1] - y, 0, y - box[3])
+    return (dx * dx + dy * dy) ** 0.5
+
+
 def arrow_path(text_box, face_box, canvas=(W, H), gap=24):
-    """Start on the outer edge of the text block (its face-side top corner),
-    end `gap` px short of the face box, length clamped to 200-340 px."""
+    """Start on the outer (top) edge of the text block, end `gap` px short of
+    the face box, 200-340 px long. Start points are tried along the block's top
+    edge from the face side inward; the first that leaves room for a 200 px
+    arrow wins, and a longer run is shortened from the START, never the tip.
+    None when no start gives 200 px (the face is too close to the text)."""
     import math
     if not face_box:
         return None
     fx = (face_box[0] + face_box[2]) / 2.0
     fy = (face_box[1] + face_box[3]) / 2.0
-    if text_box:
-        tx0, ty0, tx1, ty1 = text_box
-        sx = tx1 - 40 if fx > (tx0 + tx1) / 2.0 else tx0 + 40
-        sy = ty0 - 14
-    else:
-        sx, sy = (canvas[0] * 0.30, canvas[1] * 0.72)
-    L = math.hypot(fx - sx, fy - sy)
-    if L < 1:
-        return None
-    ux, uy = (fx - sx) / L, (fy - sy) / L
-    # distance from start to the face edge along the ray
-    t_in = _ray_box_exit(sx, sy, ux, uy, face_box)
-    if t_in is None:
-        return None
-    end_t = t_in - gap
-    length = max(ARROW["min_len"], min(ARROW["max_len"], end_t))
-    st = end_t - length                                 # move the start, never the tip
-    return ((sx + ux * st, sy + uy * st), (sx + ux * end_t, sy + uy * end_t))
+    tx0, ty0, tx1, ty1 = text_box if text_box else (canvas[0] * 0.1, canvas[1] * 0.72, canvas[0] * 0.4, canvas[1])
+    right = fx > (tx0 + tx1) / 2.0
+    for frac in (0.80, 0.65, 0.50, 0.35, 0.20):
+        sx = tx0 + (tx1 - tx0) * (frac if right else 1 - frac)
+        sy = ty0 - 16
+        L = math.hypot(fx - sx, fy - sy)
+        if L < 1:
+            continue
+        ux, uy = (fx - sx) / L, (fy - sy) / L
+        t_in = _ray_box_exit(sx, sy, ux, uy, face_box)
+        if t_in is None:
+            continue
+        end_t = t_in - gap
+        # the gap is the tip's true distance to the face box (an oblique ray
+        # reaches the box's corner region sooner than its edge crossing)
+        while end_t > 0 and _box_dist(sx + ux * end_t, sy + uy * end_t, face_box) < gap:
+            end_t -= 1
+        if end_t < ARROW["min_len"]:
+            continue
+        st = end_t - min(ARROW["max_len"], end_t)
+        return ((sx + ux * st, sy + uy * st), (sx + ux * end_t, sy + uy * end_t))
+    return None
 
 
 # ---- A4: bubble suppression (spec 07 §5, composite stage)
@@ -1117,112 +1130,230 @@ def _fit_text(draw, text, max_w, start=96, floor=42):
     return f, [text]
 
 
+# Spec 07 §4.3 chapter badge.
+BADGE = {"radius": 8, "cap": 38, "pad_x": 20, "pad_y": 12, "origin": (28, 28), "outline": 3}
+GRADIENT = (0, 0, 0, int(255 * 0.65))        # §4.5 transparent -> #000 @65%, bottom 38%
+SPLIT_AT = int(W * 0.58)                     # 3C: panel 58% | cover 42%
+INSET_H = 0.26                               # 3E: cover at 26% of the height
+GOLD = (255, 212, 0)
+
+
+def draw_badge(img, label, accent):
+    """Rounded rect r8 in the accent colour, 3 px black outline + drop shadow,
+    'CH N' at a 38 px cap height, padding 20/12, at (28, 28). ~150x62."""
+    from PIL import Image, ImageDraw, ImageFilter
+    f = font_for_cap(BADGE["cap"])
+    asc = f.getbbox("H")[1]
+    tw = int(f.getlength(label))
+    bw, bh = tw + 2 * BADGE["pad_x"], BADGE["cap"] + 2 * BADGE["pad_y"]
+    x0, y0 = BADGE["origin"]
+    sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sh).rounded_rectangle([x0, y0 + 4, x0 + bw, y0 + bh + 4], BADGE["radius"], fill=(0, 0, 0, 140))
+    img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(6)))
+    d = ImageDraw.Draw(img)
+    o = BADGE["outline"]
+    d.rounded_rectangle([x0 - o, y0 - o, x0 + bw + o, y0 + bh + o], BADGE["radius"] + o, fill=(0, 0, 0, 255))
+    d.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], BADGE["radius"], fill=tuple(accent) + (255,))
+    d.text((x0 + BADGE["pad_x"], y0 + BADGE["pad_y"] - asc), label, font=f, fill=readable_ink(accent) + (255,))
+    return (x0 - o, y0 - o, x0 + bw + o, y0 + bh + o)
+
+
+MIRROR_LEFT_FACE = ("panel-hero", "cover-hero", "cover-inset", "cover-badge", "hero-focus", "badge-stack")
+
+
+def _log(event, **kw):
+    print(json.dumps({"service": "thumbnail_studio", "event": event, **kw}), flush=True)
+
+
 def render_concept(pdir, concept, style, out_path, width=W):
     """Compose the thumbnail from the project's OWN panel files.
 
     Everything placed here already exists in the project: the panel crops the
-    renderer put in the video, and the source page used as the series anchor.
-    Nothing is drawn or synthesised — this is layout, which is why the result
-    is reproducible and always matches the chapter.
-    """
-    from PIL import Image, ImageDraw
-    print(json.dumps({"service": "thumbnail_studio", "event": "render", "font": font_path(),
-                      "composition": concept.get("composition"), "out": os.path.basename(out_path)}), flush=True)
+    renderer put in the video, and the series cover. Nothing is drawn or
+    synthesised except our own text, badge and arrow — this is layout, which is
+    why the result is reproducible and always matches the chapter.
+
+    Spec 07 A4: the text block and the face never intersect. The frame is
+    composed, checked, and if the hook would touch the face the composition is
+    MIRRORED (the art flipped so the face moves to the other side) and composed
+    again — logged as `mirror_needed`. If even that fails the text zone is cut
+    back to stop short of the face (words are dropped, never shrunk)."""
+    from PIL import Image
+    _log("render", font=font_path(), composition=concept.get("composition"), out=os.path.basename(out_path))
+    img, info = _compose(pdir, concept, style, mirror=False)
+    f = info["face"]
+    overlap = _intersects(info["text_box"], f)
+    # §5 crop table: a face in the left 45% of a full-frame layout -> mirror
+    left = bool(f and info["text_box"] and concept.get("composition") in MIRROR_LEFT_FACE
+                and (f[0] + f[2]) / 2.0 < W * 0.45)
+    if overlap or left:
+        _log("mirror_needed", composition=concept.get("composition"), out=os.path.basename(out_path),
+             reason="text overlaps face" if overlap else "face in the left 45%",
+             face=list(f), text=list(info["text_box"]))
+        img2, info2 = _compose(pdir, concept, style, mirror=True)
+        if not _intersects(info2["text_box"], info2["face"]):
+            img, info = img2, info2
+        elif not overlap:
+            pass                              # the unmirrored frame was already legal
+        else:
+            img, info = _compose(pdir, concept, style, mirror=False, avoid=info["face"])
+            _log("text_cut_for_face", composition=concept.get("composition"), out=os.path.basename(out_path))
+    concept["_mirrored"] = info["mirrored"]
+    concept["_face_out"] = list(info["face"]) if info["face"] else None
+    concept["_text_box"] = list(info["text_box"]) if info["text_box"] else None
+    concept["_arrow"] = info.get("arrow")
+    concept["_bubbles_inpainted"] = info.get("inpainted", 0)
     width = max(MIN_W, int(width))
     height = int(round(width * 9 / 16.0))
+    final = img.convert("RGB")
+    if width != W:
+        final = final.resize((width, height), Image.LANCZOS)
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    tmp = out_path + ".tmp"
+    if out_path.lower().endswith(".png"):
+        final.save(tmp, "PNG", optimize=True)
+    else:
+        final.save(tmp, "JPEG", quality=JPEG_Q, optimize=True, progressive=True)
+    os.replace(tmp, out_path)
+    return {"path": out_path, "width": width, "height": height,
+            "bytes": os.path.getsize(out_path),
+            "composition": concept.get("composition", "anchor-split"),
+            "has_text": bool(info["text_box"]), "chapter": info["chapter"],
+            "mirrored": info["mirrored"]}
+
+
+def _compose(pdir, concept, style, mirror=False, avoid=None):
+    from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
+    width, height = W, H
     pal = (concept.get("palette") or (style or {}).get("palette") or {})
     bg = tuple((pal.get("bg") or [14, 16, 22])[:3])
     accent = tuple((pal.get("accent") or [0, 213, 255])[:3])
-    ink = tuple((pal.get("ink") or list(readable_ink(bg)))[:3])
-
     img = Image.new("RGBA", (width, height), bg + (255,))
     comp = concept.get("composition", "anchor-split")
     focal = concept.get("focal_file")
     anchor = concept.get("anchor_image")
     if anchor and not os.path.isabs(anchor):
         anchor = os.path.join(pdir, anchor)
+    info = {"face": None, "text_box": None, "mirrored": mirror, "inpainted": 0, "chapter": ""}
+    bubbles_out = []
 
-    def place(path, box, face=None, target=FACE_TARGET, backdrop_ok=False):
+    def place(path, box, face=None, target=FACE_TARGET, backdrop_ok=False, bubbles=(), flip=False):
         """Crop-to-fill `box` from `path` (spec A2: never pillarbox). Returns
-        the face box in canvas pixels, True when placed without a face, or
-        False when nothing could be placed."""
+        {"face": canvas box or None, "bubbles": [canvas boxes]} or None when
+        nothing could be placed."""
         if not (path and os.path.exists(path)):
-            return False
+            return None
         try:
             with Image.open(path) as src:
                 im = src.convert("RGBA")
-                if anchor and os.path.abspath(path) == os.path.abspath(anchor):
-                    trim = cover_trim_for(im, style, concept.get("cover_text_blocks"))
-                    concept["_cover_trim"] = {"top_pct": round(trim[0] * 100, 1),
-                                              "bottom_pct": round(trim[1] * 100, 1), "source": trim[2],
-                                              "marks_inpainted": len(trim[3])}
-                    for m in trim[3]:
-                        inpaint_rect(im, (m[0] * im.width - 4, m[1] * im.height - 4,
-                                          m[2] * im.width + 4, m[3] * im.height + 4))
-                    h0 = im.height
-                    im = _trim_watermark_bands(im, trim)
-                    if face and im.height != h0:   # face box was measured on the untrimmed cover
-                        top = int(h0 * trim[0])
-                        face = [face[0], (face[1] * h0 - top) / im.height, face[2],
-                                (face[3] * h0 - top) / im.height]
-                        if face[1] < 0 or face[3] > 1:
-                            face = None
-                bw, bh = box[2] - box[0], box[3] - box[1]
-                if backdrop_ok and upscale_of(im.size, bw, bh, face, target) > BACKDROP_UPSCALE:
-                    img.alpha_composite(_backdrop_fit(im, bw, bh, face), (box[0], box[1]))
-                    concept["_backdrop"] = True
-                    sw_ = int(bw * SHARP_SHARE)
-                    tx = (FACE_TARGET[0] * bw - (bw - sw_)) / float(sw_)
-                    win = crop_window(im.width, im.height, sw_, bh, face, (tx, FACE_TARGET[1]))
-                    fb = face_in_box(face, win, im.width, im.height, sw_, bh) if face else None
-                    return (True if not fb else
-                            (fb[0] + box[0] + bw - sw_, fb[1] + box[1], fb[2] + box[0] + bw - sw_, fb[3] + box[1]))
+            if anchor and os.path.abspath(path) == os.path.abspath(anchor):
+                trim = cover_trim_for(im, style, concept.get("cover_text_blocks"))
+                concept["_cover_trim"] = {"top_pct": round(trim[0] * 100, 1),
+                                          "bottom_pct": round(trim[1] * 100, 1), "source": trim[2],
+                                          "marks_inpainted": len(trim[3])}
+                for m in trim[3]:
+                    inpaint_rect(im, (m[0] * im.width - 4, m[1] * im.height - 4,
+                                      m[2] * im.width + 4, m[3] * im.height + 4))
+                h0 = im.height
+                im = _trim_watermark_bands(im, trim)
+                if face and im.height != h0:   # face box was measured on the untrimmed cover
+                    top = int(h0 * trim[0])
+                    face = [face[0], (face[1] * h0 - top) / im.height, face[2],
+                            (face[3] * h0 - top) / im.height]
+                    if face[1] < 0 or face[3] > 1:
+                        face = None
+            if flip:
+                im = im.transpose(Image.FLIP_LEFT_RIGHT)
+                face = mirror_box(face)
+                bubbles = [mirror_box(b) for b in bubbles or ()]
+            bw, bh = box[2] - box[0], box[3] - box[1]
+            if backdrop_ok and upscale_of(im.size, bw, bh, face, target) > BACKDROP_UPSCALE:
+                img.alpha_composite(_backdrop_fit(im, bw, bh, face), (box[0], box[1]))
+                concept["_backdrop"] = True
+                sw_ = int(bw * SHARP_SHARE)
+                tx = (FACE_TARGET[0] * bw - (bw - sw_)) / float(sw_)
+                win = crop_window(im.width, im.height, sw_, bh, face, (tx, FACE_TARGET[1]))
+                ox = box[0] + bw - sw_
+                mp = lambda b: tuple(v + (ox if i % 2 == 0 else box[1]) for i, v in
+                                     enumerate(face_in_box(b, win, im.width, im.height, sw_, bh)))
+            else:
                 win = crop_window(im.width, im.height, bw, bh, face, target)
                 up = bh / max(1e-6, win[3] - win[1])
                 tile = im.resize((bw, bh), Image.LANCZOS, box=tuple(win))
                 if up > 1.3:                       # 3A step 3: soft crop -> unsharp mask
-                    from PIL import ImageFilter
                     tile = tile.filter(ImageFilter.UnsharpMask(radius=2, percent=80, threshold=2))
                 img.alpha_composite(tile, (box[0], box[1]))
-                if not face:
-                    return True
-                fb = face_in_box(face, win, im.width, im.height, bw, bh)
-                return (fb[0] + box[0], fb[1] + box[1], fb[2] + box[0], fb[3] + box[1])
+                mp = lambda b: tuple(v + (box[0] if i % 2 == 0 else box[1]) for i, v in
+                                     enumerate(face_in_box(b, win, im.width, im.height, bw, bh)))
+            clip = lambda r: (max(box[0], r[0]), max(box[1], r[1]), min(box[2], r[2]), min(box[3], r[3]))
+            out_b = [clip(mp(b)) for b in bubbles or ()]
+            return {"face": clip(mp(face)) if face else None,
+                    "bubbles": [r for r in out_b if r[2] > r[0] and r[3] > r[1]]}
         except Exception as e:
-            print(json.dumps({"service": "thumbnail_studio", "event": "place_failed",
-                              "file": os.path.basename(str(path)), "error": str(e)[:200]}), flush=True)
-            return False
+            _log("place_failed", file=os.path.basename(str(path)), error=str(e)[:200])
+            return None
+
+    fb, cfb = concept.get("face_box"), concept.get("cover_face_box")
+    bub = concept.get("bubbles") or []
+    is_mc = bool(concept.get("face_is_mc"))
+    gradient = False
+    has_cover = bool(anchor and os.path.exists(anchor) and COVER_NAME in os.path.basename(anchor))
+    primary = None                     # the placement whose face the text/arrow respect
+    text_zone = list(ZONES["text"])
 
     if comp == "cover-badge":
         # The cover fills the frame; the number is the only thing added. QA:
         # never fall back to a story panel under the name "Cover art" (the
         # 2026-10-06 bug) — no real cover, no cover design.
-        if not (anchor and os.path.exists(anchor) and COVER_NAME in os.path.basename(anchor)
-                and place(anchor, (0, 0, width, height), concept.get("cover_face_box"),
-                          backdrop_ok=True)):
+        primary = place(anchor, (0, 0, width, height), cfb, backdrop_ok=True, flip=mirror) if has_cover else None
+        if not primary:
             raise ValueError("no series cover for this chapter — the Cover art design can't be made")
-    elif comp == "anchor-split" and anchor and os.path.exists(anchor):
-        split = int(width * 0.42)
-        place(anchor, (0, 0, split, height))
-        if not place(focal, (split, 0, width, height)):
-            place(anchor, (split, 0, width, height))
-        # a hard accent seam makes the two halves read as one deliberate design
-        ImageDraw.Draw(img).rectangle([split - 4, 0, split + 1, height],
-                                      fill=accent + (255,))
-        _scrim(img, (0, int(height * 0.52), split, height))
-    elif comp == "clean":
-        place(focal, (0, 0, width, height))
-    elif comp == "diptych":
-        second = concept.get("second_file")
+        is_mc = bool(concept.get("cover_face_is_mc"))
+    elif comp == "panel-hero":                                       # 3A
+        primary = place(focal, (0, 0, width, height), fb, bubbles=bub, flip=mirror)
+        gradient = bool(concept.get("gradient"))                     # §5 step 5 fallback
+    elif comp == "cover-hero":                                       # 3B
+        if not has_cover:
+            raise ValueError("no series cover for this chapter — the cover design can't be made")
+        primary = place(anchor, (0, 0, width, height), cfb, backdrop_ok=True, flip=mirror)
+        is_mc = bool(concept.get("cover_face_is_mc"))
+        gradient = True
+    elif comp == "split":                                            # 3C
+        left = (0, 0, SPLIT_AT, height)
+        tgt = (0.62, FACE_TARGET[1])
+        primary = place(focal, left, fb, target=tgt, bubbles=bub, flip=mirror)
+        if not (has_cover and place(anchor, (SPLIT_AT, 0, width, height), cfb, target=(0.5, FACE_TARGET[1]))):
+            place(concept.get("second_file") or focal, (SPLIT_AT, 0, width, height),
+                  concept.get("second_face_box"), target=(0.5, FACE_TARGET[1]))
+        ImageDraw.Draw(img).rectangle([SPLIT_AT - 2, 0, SPLIT_AT + 1, height], fill=(0, 0, 0, 255))
+        text_zone[2] = min(text_zone[2], SPLIT_AT - 28)
+        gradient = True
+    elif comp == "cover-inset":                                      # 3E
+        primary = place(focal, (0, 0, width, height), fb, bubbles=bub, flip=mirror)
+        gradient = bool(concept.get("gradient"))
+    elif comp in ("two-panels", "diptych"):                          # 3D
         half = width // 2
-        place(focal, (0, 0, half, height))
-        if not place(second, (half, 0, width, height)):
-            place(focal, (half, 0, width, height))
-        ImageDraw.Draw(img).rectangle([half - 3, 0, half + 3, height], fill=accent + (255,))
-        _scrim(img, (0, int(height * 0.55), width, height), (0, 0, 0, 185))
-    elif comp == "cover-frame" and anchor and os.path.exists(anchor):
-        from PIL import ImageFilter, ImageEnhance
-        place(focal, (0, 0, width, height))
+        tgt = (0.5, FACE_TARGET[1])
+        primary = place(focal, (0, 0, half, height), fb, target=tgt, bubbles=bub, flip=mirror)
+        second = concept.get("second_file")
+        if not place(second, (half, 0, width, height), concept.get("second_face_box"), target=tgt):
+            place(focal, (half, 0, width, height), fb, target=tgt)
+        ImageDraw.Draw(img).rectangle([half - 2, 0, half + 1, height],
+                                      fill=(0, 0, 0, 255) if comp == "two-panels" else accent + (255,))
+        text_zone[2] = min(text_zone[2], half - 28)
+        if comp == "diptych":
+            gradient = True
+    elif comp == "anchor-split" and anchor and os.path.exists(anchor):   # legacy
+        split = int(width * 0.42)
+        place(anchor, (0, 0, split, height), cfb, target=(0.5, FACE_TARGET[1]))
+        primary = place(focal, (split, 0, width, height), fb, bubbles=bub, flip=mirror)
+        if not primary:
+            place(anchor, (split, 0, width, height))
+        ImageDraw.Draw(img).rectangle([split - 4, 0, split + 1, height], fill=accent + (255,))
+        _scrim(img, (0, int(height * 0.52), split, height))
+        text_zone[2] = min(text_zone[2], split - 28)
+    elif comp == "cover-frame" and anchor and os.path.exists(anchor):    # legacy
+        place(focal, (0, 0, width, height), fb)
         img = ImageEnhance.Brightness(img.filter(ImageFilter.GaussianBlur(max(6, width // 60)))).enhance(0.55)
         try:
             with Image.open(anchor) as src:
@@ -1237,59 +1368,94 @@ def render_concept(pdir, concept, style, out_path, width=W):
         except Exception:
             pass
         _scrim(img, (0, int(height * 0.5), int(width * 0.6), height), (0, 0, 0, 160))
-    elif comp == "badge-stack":
-        place(focal, (0, 0, width, height))
+    elif comp == "badge-stack":                                          # legacy
+        primary = place(focal, (0, 0, width, height), fb, bubbles=bub, flip=mirror)
         _scrim(img, (0, int(height * 0.45), width, height), (0, 0, 0, 190))
-    else:                                    # hero-focus
-        place(focal, (0, 0, width, height))
-        _scrim(img, (0, int(height * 0.5), width, height), (0, 0, 0, 185))
+    else:                                    # "clean" (3F) and legacy hero-focus
+        primary = place(focal, (0, 0, width, height), fb, bubbles=bub, flip=mirror)
+        if comp == "hero-focus":
+            _scrim(img, (0, int(height * 0.5), width, height), (0, 0, 0, 185))
 
-    draw = ImageDraw.Draw(img)
-    pad = int(width * 0.035)
+    face_out = (primary or {}).get("face")
+    info["face"] = face_out
+    if gradient:
+        _scrim(img, (0, int(height * 0.62), width, height), GRADIENT)
+
+    if comp == "cover-inset" and has_cover:                              # 3E inset
+        try:
+            with Image.open(anchor) as src:
+                cv = src.convert("RGBA")
+            t = cover_trim_for(cv, style, concept.get("cover_text_blocks"))
+            for m in t[3]:
+                inpaint_rect(cv, (m[0] * cv.width - 4, m[1] * cv.height - 4, m[2] * cv.width + 4, m[3] * cv.height + 4))
+            cv = _trim_watermark_bands(cv, t)
+            ih = int(height * INSET_H)
+            iw = int(cv.width * ih / max(1, cv.height))
+            cv = cv.resize((iw, ih), Image.LANCZOS)
+            zx0, zy0, zx1, zy1 = ZONES["inset"]
+            x0, y0 = zx1 - iw - 6, zy1 - ih - 6
+            if mirror:
+                x0 = width - x0 - iw
+            sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            ImageDraw.Draw(sh).rectangle([x0 - 6, y0 - 2, x0 + iw + 6, y0 + ih + 10], fill=(0, 0, 0, 150))
+            img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(8)))
+            ImageDraw.Draw(img).rectangle([x0 - 6, y0 - 6, x0 + iw + 5, y0 + ih + 5], fill=GOLD + (255,))
+            img.alpha_composite(cv, (x0, y0))
+        except Exception as e:
+            _log("inset_failed", error=str(e)[:200])
 
     # Chapter badge — the one element that must change every chapter.
     part = str(concept.get("part") or "").strip()
     ch = part or str(concept.get("chapter") or "").strip()
+    info["chapter"] = ch
     if ch and comp != "clean":
         label = "%s %s" % ("PART" if part else (concept.get("badge") or "CH"), ch)
-        # Owner, 2026-10-05: the badge covered the cover art — smaller, top-left.
-        big = comp == "badge-stack"
-        bf = _font(int(height * (0.12 if big else 0.07)))
-        tw = draw.textlength(label, font=bf)
-        bh = int(height * (0.16 if big else 0.095))
-        bw = int(tw + pad * (1.6 if big else 1.2))
-        bx, by = pad, (height - bh - pad if big else pad)
-        draw.rectangle([bx, by, bx + bw, by + bh], fill=accent + (255,))
-        draw.text((bx + bw / 2, by + bh / 2), label, font=bf,
-                  fill=readable_ink(accent), anchor="mm")
+        if comp == "badge-stack":            # legacy: the number is the loudest element
+            draw = ImageDraw.Draw(img)
+            bf = _font(int(height * 0.12))
+            tw = draw.textlength(label, font=bf)
+            bh_, bw_ = int(height * 0.16), int(tw + 28 * 1.6)
+            bx, by = 28, height - bh_ - 28
+            draw.rectangle([bx, by, bx + bw_, by + bh_], fill=accent + (255,))
+            draw.text((bx + bw_ / 2, by + bh_ / 2), label, font=bf, fill=readable_ink(accent), anchor="mm")
+        else:
+            draw_badge(img, label, accent)
 
-    # Hook text — short by construction, and clamped again here.
+    # Hook text — short by construction, clamped again here.
     txt = validate_hook(concept.get("overlay_text") or "")["text"]
-    text_box = None
     if txt:
-        # Spec 07 §1/§4.1: word-count cap heights, 84 px floor, words dropped
-        # rather than shrunk; text zone x 28..672, y 470..692 (on 1280x720).
-        k = width / float(W)
-        zx0, zy0, zx1, zy1 = (int(v * k) for v in (ZONES["text"][0], ZONES["text"][1], ZONES["text"][2], ZONES["text"][3]))
-        if comp == "anchor-split":
-            zx1 = min(zx1, int(width * 0.42) - int(28 * k))
-        lay = hook_layout(txt, zx1 - zx0, zy1 - zy0)
+        zx0, zy0, zx1, zy1 = text_zone
+        if mirror and comp not in ("split", "two-panels", "diptych", "anchor-split"):
+            pass                              # the art moved, the text stays bottom-left
+        if avoid:
+            zx1 = min(zx1, int(avoid[0]) - 18) if avoid[0] > zx0 else zx1
+        lay = hook_layout(txt, zx1 - zx0, zy1 - zy0) if zx1 - zx0 > 60 else None
         if lay:
-            text_box = draw_hook(img, lay, zx0, zy1)
+            st = lay["stroke"]
+            est_w = max(int(lay["font"].getlength(l)) for l in lay["lines"]) + 2 * st
+            est_h = lay["cap"] + (len(lay["lines"]) - 1) * lay["pitch"] + 2 * st
+            est = (zx0, zy1 - est_h - st, zx0 + est_w, zy1)
+            # A4 bubble suppression: a bubble under the hook is inpainted from
+            # its own surroundings first — a bubble and the hook never share pixels.
+            for r in (primary or {}).get("bubbles") or []:
+                if _intersects((est[0] - 8, est[1] - 8, est[2] + 8, est[3] + 8), r):
+                    # model boxes are approximate and a bubble's outline is
+                    # anti-aliased past them: pad the rectangle by 8 px
+                    inpaint_rect(img, (r[0] - 8, r[1] - 8, r[2] + 8, r[3] + 8))
+                    info["inpainted"] += 1
+            info["text_box"] = draw_hook(img, lay, zx0, zy1)
             concept["_hook_layout"] = {"lines": lay["lines"], "cap": lay["cap"], "stroke": lay["stroke"],
                                        "dropped": lay["dropped"]}
+        else:
+            _log("text_dropped", composition=comp, reason="no room clear of the face")
 
-    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    final = img.convert("RGB")
-    tmp = out_path + ".tmp"
-    if out_path.lower().endswith(".png"):
-        final.save(tmp, "PNG", optimize=True)
-    else:
-        final.save(tmp, "JPEG", quality=JPEG_Q, optimize=True, progressive=True)
-    os.replace(tmp, out_path)
-    return {"path": out_path, "width": width, "height": height,
-            "bytes": os.path.getsize(out_path),
-            "composition": comp, "has_text": bool(txt), "chapter": ch}
+    # A3: exactly one arrow, from the text block to the MC's face.
+    if info["text_box"] and face_out and is_mc and comp not in ("clean", "cover-badge"):
+        path = arrow_path(info["text_box"], face_out)
+        if path:
+            _arrow(img, path[0], path[1])
+            info["arrow"] = [list(map(int, path[0])), list(map(int, path[1]))]
+    return img, info
 
 
 # ========================================================= PERSISTENCE
