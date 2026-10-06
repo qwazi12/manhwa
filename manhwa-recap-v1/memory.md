@@ -9100,3 +9100,21 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Title format is live.
   - `/api/review` for Murim 44: 4.13 s cold (first open after the restart), **0.07 s** cached.
   - Vercel deploy checked.
+
+### 2026-10-06 07:30 ET — Owner: "how did this happen? ~20 scheduled yesterday — what was done and the cost, and today?"
+- **The 22 scheduled chapters:** 16 made; Death Knight 89 retrying; Iron-Blooded 181 paused; Iron-Blooded 182, 183 and Stellar 130, 131 not started.
+- **Finished on Oct 5 ET:** Fog Land 38 ($0.50, 01:51), Regressor 31 ($0.74), Death Knight 88 ($0.73, after the resume). The rest of the list was stuck behind the "unknown"-bucket pause bug until the manual push and resume at ~22:00.
+  - Oct 5 site spend $13.58 total: mostly the overnight rebuilds ($9.13), plus renders, SEO and these three.
+- **Finished on Oct 6 ET (00:06–06:53):** 15 chapters, $12.37:
+  - Mercenary 97 $0.89, 98 $0.86;
+  - Murim 45 $0.69;
+  - Regressor 32 $0.69;
+  - Too Many Heroes 28 $0.86, 29 $0.65, 30 $0.80;
+  - Harvest 85 $0.67, 86 $0.77, 87 $0.71;
+  - Dark Mage 104 $0.94, 105 $1.00, 106 $0.97, 107 $1.09;
+  - Death Knight 90 $0.78.
+  - Site spend today $12.47 of $18: the chapters above, partial work on 89/181 ($0.35/$0.54), and ~$0.6 unattributed (SEO and web research run from scheduler threads).
+- **Death Knight 89:** failed at narrate at 06:04 on a Google 504 ("Deadline exceeded"); autopilot moved on to 90 and retried 89 at 07:23 after the cooldown. The jobs bar labels that retry "resumed by you", which is wrong (it was autopilot). To fix.
+- **Iron-Blooded 181 paused at 07:23 (match step):** `MAX_DAILY_GEMINI_CALLS=6000 would be exceeded (5972 + 32)`. A *call-count* runaway cap, separate from the $ limit. Each chapter uses ~350–550 Gemini calls (describe per panel plus embeddings), so ~14 chapters a day exhaust it, whatever the $18/$16 budgets say. With per_day=20 this always trips.
+  - Proposed: raise it on Railway (e.g. 15000; the $ limit stays the real guard) and show every limit in Settings → Spending. **Waiting for the owner** (it's a guardrail change, and a Railway variable change restarts the server).
+- Rejected-work note: the per-job "unknown" bucket bug is gone; today's counters show every chapter under its own job id (only $0.62 / 25 calls under "unknown").
