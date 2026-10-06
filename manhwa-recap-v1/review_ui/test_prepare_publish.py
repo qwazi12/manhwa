@@ -63,7 +63,45 @@ def main():
         c = make_project(root, "series-s_3", "Series S", "3")
         server._prepare_publish(c, "final_a.mp4")
         check("over budget: SEO waits, the thumbnail is still picked", bool(_tb.path_for(c, "final_a.mp4")))
+        # As Scrapper: SEO while making (no video yet), reused by the render.
+        server.api_seo_generate = fake_seo
+        calls.clear()
+        d = make_project(root, "series-t_4", "Series T", "4")
+        os.remove(os.path.join(d, "exports", "final_a.mp4"))
+        server._prepare_publish(d, server.DRAFT)
+        dm = server.publish_defaults(d)
+        check("a chapter gets its title/description/tags while making, before any video",
+              dm["title"] == "He Came Back 1000 Years Stronger" and calls == [server.DRAFT])
+        open(os.path.join(d, "exports", "final_b.mp4"), "wb").write(b"0" * 64)
+        server._prepare_publish(d, "final_b.mp4")
+        md = {**server.publish_defaults(d), **(server.load_publish(d).get("final_b.mp4") or {})}
+        check("...the render reuses them: no second paid call, and the thumbnail is picked",
+              calls == [server.DRAFT] and md["title"] == "He Came Back 1000 Years Stronger"
+              and bool(_tb.path_for(d, "final_b.mp4")))
+
+        # Catch-up step: with no budget left it never calls the model.
+        e = make_project(root, "series-u_5", "Series U", "5")
+        calls.clear()
+        real_left, real_rows = server._budget_left, server._chapter_rows
+        server._budget_left = lambda: 0.0
+        server._chapter_rows = lambda: [{"id": "series-u_5", "status": {"key": "video_ready"}}]
+        try:
+            server._publish_prep_pass()
+            check("catch-up with no budget: thumbnail made, no paid call",
+                  not calls and bool(_tb.path_for(e, "final_a.mp4")))
+            server._budget_left = lambda: 5.0
+            server._publish_prep_pass()
+            check("catch-up with budget: SEO filled", calls == ["final_a.mp4"])
+        finally:
+            server._budget_left, server._chapter_rows = real_left, real_rows
+
+        import thumbnail_studio as ts
+        from PIL import Image
+        im = Image.new("RGBA", (500, 1000))
+        out = ts._trim_watermark_bands(im)
+        check("the cover's watermark bands (top 7%, bottom 5%) are trimmed", out.size == (500, 1000 - 70 - 50))
         src = open(os.path.join(HERE, "server.py"), encoding="utf-8").read()
+        check("a finished ingest prepares the draft SEO", "args=(project_dir_for(meta[\"id\"]), DRAFT)" in src)
         check("every new render prepares itself, then copies to Drive",
               "threading.Thread(target=_after_export, args=(pdir, res.get(\"output\"))" in src)
     finally:

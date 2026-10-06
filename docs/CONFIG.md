@@ -33,6 +33,7 @@ The scheduler checks every **10 minutes** (first check 60 s after boot); `AUTOPI
 | posting | each check, when the schedule is **on** | at each set time (default 12:00, 18:00; live: 11:00, 19:00), posts the next scheduled video; at most N per channel per day (default 1); slots that passed before switching on are skipped that day |
 | demand | weekly | YouTube recap demand per series (suggestions only) |
 | new sources | each check | reads any series source never checked yet |
+| publish prep | each check | up to 5 chapters waiting for you that lack SEO (≈ $0.012 each, only with budget left) or a thumbnail (free) get them. New chapters get SEO when making finishes; new videos get a thumbnail, then the Drive copy, after the render |
 | autopilot | each check, when **on** | makes the next chapter (round robin, N per day); re-reads every series source every 6 h |
 | export cleanup | on export listing | deletes exports older than 7 days, except videos still scheduled to post |
 
@@ -67,6 +68,7 @@ The scheduler checks every **10 minutes** (first check 60 s after boot); `AUTOPI
 | `EXPORT_SPEED` | overrides the Settings speed when set |
 | `EXPORT_LUFS` | loudness target (default −14; `off` to skip) |
 | `EXPORT_RETENTION_DAYS` | export cleanup (default 7) |
+| `THUMB_COVER_TRIM_TOP`, `THUMB_COVER_TRIM_BOTTOM` | share of the scraped series cover cut off the top / bottom edge before it's used in a thumbnail, to remove aggregator watermarks (defaults 0.07 / 0.05) |
 | `SPLIT_GUTTER_ROW_STD` | splitter flat-gutter rule (default 6; 0 = off) |
 | `AUTOPILOT_SCHEDULER` | `0` switches the background scheduler off |
 | tuning groups `SPLIT_*`, `CROP_*`, `BUBBLE_*`, `VALIDATOR_*`, `PLUS_*`, `LAB_*`, `CLAUDE_TEST_*`, `TTS_*`, `DESCRIBE_*` | defaults in code; change only with a measured reason |
@@ -75,6 +77,6 @@ The scheduler checks every **10 minutes** (first check 60 s after boot); `AUTOPI
 
 | Name | Purpose |
 |---|---|
-| `BASIC_AUTH_USER`, `BASIC_AUTH_PASSWORD` | site login; on production a missing one closes the site (503) |
+| `BASIC_AUTH_USER`, `BASIC_AUTH_PASSWORD` | site login (the /login page sets a 90-day signed cookie per device); on production a missing one closes the site (503) |
 | `SHARED_SECRET` | added to every backend request; never sent to the browser |
 | `BACKEND_URL` | optional; defaults to the Railway URL |

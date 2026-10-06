@@ -648,6 +648,22 @@ def _cover_crop(im, box_w, box_h):
 
 TALL_FIT = 0.6     # a source this much taller than the box is fitted whole
 
+# Aggregator watermarks ("ASURASCANS.COM" badge, site URLs) are stamped on the
+# top or bottom edge of the scraped series cover. The owner chose (2026-10-05)
+# to keep the cover option and trim them off: the edge bands are cut before the
+# cover is placed, so neither the picture nor its blurred backdrop shows them.
+# Tunable per deploy; a watermark placed elsewhere on the cover is not caught.
+COVER_TRIM_TOP = float(os.environ.get("THUMB_COVER_TRIM_TOP", "0.07"))
+COVER_TRIM_BOTTOM = float(os.environ.get("THUMB_COVER_TRIM_BOTTOM", "0.05"))
+
+
+def _trim_watermark_bands(im):
+    w, h = im.size
+    top, bottom = int(h * COVER_TRIM_TOP), int(h * COVER_TRIM_BOTTOM)
+    if h - top - bottom < h * 0.6:
+        return im
+    return im.crop((0, top, w, h - bottom))
+
 
 def _backdrop_fit(im, box_w, box_h):
     """A tall webtoon panel shown WHOLE on a blurred, dimmed copy of itself
@@ -737,6 +753,8 @@ def render_concept(pdir, concept, style, out_path, width=W):
         try:
             with Image.open(path) as src:
                 im = src.convert("RGBA")
+                if anchor and os.path.abspath(path) == os.path.abspath(anchor):
+                    im = _trim_watermark_bands(im)
                 bw, bh = box[2] - box[0], box[3] - box[1]
                 if im.width and im.height and (im.width / im.height) < (bw / bh) * TALL_FIT:
                     img.alpha_composite(_backdrop_fit(im, bw, bh), (box[0], box[1]))

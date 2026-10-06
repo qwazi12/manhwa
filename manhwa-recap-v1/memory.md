@@ -8939,3 +8939,17 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - `POST /api/publish/prepare` produced 4 concepts (Cover art + chapter number, Series anchor + chapter hook, Clean picture, Full-bleed hook panel) and picked the recommended one, a 1280×720 thumbnail (`/thumbnail` 200 image/jpeg).
   - SEO waits for the cap, as designed: `prepare_note` says it fills in after midnight ET, and the title and tags are still the defaults.
   - **Found:** the picked "Cover art" thumbnail carries the scraped cover's ASURASCANS.COM watermark (top centre). It should not be posted like that. Pending: pick a non-cover concept by default or crop/mask the watermark; owner to decide.
+
+### 2026-10-05 — Owner: keep the cover thumbnail but remove the watermark; "Where's the SEO? Is it like legacy or Scrapper? Why is there a Publish now? Reviewed videos should be queued by the schedule. Did you look at Scrapper?"
+- **Looked at Scrapper** (`~/dev/scrapper`):
+  - `studio/stage_script.py` writes the YouTube title, description and tags **during the script step**, before the render.
+  - `studio/routes.py` (send to queue, around line 512) sends the rendered video to the Posting Queue as "ready" and wakes the queue so it gets its slot. The `queue_manager` posts by schedule slots.
+  - "Post now" exists only in the Posting Queue.
+  - Legacy manhwa /review: SEO was **click-only** ("Generate SEO suggestions", then apply per field).
+- **Changes:**
+  - **SEO while making:** a finished ingest runs `_prepare_publish(pdir, DRAFT)`, filling the draft title, description and tags (only fields at their default). The render reuses that SEO record (no second paid call) and only adds the thumbnail.
+  - **Catch-up:** scheduler step `publish prep` gives up to 5 waiting chapters per pass their missing SEO (only with budget left > $0.10; otherwise silent) or thumbnail (free). That covers today's chapters after midnight ET.
+  - **Watch tab Post card:** "Post now" is removed. It shows the video's place in the posting queue ("#n… next posting time…", the posting times and the per-day cap), "Not in the posting queue yet — press Approve & schedule", failures, or "schedule is off". It links to the Queue page, where Post now stays for exceptions. Queue status refreshes after a verdict.
+  - **Watermark:** `thumbnail_studio._trim_watermark_bands` cuts the top 7% and bottom 5% of the series cover anchor before it's placed, in both the picture and its blurred backdrop (`THUMB_COVER_TRIM_TOP/BOTTOM`). Checked locally on ch.30's cover: the ASURASCANS.COM badge is gone. Limit: a watermark elsewhere on a cover isn't caught.
+- **Docs:** CONFIG.md adds the scheduler step, the trim settings, and the /login cookie note.
+- **Tests:** `test_prepare_publish` 15/15 (draft SEO before a video, reuse without a second call, catch-up with and without budget, trim size, wiring); `test_thumbnail_studio` 112/112. Full suite 78/79 (only the known date-bound test). `next build` ok.

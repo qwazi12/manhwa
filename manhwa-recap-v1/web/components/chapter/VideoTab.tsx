@@ -28,6 +28,7 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
   const pub = useApi<any>(`/api/publish?${q}`);
   const pst = useApi<any>(draft ? null : `/api/publishing/publish/status?${q}`, 10000);
   const acc = useApi<any>("/api/publishing/status");
+  const studio = useApi<any>(draft ? null : "/api/studio", 20000);
   const act = useAct();
   const toast = useToast();
   const [md, setMd] = useState<any>(null);
@@ -75,7 +76,7 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
   async function verdict(st: string) {
     const r = await act(() => api("/api/review", { project: id, name, status: st, notes }),
       st === "approved" ? "Approved — scheduled for the next free slot" : st === "sent_back" ? "Sent back — taken off the queue" : "Notes saved");
-    if (r) { rv.reload(); onChange?.(); }
+    if (r) { rv.reload(); studio.reload(); onChange?.(); }
   }
   async function applySeo(field: string, value?: any, variant?: string) {
     const r = await act(() => api("/api/seo/apply", { project: id, name, field, value: value ?? null, variant: variant || "" }), "Filled in");
@@ -126,9 +127,30 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
             </div>
           ) : (
             <>
-              {(p.readiness?.blockers || []).length > 0 ? (
-                <div className="banner warn"><b>Not ready to post:</b><ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{p.readiness.blockers.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul></div>
-              ) : <div className="banner ok">Ready. It posts at the next free slot, or now if you press Post now.</div>}
+              {(() => {
+                // Owner, 2026-10-05: posting goes through the schedule, as in Scrapper.
+                // Approve puts the video in the posting queue; the queue posts it at its
+                // turn. "Post now" lives on the Queue page only, for exceptions.
+                const q = studio.data?.queue || [];
+                const i = q.findIndex((r: any) => r.project === id && r.name === name);
+                const row = i >= 0 ? q[i] : null;
+                const sc = studio.data?.schedule || {};
+                const when_ = `Posting times ${(sc.times || []).join(" and ") || "—"} ET, ${sc.per_channel_per_day || 1} a day per channel.`;
+                if (row) return (
+                  <div className={`banner ${row.qstatus === "failed" ? "bad" : "ok"}`}>
+                    {row.qstatus === "failed" ? <><b>Posting failed:</b> {row.qerror || "see the Queue page"}. </> :
+                      <><b>In the posting queue — #{i + 1}.</b> It posts at its turn{sc.enabled ? `; the next posting time is ${sc.next || "—"}` : ""}. </>}
+                    {when_} {!sc.enabled && <b>The posting schedule is off — turn it on in Settings.</b>}
+                    {" "}<a href="/queue">Open the Queue</a>
+                  </div>
+                );
+                if (review.status !== "approved") return (
+                  <div className="banner info"><b>Not in the posting queue yet.</b> Press <b>✓ Approve &amp; schedule</b> above and it’s queued for the next free posting time. {when_}</div>
+                );
+                return (p.readiness?.blockers || []).length > 0 ? (
+                  <div className="banner warn"><b>Approved, but it can’t post yet:</b><ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{p.readiness.blockers.map((x: string, j: number) => <li key={j}>{x}</li>)}</ul></div>
+                ) : <div className="banner info">Approved. It joins the posting queue in a moment. <a href="/queue">Open the Queue</a></div>;
+              })()}
               {rec && (rec.results || []).length > 0 && (
                 <div className="grid" style={{ gap: 4 }}>
                   {rec.results.map((r: any) => (
@@ -139,9 +161,6 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
               )}
               {rec?.status === "in_progress" && <div className="banner info">Posting: {rec.stage}</div>}
               {rec?.status === "failed" && <div className="banner bad">Last try failed: {rec.error}</div>}
-              <ConfirmButton className="primary" disabled={(p.readiness?.blockers || []).length > 0 || rec?.status === "in_progress"}
-                confirm={`Post now as ${md.privacy}? It can't be taken back.`}
-                onConfirm={() => act(async () => { await api("/api/publishing/publish", { project: id, name }); pst.reload(); onChange?.(); }, "Posting")}>Post now</ConfirmButton>
               <a className="btn sm ghost" href={`/api/publish/package?${q}`}>Download upload package</a>
               <span className="small faint">The package has the details, checklist and thumbnail for a manual upload; the video itself downloads from the player.</span>
             </>

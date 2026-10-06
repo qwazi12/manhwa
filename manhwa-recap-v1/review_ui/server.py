@@ -2333,12 +2333,47 @@ class ExportDelIn(BaseModel):
 # with the best one picked — without a click. Only fields still at their
 # automatic default are filled; anything the owner typed is never replaced.
 _PREPARING = set()
+
+
+class _SkipSeo(Exception):
+    pass
+
+
+def _budget_left():
+    try:
+        return float(usage.MAX_DAILY_SPEND_USD) - float(usage.daily_summary().get("est_cost_usd") or 0)
+    except Exception:
+        return 0.0
+
+
+def _publish_prep_pass(limit=5):
+    """Scheduler step: chapters waiting for you that still lack SEO or a
+    thumbnail get them (e.g. after the spend day resets). Bounded per pass;
+    with no budget left it only makes thumbnails (free) and stays quiet."""
+    import seo as _seo
+    import thumbnail as _tb
+    have_budget = _budget_left() > 0.10
+    n = 0
+    for r in _chapter_rows():
+        if n >= limit:
+            break
+        if r["status"]["key"] not in ("to_review", "video_ready", "scheduled"):
+            continue
+        pdir = project_dir_for(r["id"])
+        name = _cs._latest_export(pdir) or DRAFT
+        need_seo = not (_seo.get(pdir, name) or _seo.get(pdir, DRAFT))
+        need_thumb = name != DRAFT and not _tb.path_for(pdir, name)
+        if (need_seo and have_budget) or need_thumb:
+            _prepare_publish(pdir, name, do_seo=need_seo and have_budget)
+            n += 1
 _PREP_NOTE = {}        # (pid, name) -> why SEO isn't filled yet, shown on the page
 
 
-def _prepare_publish(pdir, name):
+def _prepare_publish(pdir, name, do_seo=True):
     """SEO (one small model call, budget-gated) then thumbnail options (free,
-    local). Never raises: a failure is logged and the video is unaffected."""
+    local). Never raises: a failure is logged and the video is unaffected.
+    name == DRAFT: the chapter has no video yet — SEO only (as Scrapper writes
+    the title/description/tags while making, before the render)."""
     import seo as _seo
     import thumbnail as _tb
     import thumbnail_studio as tstudio
@@ -2351,7 +2386,9 @@ def _prepare_publish(pdir, name):
     filled = []
     try:
         try:
-            if not _seo.get(pdir, name):
+            if not do_seo:
+                raise _SkipSeo()
+            if not (_seo.get(pdir, name) or _seo.get(pdir, DRAFT)):
                 api_seo_generate(SeoGenIn(project=pid, name=name))
             base = _publish_defaults_base(pdir)
             md = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
@@ -2363,6 +2400,8 @@ def _prepare_publish(pdir, name):
                     except HTTPException:
                         pass
             _PREP_NOTE.pop(key, None)
+        except _SkipSeo:
+            pass
         except usage.UsageCapExceeded as e:
             _PREP_NOTE[key] = ("Title, description and tags will fill in after midnight ET — today's spend "
                                "limit is used up (the suggestions cost about 1 cent). The thumbnail is ready.")
@@ -2371,6 +2410,8 @@ def _prepare_publish(pdir, name):
             _PREP_NOTE[key] = f"Title suggestions couldn't be made: {str(e)[:160]}"
             _ev("publish", f"{label}: SEO suggestions failed — {str(e)[:160]}", "warn")
         try:
+            if name == DRAFT:
+                raise _SkipSeo()                  # thumbnails are made from the video
             if not (tstudio.get_concepts(pdir, name) or {}).get("concepts"):
                 api_thumbcopilot_generate(ThumbGenIn(project=pid, name=name))
             if not _tb.path_for(pdir, name):
@@ -2379,6 +2420,8 @@ def _prepare_publish(pdir, name):
                 if best:
                     api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=best["id"]))
                     filled.append("thumbnail")
+        except _SkipSeo:
+            pass
         except Exception as e:  # noqa
             _ev("publish", f"{label}: thumbnail options failed — {str(e)[:160]}", "warn")
         if filled:
@@ -4060,6 +4103,9 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
         meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh,
                                  engine=engine, variant=variant, direct=direct, tier=tier)
         INGEST[job_id].update(status="done", project=meta, pct=100)
+        if isinstance(meta, dict) and meta.get("id"):     # title/description/tags while making
+            threading.Thread(target=_prepare_publish, args=(project_dir_for(meta["id"]), DRAFT),
+                             daemon=True).start()
     except JobCancelled as e:
         INGEST[job_id].update(status="cancelled", error=str(e))
     except subprocess.CalledProcessError as e:
@@ -6371,7 +6417,7 @@ def _scheduler_pass():
     _SCHED["last_run"] = time.time()
     for name, fn in (("budget", _resume_budget_paused), ("archive", _archive_sweep),
                      ("posting", _schedule_post_pass), ("demand", _demand_pass),
-                     ("new sources", _check_new_sources),
+                     ("new sources", _check_new_sources), ("publish prep", _publish_prep_pass),
                      ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps()))):
         try:
             fn()
