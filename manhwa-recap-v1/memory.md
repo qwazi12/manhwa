@@ -9233,3 +9233,4 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - **QA in rendering:** cover-badge raises "no series cover for this chapter" instead of drawing a panel; apply returns 409 with that reason.
   - `_rerender_chosen_thumbnails` now rebuilds the options for any chosen "cover" whose anchor wasn't the real cover and re-picks the real cover design.
 - **Tests:** `test_thumbnail_studio` 114/114 (fixture now has a real `_cover.jpg`; new: no real cover → no cover concept; a cover design with a story page refuses). Full suite 87/87.
+- **Live (3f5117e), deployed with Iron-Blooded 183 paused, then resumed.** `rerender_all` ran (11 redrawn). Extra's Academy ch.114 now shows the **real series cover** with a small top-left "CH 114" badge (checked the live `/thumbnail` image). This note goes up with the next deploy.
