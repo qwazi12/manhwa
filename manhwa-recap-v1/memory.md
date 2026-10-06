@@ -9195,3 +9195,19 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - **Fix:** `_sweep_orphaned_ingest_jobs` keeps queued → "held" and paused → "interrupted" with control=pause (comes back paused) whatever their age or resume count. Only a job that was RUNNING uses the age/resume limits. `test_autopilot` 51/51 (+ the case); job_control 51/51, line_max 8/8, job_sweep 16/16, limits_resume 6/6.
 - **Deploy da492a6 (restart fix), with Stellar 130 paused first:** the new boot sweep kept everything. Stellar came back paused (resumed it via `/api/jobs/control` resume), 182 started ("resumed: its turn came"), 183 stayed held. The line is now Stellar 130 running, 182 queued, 183 held.
 - **Small fix (local commit, ships with the next deploy):** held chapters are loaded into memory at boot so the jobs bar and "Being made now" show them right after a restart (they were only on disk).
+
+### 2026-10-06 08:45 ET — Owner: mobile misaligned; the "CH" thumbnail badge isn't done; Posting schedule isn't like SocialPilot yet ("side-by-side analysis and analyze the codes"); why multiple progress bars; what is "3 tier suggestion(s) from demand research"
+**Side-by-side (screens + code: `scrapper/frontend/app/QueuePanel.tsx` narrow branch ~l.977, `QueueSchedule.tsx`, `JobsBar.tsx`):**
+- **Header:** SocialPilot has one card ("N shown · M total", ↻ Live, labelled Undo "Undo: Post next #8", ⏸ Pause posting; then Sort + ↑↓, 🔀 Mix ▾, **⏰ Schedule · 2/day ▾ dropdown**, + Add). Ours has an always-open times editor, and no Live or Undo label.
+- **Tabs:** SocialPilot's are one horizontally scrolling row; ours wrap to 2–3 rows.
+- **Rows (mobile):** SocialPilot uses a CARD — checkbox, full-width 16:9 thumbnail, status badge top-right, bold title, "#id · source", green "⏰ Tue, Oct 6 at 11:00 AM ET", channel chip, then a wrapping action row (⏫ Post next · 🚀 Post now · ✨ AI · ✎ Edit · ▶ Watch · 🗑). Ours is a squeezed flex row (small image, the title cut to 2 letters, Approve overlapping the title).
+- **Jobs bar:** Scrapper shows one compact line per job (⏳ running / ⏸ queued, label, message + elapsed, Stop), **no progress bars**, finished or failed kept 60 s. Ours draws a bar per job, including queued ones (a stale pct from the last run).
+- **Thumbnail CH badge:** the new small top-left badge (24b224a) only applies to newly rendered concepts; existing chosen thumbnails kept the old bottom-left big badge.
+- **Demand card:** the weekly YouTube demand check suggests moving N series to another priority tier (Make now / Next up / Watching). The card text and "Found" pill are unclear.
+**PLAN:**
+- (A) Jobs bar like Scrapper: one line per job, no bars; ⏳ running / ⏸ next / ⏳ waiting its turn.
+- (B) Posting schedule rebuilt as SocialPilot: the header card exactly as above (labelled Undo, Schedule ▾ dropdown with next slots), a scrolling tab row, card rows with a full-width thumbnail and a wrapping action row; the backend gives Scrapper-style time labels and an Undo label.
+- (C) Re-render every existing chosen thumbnail with the new badge (free; endpoint + run once).
+- (D) Mobile alignment, through the card layout.
+- (E) Demand card in plain words, linking to the suggestions.
+- Then tests, memory, pause+push+resume, live check.
