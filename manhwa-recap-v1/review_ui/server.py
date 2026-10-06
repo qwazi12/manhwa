@@ -6304,6 +6304,9 @@ def _ap_deps():
                 for j in list(INGEST.values())
                 if j.get("status") in ("queued", "running", "paused", "pausing")}
 
+    def running_projects():
+        return {_job_pid(j) for j in list(INGEST.values()) if j.get("status") == "running"}
+
     def queue_busy():
         # A chapter paused by a usage limit today also holds the line: starting
         # another would only pause too (owner, 2026-10-06: ch.182 started and
@@ -6322,7 +6325,7 @@ def _ap_deps():
 
     return {"view": lambda: _wl_view()["series"], "refresh": refresh, "ap_spend": _ap_spent_today,
             "canon": _prov.canonical_key, "live_projects": live_projects,
-            "queue_busy": queue_busy, "spend": spend, "chapter_url": chapter_url,
+            "queue_busy": queue_busy, "running_projects": running_projects, "spend": spend, "chapter_url": chapter_url,
             "project_id": lambda url: _ingest_mod.project_id(url),
             "enqueue": lambda url, engine: _enqueue_ingest(url, False, engine, "", None,
                                                            source="autopilot")}
@@ -7225,7 +7228,9 @@ def home_view():
         _prio = _autopilot.settings(_ingest_mod.PROJECTS).get("priority") or []
     except Exception:
         _prio = []
-    return {"counts": counts, "need": need[:20], "make_next": len(_prio),
+    # every chapter that needs you, so Home matches Library (owner, 2026-10-06:
+    # the old 20-card cap hid 5 of 25)
+    return {"counts": counts, "need": need[:200], "make_next": len(_prio),
             "queue": {"scheduled": sum(1 for x in q["items"] if x["status"] == "queued"),
                       "next_post": _pq.next_slot(sched, time.time()) if sched.get("enabled") else None,
                       "schedule_on": bool(sched.get("enabled"))},

@@ -496,7 +496,7 @@ def mix(entries, mode="round_robin", rnd=None):
     return out
 
 
-def priority_rows(st, series_view, canon, live_projects=(), now=None):
+def priority_rows(st, series_view, canon, live_projects=(), now=None, running=None):
     """The Make next list with each entry's state; prunes made chapters from st.
     Each row: series_id, title, chapter, state (ready|running|waiting|blocked|
     no_source), reason, and — when ready — the candidates-style row to start."""
@@ -526,6 +526,8 @@ def priority_rows(st, series_view, canon, live_projects=(), now=None):
         if le and le.get("status") == "budget_paused":
             row.update(state="waiting", reason="paused by a usage limit — resumes after midnight ET, "
                                                "or Resume it in the jobs bar")
+        elif le and le.get("status") == "queued" and (running is None or le.get("project") not in running):
+            row.update(state="queued", reason="in line — starts when the one before it finishes")
         elif le and le.get("status") in LIVE:
             row.update(state="running", reason="being made now")
         elif ch not in listed:
@@ -648,7 +650,7 @@ def tick(root, deps, now=None):
         view = deps["view"]()
         live = deps["live_projects"]()
         rows = candidates(st, view, deps["canon"], live, now)
-        prows = priority_rows(st, view, deps["canon"], live, now)
+        prows = priority_rows(st, view, deps["canon"], live, now, deps.get("running_projects", lambda: None)())
         save(root, st)                              # start_from for new series, pruned Next up
         spent, cap = deps["spend"]()
         reason, p = decide(st, rows, queue_busy=deps["queue_busy"](), spent=spent, cap=cap, now=now,
@@ -731,7 +733,7 @@ def status(root, deps, now=None):
         view = deps["view"]()
         live = deps["live_projects"]()
         rows = candidates(st, view, deps["canon"], live, now)
-        prows = priority_rows(st, view, deps["canon"], live, now)
+        prows = priority_rows(st, view, deps["canon"], live, now, deps.get("running_projects", lambda: None)())
         save(root, st)
     spent, cap = deps["spend"]()
     ap_spent = deps.get("ap_spend", lambda: 0.0)()

@@ -40,8 +40,13 @@ def main():
     check("Make next goes first, in order, then round robin carries on (fewest made first)",
           picks == [("Charlie", "2"), ("Alpha", "3"), ("Alpha", "2"), ("Bravo", "3")])
     st = ap.status(root, fake.deps(), now)
-    check("chapters being made show as running in the list",
-          [p["state"] for p in st["priority"]] == ["running", "running", "running"])
+    check("chapters waiting their turn show as in line (queued), not 'being made'",
+          [p["state"] for p in st["priority"]] == ["queued", "queued", "queued"])
+    stx = ap.load(root)
+    p0 = next(e for e in stx["ledger"].values() if e["series_id"] == "charlie")["project"]
+    dps = dict(fake.deps(), running_projects=lambda: {p0})
+    check("the one actually running shows as being made",
+          [p["state"] for p in ap.status(root, dps, now)["priority"]] == ["running", "queued", "queued"])
 
     for i in range(len(fake.queued)):
         ap.on_job_end(root, f"job{i + 1}", "done", None, 0.3)

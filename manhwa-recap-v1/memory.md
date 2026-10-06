@@ -9136,3 +9136,9 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Docs: RUNBOOK (Posting schedule naming; the budget_paused row now covers all three limits and the auto-resume).
 - **Tests:** new `test_limits_resume` 6/6. Full suite 85/85. `next build` ok.
 - Pending: push at the next gap (4 chapters in line), then a live reconciliation of Home Needs you vs Library vs Scheduled.
+- **Live reconciliation (before the deploy), 07:50 ET:**
+  - Home Needs you showed 20 of the **25** chapters Library says need the owner. The `need[:20]` cap hid Mercenary 96/97, Regressor 30/31 and Death Knight 88. Fixed: the cap is now 200.
+  - The 4 chapters being made had no title in Library (fixed by the commit above).
+  - The scheduled list said "being made" for 181/182/89, which were only queued behind 183. Fixed: new state "queued" ("in line — starts when the one before it finishes"). "Being made" now comes from the live job list (`running_projects` dep), since the ledger never records "running".
+  - Home ⊆ Library needs: no extra items. Scheduled count 6 matches the Home tile.
+  - Tests: autopilot_priority 25/25, autopilot 50/50, limits_resume 6/6. `next build` ok.

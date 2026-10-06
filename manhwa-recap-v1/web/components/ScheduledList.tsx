@@ -3,8 +3,8 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { Busy, Card, ConfirmButton, Empty, Pill, useAct } from "./ui";
 
-const TONE: Record<string, string> = { ready: "ok", running: "info", waiting: "warn", blocked: "bad", no_source: "bad" };
-const WORD: Record<string, string> = { ready: "ready", running: "being made", waiting: "waiting", blocked: "needs you", no_source: "no source" };
+const TONE: Record<string, string> = { ready: "ok", queued: "muted", running: "info", waiting: "warn", blocked: "bad", no_source: "bad" };
+const WORD: Record<string, string> = { ready: "ready", queued: "in line", running: "being made", waiting: "waiting", blocked: "needs you", no_source: "no source" };
 const dayWord = (d: number | null | undefined) => d == null ? "" : d === 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`;
 
 /** Scheduled for processing (owner, 2026-10-05): the chapters you picked for
