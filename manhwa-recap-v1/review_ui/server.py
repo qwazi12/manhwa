@@ -4089,7 +4089,22 @@ def _sweep_orphaned_ingest_jobs():
                 j = json.load(open(p))
             except Exception:
                 continue
-            if j.get("status") in ("queued", "running", "paused", "pausing"):
+            if j.get("status") in ("queued", "paused", "pausing") and j.get("control") != "stop":
+                # Not running when the server stopped, so nothing was lost
+                # (owner, 2026-10-06: a paused 182 and a waiting 183 were written
+                # off by a deploy). Queued ones wait their turn ("held"); paused
+                # ones come back paused (re-queued with control=pause).
+                if j.get("status") == "queued":
+                    j["status"] = "held"
+                    j["msg"] = "waiting its turn after a server restart; it starts by itself"
+                else:
+                    j["status"] = "interrupted"
+                    j["control"] = "pause"
+                    j["msg"] = "paused (kept across a server restart) — press Resume to continue"
+                json.dump(j, open(p, "w"))
+                n += 1
+                continue
+            if j.get("status") == "running":
                 # 2026-10-03 (owner: resume after restarts, manual ingests
                 # too): a job cut off recently is marked 'interrupted' and
                 # re-queued at startup with its cached stages, at most

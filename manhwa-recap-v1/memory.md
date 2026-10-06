@@ -9189,3 +9189,7 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
     - Image rows: thumbnail or cover, title, series·length·privacy, status/⏰ planned time/posted time/error, channels "📺 … ✎" or "⚠ No channel — choose", auto-delete note; actions ✓ Approve·▶ Watch / ⏫ Post next·🚀 Now·↩·✕ / ↻ Retry / ✎ Edit. Channel picker dialog.
   - Checked locally (next start against the live backend, read-only): the layout renders. Planned times and images need the new backend (not deployed at that point).
   - Tests: new `test_posting_socialpilot` 12/12. Full suite 87/87. `next build` ok.
+- **Deploy 43f477a (Posting schedule), with 182 paused first:** live. Planned times show (Iron-Blooded 180 → Tue Oct 06 11:00; Fog Land 2 → Tue Oct 06 19:00, both to mk:youtube, with thumbnails).
+  - **Found:** the boot sweep wrote off the paused 182 and the waiting 183 as "error: aborted by server restart". It applied the running-job rules (age > 6 h or ≥ 2 resumes) to jobs that were NOT running.
+  - Resumed both: 182 queued, and 183 held by the new line rule. Autopilot had already started Stellar 130, so the line is Stellar 130 running + 182 next + 183 waiting its turn (the 2-chapter rule held).
+  - **Fix:** `_sweep_orphaned_ingest_jobs` keeps queued → "held" and paused → "interrupted" with control=pause (comes back paused) whatever their age or resume count. Only a job that was RUNNING uses the age/resume limits. `test_autopilot` 51/51 (+ the case); job_control 51/51, line_max 8/8, job_sweep 16/16, limits_resume 6/6.

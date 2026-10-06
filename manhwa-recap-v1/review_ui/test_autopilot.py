@@ -255,6 +255,16 @@ def server_checks():
         check("restart: a recent ingest is marked to resume, an old one written off",
               json.load(open(os.path.join(jobs_dir, "jr.json")))["status"] == "interrupted"
               and json.load(open(os.path.join(jobs_dir, "jold.json")))["status"] == "error")
+        # owner, 2026-10-06: a paused or waiting chapter lost nothing — kept, never written off
+        json.dump({"status": "queued", "url": "https://x/comics/s/chapter/4", "ts": 1, "updated": 1, "resumes": 5},
+                  open(os.path.join(jobs_dir, "jq.json"), "w"))
+        json.dump({"status": "paused", "control": "pause", "url": "https://x/comics/s/chapter/5", "ts": 1, "updated": 1,
+                   "resumes": 5}, open(os.path.join(jobs_dir, "jpz.json"), "w"))
+        server._sweep_orphaned_ingest_jobs()
+        jq, jpz = (json.load(open(os.path.join(jobs_dir, f))) for f in ("jq.json", "jpz.json"))
+        check("restart: an old waiting chapter keeps waiting its turn; a paused one stays paused",
+              jq["status"] == "held" and jpz["status"] == "interrupted" and jpz["control"] == "pause")
+        os.remove(os.path.join(jobs_dir, "jq.json")); os.remove(os.path.join(jobs_dir, "jpz.json"))
         n = server._resume_interrupted()
         check("startup resumes it once, counting the resume",
               n == 1 and queued[-1][1] == "jr" and server.INGEST["jr"]["resumes"] == 1)
