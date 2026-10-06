@@ -19,6 +19,7 @@ export default function Home() {
         <Tile n={(h?.counts?.video_ready || 0)} label="videos to watch (then approve)" href={firstOf(h, "video_ready")} />
         <Tile n={(h?.counts?.to_review || 0)} label="boards to check (then render)" href={firstOf(h, "to_review")} />
         <Tile n={h?.queue?.schedule_on ? (h.queue.next_post || "—") : "off"} label={h?.queue?.schedule_on ? `next post · ${h?.queue?.scheduled || 0} scheduled` : "posting schedule"} href="/queue" />
+        <Tile n={h?.make_next ?? "—"} label="chapters in your Make next list · see everything scheduled" href="/upcoming" />
         <Tile n={h ? money(h.spend.today) : "—"} label={h ? `of ${money(h.spend.cap)} today · autopilot ${money(h.spend.autopilot)}` : "spend today"} href="/activity?tab=spend" />
       </div>
       <Card title="Needs you" pad={false}>

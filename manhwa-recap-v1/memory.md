@@ -9010,3 +9010,9 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Pause message now reads "paused: a usage limit was reached (…) — resumes after midnight ET, or raise the limit in Settings → Spending and press Resume".
   - Make next shows a budget-paused entry as "waiting / paused by a usage limit" (it said "being made now").
   - Tests: new `test_usage_carry` 6/6 (proves the bug and the fix, two concurrent jobs); job_control 51/51, autopilot 50/50, autopilot_priority 14/14, logs 19/19, paste_add 22/22.
+- **Step 2 done: the "Upcoming" page.**
+  - New menu tab **Upcoming** (`/upcoming`, with a count badge) and a Home tile "chapters in your Make next list".
+  - The page shows: autopilot's state and limits; **being made now** with progress bars; **your Make next list** (drag-and-drop reorder, ↑ ↓ ⤒ ✕, Clear; state and expected day); **then autopilot takes these**, the projected round-robin order with 📌 (add to the end of the list) and ⤒ (make it next) to mix them in; and the **render queue**.
+  - `autopilot.forecast()`: Make next entries first, then a round-robin simulation (fewest made first, Make next picks counted, pinned chapters not repeated, running series continue after their current chapter). Each item gets `day` from today's count and chapters-a-day. Returned by `status()` as `forecast`.
+  - `/api/home` adds `make_next`. The Library Make next card links to Upcoming.
+  - Tests: `test_autopilot_priority` 17/17 (+ forecast order, days, no duplicates).

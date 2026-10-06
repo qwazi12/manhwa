@@ -7097,7 +7097,11 @@ def home_view():
         disk = {"used_gb": round(du.used / 1e9, 1), "total_gb": round(du.total / 1e9, 1)}
     except OSError:
         disk = {}
-    return {"counts": counts, "need": need[:20],
+    try:
+        _prio = _autopilot.settings(_ingest_mod.PROJECTS).get("priority") or []
+    except Exception:
+        _prio = []
+    return {"counts": counts, "need": need[:20], "make_next": len(_prio),
             "queue": {"scheduled": sum(1 for x in q["items"] if x["status"] == "queued"),
                       "next_post": _pq.next_slot(sched, time.time()) if sched.get("enabled") else None,
                       "schedule_on": bool(sched.get("enabled"))},

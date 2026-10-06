@@ -494,6 +494,47 @@ def priority_pick(prows):
     return next((r["start"] for r in prows if r["state"] == "ready" and r["start"]), None)
 
 
+def forecast(st, rows, prows, n=40, now=None):
+    """What autopilot will make, in order (owner, 2026-10-05: "let me see all
+    works that are scheduled"). Your Make next entries first, then a
+    simulation of round robin (fewest made first, then watchlist order) over
+    every series' remaining chapters. Each item says which day it is expected
+    on, from today's count and the chapters-a-day limit. Spend can make it
+    later than that; the list says so rather than guessing money."""
+    per_day = max(1, int(st["settings"].get("per_day") or 1))
+    done_today = today_count(st["ledger"], now)
+    out = []
+    for r in prows:
+        if r["state"] in ("ready", "waiting"):
+            out.append({"series_id": r["series_id"], "title": r["title"], "chapter": r["chapter"],
+                        "from": "make_next", "state": r["state"], "reason": r["reason"]})
+    pinned = {(r["series_id"], str(r["chapter"])) for r in prows}
+    live = [dict(r, remaining=[c for c in (r["remaining"][1:] if r["state"] == "running" else r["remaining"])
+                               if (r["series_id"], str(c)) not in pinned],
+                 made=r["made_by_autopilot"]) for r in rows if r["state"] in ("ready", "running")]
+    picked_from = {}
+    for o in out:                      # Make next picks count for round robin fairness too
+        picked_from[o["series_id"]] = picked_from.get(o["series_id"], 0) + 1
+    for r in live:
+        r["made"] += picked_from.get(r["series_id"], 0)
+    while len(out) < n:
+        ready = [r for r in live if r["remaining"]]
+        if not ready:
+            break
+        r = min(ready, key=lambda x: (x["made"], x["order"]))
+        out.append({"series_id": r["series_id"], "title": r["title"], "chapter": r["remaining"].pop(0),
+                    "from": "round_robin", "state": "ready", "reason": ""})
+        r["made"] += 1
+    slot = done_today
+    for o in out:
+        if o["state"] == "ready":
+            o["day"] = slot // per_day          # 0 = today, 1 = tomorrow, …
+            slot += 1
+        else:
+            o["day"] = None
+    return out[:n]
+
+
 def pick(rows):
     """Round robin: fewest made by autopilot first, then watchlist order."""
     ready = [r for r in rows if r["state"] == "ready" and r["next"] is not None]
@@ -658,6 +699,7 @@ def status(root, deps, now=None):
         "next": {"series": nxt["title"], "chapter": nxt["next"], "series_id": nxt["series_id"],
                  "from_next_up": bool(nxt.get("priority"))} if nxt else None,
         "priority": [{k: v for k, v in r.items() if k != "start"} for r in prows],
+        "forecast": forecast(st, rows, prows, now=now),
         "last_tick": runtime["last_tick"], "last_result": runtime["last_result"],
         "last_started": runtime["last_started"], "last_refresh": runtime["last_refresh"] or None,
         "tick_seconds": TICK_SECONDS,

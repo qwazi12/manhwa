@@ -55,7 +55,7 @@ export default function MakeNext({ ap, reload }: { ap: any; reload: () => void }
         ))}
       </div>
       <div style={{ padding: "8px 14px" }} className="small faint">
-        A chapter leaves the list once it’s made; find it under <Link href="/library?view=chapters">All chapters</Link>. One that fails is skipped so the rest keep going.
+        <Link href="/upcoming"><b>See everything scheduled and reorder it → Upcoming</b></Link>. A chapter leaves the list once it’s made; one that fails is skipped so the rest keep going.
       </div>
     </Card>
   );

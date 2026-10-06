@@ -80,6 +80,16 @@ def main():
     fake.ap_spent = 0.0
     ap.update_settings(root, {"enabled": False})
     check("autopilot off: nothing starts, even from Make next", ap.tick(root, fake.deps(), now) is None)
+    # forecast: everything scheduled, in order, with its day
+    root2 = tempfile.mkdtemp(prefix="apf_")
+    ap.update_settings(root2, {"enabled": True, "per_day": 2, "budget_usd": 10})
+    ap.priority_edit(root2, "add", "charlie", ["2"])
+    f = ap.status(root2, fake.deps(), now)["forecast"]
+    check("forecast starts with Make next, then round robin",
+          [(x["series_id"], x["chapter"], x["from"]) for x in f[:4]]
+          == [("charlie", "2", "make_next"), ("alpha", "8", "round_robin"), ("bravo", "3", "round_robin"), ("alpha", "9", "round_robin")])
+    check("forecast gives each one a day from the chapters-a-day limit", [x["day"] for x in f[:4]] == [0, 0, 1, 1])
+    check("a pinned chapter isn't listed twice", sum(1 for x in f if (x["series_id"], x["chapter"]) == ("charlie", "2")) == 1)
     try:
         ap.priority_edit(root, "nope")
         check("unknown action refused", False)
