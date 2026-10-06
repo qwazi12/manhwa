@@ -82,3 +82,8 @@ fixtures/murim_ch43/pages/
 fixtures/murim_ch43/cutmaps/
 panel-split/test_fixtures/
 manhwa-recap-v1/eval/fixtures/*/descriptions.json
+
+# Thumbnail reference pack: third-party art (competitor thumbnails, series cover) — internal reference only, never commit (docs/audit/thumbnail_refs/09_THUMBNAIL_REFERENCES.md)
+docs/audit/thumbnail_refs/REF_competitor_grid.png
+docs/audit/thumbnail_refs/REF_before_after.png
+docs/audit/thumbnail_refs/ref_*.jpg
