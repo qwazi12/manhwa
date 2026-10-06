@@ -9093,3 +9093,5 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Tests: `test_thumbnail_studio` 112/112.
   - Existing chosen thumbnails keep their old look until "↻ New options" or a re-render.
   - Watch-out: chapter panels from aggregators may carry their own watermarks (only the cover is trimmed).
+- **Fixed the date-bound `test_posting_schedule`.** Switching the schedule on stamps the REAL time as `enabled_at`, and `decide` skips slots before it that day. On 2026-10-05 (the test's fixed day) its 12:05 slot counted as already passed. The test now pins `enabled_at` to its own day. 20/20, also with time.time pinned to 2026-10-05 22:00 ET. Full suite 84/84.
+- **Push (03:21 ET):** 4 commits plus this one are local. Autopilot is making Dark Mage ch.105 (narrate). A background watcher pushes at the first real gap between chapters (it now ignores waiting/paused jobs, which kept the earlier watcher from ever pushing).

@@ -88,6 +88,12 @@ def main():
         check("bad times are refused", r.status_code == 400)
         r = c.post("/api/settings", json={"schedule": {"enabled": True, "times": ["18:00", "12:00"], "per_channel_per_day": 1}})
         check("the schedule can be switched on", r.status_code == 200 and ss.load()["schedule"]["enabled"])
+        # The switch-on time is stamped with the REAL clock; slots earlier that
+        # day are skipped. Pin it to the test's own day so the test passes on
+        # every date (it failed on 2026-10-05, the date it is set on).
+        _st = json.load(open(ss._path()))
+        _st["schedule"]["enabled_at"] = at("00:01")
+        json.dump(_st, open(ss._path(), "w"))
         server._schedule_post_pass(at("12:05"))
         check("the due slot posts the first queued video", posted == ["p1"])
         server._schedule_post_pass(at("12:15"))
