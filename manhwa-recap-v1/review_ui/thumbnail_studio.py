@@ -362,7 +362,7 @@ def save_style(root, key, pack):
     return pack
 
 
-COMPOSITIONS = ("cover-badge", "anchor-split", "hero-focus", "badge-stack")
+COMPOSITIONS = ("cover-badge", "anchor-split", "hero-focus", "badge-stack", "diptych", "cover-frame")
 
 
 def build_style_pack(pdir, meta, composition="cover-badge"):
@@ -489,7 +489,30 @@ def _dominant_type(panel):
     return _TYPE_FOR[best] if sc.get(best, 0) > 0 else "character"
 
 
-def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None):
+def _shift_hue(rgb, deg):
+    r, g, b = [max(0, min(255, int(x))) / 255.0 for x in (list(rgb) + [0, 0, 0])[:3]]
+    h, l, s_ = colorsys.rgb_to_hls(r, g, b)
+    r, g, b = colorsys.hls_to_rgb((h + deg / 360.0) % 1.0, l, s_)
+    return [int(r * 255), int(g * 255), int(b * 255)]
+
+
+# Owner, 2026-10-05: "↻ New options doesn't give anything new". Each press
+# (round) now rotates which designs are offered, picks different panels (the
+# used ones are excluded) and shifts the accent colour. The cover option is
+# always first and stays the same, as the owner's go-to.
+DESIGN_POOL = [
+    ("Series anchor + chapter hook", "anchor-split", True,
+     "The series anchor keeps the upload recognisable in a feed; the chapter panel supplies what is new."),
+    ("Full-bleed hook panel", "hero-focus", True, "One focal moment at full bleed reads fastest at sidebar size."),
+    ("Clean picture", "clean", False, "Just the art, no text or badge."),
+    ("Two moments", "diptych", True, "Two of the chapter's strongest panels side by side: setup and payoff."),
+    ("Cover on the moment", "cover-frame", False,
+     "The series cover as a card over a blurred moment from this chapter: recognisable and new at once."),
+    ("Badge-forward variant", "badge-stack", True, "Chapter number is the loudest element — helps serial viewers find the next part."),
+]
+
+
+def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None, round_=0):
     """3-5 chapter concepts, all built on the SAME approved series style.
 
     Only three things vary between chapters by design: the focal panel, the
@@ -508,8 +531,8 @@ def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None):
     if not panels:
         return out
 
-    # Concept 1 — the series anchor beside the chapter's strongest panel.
-    # This is the recurring shape that makes uploads recognisable.
+    # Concept 1 — always the series cover with the chapter number (the owner's
+    # go-to); then three designs from the pool, rotated each round.
     part = part_from_title(title)
     plans = []
     if anchors:
@@ -517,34 +540,23 @@ def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None):
                       "The series cover with just the chapter number on it \u2014 "
                       "the same image every chapter, so a playlist reads as one "
                       "series and only the number changes."))
-    plans.append(("Series anchor + chapter hook", comp if comp != "cover-badge"
-                  else "anchor-split", panels[0], bool(hook),
-                  "The series anchor keeps the upload recognisable in a feed; the "
-                  "chapter panel supplies what is new."))
-    if len(panels) > 1:
-        plans.append(("Full-bleed hook panel", "hero-focus", panels[1], bool(hook),
-                      "One focal moment at full bleed reads fastest at sidebar size."))
-    if len(panels) > 2:
-        # Scrapper's owner chose a plain picture: no text, no badge, the lead
-        # close-up (when the bible named one) fitted whole.
-        lead = next((p for p in panels if p.get("lead")), panels[2])
-        plans.append(("Clean picture", "clean", lead, False,
-                      "Just the art, no text or badge" + (
-                          " \u2014 the series lead (%s)." % lead["lead"].title() if lead.get("lead") else ".")))
-    if len(panels) > 2:
-        plans.append(("Textless character focus", comp, panels[2], False,
-                      "No overlay: relies on the art alone, useful when the "
-                      "title already carries the hook."))
-    if len(panels) > 3:
-        plans.append(("Badge-forward variant", "badge-stack", panels[3], bool(hook),
-                      "Chapter number is the loudest element — helps serial "
-                      "viewers find the next part."))
-    if len(panels) > 4:
-        plans.append(("Alternate moment", comp, panels[4], bool(hook),
-                      "A different beat from the same chapter, in the same "
-                      "series style."))
+    k = len(DESIGN_POOL)
+    picks = [DESIGN_POOL[(round_ * 3 + i) % k] for i in range(k)]
+    if not anchors:
+        picks = [p for p in picks if p[1] not in ("anchor-split", "cover-frame")]
+    want = 3 if anchors else 4
+    for di, (name, composition, use_text, why) in enumerate(picks[:want]):
+        panel = panels[min(di, len(panels) - 1)]
+        if composition == "clean":
+            panel = next((p for p in panels if p.get("lead")), panel)
+            if panel.get("lead"):
+                why = why[:-1] + " \u2014 the series lead (%s)." % panel["lead"].title()
+        plans.append((name, composition, panel, use_text and bool(hook), why))
+    pal_r = dict(pal)
+    if round_ and pal.get("accent"):
+        pal_r["accent"] = _shift_hue(pal["accent"], (round_ * 67) % 360)
 
-    for i, (name, composition, panel, use_text, why) in enumerate(plans[:max(3, min(n, 5))]):
+    for i, (name, composition, panel, use_text, why) in enumerate(plans[:max(4, min(n, 5))]):
         out.append({
             "id": "c%d" % i,
             "name": name,
@@ -556,13 +568,15 @@ def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None):
             "panel_score": panel["score"],
             # cover-badge needs the anchor too — it IS the anchor, full-bleed.
             "anchor_image": (anchors[0] if anchors and composition in
-                             ("anchor-split", "cover-badge") else None),
+                             ("anchor-split", "cover-badge", "cover-frame") else None),
+            "second_file": (panels[1]["file"] if composition == "diptych" and len(panels) > 1 else None),
             "chapter": chapter,
             "part": part,
             "badge": ((style or {}).get("badge") or {}).get("label", "CH"),
             "overlay_text": hook if use_text else "",
             "text_zone": (style or {}).get("text_zone", "lower-left"),
-            "palette": pal,
+            "palette": pal if composition == "cover-badge" else pal_r,
+            "round": round_,
             "follows_series_style": inherited and composition == comp,
             "style_relation": ("inherits the approved series style"
                                if inherited and composition == comp
@@ -621,8 +635,8 @@ def rank_concepts(concepts, style, title=""):
         c["score"] = score_concept(c, style, title)
         c["recommended"] = False
     if concepts:
-        concepts.sort(key=lambda c: -c["score"]["total"])
-        concepts[0]["recommended"] = True
+        concepts.sort(key=lambda c: (c.get("composition") != "cover-badge", -c["score"]["total"]))
+        concepts[0]["recommended"] = True       # the cover is the owner's go-to
     return concepts
 
 
@@ -768,7 +782,6 @@ def render_concept(pdir, concept, style, out_path, width=W):
         # The cover fills the frame; the number is the only thing added.
         if not place(anchor, (0, 0, width, height)):
             place(focal, (0, 0, width, height))
-        _scrim(img, (0, int(height * 0.58), width, height), (0, 0, 0, 150))
     elif comp == "anchor-split" and anchor and os.path.exists(anchor):
         split = int(width * 0.42)
         place(anchor, (0, 0, split, height))
@@ -780,6 +793,31 @@ def render_concept(pdir, concept, style, out_path, width=W):
         _scrim(img, (0, int(height * 0.52), split, height))
     elif comp == "clean":
         place(focal, (0, 0, width, height))
+    elif comp == "diptych":
+        second = concept.get("second_file")
+        half = width // 2
+        place(focal, (0, 0, half, height))
+        if not place(second, (half, 0, width, height)):
+            place(focal, (half, 0, width, height))
+        ImageDraw.Draw(img).rectangle([half - 3, 0, half + 3, height], fill=accent + (255,))
+        _scrim(img, (0, int(height * 0.55), width, height), (0, 0, 0, 185))
+    elif comp == "cover-frame" and anchor and os.path.exists(anchor):
+        from PIL import ImageFilter, ImageEnhance
+        place(focal, (0, 0, width, height))
+        img = ImageEnhance.Brightness(img.filter(ImageFilter.GaussianBlur(max(6, width // 60)))).enhance(0.55)
+        try:
+            with Image.open(anchor) as src:
+                cv = _trim_watermark_bands(src.convert("RGBA"))
+            ch_ = int(height * 0.86)
+            cw_ = int(cv.width * ch_ / max(1, cv.height))
+            cv = cv.resize((cw_, ch_), Image.LANCZOS)
+            x0 = width - cw_ - int(width * 0.06)
+            y0 = (height - ch_) // 2
+            ImageDraw.Draw(img).rectangle([x0 - 6, y0 - 6, x0 + cw_ + 6, y0 + ch_ + 6], fill=accent + (255,))
+            img.alpha_composite(cv, (x0, y0))
+        except Exception:
+            pass
+        _scrim(img, (0, int(height * 0.5), int(width * 0.6), height), (0, 0, 0, 160))
     elif comp == "badge-stack":
         place(focal, (0, 0, width, height))
         _scrim(img, (0, int(height * 0.45), width, height), (0, 0, 0, 190))
@@ -795,17 +833,13 @@ def render_concept(pdir, concept, style, out_path, width=W):
     ch = part or str(concept.get("chapter") or "").strip()
     if ch and comp != "clean":
         label = "%s %s" % ("PART" if part else (concept.get("badge") or "CH"), ch)
-        bf = _font(int(height * 0.085))
+        # Owner, 2026-10-05: the badge covered the cover art — smaller, top-left.
+        big = comp == "badge-stack"
+        bf = _font(int(height * (0.12 if big else 0.07)))
         tw = draw.textlength(label, font=bf)
-        bh = int(height * 0.115)
-        bw = int(tw + pad * 1.5)
-        big = comp in ("badge-stack", "cover-badge")
-        if big:
-            bf = _font(int(height * 0.135))
-            tw = draw.textlength(label, font=bf)
-            bh = int(height * 0.175)
-            bw = int(tw + pad * 1.6)
-        bx, by = pad, height - bh - pad
+        bh = int(height * (0.16 if big else 0.095))
+        bw = int(tw + pad * (1.6 if big else 1.2))
+        bx, by = pad, (height - bh - pad if big else pad)
         draw.rectangle([bx, by, bx + bw, by + bh], fill=accent + (255,))
         draw.text((bx + bw / 2, by + bh / 2), label, font=bf,
                   fill=readable_ink(accent), anchor="mm")
@@ -814,13 +848,14 @@ def render_concept(pdir, concept, style, out_path, width=W):
     txt = validate_hook(concept.get("overlay_text") or "")["text"]
     if txt:
         zone_w = (int(width * 0.42) - pad * 2 if comp == "anchor-split"
+                  else int(width * 0.58) - pad * 2 if comp == "cover-frame"
                   else width - pad * 2)
         tf, lines = _fit_text(draw, txt, zone_w, start=int(height * 0.16),
                               floor=int(height * 0.068))
         lh = int(tf.size * 1.06)
         block = lh * len(lines)
-        badge_h = int(height * (0.175 if comp == "badge-stack" else 0.115))
-        ty = height - badge_h - pad * 2 - block
+        badge_h = int(height * 0.16) + pad if comp == "badge-stack" else 0     # badge is top-left otherwise
+        ty = height - badge_h - pad - block
         # A dark stroke keeps the text legible over any artwork beneath it.
         stroke = max(2, int(height * 0.008))
         for i, line in enumerate(lines):

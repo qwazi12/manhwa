@@ -9085,3 +9085,11 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Settings overview adds `title_template`; the save event includes it.
   - Tests: `test_seo_research` 16/16 (format applied, hook-only prompt, long hook trimmed, format without {hook} refused); `test_seo` 159/159. `next build` ok.
   - Not done: existing SEO records keep their old titles until "↻ New suggestions" (asking the owner whether to re-run SEO for all waiting videos, a few cents each).
+- **Step 5 done (local commit): thumbnails.**
+  - The chapter badge is smaller (7% of the height) and **top-left** on every design except "Badge-forward". "Cover art + chapter number" no longer has the bottom dark band, and is **always first and recommended** when a cover exists (the owner's go-to).
+  - New designs: **Two moments** (two strongest panels side by side, accent seam) and **Cover on the moment** (the watermark-trimmed cover as a framed card over a blurred chapter panel).
+  - **↻ New options rotates:** `DESIGN_POOL` of 6 designs; each round offers the cover plus the next 3 (round 0: split, full-bleed, clean; round 1: two moments, cover-frame, badge-forward; …). It uses panels not used before (existing exclude) and shifts the accent hue by 67° a round on non-cover designs. The round is stored in the concepts record; it falls back to round 0 when the panels run out.
+  - Checked visually with ch.30's real cover (contact sheet in the scratchpad, not committed).
+  - Tests: `test_thumbnail_studio` 112/112.
+  - Existing chosen thumbnails keep their old look until "↻ New options" or a re-render.
+  - Watch-out: chapter panels from aggregators may carry their own watermarks (only the cover is trimmed).

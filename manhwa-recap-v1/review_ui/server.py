@@ -1312,8 +1312,13 @@ def api_thumbcopilot_generate(body: ThumbGenIn):
         bible = None
     prev = tstudio.get_concepts(pdir, name) or {}
     used = [c.get("focal_panel") for c in prev.get("concepts") or []] if not body.new_style else []
+    rnd = 0 if body.new_style or not prev else int(prev.get("round", 0)) + 1
     concepts = tstudio.rank_concepts(
-        tstudio.build_concepts(pdir, meta, style, title, exclude=used, bible=bible), style, title)
+        tstudio.build_concepts(pdir, meta, style, title, exclude=used, bible=bible, round_=rnd), style, title)
+    if not concepts and used:          # every panel used up: start again from the best
+        rnd = 0
+        concepts = tstudio.rank_concepts(
+            tstudio.build_concepts(pdir, meta, style, title, bible=bible, round_=0), style, title)
     if not concepts:
         raise HTTPException(422, "no usable panels found for this project — "
                                  "the thumbnail copilot needs extracted panels")
@@ -1323,6 +1328,7 @@ def api_thumbcopilot_generate(body: ThumbGenIn):
         "style_version": style.get("version"),
         "inherited_series_style": bool(style.get("approved")),
         "title_used": title,
+        "round": rnd,
         "chapter": str(meta.get("chapter") or ""),
         "confidence": _thumb_confidence(concepts, style, title),
         "cut_signature": cut_signature(pdir=pdir),
