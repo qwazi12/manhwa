@@ -9142,3 +9142,17 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - The scheduled list said "being made" for 181/182/89, which were only queued behind 183. Fixed: new state "queued" ("in line — starts when the one before it finishes"). "Being made" now comes from the live job list (`running_projects` dep), since the ledger never records "running".
   - Home ⊆ Library needs: no extra items. Scheduled count 6 matches the Home tile.
   - Tests: autopilot_priority 25/25, autopilot 50/50, limits_resume 6/6. `next build` ok.
+
+### 2026-10-06 ~08:15 ET — Owner: "max 2 chapters at once"; "pause what's running, push, make the remaining updates, push, then continue the runs"; Posting schedule should work like Scrapper's SocialPilot
+- **Done:** paused Iron-Blooded 183 (`/api/jobs/control` pause → paused) and pushed e26011d (live: Home shows all needs, queued vs being made, auto-resume, Posting schedule cards, Upcoming → Library). 89/181/182 stayed queued behind the paused 183 (a paused job holds the worker).
+- **"At most 2 in line" (`INGEST_LINE_MAX`, default 2):**
+  - The line counts queued, running and paused ingests. New status **"held"** means waiting its turn outside the line; the worker skips held jobs.
+  - `_fill_line()` starts held and limit-paused chapters, oldest first, while there is room in the line. Limit-paused ones also need `_cap_headroom()`.
+  - `_trim_line()` holds the newest not-started queued jobs when the line is over-full (e.g. the 4 from this morning).
+  - Called by the scheduler (`_resume_budget_paused` now does trim + fill) and 2 s after every ingest ends.
+  - Boot `_resume_interrupted` re-queues at most LINE_MAX and holds the rest.
+  - A manual Resume when the line is full holds the chapter ("resumed by you — waiting its turn").
+  - Autopilot `queue_busy` is also true while anything is held.
+  - `chapter_status`: held counts as "making" (Being made), not Needs you. Waiting reasons are in plain words (e.g. "paused by a daily limit — resumes by itself when there is room or at midnight ET") instead of "budget_paused".
+  - Jobs bar: "waiting its turn — at most 2 chapters at once" with Stop. The Being-made list labels held and adds a note.
+- **Tests:** new `test_line_max` 8/8; `test_limits_resume` updated (no room → nothing resumes) 6/6. Full suite 86/86. `next build` ok.

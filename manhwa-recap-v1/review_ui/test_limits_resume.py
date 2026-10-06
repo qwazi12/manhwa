@@ -24,14 +24,15 @@ def main():
     paused = [{"job": "j1", "status": "budget_paused", "paused_day": today, "ts": 1, "url": "https://asurascans.com/comics/x-series-abc123/chapter/5"},
               {"job": "j2", "status": "budget_paused", "paused_day": "2000-01-01", "ts": 2, "url": "u2"}]
     queued = []
-    saved = (server._waiting_ingests, server._enqueue_ingest, server._cap_headroom, server._autopilot.set_status_for_job)
+    saved = (server._waiting_ingests, server._enqueue_ingest, server._cap_headroom, server._autopilot.set_status_for_job, server._line_count)
+    server._line_count = lambda: 0
     server._waiting_ingests = lambda st: [j for j in paused if j["status"] == st]
     server._enqueue_ingest = lambda url, *a, job_id=None, why="", **k: queued.append((job_id, why))
     server._autopilot.set_status_for_job = lambda *a, **k: None
     try:
         server._cap_headroom = lambda: False
         server._resume_budget_paused()
-        check("no room today: only the chapter paused on an earlier day resumes", [q[0] for q in queued] == ["j2"])
+        check("no room under the limits: nothing paused resumes (it would only pause again)", queued == [])
         queued.clear()
         server._cap_headroom = lambda: True
         server._resume_budget_paused()
@@ -42,7 +43,7 @@ def main():
         paused[0]["status"] = "done"
         check("...and carries on once nothing is paused", server._ap_deps()["queue_busy"]() in (False, True))
     finally:
-        (server._waiting_ingests, server._enqueue_ingest, server._cap_headroom, server._autopilot.set_status_for_job) = saved
+        (server._waiting_ingests, server._enqueue_ingest, server._cap_headroom, server._autopilot.set_status_for_job, server._line_count) = saved
     v = server._spend_cap_view()
     check("Settings lists every daily limit with today's use",
           {l["var"] for l in v["limits"]} == {"MAX_DAILY_GEMINI_CALLS", "MAX_DAILY_TTS_CHARS"} and "paused_by_limit" in v)

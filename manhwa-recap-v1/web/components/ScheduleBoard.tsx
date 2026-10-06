@@ -6,7 +6,7 @@ import { Busy, Card, Empty, Pill, useAct } from "./ui";
 import ScheduledList from "./ScheduledList";
 
 const dayWord = (d: number | null | undefined) => d == null ? "" : d === 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`;
-const WAIT = ["budget_paused", "interrupted", "paused"];
+const WAIT = ["budget_paused", "interrupted", "paused", "held"];
 
 function Cover({ sid, w = 44 }: { sid?: string | null; w?: number }) {
   return sid ? (
@@ -65,7 +65,7 @@ export default function ScheduleBoard() {
                   <Cover sid={r?.series_id} />
                   <div style={{ display: "grid", gap: 4, minWidth: 0, flex: 1 }}>
                     <b>{j.name}</b>
-                    <span className="small muted">{waiting ? <Pill tone="warn">{j.status === "budget_paused" ? "paused by a limit" : String(j.status).replace("_", " ")}</Pill> : <Pill tone="info">{j.stage || j.status}</Pill>}
+                    <span className="small muted">{waiting ? <Pill tone="warn">{j.status === "budget_paused" ? "paused by a limit" : j.status === "held" ? "waiting its turn" : String(j.status).replace("_", " ")}</Pill> : <Pill tone="info">{j.stage || j.status}</Pill>}
                       {" "}{String(j.msg || "").slice(0, 160)}</span>
                     {!waiting && j.pct != null && <div className="bar"><i style={{ width: `${j.pct || 3}%` }} /></div>}
                   </div>
@@ -75,6 +75,7 @@ export default function ScheduleBoard() {
             );
           })}
         </div>
+        <div className="small faint" style={{ padding: "8px 14px 0" }}>At most 2 chapters are made at a time (one running, one next); the rest wait their turn and start by themselves.</div>
         {making.some((j: any) => j.status === "budget_paused") && (
           <div className="small faint" style={{ padding: "8px 14px" }}>A chapter paused by a daily limit resumes by itself as soon as there is room (a raised limit) or at midnight ET; autopilot waits for it before starting another.</div>
         )}

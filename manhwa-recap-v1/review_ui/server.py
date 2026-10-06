@@ -4238,6 +4238,7 @@ def _after_ingest(job_id):
     Never raises — bookkeeping must not turn a finished ingest into an error."""
     rec = INGEST.get(job_id) or {}
     status = rec.get("status")
+    threading.Timer(2.0, lambda: (_trim_line(), _fill_line())).start()   # next chapter's turn
     try:
         import autopilot as _ap
         root = _ingest_mod.PROJECTS
@@ -4285,7 +4286,7 @@ def _queue_worker():
                 return
             job_id, url, fresh, engine, variant, direct = _QUEUE.pop(0)
         rec = INGEST.get(job_id) or {}
-        if rec.get("control") == "stop" or rec.get("status") == "cancelled":
+        if rec.get("control") == "stop" or rec.get("status") in ("cancelled", "held"):
             continue                       # dequeued before it ever started
         try:
             _run_ingest_job(job_id, url, fresh, engine=engine,
@@ -4347,7 +4348,7 @@ def job_control(body: JobControlIn):
     hit = False
     if body.job_id not in INGEST and body.job_id not in JOBS:
         rec0 = _load_ingest(body.job_id)       # a waiting job from before a restart
-        if rec0 and rec0.get("status") in ("budget_paused", "interrupted"):
+        if rec0 and rec0.get("status") in ("budget_paused", "interrupted", "held"):
             INGEST[body.job_id] = dict(rec0)
     for store, persist in ((INGEST, _persist_ingest), (JOBS, _persist_job)):
         rec = store.get(body.job_id)
@@ -4357,7 +4358,7 @@ def job_control(body: JobControlIn):
         if rec.get("status") in ("done", "error", "cancelled"):
             raise HTTPException(409, f"job already {rec['status']} — nothing to "
                                      f"{action}")
-        if rec.get("status") in ("budget_paused", "interrupted"):
+        if rec.get("status") in ("budget_paused", "interrupted", "held"):
             # nothing is running for these: stop retires them, resume re-queues
             if ctl != "stop":
                 raise HTTPException(409, "this job is waiting — use ▶ Resume to restart it")
@@ -6312,7 +6313,8 @@ def _ap_deps():
         # another would only pause too (owner, 2026-10-06: ch.182 started and
         # paused right after ch.181). They resume first when there is room.
         return any(j.get("status") in ("queued", "running", "paused", "pausing")
-                   for j in list(INGEST.values())) or bool(_paused_today())
+                   for j in list(INGEST.values())) or bool(_paused_today()) or \
+            any(j.get("status") == "held" for j in list(INGEST.values()))
 
     def spend():
         d = usage.daily_summary()
@@ -6366,14 +6368,75 @@ def _waiting_ingests(status):
     return [j for j in _all_ingest_jobs() if j.get("status") == status]
 
 
-def _resume_interrupted():
-    """Startup: re-queue ingests a restart cut off (see the boot sweep)."""
+# ---- the line (owner, 2026-10-06: "avoid more than 2 chapters at once — 3
+# paused/resumed and 1 running gets messy and doesn't account for daily
+# limits"). At most LINE_MAX chapters are in the line (queued, running or
+# paused). Others wait OUTSIDE it as "held" and start by themselves, oldest
+# first, when a place frees up; one paused by a daily limit only re-enters
+# when there is room under the limits.
+LINE_MAX = max(1, int(os.environ.get("INGEST_LINE_MAX", "2")))
+_LINE_ST = ("queued", "running", "paused", "pausing")
+
+
+def _line_count():
+    return sum(1 for j in list(INGEST.values()) if j.get("status") in _LINE_ST)
+
+
+def _hold(job_id, why="waiting its turn — at most %d chapters are made at once; it starts by itself" % LINE_MAX):
+    rec = INGEST.get(job_id) or _load_ingest(job_id) or {}
+    rec.update(status="held", stage="held", msg=why, error=None)
+    INGEST[job_id] = rec
+    _persist_ingest(job_id)
+    with _QUEUE_LOCK:
+        _QUEUE[:] = [q for q in _QUEUE if q[0] != job_id]
+
+
+def _fill_line():
+    """Start waiting chapters, oldest first, until the line is full."""
     n = 0
-    for j in _waiting_ingests("interrupted"):
+    waiting = sorted(_waiting_ingests("held") + _waiting_ingests("budget_paused"),
+                     key=lambda x: x.get("ts", 0))
+    today = usage._today()
+    for j in waiting:
+        if _line_count() >= LINE_MAX:
+            break
+        if j.get("status") == "budget_paused" and not _cap_headroom():
+            continue
+        why = ("resumed: its turn came" if j.get("status") == "held" else
+               "resumed: a new spend day started" if j.get("paused_day") != today else
+               "resumed: there is room under the limits again")
+        _enqueue_ingest(j.get("url", ""), False, j.get("engine", "gemini"), j.get("variant", ""),
+                        j.get("direct_speech"), job_id=j["job"], why=why)
+        _autopilot.set_status_for_job(_ingest_mod.PROJECTS, j["job"], "queued")
+        n += 1
+    return n
+
+
+def _trim_line():
+    """If more than LINE_MAX are in the line (e.g. from before this rule),
+    hold the newest ones that haven't started."""
+    over = _line_count() - LINE_MAX
+    if over <= 0:
+        return 0
+    waiting = sorted((dict(j, id=k) for k, j in list(INGEST.items()) if j.get("status") == "queued"),
+                     key=lambda x: -(x.get("ts") or 0))
+    for j in waiting[:over]:
+        _hold(j["id"])
+    return min(over, len(waiting))
+
+
+def _resume_interrupted():
+    """Startup: re-queue ingests a restart cut off (see the boot sweep) — at
+    most LINE_MAX; the rest wait their turn ("held")."""
+    n = 0
+    for j in sorted(_waiting_ingests("interrupted"), key=lambda x: x.get("ts", 0)):
         jid = j["job"]
         rec = _load_ingest(jid) or {}
         rec["resumes"] = rec.get("resumes", 0) + 1
         INGEST[jid] = rec
+        if _line_count() >= LINE_MAX:
+            _hold(jid, "waiting its turn after a server restart; it starts by itself")
+            continue
         ctl = "pause" if rec.get("control") == "pause" else "run"
         _enqueue_ingest(rec.get("url", ""), False, rec.get("engine", "gemini"),
                         rec.get("variant", ""), rec.get("direct_speech"), job_id=jid,
@@ -6407,8 +6470,14 @@ def _paused_today():
 
 
 def _resume_budget_paused():
-    """Chapters a usage limit paused go first, oldest first: on a new spend
-    day, or as soon as there is room again today (a limit was raised)."""
+    """Scheduler step: trim an over-full line, then fill it from chapters
+    waiting their turn or paused by a limit (see _fill_line)."""
+    _trim_line()
+    return _fill_line()
+
+
+def _resume_budget_paused_old():
+    """(replaced by _fill_line; kept for reference)"""
     today = usage._today()
     room = _cap_headroom()
     n = 0
@@ -7550,7 +7619,7 @@ def events_feed(after: int = 0, limit: int = 300, kind: str = ""):
 
 
 _LIVE = ("running", "queued", "paused", "pausing")
-_WAITING = ("budget_paused", "interrupted")
+_WAITING = ("budget_paused", "interrupted", "held")
 
 
 def _job_rows():
@@ -7976,13 +8045,17 @@ def jobs_resume(body: JobResumeIn):
     rendered are kept, so it continues where it stopped."""
     rec = INGEST.get(body.job_id) or _load_ingest(body.job_id)
     if rec is not None:
-        if rec.get("status") not in ("cancelled", "error", "budget_paused", "interrupted"):
+        if rec.get("status") not in ("cancelled", "error", "budget_paused", "interrupted", "held"):
             raise HTTPException(409, f"job is {rec.get('status')} — nothing to resume")
         if rec.get("status") == "budget_paused":
             spent, cap = _ap_deps()["spend"]()
             if spent >= cap:
                 raise HTTPException(409, f"today's spend cap is reached (${spent:.2f} of "
                                          f"${cap:.2f}) — it resumes by itself after midnight ET")
+        if _line_count() >= LINE_MAX:
+            INGEST[body.job_id] = dict(rec)
+            _hold(body.job_id, f"resumed by you — waiting its turn (at most {LINE_MAX} chapters at once); it starts by itself")
+            return {"ok": True, "job": body.job_id, "kind": "ingest", "held": True}
         _enqueue_ingest(rec.get("url", ""), False, rec.get("engine", "gemini"),
                         rec.get("variant", ""), rec.get("direct_speech"),
                         job_id=body.job_id, why="resumed by you")

@@ -28,6 +28,13 @@ export default function JobsBar({ onChange }: { onChange?: () => void }) {
             <button className="sm ghost" aria-label="Take out of the queue" onClick={() => act(async () => { await api("/api/render-queue/remove", { id: j.id }); await reload(); }, "Taken out of the queue")}>✕</button>
           </div>
         );
+        if (j.status === "held") return (
+          <div className="job" key={j.id}>
+            <b>{j.kind === "autopilot" ? "🤖 " : ""}{j.name}</b>
+            <span className="muted">waiting its turn — at most 2 chapters at once</span>
+            <ConfirmButton className="sm danger" confirm="Tap to stop" onConfirm={() => control(j.id, "stop")}>■ Stop</ConfirmButton>
+          </div>
+        );
         if (j.status === "error") return (
           <div className="job" key={j.id} style={{ borderColor: "var(--red)" }}>
             <b>🎬 {j.name}</b>

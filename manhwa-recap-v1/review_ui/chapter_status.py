@@ -30,7 +30,7 @@ STATUSES = {
 }
 ORDER = list(STATUSES)
 WAITING_INGEST = ("budget_paused", "interrupted", "paused", "pausing", "cancelled")
-LIVE_INGEST = ("queued", "running")
+LIVE_INGEST = ("queued", "running", "held")      # held = waiting its turn (being made, not yet started)
 
 
 def view(key, **extra):
@@ -66,7 +66,10 @@ def decide(f):
     if f.get("has_board"):
         return view("to_review")
     if ist in WAITING_INGEST:
-        return view("waiting", reason=ist)
+        return view("waiting", reason={"budget_paused": "paused by a daily limit — resumes by itself when there is room or at midnight ET",
+                                       "interrupted": "cut off by a server restart — resumes by itself",
+                                       "paused": "paused by you", "pausing": "pausing",
+                                       "cancelled": "stopped by you"}.get(ist, ist))
     if ist == "error":
         return view("failed", reason=f.get("ingest_error"))
     return view("making" if ist else "failed", reason=None if ist else "no board was built")
