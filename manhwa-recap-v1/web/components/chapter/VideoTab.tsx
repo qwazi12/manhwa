@@ -41,6 +41,7 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
   // before that is prepared once when it is opened here (owner, 2026-10-05).
   const prep = useRef<{ asked: boolean; started: number }>({ asked: false, started: 0 });
   const [preparing, setPreparing] = useState(false);
+  const [seoRun, setSeoRun] = useState<any>(null);
   useEffect(() => {
     const d = pub.data;
     if (draft || !d || d.missing) return;
@@ -173,7 +174,22 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
       </div>
       <div className="vcol">
         {draft && <div className="banner info">Preparing the details before the render. Whatever you set here is used for the video when it’s made. Thumbnails come after the render, because they’re built from the video’s pictures.</div>}
-        <Card title="What gets published">
+        <Card title="What gets published" right={!draft ? <ConfirmButton className="sm primary"
+            confirm="Run live SEO? It researches the series on the web, re-reads your channel's latest uploads and searches YouTube, then REPLACES the title, description and tags. Costs a few cents."
+            onConfirm={() => act(async () => {
+              const r = await api("/api/seo/run", { project: id, name });
+              if (r?.metadata) setMd(r.metadata);
+              setSeoRun(r); pub.reload();
+            }, "SEO done — title, description and tags filled in")}>🔎 SEO</ConfirmButton> : undefined}>
+          {seoRun && (
+            <div className="banner info small" style={{ display: "grid", gap: 2 }}>
+              <b>Live SEO filled in: {(seoRun.filled || []).join(", ") || "nothing"}{Object.keys(seoRun.failed || {}).length ? ` · not filled: ${Object.entries(seoRun.failed).map(([k, v]: any) => `${k} (${v})`).join("; ")}` : ""}</b>
+              {Object.entries(seoRun.ran || {}).map(([k, x]: any) => (
+                <span key={k}>{x.error ? "⚠" : "✓"} {x.label}: {x.detail || "—"}{x.error ? ` — ${x.error}` : ""}</span>
+              ))}
+              {(seoRun.problems || []).length > 0 && <span>⚠ Still to fix before it can post: {seoRun.problems.join(" ")}</span>}
+            </div>
+          )}
           <label className="field">Title <span className="count num">{(md.title || "").length}/{lim.title}</span>
             <input id="title" value={md.title || ""} maxLength={lim.title} onChange={(e) => setMd({ ...md, title: e.target.value })} onBlur={() => save({})} />
           </label>

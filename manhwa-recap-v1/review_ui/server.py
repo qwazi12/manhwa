@@ -1868,6 +1868,42 @@ def api_seo_generate(body: SeoGenIn):
     return _seo_state(pdir, name)
 
 
+@app.post("/api/seo/run")
+def api_seo_run(body: SeoGenIn):
+    """The one-click SEO (owner, 2026-10-06: "a button called SEO … to get real
+    and live seo"). Fresh research — the web (Google) research and the
+    channel's latest uploads are re-fetched, the YouTube searches run live —
+    then the title, description and tags are FILLED IN from it in the current
+    formats (B1 title, B2 description blocks, B4 aliases in the tags).
+    Replaces those three fields; everything is metered by usage.gate."""
+    import seo as _seo
+    pdir = project_dir_for(body.project)
+    name = os.path.basename(body.name or "")
+    if not name:
+        raise HTTPException(400, "which video is this for?")
+    api_seo_generate(SeoGenIn(project=body.project, name=name, refresh_style=True))
+    filled, failed = [], {}
+    for field in ("title", "description", "tags"):
+        try:
+            api_seo_apply(SeoApplyIn(project=body.project, name=name, field=field))
+            filled.append(field)
+        except HTTPException as e:
+            failed[field] = str(e.detail)[:160]
+    rec = _seo.get(pdir, name) or {}
+    src = rec.get("sources") or {}
+
+    def line(k):
+        x = src.get(k) or {}
+        return {"label": x.get("label"), "detail": x.get("detail"), "error": x.get("error")}
+    pid = os.path.basename(pdir.rstrip("/"))
+    md = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
+    _ev("publish", f"{(_project_label(pdir) or {}).get('title') or pid}: SEO researched and filled in "
+                   f"({', '.join(filled) or 'nothing'})", "ok" if filled else "warn")
+    return {"ok": bool(filled), "filled": filled, "failed": failed,
+            "ran": {k: line(k) for k in ("web", "channel", "research", "series_youtube")},
+            "confidence": rec.get("confidence"), **_publish_payload(pdir, pid, name, md)}
+
+
 # ====================================================================
 #  Spec 06 B2/B4 — series asset pack + fixed description blocks
 # ====================================================================
