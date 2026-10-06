@@ -171,22 +171,22 @@ def main():
     yt.store_tokens(root, {"access_token": "AT", "refresh_token": "RT",
                            "expires_in": 3600}, {"channel_title": "C"})
     srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
-                                       metadata={"title": "T", "privacy": "private"}))
+                                       metadata={"title": "He Wins The Duel - Test Series Chapter 1 Manhwa Recap", "privacy": "private"}))
     el = srv.upload_eligibility(pd, NAME)
     r.append(("approved + connected + valid metadata is eligible", el["ready"] is True))
 
     srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
-                                       metadata={"title": "T", "privacy": "public"}))
+                                       metadata={"title": "He Wins The Duel - Test Series Chapter 1 Manhwa Recap", "privacy": "public"}))
     el = srv.upload_eligibility(pd, NAME)
     # The operator may choose any visibility; the guarantee that remains is
     # that private is the DEFAULT, so it is never raised by omission.
     r.append(("an explicitly chosen public upload is permitted", el["ready"] is True))
     srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
-                                       metadata={"title": "T"}))
+                                       metadata={"title": "He Wins The Duel - Test Series Chapter 1 Manhwa Recap"}))
     r.append(("...while metadata with no privacy at all defaults to private",
               (srv.publish_defaults(pd).get("privacy") or "private") == "private"))
     srv.api_publish_save(srv.PublishIn(project="proj", name=NAME,
-                                       metadata={"title": "T", "privacy": "private"}))
+                                       metadata={"title": "He Wins The Duel - Test Series Chapter 1 Manhwa Recap", "privacy": "private"}))
 
     json.dump([{"seg_index": 0, "panel_id": "CHANGED", "dur": 3.0, "start": 0.0,
                 "end": 3.0, "user_included": True, "crop_bbox_norm": None,

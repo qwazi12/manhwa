@@ -834,9 +834,9 @@ def _clamp(out, card, style=None, patterns=None):
     for t in (out.get("titles") or [])[:5]:
         hook = (t.get("text") or "").strip()
         if tmpl and hook:
-            import studio_settings as _ss
-            txt = _ss.build_title(tmpl, hook, card.get("title_series") or card.get("series"),
-                                  card.get("chapter"), YT_TITLE_MAX)
+            import chapter_title as _ct
+            txt = _ct.build(hook, card.get("title_series") or card.get("series"),
+                            card.get("chapter"), YT_TITLE_MAX, tmpl)
         else:
             txt = hook[:YT_TITLE_MAX]
         if txt:
@@ -902,7 +902,7 @@ def generate(pdir, name, card, style, res, model=None, _call=None, usage=None):
         style=json.dumps(_style_brief(style), indent=1, ensure_ascii=False),
         research=json.dumps((res or {}).get("patterns", {}), indent=1, ensure_ascii=False),
         web=json.dumps(web or {"note": "no web research available"}, indent=1, ensure_ascii=False),
-        template=(card.get("title_template") or "{hook} | {series} Ch.{chapter}").replace("{", "<").replace("}", ">"),
+        template=(card.get("title_template") or "{hook} - {series} Chapter {chapter} Manhwa Recap").replace("{", "<").replace("}", ">"),
         series_yt=json.dumps([{"title": t["title"], "views": t["views"]} for t in sy.get("top") or []]
                              or {"note": sy.get("error") or "no series search"}, indent=1, ensure_ascii=False),
         tmax=YT_TITLE_MAX, tagmax=YT_TAGS_CHARS_MAX)

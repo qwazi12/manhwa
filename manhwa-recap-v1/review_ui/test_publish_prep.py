@@ -57,8 +57,10 @@ def main():
 
     # ---- defaults come from the project
     md = srv.publish_defaults(pd)
-    r.append(("the title is seeded from series and chapter",
-              md["title"] == "Overgeared Chapter 338 — Recap"))
+    # Spec 06 B1: "{hook} - {Series} Chapter {N} Manhwa Recap"; with no
+    # narration there is no hook yet, which the validator reports.
+    r.append(("the title is seeded from series and chapter in the B1 format",
+              md["title"].endswith("Overgeared Chapter 338 Manhwa Recap")))
     r.append(("privacy defaults to PRIVATE, never public", md["privacy"] == "private"))
     r.append(("synthetic-narration disclosure defaults ON",
               md["synthetic_disclosure"] is True))
@@ -144,7 +146,7 @@ def main():
     # ---- the package itself
     srv.api_publish_save(srv.PublishIn(
         project="proj", name=NAME,
-        metadata={"title": "Overgeared 338 Recap", "tags": ["overgeared"],
+        metadata={"title": "He Clears The Raid Alone - Overgeared Chapter 338 Manhwa Recap", "tags": ["overgeared"],
                   "privacy": "private"}))
     resp = srv.api_publish_package(project="proj", name=NAME)
     z = zipfile.ZipFile(io.BytesIO(resp.body))
@@ -153,7 +155,7 @@ def main():
     r.append(("...and a human checklist", "upload-checklist.txt" in names))
     meta = json.loads(z.read("metadata.json"))
     r.append(("the metadata in the zip is what was saved",
-              meta["title"] == "Overgeared 338 Recap"))
+              meta["title"] == "He Clears The Raid Alone - Overgeared Chapter 338 Manhwa Recap"))
     txt = z.read("upload-checklist.txt").decode()
     r.append(("the checklist states the privacy setting", "PRIVACY: private" in txt))
     r.append(("...and carries the synthetic-content disclosure",

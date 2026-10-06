@@ -835,7 +835,13 @@ def hook_from_title(title, card=None):
     verbal hook; this is the same hook compressed until it is legible at
     sidebar size.
     """
-    t = re.sub(r"^\s*(\*\*[^*]*\*\*|\*[^*]*\*|\([^)]*\)|\[[^\]]*\])\s*", "", title or "")
+    t = title or ""
+    # Spec 06 B1 titles are "{hook} - {Series} Chapter {N} Manhwa Recap": the
+    # hook is what precedes " - ", never the series words after it.
+    m = re.search(r"\s[-–—|]\s.*\b(chapter|ch\.?)\s*\d", t, re.I)
+    if m and m.start() > 0:
+        t = t[:m.start()]
+    t = re.sub(r"^\s*(\*\*[^*]*\*\*|\*[^*]*\*|\([^)]*\)|\[[^\]]*\])\s*", "", t)
     t = re.sub(r"[^A-Za-z0-9' ]+", " ", t)
     words = [w for w in t.split() if w]
     caps = [w for w in words if w.isupper() and len(w) > 2 and w.lower() not in _WEAK]

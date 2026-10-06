@@ -19,7 +19,8 @@ DEFAULTS = {
     # Owner, 2026-10-05: "we need uniformity for titles, especially with many
     # chapters". The SEO writer only writes the {hook}; every title is built
     # from this format, so all chapters of a series read the same way.
-    "title_template": "{hook} | {series} Ch.{chapter}",
+    # Spec 06 B1 (2026-10-06): hook first, "Manhwa Recap" suffix — see chapter_title.py.
+    "title_template": "{hook} - {series} Chapter {chapter} Manhwa Recap",
     "publish": {"targets": ["mk:youtube"], "privacy": "private"},
     # Step 5: built but OFF until the owner switches it on (2026-10-04).
     "schedule": {"enabled": False, "times": ["12:00", "18:00"], "tz": "America/New_York",
@@ -60,7 +61,9 @@ def export_speed():
 
 
 def title_template():
-    return load().get("title_template") or DEFAULTS["title_template"]
+    t = load().get("title_template") or DEFAULTS["title_template"]
+    # a saved copy of an earlier DEFAULT is read as the current default (B1)
+    return DEFAULTS["title_template"] if t in ("{hook} | {series} Ch.{chapter}",) else t
 
 
 def build_title(template, hook, series, chapter, limit=100):

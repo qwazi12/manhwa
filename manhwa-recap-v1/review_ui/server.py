@@ -987,7 +987,16 @@ def _publish_defaults_base(pdir):
         pass
     series = (meta.get("series") or "").strip()
     chapter = str(meta.get("chapter") or "").strip()
-    title = f"{series} Chapter {chapter} — Recap" if series else "Chapter Recap"
+    # Spec 06 B1: hook first, from the chapter's own narration until the SEO
+    # writer's hook replaces it. No narration -> no hook, and the validator says so.
+    import chapter_title as _ct
+    hook = ""
+    try:
+        with open(os.path.join(pdir, "script.txt"), encoding="utf-8") as f:
+            hook = _ct.hook_from_content(f.read(2000))
+    except OSError:
+        pass
+    title = _ct.build(hook, series, chapter, YT_TITLE_MAX, _studio.title_template()) if series else "Chapter Recap"
     return {
         "title": title[:YT_TITLE_MAX],
         "description": (f"A recap of {series} chapter {chapter}."
@@ -1027,14 +1036,34 @@ def publish_defaults(pdir):
     return md
 
 
-def validate_publish(md):
-    """Platform-limit problems, as a list of human sentences ([] == fine)."""
+def validate_publish(md, pdir=None, name=None):
+    """Platform-limit problems, as a list of human sentences ([] == fine).
+
+    With the export's project, the chapter-title rules of spec 06 B1 apply too
+    (chapter_title.problems): hook first, no old "P{n} | … | #manhwa"
+    pattern, no title identical to another export's."""
     out = []
     title = (md.get("title") or "").strip()
     if not title:
         out.append("A title is required.")
     elif len(title) > YT_TITLE_MAX:
         out.append(f"Title is {len(title)} characters; the limit is {YT_TITLE_MAX}.")
+    if title and pdir:
+        import chapter_title as _ct
+        import ingest as _ing
+        meta = _read_json(os.path.join(pdir, "project.json")) or {}
+        pid = os.path.basename(pdir.rstrip("/"))
+        others = _ct.existing_titles(_ing.PROJECTS, skip_project=pid)
+        # Within this chapter, re-renders share one title by design; only an
+        # export that actually went out (uploads.json / publishes.json) counts.
+        went = set(_read_json(os.path.join(pdir, UPLOADS_NAME)) or {}) | \
+            set(_read_json(os.path.join(pdir, "publishes.json")) or {})
+        mine = load_publish(pdir)
+        others += [m.get("title") for n, m in mine.items()
+                   if n != name and n in went and isinstance(m, dict)]
+        out += [p for p in _ct.problems(title, (meta.get("series") or "").strip(),
+                                        str(meta.get("chapter") or ""), others)
+                if not p.startswith("Title is ")]
     if len(md.get("description") or "") > YT_DESC_MAX:
         out.append(f"Description is over the {YT_DESC_MAX}-character limit.")
     tags = md.get("tags") or []
@@ -1076,7 +1105,7 @@ def _publish_payload(pdir, pid, name, md):
     import thumbnail as _tb
     thumb = _tb.get(pdir, name)
     return {"project": pid, "name": name, "metadata": md,
-            "problems": validate_publish(md),
+            "problems": validate_publish(md, pdir, name),
             "readiness": publish_readiness(pdir, name),
             "seo": (__import__("seo").get(pdir, name, current_signature=cut_signature(pdir=pdir))
                     or __import__("seo").get(pdir, DRAFT) or None),
@@ -1162,7 +1191,7 @@ def api_publish_package(project: str = "", name: str = ""):
         raise HTTPException(409, "not ready to package — " + " ".join(ready["blockers"]))
     store = load_publish(pdir)
     md = {**publish_defaults(pdir), **(store.get(name) or {})}
-    problems = validate_publish(md)
+    problems = validate_publish(md, pdir, name)
     if problems:
         raise HTTPException(400, "fix the metadata first: " + " ".join(problems))
 
@@ -1793,7 +1822,7 @@ def api_seo_apply(body: SeoApplyIn):
         all_recs[name]["applied"] = applied
         _seo.save_all(pdir, all_recs)
     return {"ok": True, "field": field,
-            "metadata": md, "problems": validate_publish(md)}
+            "metadata": md, "problems": validate_publish(md, pdir, name)}
 
 
 # ====================================================================
@@ -1929,7 +1958,7 @@ def upload_eligibility(pdir, name):
                         "re-review before uploading.")
     store = load_publish(pdir)
     md = {**publish_defaults(pdir), **(store.get(name) or {})}
-    problems = validate_publish(md)
+    problems = validate_publish(md, pdir, name)
     if problems:
         blockers.append("Publish metadata is incomplete: " + " ".join(problems))
     acct = _yt.account_status(_yt_root())
@@ -2056,7 +2085,7 @@ def publish_eligibility(pdir, name):
         blockers.append("The cut changed after approval — re-render and re-review before publishing.")
     store = load_publish(pdir)
     md = {**publish_defaults(pdir), **(store.get(name) or {})}
-    problems = validate_publish(md)
+    problems = validate_publish(md, pdir, name)
     if problems:
         blockers.append("Publish metadata is incomplete: " + " ".join(problems))
 
