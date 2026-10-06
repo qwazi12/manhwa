@@ -6541,6 +6541,8 @@ def queue_back_to_review(body: QueueBackIn):
     pdir = project_dir_for(body.project)
     pid = os.path.basename(pdir.rstrip("/"))
     name = os.path.basename(body.name)
+    if not name.endswith(".mp4") or not os.path.exists(os.path.join(pdir, "exports", name)):
+        raise HTTPException(404, "video not found")
     rows = [x for x in _pqb.load(_i.PROJECTS)["items"] if (x["project"], x["name"]) == (pid, name)]
     if any(x["status"] == "posting" for x in rows):
         raise HTTPException(409, "it's being posted right now — stop it from the jobs bar first")

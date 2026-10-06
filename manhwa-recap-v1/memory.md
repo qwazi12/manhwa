@@ -8991,3 +8991,5 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - No per-chapter web or Google search, no series-specific YouTube query.
 - **Scrapper LongForm** (`studio/stage_gather.py` + `gemini.research`): a TMDB fact sheet plus **Gemini with Google Search grounding**, restricted to trusted sources, with source URLs resolved and tiered (`sources.py`). Claims are only used when sourced, and the description lists the sources. So yes, Scrapper does real research; ours is much thinner. Upgrade proposed to the owner, not built.
 - **Tests:** new `test_spend_cap_back` 13/13. Full suite 80/81 (only the known date-bound test). `next build` ok.
+- **Live (68cb1c5):** Settings overview shows spending {cap 10.0, railway_default 10.0, ceiling 25.0, set_in_app False}; a cap above the ceiling returns 400.
+- **Bug found live and fixed:** `/api/studio/queue/back` accepted a non-existent video name. My probe wrote a stray `review_pending` record keyed "nope.mp4" into ch.30's review.json. It is harmless (no export has that name, so it is never shown or counted), but it is still there. The endpoint now returns 404 unless the export exists; test 14/14.

@@ -88,6 +88,9 @@ def main():
                 x["status"] = "failed"
         pq._save(root, dd)
         c.post("/api/studio/queue/back", json={"project": pid, "name": name})
+        check("an unknown video is refused, no record written",
+              c.post("/api/studio/queue/back", json={"project": pid, "name": "nope.mp4"}).status_code == 404
+              and "nope.mp4" not in server.load_reviews(pdir))
         check("a failed post can go back to review too", not [x for x in pq.load(root)["items"] if x["status"] in ("queued", "failed")])
     finally:
         (usage.USAGE_DIR, usage.LOG_PATH, usage.COUNTS_PATH, usage.LOCK_PATH,
