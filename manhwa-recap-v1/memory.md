@@ -9095,3 +9095,8 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - Watch-out: chapter panels from aggregators may carry their own watermarks (only the cover is trimmed).
 - **Fixed the date-bound `test_posting_schedule`.** Switching the schedule on stamps the REAL time as `enabled_at`, and `decide` skips slots before it that day. On 2026-10-05 (the test's fixed day) its 12:05 slot counted as already passed. The test now pins `enabled_at` to its own day. 20/20, also with time.time pinned to 2026-10-05 22:00 ET. Full suite 84/84.
 - **Push (03:21 ET):** 4 commits plus this one are local. Autopilot is making Dark Mage ch.105 (narrate). A background watcher pushes at the first real gap between chapters (it now ignores waiting/paused jobs, which kept the earlier watcher from ever pushing).
+- **Live (f888511), pushed 03:38 ET at a gap between chapters:**
+  - `/api/autopilot` returns 9 scheduled entries (13 of the 22 are already made) and a 28-item forecast; the next pick is Dark Mage ch.106 from the scheduled list.
+  - Title format is live.
+  - `/api/review` for Murim 44: 4.13 s cold (first open after the restart), **0.07 s** cached.
+  - Vercel deploy checked.
