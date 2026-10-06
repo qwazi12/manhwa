@@ -454,7 +454,12 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
                     return pid, panel_cache
 
             with ThreadPoolExecutor(max_workers=5) as executor:
-                completed = list(executor.map(process_panel, query_list))
+                try:
+                    import usage as _usage
+                    _run = _usage.carry(process_panel)     # count under the caller's job
+                except Exception:
+                    _run = process_panel
+                completed = list(executor.map(_run, query_list))
 
             # Update cache and save
             for pid, panel_cache in completed:

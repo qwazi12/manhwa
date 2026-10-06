@@ -3435,6 +3435,7 @@ def _run_finalize_job(job_id):
     """The APPROVE chain (user contract): render every ticked-but-missing
     clip, then export the final narrated MP4 — one job, visible progress."""
     import time
+    usage.set_job(job_id)          # a re-voice counts under this render, not "unknown"
     j = JOBS[job_id]
     j["status"] = "running"
     j["stage"] = "render"
@@ -3630,7 +3631,7 @@ def _revoice_if_outdated(pdir, j, job_id):
 
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=4) as ex:
-            list(ex.map(one, beats))
+            list(ex.map(usage.carry(one), beats))
     except Exception:
         with open(seg_path, "wb") as f:                 # back to how it was
             f.write(seg_backup)
@@ -4115,8 +4116,8 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
         # Owner rule (2026-10-03): a cap hit PAUSES the chapter until the
         # spend day resets (midnight ET); the scheduler resumes it first.
         INGEST[job_id].update(status="budget_paused", paused_day=usage._today(),
-                              error=f"paused: daily spend cap reached ({e}) — "
-                                    f"resumes after midnight ET")
+                              error=f"paused: a usage limit was reached ({e}) — resumes after "
+                                    f"midnight ET, or raise the limit in Settings → Spending and press Resume")
     except Exception as e:  # noqa
         INGEST[job_id].update(status="error", error=str(e))
     INGEST[job_id]["ended"] = time.time()

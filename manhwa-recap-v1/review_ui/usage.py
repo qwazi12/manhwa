@@ -182,6 +182,27 @@ def get_job_id():
     return getattr(_local, "job_id", None) or os.environ.get("RECAP_JOB_ID", "unknown")
 
 
+def carry(fn):
+    """Wrap fn so it runs under the CALLER's job id in a worker thread.
+
+    The job id is thread-local; ThreadPoolExecutor workers start without it,
+    so every voice line recorded 4-at-a-time landed in one shared "unknown"
+    job. Its per-job cap (MAX_TTS_CHARS_PER_JOB) then filled up across a day's
+    chapters and paused every new one as if the daily budget were spent
+    (owner, 2026-10-05: "why the works keep pausing")."""
+    jid = getattr(_local, "job_id", None)
+
+    def run(*a, **k):
+        prev = getattr(_local, "job_id", None)
+        if jid:
+            _local.job_id = jid
+        try:
+            return fn(*a, **k)
+        finally:
+            _local.job_id = prev
+    return run
+
+
 def _today():
     # Eastern Time (user directive 2026-07-19): daily caps reset at midnight
     # America/New_York, and the storyboard shows the ET date so a UTC

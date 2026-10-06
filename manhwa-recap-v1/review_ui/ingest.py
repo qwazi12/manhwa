@@ -477,7 +477,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         from concurrent.futures import ThreadPoolExecutor, as_completed
         n_w = max(1, int(os.environ.get("TTS_WORKERS", "4")))
         with ThreadPoolExecutor(max_workers=n_w) as ex:
-            futs = [ex.submit(srv._synth_rest, b["text"], out, engine=voice_engine)
+            synth = usage.carry(srv._synth_rest)          # count under THIS job
+            futs = [ex.submit(synth, b["text"], out, engine=voice_engine)
                     for b, out in todo]
             for k, fut in enumerate(as_completed(futs), 1):
                 fut.result()      # first failure (incl. a usage cap) stops the job

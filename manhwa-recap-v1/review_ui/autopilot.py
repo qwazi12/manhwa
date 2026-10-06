@@ -470,7 +470,10 @@ def priority_rows(st, series_view, canon, live_projects=(), now=None):
         if made:
             continue                                   # done: leaves the list
         keep.append(e)
-        if le and le.get("status") in LIVE + ("budget_paused",):
+        if le and le.get("status") == "budget_paused":
+            row.update(state="waiting", reason="paused by a usage limit — resumes after midnight ET, "
+                                               "or Resume it in the jobs bar")
+        elif le and le.get("status") in LIVE:
             row.update(state="running", reason="being made now")
         elif ch not in listed:
             row.update(state="waiting", reason=f"not on the source yet (latest there is ch.{best.get('latest')})")

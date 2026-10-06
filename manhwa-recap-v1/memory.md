@@ -8993,3 +8993,20 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Tests:** new `test_spend_cap_back` 13/13. Full suite 80/81 (only the known date-bound test). `next build` ok.
 - **Live (68cb1c5):** Settings overview shows spending {cap 10.0, railway_default 10.0, ceiling 25.0, set_in_app False}; a cap above the ceiling returns 400.
 - **Bug found live and fixed:** `/api/studio/queue/back` accepted a non-existent video name. My probe wrote a stray `review_pending` record keyed "nope.mp4" into ch.30's review.json. It is harmless (no export has that name, so it is never shown or counted), but it is still there. The endpoint now returns 404 unless the export exists; test 14/14.
+
+### 2026-10-05 — Owner: "do it" (SEO research upgrade); "why do the works keep pausing"; "where are the ~20 autopilot works I picked — let me see everything scheduled and mix them up. Plan, then begin"
+- **Live findings:**
+  - The owner set the site cap to $18, the autopilot budget to $14 and 20 a day, and put **22 chapters in Make next**. They exist, but the list only shows at the top of Library → Series, so the owner couldn't find it.
+  - Two autopilot chapters (Mercenary 97, Death Knight 88) were `budget_paused` with "MAX_TTS_CHARS_PER_JOB=120000 would be exceeded for **job 'unknown'**".
+- **Root cause of the pauses:**
+  - `usage` keeps the job id thread-local. The ingest voice step records lines 4-at-a-time in a ThreadPoolExecutor whose workers start without it, so every chapter's TTS characters were tallied under one shared "unknown" job. The per-job runaway cap (120k characters) filled after a few chapters a day, and every later chapter paused "until midnight", mislabelled "daily spend cap reached".
+  - The same leak hit the shot planner (5 workers) and the re-voice pool, and explains the long-standing "unknown" job id on gemini-2.5-flash calls.
+- **PLAN** (owner asked for a plan, then begin):
+  1. Fix the pauses: job id carried into worker threads; honest pause message; resume the 2 paused chapters.
+  2. "Upcoming" page in the menu: being made now, the Make next list (drag/↑↓/top), what autopilot takes after it (projected round-robin order) with "pin to Make next" to mix, and the render queue. "Up next" summary on Home.
+  3. SEO research like Scrapper: series-specific YouTube search, plus a Gemini Google-Search-grounded web pass per series (cached a week: English title, alt names, genre, keywords, sources) feeding the SEO writer, and a sources line in the description.
+- **Step 1 done:**
+  - `usage.carry(fn)` runs fn under the caller's job id. Used for the ingest TTS pool, the shot planner's executor.map and the re-voice pool; `_run_finalize_job` now sets its own job id. Describe runs as a subprocess with RECAP_JOB_ID, so it was already correct.
+  - Pause message now reads "paused: a usage limit was reached (…) — resumes after midnight ET, or raise the limit in Settings → Spending and press Resume".
+  - Make next shows a budget-paused entry as "waiting / paused by a usage limit" (it said "being made now").
+  - Tests: new `test_usage_carry` 6/6 (proves the bug and the fix, two concurrent jobs); job_control 51/51, autopilot 50/50, autopilot_priority 14/14, logs 19/19, paste_add 22/22.
