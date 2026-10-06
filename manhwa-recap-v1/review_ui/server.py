@@ -6458,6 +6458,13 @@ def _resume_interrupted():
                         control=ctl, why=f"resumed after a server restart ({rec['resumes']} of {RESUME_MAX})")
         _autopilot.set_status_for_job(_ingest_mod.PROJECTS, jid, "queued")
         n += 1
+    # chapters waiting their turn show in the jobs bar right after a restart
+    # (the bar reads INGEST; they were only on disk until their turn came)
+    for j in _waiting_ingests("held"):
+        if j["job"] not in INGEST:
+            rec = _load_ingest(j["job"])
+            if rec:
+                INGEST[j["job"]] = rec
     if n:
         print(f"[boot] resumed {n} interrupted ingest(s)", flush=True)
     return n
