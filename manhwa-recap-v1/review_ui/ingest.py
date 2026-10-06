@@ -618,7 +618,10 @@ def _derive_series_chapter(pid, data):
     return series, chapter
 
 
-def list_projects():
+def list_projects(include_ranges=False):
+    """Every chapter project. Range compilations (spec 06 B3, project.json
+    kind="range") are not chapters, so the Library, tracker and watchlist
+    never count them; review and posting find their exports by folder."""
     if not os.path.isdir(PROJECTS):
         return []
     out = []
@@ -629,6 +632,10 @@ def list_projects():
         try:
             data = json.load(open(pj))
         except Exception:
+            continue
+        if data.get("kind") == "range":
+            if include_ranges:
+                out.append(data)
             continue
         # Engine backfill, same self-healing idiom as series/chapter below.
         # Projects built before the engine field existed carry it in their

@@ -155,3 +155,66 @@ def test_series_pack_aliases_reach_tags_description_and_narration(tmp_path):
     assert "also known as" not in narrate.build_prompt([])
     im, c = _thumb_from_title(tmp_path, ct.build("He Breaks The Heavenly Son", SERIES, "362"), "b4_thumb.png")
     assert _yellow_bbox(im)
+
+
+# ------------------------------------------------------------------ B3
+def test_range_is_stored_as_two_integers(tmp_path):
+    """A real range build: three chapter videos (solid red/green/blue, 1 s
+    each, approved) are stitched into a NEW range project. The range lives in
+    project.json as two JSON integers and the title is built from them; a
+    1280x720 frame grabbed inside each chapter's slot of the stitched video
+    has that chapter's colour (order verified on pixels)."""
+    import json
+    import subprocess
+    import time as _t
+    import ingest as ing
+    import server as srv
+    import range_compile as rc
+    from PIL import Image
+    ing.PROJECTS = str(tmp_path)
+    sid = "i-am-the-fated-villain"
+    url = "https://asurascans.com/comics/i-am-the-fated-villain-1a2b3c4d/chapter/%d"
+    colours = {1: "red", 2: "lime", 3: "blue"}
+    for n, col in colours.items():
+        d = tmp_path / f"{sid}_{n}"
+        (d / "exports").mkdir(parents=True)
+        (d / "project.json").write_text(json.dumps({"series": SERIES, "chapter": str(n), "url": url % n}))
+        out = d / "exports" / f"final_{n}.mp4"
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"color=c={col}:s=1280x720:r=30:d=1",
+                        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", "1", "-c:v", "libx264",
+                        "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(out)], check=True)
+        (d / "reviews.json").write_text(json.dumps({f"final_{n}.mp4": {
+            "status": "approved", "cut_signature": srv.cut_signature(pdir=str(d))}}))
+    plan = srv.api_range_plan(srv.RangeIn(project=f"{sid}_1", chapters_start=1, chapters_end=3))
+    assert plan["missing"] == [] and plan["chapters"] == [1, 2, 3]
+    assert len(plan["title"]) <= 100 and "Chapter 1-3" in plan["title"]
+    r = srv.api_range_build(srv.RangeIn(project=f"{sid}_1", chapters_start=1, chapters_end=3))
+    rdir = tmp_path / r["project"]
+    for _ in range(100):
+        meta = json.loads((rdir / "project.json").read_text())
+        if (meta.get("build") or {}).get("status"):
+            break
+        _t.sleep(0.2)
+    assert meta["build"]["status"] == "done", meta.get("build")
+    raw = (rdir / "project.json").read_text()
+    assert '"chapters_start": 1' in raw and '"chapters_end": 3' in raw     # JSON integers, not strings
+    assert type(meta["chapters_start"]) is int and type(meta["chapters_end"]) is int
+    title = json.loads((rdir / "publish.json").read_text())[r["export"]]["title"]
+    assert title == rc.title(SERIES, meta["chapters_start"], meta["chapters_end"], 3)[0]
+    assert srv.validate_publish({"title": title, "privacy": "private", "category_id": "1", "tags": []},
+                                str(rdir), r["export"]) == []
+    # never a chapter in the Library's lists
+    assert r["project"] not in [m.get("id") for m in ing.list_projects()]
+    # pixels: one frame inside each chapter's slot, at 1280x720
+    want = {1: (254, 0, 0), 2: (0, 255, 1), 3: (0, 0, 254)}
+    for n, t in ((1, 0.5), (2, 1.5), (3, 2.5)):
+        png = os.path.join(ART, f"b3_range_frame_ch{n}.png")
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(t), "-i", str(rdir / "exports" / r["export"]),
+                        "-frames:v", "1", png], check=True)
+        im = Image.open(png).convert("RGB")
+        assert im.size == (1280, 720)
+        px = im.getpixel((640, 360))
+        assert sum(abs(a - b) for a, b in zip(px, want[n])) < 40, (n, px)
+    # overflow: genre/year are dropped (year first) to stay under 100
+    long_t, dropped = rc.title("The Return Of The Disaster-Class Hero", 1, 120, 9 * 3600, "Action Fantasy", 2026)
+    assert len(long_t) <= 100 and dropped and dropped[0].startswith("Best Manhwa")

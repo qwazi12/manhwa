@@ -987,6 +987,16 @@ def _publish_defaults_base(pdir):
         pass
     series = (meta.get("series") or "").strip()
     chapter = str(meta.get("chapter") or "").strip()
+    if meta.get("kind") == "range":
+        import range_compile as _rc
+        try:
+            rtitle = _rc.title(series, meta["chapters_start"], meta["chapters_end"], 0)[0]
+        except Exception:
+            rtitle = f"{series} Chapter {chapter}"
+        return {"title": rtitle, "description": "", "tags": [t for t in [series, "manhwa recap"] if t],
+                "category_id": "1", "privacy": _studio.publish_defaults().get("privacy", "private"),
+                "targets": list(_studio.publish_defaults().get("targets") or []), "publish_at": "",
+                "playlist": series, "made_for_kids": False, "synthetic_disclosure": True, "thumbnail": None}
     # Spec 06 B1: hook first, from the chapter's own narration until the SEO
     # writer's hook replaces it. No narration -> no hook, and the validator says so.
     import chapter_title as _ct
@@ -1048,10 +1058,13 @@ def validate_publish(md, pdir=None, name=None):
         out.append("A title is required.")
     elif len(title) > YT_TITLE_MAX:
         out.append(f"Title is {len(title)} characters; the limit is {YT_TITLE_MAX}.")
-    if title and pdir:
+    meta = (_read_json(os.path.join(pdir, "project.json")) or {}) if pdir else {}
+    if title and pdir and meta.get("kind") == "range":
+        import range_compile as _rc
+        out += [p for p in _rc.problems(title, meta) if not p.startswith("Title is ")]
+    elif title and pdir:
         import chapter_title as _ct
         import ingest as _ing
-        meta = _read_json(os.path.join(pdir, "project.json")) or {}
         pid = os.path.basename(pdir.rstrip("/"))
         others = _ct.existing_titles(_ing.PROJECTS, skip_project=pid)
         # Within this chapter, re-renders share one title by design; only an
@@ -1908,6 +1921,127 @@ def _description_from_blocks(pdir, md, rec, variant=""):
                      footer=_studio.load().get("description_footer") or "",
                      hashtags=rec.get("hashtags") or [], limit=YT_DESC_MAX)
     return text, _db.summary_from(summ)
+
+
+# ====================================================================
+#  Spec 06 B3 — range compilations (Track B). range_compile.py has the rules.
+# ====================================================================
+def _approved_export(pdir):
+    """A chapter's latest export that is approved and current, or None."""
+    d = os.path.join(pdir, "exports")
+    try:
+        names = sorted((n for n in os.listdir(d) if n.endswith(".mp4")),
+                       key=lambda n: -os.path.getmtime(os.path.join(d, n)))
+    except OSError:
+        return None
+    for n in names:
+        rv = review_state(pdir, n)
+        if rv["status"] == "approved" and not rv["superseded"]:
+            return n
+    return None
+
+
+class RangeIn(BaseModel):
+    project: str          # any chapter of the series
+    chapters_start: int
+    chapters_end: int
+
+
+def _range_ctx(body):
+    import ingest as _ing
+    import range_compile as _rc
+    pdir = project_dir_for(body.project)
+    sid, series, _n, meta = _series_ident(pdir)
+    if not sid:
+        raise HTTPException(400, "that project has no series")
+    pack = _series_pack(pdir) or {}
+    pl = _rc.plan(_ing.PROJECTS, sid, int(body.chapters_start), int(body.chapters_end), _approved_export)
+    return pdir, sid, (pack.get("title_en") or series), pack, pl
+
+
+@app.post("/api/ranges/plan")
+def api_range_plan(body: RangeIn):
+    """What a range would contain and be called — nothing is built."""
+    import range_compile as _rc
+    try:
+        _p, sid, series, pack, pl = _range_ctx(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    secs = 0.0
+    for n, cp, name in pl["chapters"]:
+        try:
+            secs += _rc._probe(os.path.join(cp, "exports", name))
+        except Exception:
+            pass
+    genre = (pack.get("genre") or [""])[0]
+    t, dropped = _rc.title(series, body.chapters_start, body.chapters_end, secs, genre)
+    return {"series_id": sid, "chapters_start": int(body.chapters_start), "chapters_end": int(body.chapters_end),
+            "chapters": [n for n, _c, _x in pl["chapters"]], "missing": pl["missing"],
+            "title": t, "title_chars": len(t), "dropped": dropped, "seconds": round(secs, 1),
+            "ready": not pl["missing"]}
+
+
+@app.post("/api/ranges/build")
+def api_range_build(body: RangeIn):
+    """Stitch chapters start..end (each chapter's latest approved export, stream
+    copy — no model, no paid call) into a NEW range project, then prefill its
+    title (built from the two stored integers) and description. Refuses when
+    any chapter in the range has no approved export."""
+    import range_compile as _rc
+    import ingest as _ing
+    import threading
+    try:
+        src, sid, series, pack, pl = _range_ctx(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if pl["missing"]:
+        raise HTTPException(409, "no approved video yet for chapter(s) " +
+                            ", ".join(str(n) for n in pl["missing"][:30]))
+    a, b = int(body.chapters_start), int(body.chapters_end)
+    rdir, meta = _rc.write_project(_ing.PROJECTS, sid, series, a, b,
+                                   url=_read_json(os.path.join(src, "project.json")).get("url") or "")
+    name = f"final_range_{a}-{b}.mp4"
+
+    def run():
+        try:
+            marks = _rc.stitch(pl["chapters"], os.path.join(rdir, "exports", name))
+            secs = _rc._probe(os.path.join(rdir, "exports", name))
+            t, _d = _rc.title(series, a, b, secs, (pack.get("genre") or [""])[0])
+            import description_blocks as _db
+            desc = _db.build(hook=f"Full recap of {series} chapters {a} to {b}", series=series,
+                             chapter=f"{a}-{b}", summary="", pack=pack, arcs=_rc.arcs(marks),
+                             footer=_studio.load().get("description_footer") or "",
+                             hashtags=["#manhwa", "#manhwarecap"], limit=YT_DESC_MAX)
+            store = load_publish(rdir)
+            store[name] = {**publish_defaults(rdir), "title": t, "description": desc,
+                           "playlist": series}
+            save_publish(rdir, store)
+            m = _read_json(os.path.join(rdir, "project.json"))
+            m["build"] = {"status": "done", "at": time.time(), "export": name, "marks": marks}
+            json.dump(m, open(os.path.join(rdir, "project.json"), "w"), indent=2)
+            _ev("publish", f"{series} chapters {a}-{b}: range video built — review it before it can post", "ok")
+        except Exception as e:  # noqa
+            m = _read_json(os.path.join(rdir, "project.json"))
+            m["build"] = {"status": "error", "at": time.time(), "error": str(e)[:300]}
+            json.dump(m, open(os.path.join(rdir, "project.json"), "w"), indent=2)
+            _ev("publish", f"{series} chapters {a}-{b}: range build failed — {str(e)[:160]}", "warn")
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"ok": True, "project": os.path.basename(rdir), "export": name,
+            "chapters_start": a, "chapters_end": b}
+
+
+@app.get("/api/ranges")
+def api_ranges(project: str = ""):
+    """Range videos of this chapter's series (or all series)."""
+    import ingest as _ing
+    sid = _series_ident(project_dir_for(project))[0] if project else ""
+    out = []
+    for m in _ing.list_projects(include_ranges=True):
+        if m.get("kind") == "range" and (not sid or m.get("series_id") == sid):
+            out.append({k: m.get(k) for k in ("id", "series", "series_id", "chapters_start",
+                                              "chapters_end", "build", "created_at")})
+    return {"ranges": sorted(out, key=lambda r: (r["series_id"] or "", r["chapters_start"] or 0))}
 
 
 @app.post("/api/seo/apply")
