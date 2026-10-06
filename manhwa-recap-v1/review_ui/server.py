@@ -6524,6 +6524,15 @@ def _archive_sweep(now=None):
     return out
 
 
+def _targets_of(x):
+    """The channels one queued video posts to (its own setting, else Settings')."""
+    try:
+        pdir = project_dir_for(x["project"])
+    except HTTPException:
+        return []
+    return list(({**publish_defaults(pdir), **(load_publish(pdir).get(x["name"]) or {})}).get("targets") or [])
+
+
 def _schedule_post_pass(now=None):
     """Posting schedule (step 5): at most one queued video per due time slot,
     through the same checked publish job as Post now. Off unless switched on."""
@@ -6533,13 +6542,7 @@ def _schedule_post_pass(now=None):
         return None
     _pq.sync(_i.PROJECTS, _pub_status)
 
-    def targets_of(x):
-        try:
-            pdir = project_dir_for(x["project"])
-        except HTTPException:
-            return []
-        return list(({**publish_defaults(pdir), **(load_publish(pdir).get(x["name"]) or {})}).get("targets") or [])
-    dec = _pq.decide(sched, _pq.load(_i.PROJECTS), now or time.time(), targets_of)
+    dec = _pq.decide(sched, _pq.load(_i.PROJECTS), now or time.time(), _targets_of)
     if dec["action"] == "skip":
         _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], "skipped: " + dec["why"])
         _ev("publish", f"schedule {dec['slot']}: nothing posted — {dec['why']}", "warn")
@@ -7859,15 +7862,21 @@ def studio_overview():
             ready.append(row)
         else:
             review.append(row)
+    sched = _studio.load().get("schedule") or {}
+    try:
+        plan = _pq.planned(sched, q, time.time(), _targets_of)
+    except Exception:
+        plan = {}
     for x in q["items"]:
         if x["status"] in _pq.ACTIVE or (x["status"] == "failed" and time.time() - x["updated_at"] < 7 * 86400):
             r = dict(by_key.get((x["project"], x["name"])) or
                      {"project": x["project"], "name": x["name"], "label": x["name"], "missing": True})
-            r.update(qid=x["id"], qstatus=x["status"], qerror=x.get("error"), added_at=x["added_at"])
+            r.update(qid=x["id"], qstatus=x["status"], qerror=x.get("error"), added_at=x["added_at"],
+                     planned=plan.get(x["id"]))
             queue_rows.append(r)
-    sched = _studio.load().get("schedule") or {}
     return {"review": review, "ready": ready, "queue": queue_rows, "published": _studio_published(),
             "retention_days": exports["retention_days"],
+            "can_undo_order": bool(q.get("prev_order")),
             "schedule": {"enabled": bool(sched.get("enabled")), "times": sched.get("times"),
                          "per_channel_per_day": sched.get("per_channel_per_day"),
                          "next": _pq.next_slot(sched, time.time()),
@@ -7991,6 +8000,113 @@ def studio_queue_post(body: StudioItemIn):
                        day=_pq._local(time.time(), sched.get("tz")).strftime("%Y-%m-%d"))
     _ev("publish", f"posting {_pretty(it['project'])} ({r.get('privacy')})")
     return {"ok": True, "job": r.get("job"), "privacy": r.get("privacy")}
+
+
+class QueueShuffleIn(BaseModel):
+    mode: str = "round_robin"
+
+
+def _series_of_row(x):
+    try:
+        return _project_label(project_dir_for(x["project"]))["series"] or x["project"].rsplit("_", 1)[0]
+    except Exception:
+        return x["project"].rsplit("_", 1)[0]
+
+
+@app.post("/api/studio/queue/shuffle")
+def studio_queue_shuffle(body: QueueShuffleIn):
+    """🔀 Mix & Shuffle the scheduled videos (Scrapper's SocialPilot), with Undo."""
+    import ingest as _i
+    try:
+        ids = _pq.shuffle(_i.PROJECTS, body.mode, _series_of_row)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _ev("publish", f"posting order mixed ({body.mode.replace('_', ' ')}, {len(ids)} videos)")
+    return {"ok": True, "order": ids}
+
+
+@app.post("/api/studio/queue/undo")
+def studio_queue_undo():
+    import ingest as _i
+    try:
+        _pq.undo_order(_i.PROJECTS)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    _ev("publish", "posting order: last change undone")
+    return {"ok": True}
+
+
+@app.post("/api/studio/queue/top")
+def studio_queue_top(body: StudioItemIn):
+    """⏫ Post next: first in line, so it takes the next posting time."""
+    import ingest as _i
+    try:
+        _pq.to_top(_i.PROJECTS, body.id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return {"ok": True}
+
+
+class StudioBulkIn(BaseModel):
+    action: str                    # approve | back | remove | post_now | channels | seo
+    items: list[dict]              # [{project, name, qid?}]
+    targets: list[str] = []        # for "channels"
+
+
+def _redo_seo(project, name):
+    """New suggestions with the current research and title format, applied to
+    title, description and tags (the owner asked for it explicitly)."""
+    try:
+        api_seo_generate(SeoGenIn(project=project, name=name))
+        for field in ("title", "description", "tags"):
+            try:
+                api_seo_apply(SeoApplyIn(project=project, name=name, field=field))
+            except HTTPException:
+                pass
+        _ev("publish", f"{_pretty(project)}: SEO redone — title, description and tags refreshed", "ok")
+    except Exception as e:  # noqa
+        _ev("publish", f"{_pretty(project)}: SEO redo failed — {str(e)[:150]}", "warn")
+
+
+@app.post("/api/studio/bulk")
+def studio_bulk(body: StudioBulkIn):
+    """Do one thing to many videos at once (SocialPilot's bulk bar). Each item
+    gets its own result; one failure never stops the rest."""
+    if body.action not in ("approve", "back", "remove", "post_now", "channels", "seo"):
+        raise HTTPException(400, "action must be approve, back, remove, post_now, channels or seo")
+    done, failed = [], []
+    for it in body.items[:100]:
+        pid, name, qid = it.get("project"), it.get("name"), it.get("qid")
+        try:
+            if body.action == "approve":
+                pdir = project_dir_for(pid)
+                notes = (load_reviews(pdir).get(os.path.basename(name or "")) or {}).get("notes", "")
+                api_review_save(ReviewIn(project=pid, name=name, status="approved", notes=notes))
+            elif body.action == "back":
+                queue_back_to_review(QueueBackIn(project=pid, name=name))
+            elif body.action == "remove":
+                import ingest as _i
+                _pq.remove(_i.PROJECTS, qid)
+            elif body.action == "post_now":
+                studio_queue_post(StudioItemIn(id=qid))
+            elif body.action == "channels":
+                pdir = project_dir_for(pid)
+                store = load_publish(pdir)
+                md = {**publish_defaults(pdir), **(store.get(name) or {})}
+                md["targets"] = [t for t in body.targets if isinstance(t, str)]
+                store[name] = md
+                save_publish(pdir, store)
+            elif body.action == "seo":
+                threading.Thread(target=_redo_seo, args=(pid, name), daemon=True).start()
+            else:
+                raise HTTPException(400, "unknown action")
+            done.append({"project": pid, "name": name})
+        except HTTPException as e:
+            failed.append({"project": pid, "name": name, "reason": str(e.detail)[:200]})
+        except Exception as e:  # noqa
+            failed.append({"project": pid, "name": name, "reason": str(e)[:200]})
+    _ev("publish", f"bulk {body.action}: {len(done)} done" + (f", {len(failed)} not" if failed else ""))
+    return {"ok": True, "done": done, "failed": failed}
 
 
 class StudioStatsIn(BaseModel):

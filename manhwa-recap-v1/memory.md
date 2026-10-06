@@ -9174,3 +9174,18 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
    - Checkboxes with a bulk bar.
    - Image-card rows with channels, status, planned time, posted time, auto-delete date, and actions.
 3. Tests, memory, push at a gap (or pause and push per the owner's instruction), then live check.
+- **Built the SocialPilot-style Posting schedule:**
+  - `publish_queue`:
+    - `planned()`: each queued video's slot in queue order, honouring times, per-channel/day cap, used slots and switch-on time. An unfired past slot reads "at the next check (HH:MM slot)"; no channel means no time.
+    - `shuffle(mode)` (round_robin / by_series / random; series keep chapter order) with `prev_order` for Undo; `undo_order()`; `to_top()` (Post next).
+  - Server:
+    - `_targets_of()` is shared by the schedule pass and the planner.
+    - `/api/studio` queue rows carry `planned` {at, label}, plus `can_undo_order`.
+    - New endpoints: `/api/studio/queue/shuffle|undo|top` and `/api/studio/bulk` {action approve|back|remove|post_now|channels|seo, items[]}. Results are per item; one failure never stops the rest; unknown action → 400.
+    - The seo action runs `_redo_seo` in the background: regenerate, then apply title, description and tags.
+  - Page `/queue` rewritten:
+    - Header: auto-posting on/paused with ⏸/▶ (schedule.enabled), next post, counts, inline posting-times editor (chips ✕, ＋Add, per channel a day, Save).
+    - Tabs with counts: Needs review / Ready to post / Posted / Errors / All. Sort; 🔀 Mix ▾ + ↶ Undo; ↻ Retry all (errors); select all and a bulk bar (Approve, ↩ Back to review, 📺 Channels…, ✨ Redo SEO, 🚀 Post now, ✕ Remove).
+    - Image rows: thumbnail or cover, title, series·length·privacy, status/⏰ planned time/posted time/error, channels "📺 … ✎" or "⚠ No channel — choose", auto-delete note; actions ✓ Approve·▶ Watch / ⏫ Post next·🚀 Now·↩·✕ / ↻ Retry / ✎ Edit. Channel picker dialog.
+  - Checked locally (next start against the live backend, read-only): the layout renders. Planned times and images need the new backend (not deployed at that point).
+  - Tests: new `test_posting_socialpilot` 12/12. Full suite 87/87. `next build` ok.

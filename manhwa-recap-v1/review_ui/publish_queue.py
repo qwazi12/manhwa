@@ -241,3 +241,124 @@ def next_slot(sched, now):
             if add or t > loc.strftime("%H:%M"):
                 return day.strftime("%a ") + t
     return None
+
+
+# ------------------------------------------------ SocialPilot-style tools
+# Owner, 2026-10-06: the Posting schedule should work like Scrapper's
+# SocialPilot — each video's planned post time, Mix & Shuffle with Undo,
+# "Post next".
+
+def planned(sched, d, now, targets_of, days=21):
+    """{item_id: {"at": epoch, "label": "Tue 11:00"}} for every queued video:
+    the slot the schedule will give it, in queue order, honouring the
+    per-channel-per-day cap and slots already used. Same rules as decide()."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    if not (sched or {}).get("enabled") or not sched.get("times"):
+        return {}
+    tz = ZoneInfo(sched.get("tz") or "America/New_York")
+    loc = _local(now, sched.get("tz"))
+    cap = int(sched.get("per_channel_per_day") or 1)
+    used = {}
+    for x in d["items"]:
+        if x["status"] in ("posted", "posting") and x.get("posted_day"):
+            for t in targets_of(x):
+                used[(x["posted_day"], t)] = used.get((x["posted_day"], t), 0) + 1
+    since = ""
+    if sched.get("enabled_at"):
+        on = _local(sched["enabled_at"], sched.get("tz"))
+        if on.strftime("%Y-%m-%d") == loc.strftime("%Y-%m-%d"):
+            since = on.strftime("%H:%M")
+    remaining = [x for x in d["items"] if x["status"] == "queued"]
+    tg_cache = {x["id"]: targets_of(x) for x in remaining}
+    out = {}
+    for add in range(days):
+        day = (loc + timedelta(days=add)).date()
+        dstr = day.strftime("%Y-%m-%d")
+        done = set((d.get("slots_done") or {}).get(dstr, {}))
+        for t in sorted(sched["times"]):
+            if t in done or (add == 0 and t < since):
+                continue
+            for x in remaining:
+                tg = tg_cache[x["id"]]
+                if tg and all(used.get((dstr, c), 0) < cap for c in tg):
+                    h, m = (int(v) for v in t.split(":"))
+                    at = datetime(day.year, day.month, day.day, h, m, tzinfo=tz).timestamp()
+                    out[x["id"]] = {"at": max(at, now),
+                                    "label": (day.strftime("%a %b %d ") + t) if at >= now
+                                    else f"at the next check ({t} slot)"}
+                    for c in tg:
+                        used[(dstr, c)] = used.get((dstr, c), 0) + 1
+                    remaining.remove(x)
+                    break
+            if not remaining:
+                return out
+    return out
+
+
+def _set_order(d, ids):
+    queued = [x for x in d["items"] if x["status"] == "queued"]
+    by = {x["id"]: x for x in queued}
+    new = [by[i] for i in ids if i in by] + [x for x in queued if x["id"] not in ids]
+    d["items"] = new + [x for x in d["items"] if x["status"] != "queued"]
+
+
+def shuffle(root, mode, series_of, rnd=None):
+    """Mix & Shuffle the queued videos (Scrapper's modes, by SERIES instead of
+    channel): round_robin = one of each series in turn, each series in chapter
+    order; by_series = each series together; random = shuffled, each series
+    still in chapter order. Saves the previous order for Undo."""
+    import random
+    r = rnd or random.Random()
+    with _lock:
+        d = load(root)
+        queued = [x for x in d["items"] if x["status"] == "queued"]
+        d["prev_order"] = [x["id"] for x in queued]
+        groups = {}
+        for x in queued:
+            groups.setdefault(series_of(x), []).append(x)
+        keys = list(groups)
+        r.shuffle(keys)
+        if mode == "by_series":
+            ids = [x["id"] for k in keys for x in groups[k]]
+        elif mode == "random":
+            slots = [series_of(x) for x in queued]
+            r.shuffle(slots)
+            it = {k: iter(v) for k, v in groups.items()}
+            ids = [next(it[k])["id"] for k in slots]
+        elif mode == "round_robin":
+            ids, i = [], 0
+            while len(ids) < len(queued):
+                for k in keys:
+                    if i < len(groups[k]):
+                        ids.append(groups[k][i]["id"])
+                i += 1
+        else:
+            raise ValueError("mode must be round_robin, by_series or random")
+        _set_order(d, ids)
+        _save(root, d)
+        return ids
+
+
+def undo_order(root):
+    with _lock:
+        d = load(root)
+        prev = d.get("prev_order")
+        if not prev:
+            raise ValueError("nothing to undo")
+        d["prev_order"] = [x["id"] for x in d["items"] if x["status"] == "queued"]
+        _set_order(d, prev)
+        _save(root, d)
+        return prev
+
+
+def to_top(root, item_id):
+    """⏫ Post next: first in line, so it takes the next posting time."""
+    with _lock:
+        d = load(root)
+        queued = [x["id"] for x in d["items"] if x["status"] == "queued"]
+        if item_id not in queued:
+            raise ValueError("only a queued video can be moved")
+        d["prev_order"] = queued
+        _set_order(d, [item_id] + [i for i in queued if i != item_id])
+        _save(root, d)
