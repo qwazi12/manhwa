@@ -9297,3 +9297,14 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - The 8%-face-area rule rejects most panels.
   - Queued chapters with no hook in their title will be blocked by B1 (the 2 queued now pass).
   - Privacy public vs the Stage 7 gate is still unanswered.
+
+### 2026-10-06 18:50 ET — Owner: "on Regressor's Tale ch.32 I see ch.31's images while 31 renders"
+- **Cause:** `/panelimg`, `/thumb`, `/segimg` and `/clip` read the ACTIVE chapter's folder, and panel ids (page001_panel_001…) repeat across chapters. During a render, the rendering chapter is active, so any other chapter's board showed its pictures. The board data and videos were correct; the pictures weren't.
+- **Fix (1876e7c, deploy ed467684, pushed with no jobs running):**
+  - The routes take `?project=`, and the Board puts its chapter on every media URL. Without `?project=` they behave as before.
+  - While another chapter renders, board edits stay view-only (unchanged). Viewing and watching the videos work.
+- **Verified live:** `/thumb/0` and `/panelimg/page003_panel_001` for ch.31 and ch.32 return different images (by md5 and by eye).
+- **QA, `GET /api/qa/chapters` (new, read-only):** 33 chapters, **0 bad**. No chapter's pictures or pages come from another chapter, and every source URL matches its folder.
+  - The 10 warnings are all "segment clips missing" on rendered chapters (normal clean-up; should be quietened).
+  - ch.31's video is 463 s vs a 500 s storyboard (within tolerance; maybe the board changed after the render).
+- Tests: `test_chapter_media.py` 2/2; all suites pass.
