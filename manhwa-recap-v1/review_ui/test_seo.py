@@ -372,7 +372,8 @@ He refused to give up."""
 
     Body.field = "tags"
     r2 = srv.api_seo_apply(Body())
-    check("applying tags replaces the tag list", r2["metadata"]["tags"] == out["tags"])
+    # Spec 06 B4: the suggestion's tags lead; the series' aliases are appended.
+    check("applying tags replaces the tag list", r2["metadata"]["tags"][:len(out["tags"])] == out["tags"])
     check("...without disturbing the title already applied",
           r2["metadata"]["title"] == out["titles"][0]["text"])
 

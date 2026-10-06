@@ -42,8 +42,12 @@ def main():
         server._prepare_publish(a, "final_a.mp4")
         md = {**server.publish_defaults(a), **(server.load_publish(a).get("final_a.mp4") or {})}
         check("the title is filled from the suggestions", md["title"] == "He Came Back 1000 Years Stronger")
-        check("the description is filled (with its hashtags)", md["description"].startswith("Yu Shin returns") and "#manhwa" in md["description"])
-        check("the tags are filled", md["tags"] == ["regressor", "manhwa recap"])
+        # Spec 06 B2: block 1 (hook + series + chapter) leads; the writer's
+        # summary is block 2; hashtags close it. B4: aliases follow the tags.
+        blocks = md["description"].split("\n\n")
+        check("the description is filled (with its hashtags)",
+              len(blocks) >= 3 and blocks[1].startswith("Yu Shin returns") and "#manhwa" in blocks[-1])
+        check("the tags are filled", md["tags"][:2] == ["regressor", "manhwa recap"])
         check("a thumbnail is picked", bool(_tb.path_for(a, "final_a.mp4")))
         server._prepare_publish(a, "final_a.mp4")
         check("running it again makes no second paid call", calls == ["final_a.mp4"])
@@ -55,7 +59,7 @@ def main():
         server._prepare_publish(b, "final_a.mp4")
         md = {**server.publish_defaults(b), **(server.load_publish(b).get("final_a.mp4") or {})}
         check("a title the owner typed is kept", md["title"] == "My own title")
-        check("...while the untouched fields are still filled", md["tags"] == ["regressor", "manhwa recap"])
+        check("...while the untouched fields are still filled", md["tags"][:2] == ["regressor", "manhwa recap"])
 
         def broke(body):
             raise server.usage.UsageCapExceeded("MAX_DAILY_SPEND_USD would be exceeded")

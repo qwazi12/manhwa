@@ -22,6 +22,10 @@ DEFAULTS = {
     # Spec 06 B1 (2026-10-06): hook first, "Manhwa Recap" suffix — see chapter_title.py.
     "title_template": "{hook} - {series} Chapter {chapter} Manhwa Recap",
     "publish": {"targets": ["mk:youtube"], "privacy": "private"},
+    # Spec 06 B2 block 6: the fixed footer, identical on every video.
+    "description_footer": ("New chapters recapped as they release — subscribe so you don't miss the next one.\n"
+                           "All artwork belongs to its original creators; this channel provides commentary "
+                           "and a recap. Please support the official release."),
     # Step 5: built but OFF until the owner switches it on (2026-10-04).
     "schedule": {"enabled": False, "times": ["12:00", "18:00"], "tz": "America/New_York",
                  "per_channel_per_day": 1},
@@ -104,6 +108,11 @@ def update(patch):
             if len(t.replace("{hook}", "").replace("{series}", "").replace("{chapter}", "")) > 40:
                 raise ValueError("the fixed text in the title format is too long")
             cur["title_template"] = t
+        if patch.get("description_footer") is not None:
+            ft = str(patch["description_footer"]).strip()
+            if len(ft) > 1000:
+                raise ValueError("the description footer is over 1000 characters")
+            cur["description_footer"] = ft
         pub = patch.get("publish") or {}
         if pub.get("privacy") is not None:
             if pub["privacy"] not in PRIVACY:

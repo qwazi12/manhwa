@@ -723,6 +723,7 @@ Return ONLY a JSON object, no markdown fence:
   "titles": [
     {{"text": "...", "why": "one short sentence", "recommended": true|false}}
   ],
+  "summary": "2-3 sentences on what happens in THIS chapter only: its names, its turning point, its ending. Never generic, never reusable for another chapter.",
   "description": "primary long description",
   "description_short": "shorter variant",
   "tags": ["..."],
@@ -876,8 +877,10 @@ def _clamp(out, card, style=None, patterns=None):
     desc, dropped = sanitize_description(out.get("description"), card)
     short, dropped2 = sanitize_description(out.get("description_short"), card)
     det = out.get("detected") or {}
+    summ, _d3 = sanitize_description(out.get("summary"), card)
     return {
         "titles": titles,
+        "summary": " ".join((summ or "").split())[:600],
         "description": desc[:YT_DESC_MAX],
         "description_short": short[:YT_DESC_MAX],
         "sanitized": sorted(set(dropped + dropped2)),

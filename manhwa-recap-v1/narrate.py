@@ -324,7 +324,18 @@ def word_budget(n_panels, n_dialogue=0):
     return max(40, min(220, 12 * n_panels + 7 * n_dialogue))
 
 
-def build_prompt(scene_panels, global_beatsheet=None, budget=None, direct_lines=None, series_bible_data=None):
+def opening_rule(series_title, alias):
+    """Spec 06 B4: the chapter's first unit names the series once with one of
+    its alternate titles (the alias rotates per chapter — series_pack)."""
+    if not (series_title and alias):
+        return ""
+    return (f"\nOPENING LINE (this is the chapter's first unit): in its FIRST sentence, name the series "
+            f"exactly once as \"{series_title}, also known as {alias},\" woven into the story sentence for "
+            f"that panel. Never name the series again, and never use any other title for it.\n")
+
+
+def build_prompt(scene_panels, global_beatsheet=None, budget=None, direct_lines=None, series_bible_data=None,
+                 opening=""):
     """direct_lines: the chapter's approved direct-speech lines that fall in
     this scene (direct_speech.for_panels). None or [] = quote nothing."""
     lines = []
@@ -362,7 +373,7 @@ Here is the overall storyline outline and emotional pacing flow for the entire c
 
 {global_context_block}
 {bible_block}
-
+{opening}
 STYLE CONTRACT (every rule mandatory):
 1. Third-person, past tense, story-first: retell events as one flowing narrative.
 2. Every sentence must carry an EVENT, REACTION, REALIZATION, INTENTION, or CONSEQUENCE. A sentence that only describes how something looks gets cut, or its detail folded into an action.
@@ -486,7 +497,7 @@ LAST_CRITIQUE = {}
 
 
 def narrate_scene(scene_panels, model=DEFAULT_MODEL, global_beatsheet=None,
-                  direct_lines=None, series_bible_data=None):
+                  direct_lines=None, series_bible_data=None, opening=""):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.exit("GEMINI_API_KEY not set")
@@ -494,7 +505,8 @@ def narrate_scene(scene_panels, model=DEFAULT_MODEL, global_beatsheet=None,
     def _call():
         return call_gemini_rest(model, build_prompt(scene_panels, global_beatsheet,
                                                     direct_lines=direct_lines,
-                                                    series_bible_data=series_bible_data), api_key)
+                                                    series_bible_data=series_bible_data,
+                                                    opening=opening), api_key)
 
     if usage:
         with usage.gate("gemini", 1, model=model) as _m:
@@ -579,7 +591,8 @@ def revise_unit(scene_panels, draft, unit_issues, model, global_beatsheet, api_k
 
 
 def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
-                       progress_cb=None, direct=None, series_bible_data=None):
+                       progress_cb=None, direct=None, series_bible_data=None,
+                       series_title="", opening_alias=""):
     """Run the full pipeline over `panels` (already filtered/ordered) and
     return (full_script_text, [(scene_panels, scene_text), ...]).
 
@@ -610,7 +623,8 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
             progress_cb(i, len(scenes), "draft")
         text = narrate_scene(scene, model, global_beatsheet,
                              direct_lines=direct_speech.for_panels(approved, ids),
-                             series_bible_data=series_bible_data)
+                             series_bible_data=series_bible_data,
+                             opening=opening_rule(series_title, opening_alias) if i == 1 else "")
         results.append((scene, text))
 
     def _direct(u):

@@ -1064,6 +1064,15 @@ def validate_publish(md, pdir=None, name=None):
         out += [p for p in _ct.problems(title, (meta.get("series") or "").strip(),
                                         str(meta.get("chapter") or ""), others)
                 if not p.startswith("Title is ")]
+    if pdir and md.get("summary_block"):
+        # Spec 06 B2: block 2 must be written for THIS chapter — >80% word
+        # 3-gram overlap with the previous chapter's is the templating signal.
+        import description_blocks as _db
+        prev = _prev_summary_block(pdir, name)
+        ov = _db.block2_overlap(md["summary_block"], prev) if prev else 0.0
+        if ov > _db.OVERLAP_MAX:
+            out.append(f"The chapter summary (description block 2) repeats {int(round(ov * 100))}% of the "
+                       "previous chapter's — rewrite it for this chapter (YouTube reads repeats as templated).")
     if len(md.get("description") or "") > YT_DESC_MAX:
         out.append(f"Description is over the {YT_DESC_MAX}-character limit.")
     tags = md.get("tags") or []
@@ -1766,6 +1775,141 @@ def api_seo_generate(body: SeoGenIn):
     return _seo_state(pdir, name)
 
 
+# ====================================================================
+#  Spec 06 B2/B4 — series asset pack + fixed description blocks
+# ====================================================================
+def _series_ident(pdir):
+    """(series_id, series name, chapter number as int or None, meta)."""
+    import ingest as _ing
+    meta = _read_json(os.path.join(pdir, "project.json")) or {}
+    slug = ""
+    try:
+        slug, _c = _ing.parse_series_chapter(meta.get("url") or "")
+        slug = _ing.clean_series_slug(slug)
+    except Exception:
+        slug = ""
+    series = (meta.get("series") or "").strip()
+    sid = slug or re.sub(r"[^a-z0-9]+", "-", series.lower()).strip("-")
+    try:
+        n = int(float(str(meta.get("chapter") or "").strip()))
+    except ValueError:
+        n = None
+    return sid, series, n, meta
+
+
+def _series_pack(pdir, refresh=True):
+    """The B4 pack for this chapter's series, refreshed from every local
+    source (no network, no model: web research is read from its cache)."""
+    import series_pack as _sp
+    sid, series, n, meta = _series_ident(pdir)
+    if not sid:
+        return None
+    root = _yt_root()
+    prev = _sp.load(root, sid)
+    if prev and not refresh:
+        return prev
+    wf, bible, watch, style, total = {}, None, None, None, None
+    try:
+        import seo_research as _sw
+        web = _sw.get(root, series, [], meta.get("url") or "", None)
+        wf = (web or {}).get("facts") or {}
+    except Exception:
+        wf = {}
+    try:
+        import series_bible as _sbib
+        bible = _sbib.load_series_bible(sid, pdir)
+    except Exception:
+        bible = None
+    try:
+        import watchlist as _wl
+        watch, m = _wl.find_by_mirror(_wl.load(_wl_root()), meta.get("url") or "")
+        lat = [float(x.get("latest")) for x in (watch or {}).get("mirrors") or [] if x.get("latest") is not None]
+        total = int(max(lat)) if lat else None
+    except Exception:
+        watch = None
+    try:
+        import thumbnail_studio as _ts
+        style = _ts.load_style(root, _ts.series_key(meta))
+    except Exception:
+        style = None
+    try:
+        import seo as _seo
+        slug_al = _seo._aliases(series, meta.get("url") or "", None)
+    except Exception:
+        slug_al = []
+    pack = _sp.build(sid, series=series, web_facts=wf, bible=bible, watch=watch, slug_aliases=slug_al,
+                     source_url=meta.get("url") or "", total_chapters=total, style=style, prev=prev)
+    return _sp.save(root, pack)
+
+
+def _chapter_project(sid, n):
+    import ingest as _ing
+    if not sid or n is None:
+        return None
+    d = os.path.join(_ing.PROJECTS, f"{sid}_{n}")
+    return d if os.path.isdir(d) else None
+
+
+def _published_video_url(pdir):
+    """The chapter's published YouTube link, if it has one."""
+    if not pdir:
+        return ""
+    try:
+        pubs = load_publishes(pdir)
+    except Exception:
+        pubs = {}
+    for rec in pubs.values():
+        for r in (rec or {}).get("results") or []:
+            if r.get("status") == "published" and (r.get("network") or "youtube") == "youtube":
+                u = _post_url({"post_url": r.get("url") or r.get("post_url"),
+                               "platform_post_id": r.get("platform_post_id")}, "youtube")
+                if u:
+                    return u
+    for rec in (_read_json(os.path.join(pdir, UPLOADS_NAME)) or {}).values():
+        vid = (rec or {}).get("video_id") if isinstance(rec, dict) else None
+        if vid:
+            return f"https://youtu.be/{vid}"
+    return ""
+
+
+def _prev_summary_block(pdir, name=None):
+    """The previous chapter's block 2 (its saved summary_block), or ''."""
+    sid, _s, n, _m = _series_ident(pdir)
+    prev = _chapter_project(sid, n - 1) if n else None
+    if not prev:
+        return ""
+    store = load_publish(prev)
+    for k, md in sorted(store.items(), key=lambda kv: -(kv[1] or {}).get("summary_at", 0)
+                        if isinstance(kv[1], dict) else 0):
+        if k != DRAFT and isinstance(md, dict) and md.get("summary_block"):
+            return md["summary_block"]
+    return ""
+
+
+def _description_from_blocks(pdir, md, rec, variant=""):
+    """B2: the description in the fixed block order, built on the SEO record.
+    Returns (text, summary_block)."""
+    import chapter_title as _ct
+    import description_blocks as _db
+    import series_pack as _sp
+    sid, series, n, meta = _series_ident(pdir)
+    pack = _series_pack(pdir) or {}
+    hook = _ct.hook_part(md.get("title") or "", series, n) or next(
+        (t.get("hook") for t in rec.get("titles") or [] if t.get("recommended") and t.get("hook")), "")
+    summ = (rec.get("summary") or "") if variant != "short" else ""
+    if not summ:
+        summ = _db.summary_from(rec.get("description_short" if variant == "short" else "description") or "")
+    pl = pack.get("playlist_id") or ""
+    text = _db.build(hook=hook, series=pack.get("title_en") or series, chapter=n if n is not None else "",
+                     summary=summ, pack=pack,
+                     playlist_url=f"https://www.youtube.com/playlist?list={pl}" if pl else "",
+                     prev_url=_published_video_url(_chapter_project(sid, n - 1) if n else None),
+                     next_url=_published_video_url(_chapter_project(sid, n + 1) if n is not None else None),
+                     footer=_studio.load().get("description_footer") or "",
+                     hashtags=rec.get("hashtags") or [], limit=YT_DESC_MAX)
+    return text, _db.summary_from(summ)
+
+
 @app.post("/api/seo/apply")
 def api_seo_apply(body: SeoApplyIn):
     """Copy ONE suggestion into the real publish metadata.
@@ -1794,14 +1938,17 @@ def api_seo_apply(body: SeoApplyIn):
             raise HTTPException(400, "no title to apply")
         md["title"] = str(val)[:YT_TITLE_MAX]
     elif field == "description":
-        key = "description_short" if body.variant == "short" else "description"
-        text = rec.get(key) or ""
-        tags = rec.get("hashtags") or []
-        if tags and not any(h in text for h in tags):
-            text = (text + "\n\n" + " ".join(tags)).strip()
+        # Spec 06 B2: the fixed block order (hook line, this chapter's summary,
+        # arcs, links, series info with every alias, footer, hashtags).
+        text, summ = _description_from_blocks(pdir, md, rec, body.variant or "")
         md["description"] = text[:YT_DESC_MAX]
+        md["summary_block"] = summ
+        md["summary_at"] = time.time()
     elif field == "tags":
-        md["tags"] = list(rec.get("tags") or [])
+        # Spec 06 B4: every alias of the series rides in the tags (500-char cap).
+        import series_pack as _sp
+        md["tags"] = _sp.tags_with_aliases(list(rec.get("tags") or []),
+                                           (_series_pack(pdir) or {}).get("aliases") or [])
     elif field == "hashtags":
         # Hashtags live in the description on YouTube; keep them out of tags.
         text = md.get("description") or ""

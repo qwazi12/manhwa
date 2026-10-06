@@ -429,13 +429,24 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     else:
         progress("narrate", "Writing narration from panels…", 60)
         panels = narrate.load_panels(desc_path)
+        # Spec 06 B4: the opening line names the series with one of its
+        # aliases (series pack, rotating by chapter). No pack yet -> none.
+        open_title, open_alias = "", ""
+        try:
+            import series_pack as _sp
+            _s_raw, _ch = parse_series_chapter(url)
+            _pack = _sp.load(PROJECTS, clean_series_slug(_s_raw)) or {}
+            open_title = _pack.get("title_en") or ""
+            open_alias = _sp.spoken_alias(_pack, _ch)
+        except Exception:
+            pass
         # D2: per-unit progress so a long narrate is visible, not a silent 60%
         script, results = narrate.generate_narration(
             panels, verbose=False, direct=direct,
             progress_cb=lambda i, n, phase: progress(
                 "narrate", f"narration {phase} — unit {i}/{n}…",
                 60 + int(8 * i / max(n, 1))),
-            series_bible_data=bible)
+            series_bible_data=bible, series_title=open_title, opening_alias=open_alias)
         open(script_path, "w").write(narrate.strip_anchored_tags(script) if hasattr(narrate, "strip_anchored_tags") else script)
         direct_record = dict(narrate.LAST_DIRECT_SPEECH)
         json.dump(direct_record, open(ds_path, "w"), indent=1, ensure_ascii=False)
