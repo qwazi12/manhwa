@@ -206,6 +206,22 @@ def prune_exports():
 
 
 # ----------------------------------------------------------------- state
+def _media_pdir(project=""):
+    """The chapter a media URL belongs to. Owner, 2026-10-06: the Chapter page
+    showed ch.31's pictures on ch.32 while ch.31 rendered, because every media
+    route read the ACTIVE chapter and panel ids repeat across chapters. A page
+    now names its chapter (?project=); without it, the active one as before."""
+    return project_dir_for(project) if project else active_project_dir()
+
+
+def _segments_of(pdir):
+    try:
+        with open(os.path.join(pdir, "segments.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
+
+
 def load_segments():
     path = os.path.join(active_project_dir(), "segments.json")
     if not os.path.exists(path):
@@ -293,8 +309,8 @@ def _thumb_key(seg):
 _THUMBDIR_MADE = set()
 
 
-def thumb_path(seg_index, seg=None):
-    t_dir = os.path.join(active_project_dir(), "thumbnails")
+def thumb_path(seg_index, seg=None, pdir=None):
+    t_dir = os.path.join(pdir or active_project_dir(), "thumbnails")
     # os.makedirs ran once per segment on every /api/project. The directory
     # only has to be created once per process per project.
     if t_dir not in _THUMBDIR_MADE:
@@ -305,14 +321,14 @@ def thumb_path(seg_index, seg=None):
     return os.path.join(t_dir, f"seg_{seg_index:03d}_{_thumb_key(seg)}.jpg")
 
 
-def ensure_thumb(seg):
+def ensure_thumb(seg, pdir=None):
     """Small JPEG of the frame the VIDEO will show for this segment (cached).
 
     Cropped to crop_bbox_norm when the segment actually sub-crops; the whole
     panel otherwise. Any failure falls back to the uncropped panel rather than
     showing nothing.
     """
-    out = thumb_path(seg["seg_index"], seg)
+    out = thumb_path(seg["seg_index"], seg, pdir)
     if os.path.exists(out):
         return out
     src = seg.get("panel_file")
@@ -397,12 +413,13 @@ def project():
 
 
 @app.get("/clip/{seg_index}")
-def clip(seg_index: int):
-    segs = load_segments()
+def clip(seg_index: int, project: str = ""):
+    pdir = _media_pdir(project)
+    segs = _segments_of(pdir)
     seg = next((s for s in segs if s["seg_index"] == seg_index), None)
     if not seg:
         raise HTTPException(404, "segment not found")
-    path = os.path.join(active_project_dir(), seg.get("clip", ""))
+    path = os.path.join(pdir, seg.get("clip", ""))
     if not os.path.exists(path):
         raise HTTPException(404, "clip not rendered yet")
     # FileResponse handles HTTP Range requests -> <video> seeking works
@@ -410,12 +427,13 @@ def clip(seg_index: int):
 
 
 @app.get("/thumb/{seg_index}")
-def thumb(seg_index: int):
-    segs = load_segments()
+def thumb(seg_index: int, project: str = ""):
+    pdir = _media_pdir(project)
+    segs = _segments_of(pdir)
     seg = next((s for s in segs if s["seg_index"] == seg_index), None)
     if not seg:
         raise HTTPException(404, "segment not found")
-    p = ensure_thumb(seg)
+    p = ensure_thumb(seg, pdir)
     if not p:
         raise HTTPException(404, "no thumbnail")
     return FileResponse(p, media_type="image/jpeg")
@@ -3243,8 +3261,8 @@ def render_missing(force: bool = False):
 # Project wiring — derived from the loaded segments + env overrides. The panel
 # dir comes from the segments' own panel_file paths; audio + descriptions match
 # the chapter this workspace was built from.
-def _panel_dir():
-    segs = load_segments()
+def _panel_dir(pdir=None):
+    segs = _segments_of(pdir) if pdir else load_segments()
     if segs and segs[0].get("panel_file"):
         return os.path.dirname(segs[0]["panel_file"])
     return os.path.join(RECAP, "..", "panel-split", "review_crops")
@@ -3392,13 +3410,14 @@ def candidates(seg_index: int, k: int = 8):
 
 
 @app.get("/panelimg/{panel_id}")
-def panelimg(panel_id: str, thumb: int = 0):
-    path = os.path.join(_panel_dir(), f"{panel_id}.png")
+def panelimg(panel_id: str, thumb: int = 0, project: str = ""):
+    pdir = _media_pdir(project)
+    path = os.path.join(_panel_dir(pdir if project else None), f"{os.path.basename(panel_id)}.png")
     if not os.path.exists(path):
         raise HTTPException(404, "panel not found")
     if not thumb:
         return FileResponse(path, media_type="image/png")
-    t_dir = os.path.join(active_project_dir(), "thumbnails")
+    t_dir = os.path.join(pdir, "thumbnails")
     os.makedirs(t_dir, exist_ok=True)
     tp = os.path.join(t_dir, f"panel_{panel_id}.jpg")
     if not os.path.exists(tp):
@@ -3411,7 +3430,7 @@ def panelimg(panel_id: str, thumb: int = 0):
 
 
 @app.get("/segimg/{seg_index}")
-def segimg(seg_index: int, full: int = 0):
+def segimg(seg_index: int, full: int = 0, project: str = ""):
     """The frame the VIDEO shows for this segment, at full resolution.
 
     P2 (Session 25): /panelimg is keyed by PANEL and knows nothing about the
@@ -3420,7 +3439,8 @@ def segimg(seg_index: int, full: int = 0):
     view the storyboard links to. `?full=1` returns the uncropped panel so the
     original art stays one click away.
     """
-    segs = load_segments()
+    pdir = _media_pdir(project)
+    segs = _segments_of(pdir)
     seg = next((s for s in segs if s["seg_index"] == seg_index), None)
     if not seg:
         raise HTTPException(404, "segment not found")
@@ -3431,7 +3451,7 @@ def segimg(seg_index: int, full: int = 0):
     if not rect:
         return FileResponse(src, media_type="image/png")
     x, y, w, h = rect
-    c_dir = os.path.join(active_project_dir(), "thumbnails")
+    c_dir = os.path.join(pdir, "thumbnails")
     os.makedirs(c_dir, exist_ok=True)
     out = os.path.join(c_dir, f"crop_{seg_index:03d}_{_thumb_key(seg)}.png")
     if not os.path.exists(out):
@@ -7886,6 +7906,34 @@ def chapter_view(pid: str):
     return out
 
 
+@app.get("/api/qa/chapters")
+def api_qa_chapters():
+    """Read-only identity QA over every chapter (chapter_qa.py): its pictures
+    are its own, its pages aren't a neighbour's, its video matches its cut."""
+    import chapter_qa as _q
+    import ingest as _ing
+    cache, out = {}, []
+    for m in _ing.list_projects():
+        pid = m.get("id") or ""
+        if not pid or not os.path.exists(os.path.join(_ing.PROJECTS, pid, "segments.json")):
+            continue
+        exp = None
+        url = m.get("url") or ""
+        if url and "/" in url:
+            try:
+                exp = _ing.project_id(url, m.get("variant") or "")
+            except Exception:
+                exp = None
+        try:
+            out.append(_q.check(_ing.PROJECTS, pid, exp, cache))
+        except Exception as e:  # noqa — one broken folder never hides the rest
+            out.append({"project": pid, "status": "bad", "issues": [f"check failed: {str(e)[:160]}"]})
+    order = {"bad": 0, "warn": 1, "ok": 2}
+    out.sort(key=lambda r: (order.get(r["status"], 3), r["project"]))
+    return {"checked": len(out), "bad": sum(r["status"] == "bad" for r in out),
+            "warn": sum(r["status"] == "warn" for r in out), "chapters": out}
+
+
 @app.get("/api/board/{pid}")
 def board_view(pid: str, activate: int = 1):
     """The Chapter page's board as data (board_data.py). Board edits act on the
@@ -7910,6 +7958,7 @@ def board_view(pid: str, activate: int = 1):
     out["rendered_once"] = approved
     out["active"] = get_active_project_id() == pid
     out["locked"] = locked
+    out["project"] = pid                      # media URLs name this chapter
     return out
 
 

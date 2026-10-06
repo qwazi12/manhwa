@@ -5,6 +5,9 @@ import { mmss } from "@/lib/fmt";
 import { Busy, Card, Chips, ConfirmButton, Empty, Pill, useAct } from "@/components/ui";
 
 type F = "video" | "flagged" | "out" | "all";
+// The chapter this board shows. Media URLs carry it so a chapter's pictures
+// never come from whichever chapter is open or rendering (owner, 2026-10-06).
+const PROJECT = { id: "" };
 const PLACE: Record<string, [string, string]> = {
   on_screen: ["ok", "in the video"], left_out: ["muted", "left out"], folded: ["warn", "folded into a paragraph"], unplaced: ["bad", "unplaced"],
 };
@@ -14,6 +17,7 @@ const PLACE: Record<string, [string, string]> = {
 export default function Board({ id, onChange, sentBack, builtWith }:
   { id: string; onChange?: () => void; sentBack?: { notes: string } | null; builtWith?: any }) {
   const { data: b, reload, error } = useApi<any>(`/api/board/${encodeURIComponent(id)}`);
+  PROJECT.id = id;
   const [f, setF] = useState<F>("video");
   const act = useAct();
   const [stamp, setStamp] = useState(Date.now());
@@ -90,7 +94,7 @@ export default function Board({ id, onChange, sentBack, builtWith }:
           <div className="list">
             {outPanels.length === 0 ? <Empty>Every panel is in the video.</Empty> : outPanels.map((p: any) => (
               <div className="brow out" key={p.panel_id}>
-                <img src={`/panelimg/${encodeURIComponent(p.panel_id)}?thumb=1`} alt="" loading="lazy" />
+                <img src={`/panelimg/${encodeURIComponent(p.panel_id)}?thumb=1&project=${encodeURIComponent(PROJECT.id)}`} alt="" loading="lazy" />
                 <div className="txt">
                   <div className="row"><Pill tone={PLACE[p.place][0]}>{PLACE[p.place][1]}</Pill><span className="small faint">#{p.n} · {p.panel_id} · {p.width}×{p.height}</span></div>
                   {p.left_out_why && <div className="meta">Why: {p.left_out_why}</div>}
@@ -148,8 +152,8 @@ function SegRow({ s, b, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, ind
   return (
     <div className={`brow ${s.in_video ? "" : "out"} ${selected ? "sel" : ""}`} id={`seg-${s.seg_index}`}>
       <div style={{ display: "grid", gap: 6, justifyItems: "start" }}>
-        <a href={`/segimg/${s.seg_index}`} target="_blank" rel="noreferrer" title="the exact frame the video shows">
-          <img src={`/thumb/${s.seg_index}?t=${stamp}`} alt="" loading="lazy" />
+        <a href={`/segimg/${s.seg_index}?project=${encodeURIComponent(PROJECT.id)}`} target="_blank" rel="noreferrer" title="the exact frame the video shows">
+          <img src={`/thumb/${s.seg_index}?t=${stamp}&project=${encodeURIComponent(PROJECT.id)}`} alt="" loading="lazy" />
         </a>
         <div className="row small" style={{ gap: 4 }}>
           {s.crop.status === "sub" && <Pill tone={(s.crop.keeps ?? 100) < 30 ? "bad" : (s.crop.keeps ?? 100) < 60 ? "warn" : "muted"}>✂ keeps {s.crop.keeps}%</Pill>}
@@ -158,7 +162,7 @@ function SegRow({ s, b, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, ind
         </div>
         {(s.crop.status === "sub" || s.crop.status === "tiny") && <Busy className="sm" onClick={() => run("/api/storyboard/use_full_panel", { seg_index: s.seg_index }, "Whole panel used")}>Use full panel</Busy>}
         {s.crop.restorable && <Busy className="sm ghost" onClick={() => run("/api/storyboard/restore_crop", { seg_index: s.seg_index }, "Crop restored")}>Restore crop</Busy>}
-        <a className="small" href={`/segimg/${s.seg_index}?full=1`} target="_blank" rel="noreferrer">original ↗</a>
+        <a className="small" href={`/segimg/${s.seg_index}?full=1&project=${encodeURIComponent(PROJECT.id)}`} target="_blank" rel="noreferrer">original ↗</a>
       </div>
       <div className="txt">
         <div className="row small">
@@ -260,7 +264,7 @@ function SwapPicker({ seg, panels, onClose, onPick }: any) {
   const Tile = ({ p, note }: { p: any; note?: string }) => (
     <button className={`tc ${p.panel_id === seg.panel_id ? "on" : ""}`} disabled={!!busy || p.panel_id === seg.panel_id}
       onClick={() => pick(p.panel_id)} title={p.seen || p.desc} style={{ padding: 0, display: "grid", textAlign: "left", background: "var(--panel)" }}>
-      <img src={`/panelimg/${encodeURIComponent(p.panel_id)}?thumb=1`} alt="" loading="lazy" style={{ aspectRatio: "auto", maxHeight: 180, objectFit: "contain", background: "var(--panel2)" }} />
+      <img src={`/panelimg/${encodeURIComponent(p.panel_id)}?thumb=1&project=${encodeURIComponent(PROJECT.id)}`} alt="" loading="lazy" style={{ aspectRatio: "auto", maxHeight: 180, objectFit: "contain", background: "var(--panel2)" }} />
       <span className="m"><b>{p.panel_id === seg.panel_id ? "current" : busy === p.panel_id ? "swapping…" : p.panel_id}</b>
         <span className="faint">{(note || p.seen || p.desc || "").slice(0, 70)}</span></span>
     </button>
