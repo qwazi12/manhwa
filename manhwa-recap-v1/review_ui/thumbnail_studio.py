@@ -1431,15 +1431,57 @@ INSET_H = 0.26                               # 3E: cover at 26% of the height
 GOLD = (255, 212, 0)
 
 
+def _lab(rgb):
+    """sRGB (..., 3) 0-255 -> CIE Lab (D65)."""
+    import numpy as np
+    c = np.asarray(rgb, dtype=np.float64) / 255.0
+    c = np.where(c > 0.04045, ((c + 0.055) / 1.055) ** 2.4, c / 12.92)
+    xyz = c @ np.array([[0.4124, 0.2126, 0.0193], [0.3576, 0.7152, 0.1192], [0.1805, 0.0722, 0.9505]])
+    xyz = xyz / np.array([0.95047, 1.0, 1.08883])
+    f = np.where(xyz > 0.008856, np.cbrt(xyz), 7.787 * xyz + 16 / 116.0)
+    return np.stack([116 * f[..., 1] - 16, 500 * (f[..., 0] - f[..., 1]), 200 * (f[..., 1] - f[..., 2])], -1)
+
+
+BADGE_MIN_DELTA_E = 35      # the badge must read as a different colour from the art behind it
+BADGE_FALLBACKS = ((255, 212, 0), (229, 9, 20), (255, 255, 255), (17, 17, 17))
+
+
+def badge_colour(img, box, accent):
+    """Owner, 2026-10-06: "we can't have a blue thumbnail with a blue CH#".
+    The accent is kept when it stands apart from the art under and around the
+    badge (CIE76 delta-E >= 35 against the 25th-percentile pixel, so a patch of
+    the same colour fails even if the rest differs); otherwise the accent's
+    complement, then yellow / red / white / near-black — the first that clears
+    the bar, else the one that contrasts most. Returns (colour, delta_e)."""
+    import numpy as np
+    x0, y0, x1, y1 = box
+    m = 24
+    reg = img.convert("RGB").crop((max(0, x0 - m), max(0, y0 - m), min(img.width, x1 + m),
+                                   min(img.height, y1 + m)))
+    reg.thumbnail((120, 60))
+    px = _lab(np.asarray(reg).reshape(-1, 3))
+    comp = tuple(int(v) for v in _shift_hue(_vivify(tuple(accent)), 180))
+    best, best_d = None, -1.0
+    for c in (tuple(accent), comp) + BADGE_FALLBACKS:
+        d = float(np.percentile(np.linalg.norm(px - _lab(np.array(c)), axis=1), 25))
+        if d >= BADGE_MIN_DELTA_E:
+            return c, d
+        if d > best_d:
+            best, best_d = c, d
+    return best, best_d
+
+
 def draw_badge(img, label, accent):
-    """Rounded rect r8 in the accent colour, 3 px black outline + drop shadow,
-    'CH N' at a 38 px cap height, padding 20/12, at (28, 28). ~150x62."""
+    """Rounded rect r8, 3 px black outline + drop shadow, 'CH N' at a 38 px
+    cap height, padding 20/12, at (28, 28). ~150x62. Its colour is the accent
+    unless that blends into the art behind it (badge_colour)."""
     from PIL import Image, ImageDraw, ImageFilter
     f = font_for_cap(BADGE["cap"])
     asc = f.getbbox("H")[1]
     tw = int(f.getlength(label))
     bw, bh = tw + 2 * BADGE["pad_x"], BADGE["cap"] + 2 * BADGE["pad_y"]
     x0, y0 = BADGE["origin"]
+    accent, _de = badge_colour(img, (x0, y0, x0 + bw, y0 + bh), accent)
     sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ImageDraw.Draw(sh).rounded_rectangle([x0, y0 + 4, x0 + bw, y0 + bh + 4], BADGE["radius"], fill=(0, 0, 0, 140))
     img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(6)))
@@ -1716,8 +1758,9 @@ def _compose(pdir, concept, style, mirror=False, avoid=None):
             tw = draw.textlength(label, font=bf)
             bh_, bw_ = int(height * 0.16), int(tw + 28 * 1.6)
             bx, by = 28, height - bh_ - 28
-            draw.rectangle([bx, by, bx + bw_, by + bh_], fill=accent + (255,))
-            draw.text((bx + bw_ / 2, by + bh_ / 2), label, font=bf, fill=readable_ink(accent), anchor="mm")
+            bcol, _de = badge_colour(img, (bx, by, bx + bw_, by + bh_), accent)
+            draw.rectangle([bx, by, bx + bw_, by + bh_], fill=tuple(bcol) + (255,))
+            draw.text((bx + bw_ / 2, by + bh_ / 2), label, font=bf, fill=readable_ink(bcol), anchor="mm")
         else:
             draw_badge(img, label, accent)
 

@@ -429,3 +429,25 @@ def test_relaxed_selection_defaults_to_cover_hero(tmp_path):
     ts.render_concept(str(pdir), ph, {}, os.path.join(ART, "a7_relaxed_panel_hero.png"))
     drawn = _bbox_of(Image.open(os.path.join(ART, "a7_relaxed_panel_hero.png")).crop((0, 400, 1280, 720)), YELLOW)
     assert bool(drawn) == bool(ph.get("_hook_layout"))                 # no phantom hook
+
+
+def test_chapter_badge_always_contrasts_with_the_art_behind_it(tmp_path):
+    """Owner: a blue thumbnail can't have a blue CH badge. Measured on pixels:
+    the badge fill vs the art right next to it is >= 35 delta-E; an accent that
+    already stands out is kept."""
+    import numpy as np
+    from PIL import Image
+    for name, art, accent, keep in (("blue_on_blue", (30, 70, 200), [40, 80, 210], False),
+                                    ("blue_on_red", (190, 30, 30), [40, 80, 210], True)):
+        src = tmp_path / f"{name}.png"
+        Image.new("RGB", (1600, 900), art).save(src)
+        c = {"composition": "panel-hero", "focal_file": str(src), "chapter": "32", "palette": {"accent": accent}}
+        out = os.path.join(ART, f"badge_{name}.png")
+        ts.render_concept(str(tmp_path), c, {}, out)
+        im = Image.open(out).convert("RGB")
+        fill = im.getpixel((36, 40))                         # inside the badge, left of the text
+        bg = im.getpixel((300, 150))                         # the art beside it
+        de = float(np.linalg.norm(ts._lab(np.array(fill)) - ts._lab(np.array(bg))))
+        assert de >= ts.BADGE_MIN_DELTA_E, (name, fill, bg, de)
+        same = sum(abs(a - b) for a, b in zip(fill, accent)) < 12
+        assert same == keep, (name, fill, accent)
