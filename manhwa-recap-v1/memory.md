@@ -9234,3 +9234,28 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - `_rerender_chosen_thumbnails` now rebuilds the options for any chosen "cover" whose anchor wasn't the real cover and re-picks the real cover design.
 - **Tests:** `test_thumbnail_studio` 114/114 (fixture now has a real `_cover.jpg`; new: no real cover → no cover concept; a cover design with a story page refuses). Full suite 87/87.
 - **Live (3f5117e), deployed with Iron-Blooded 183 paused, then resumed.** `rerender_all` ran (11 redrawn). Extra's Academy ch.114 now shows the **real series cover** with a small top-left "CH 114" badge (checked the live `/thumbnail` image). This note goes up with the next deploy.
+
+### 2026-10-06 — Spec 07 Part A (thumbnail engine), A1–A8 done locally, then pushed
+- **Input:** owner work order (specs `docs/audit/06_…`, `07_THUMBNAIL_RECIPE.md`) plus a reference pack (`docs/audit/thumbnail_refs/`, with `09_THUMBNAIL_REFERENCES.md`). The geometry sheet and the two generated mockups are committed. The competitor grid and before/after contain third-party art, so they are gitignored and local only.
+- **Face boxes (owner chose AI boxes):** `review_ui/face_boxes.py` is one metered Gemini pass per chapter (faces, is_mc, bubbles, text_blocks, watermark), cached in `face_boxes.json`.
+  - Cost is tuned with 512 px images and MEDIA_RESOLUTION_MEDIUM: about 0.9¢ per 10 panels.
+  - The first ch.358 run, at 640 px with default settings, cost about 14¢ for 51 frames, against the ~3¢ I had quoted. **Told the owner.**
+  - `ensure_face_boxes()` covers at most 60 panels (THUMB_FACE_PASS_MAX) plus the cover. It is skipped when there's no key.
+- **Commits:**
+  - ec6a577: A1 + A8.
+  - cf698ff: face_boxes.
+  - 69bd6c7: A2 crop-to-fill on the face, no pillarbox; A5 cover logo trim from the model's text_blocks, with corner marks inpainted. An edge-density detector was tried and could not find ch.358's brush logo.
+  - 9ae9d87: A3 arrow; A4 mirror rule (overlap, or face in the left 45%), bubble inpaint, spec badge, 3A–3F renderer.
+  - d16935c: A6 face-first ranking. Hard rejects, spec weights, reject counts; LOOKALIKE is ≤18 bits and RGB ≤30, measured on Swordmaster ch.1.
+  - 9158827: A7 panel-hero is the default, with the rotation and ±12° hue shift.
+- **Tests:** `test_thumb_spec.py` 10/10 (pixel assertions on real 1280×720 renders); `test_thumbnail_studio` 115/115; `test_thumbnail` 35/35.
+- **Measured:**
+  - Cover trim: Fated Villain top 0%, bottom 31.3%, 1 mark. Swordmaster top 0%, bottom 42.8%, 3 marks.
+  - Swordmaster ch.1 face pass: 61 images, $0.064. Rejects: no_face 44, face_covers_text 9, bubbles 4, not_analysed 78. 3 survived.
+- **Not done or not verified:**
+  - Glow behind the MC (needs a subject cut-out).
+  - Gentle-arc arrow (straight only).
+  - The spec's 8% face-area rule is strict and rejects most panels.
+  - Mirroring flips any lettering in the panel.
+  - Live render of ch.358 with real crops: pending deploy.
+- **Pending:** B1–B4, the remaining Part C tests, the final ch.358 render on the server, and rerunning thumbnails for existing videos (owner's call).
