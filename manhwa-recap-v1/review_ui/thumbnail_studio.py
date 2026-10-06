@@ -399,8 +399,15 @@ def _dhash(path, size=8):
     return bits, mean
 
 
-LOOKALIKE_BITS = 10                  # of 64; at or under this = same layout
-LOOKALIKE_RGB = 40                   # summed mean-colour difference
+# Near-duplicate threshold (spec A6), measured 2026-10-06 on Swordmaster ch.1's
+# 138 real crops (9,453 pairs). The old 10 bits caught 0 pairs. At <= 18 bits
+# AND a summed mean-colour difference <= 30 it catches exactly the true near-
+# duplicates there (the two glowing-text cards 17/2, two credit cards 11/9, two
+# blank pages 16/10); the next pair it would admit (19 bits / 15) is two
+# different pictures, and bits alone (no colour check) admits 28 pairs, most of
+# them different panels.
+LOOKALIKE_BITS = int(os.environ.get("THUMB_LOOKALIKE_BITS", "18"))
+LOOKALIKE_RGB = int(os.environ.get("THUMB_LOOKALIKE_RGB", "30"))
 
 
 def _lookalike(a, b):
@@ -408,23 +415,231 @@ def _lookalike(a, b):
             and sum(abs(x - y) for x, y in zip(a[1], b[1])) <= LOOKALIKE_RGB)
 
 
+# Spec 07 §5 / A6 — face-first selection. Hard rejects (STEP 1-2), then the
+# weighted score (STEP 3). Feature units, chosen so each lands on ~0-10 unless
+# the spec names a raw unit (px, Laplacian variance):
+#   face_area_pct   % of the 16:9 frame the hero face covers (cap 10)
+#   is_mc           10 when the hero face is the series lead, else 0
+#   face_height_px  hero face height in px on the 720-high frame
+#   contrast        luminance stdev / 10
+#   sharpness       Laplacian variance (cap 500)
+#   negative_space  10 x (1 - edge density of the text zone / 0.25)
+#   crowded_faces   faces beyond the first (cap 5)
+PANEL_WEIGHTS = {"face_area_pct": 3.0, "is_mc": 2.5, "face_height_px": 0.02, "contrast": 1.2,
+                 "sharpness": 0.02, "negative_space": 1.5, "crowded_faces": -1.0}
+REJECT = {"mean_luminance_below": 18, "bubble_coverage_above": 0.22,
+          "no_face_area_below": 0.08, "face_height_below_pct": 0.22}
+TEXT_ROOM_MIN = 5.0                  # §5 step 5: below this the text needs a gradient
+FACE_PASS_MAX = int(os.environ.get("THUMB_FACE_PASS_MAX", "60"))
+_STATS = {}
+
+
+def _pix_stats(path):
+    """(mean luminance, stdev, Laplacian variance, grey array) on a 512px copy."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+    try:
+        k = (path, os.path.getmtime(path))
+    except OSError:
+        return None
+    if k in _STATS:
+        return _STATS[k]
+    with Image.open(path) as im:
+        g = im.convert("L")
+        g.thumbnail((512, 512))
+        a = np.asarray(g, dtype=np.float32)
+        lap = np.asarray(g.filter(ImageFilter.Kernel((3, 3), [0, 1, 0, 1, -4, 1, 0, 1, 0], 1, 128)),
+                         dtype=np.float32) - 128
+        edges = np.asarray(g.filter(ImageFilter.FIND_EDGES), dtype=np.float32)
+    out = (float(a.mean()), float(a.std()), float(lap.var()), edges)
+    _STATS[k] = out
+    return out
+
+
+def _text_room(edges, win, sw, sh):
+    """Negative space for the hook: how quiet the text zone is in the
+    face-anchored crop (0..10)."""
+    import numpy as np
+    eh, ew = edges.shape
+    x0, y0, x1, y1 = win
+    zx0, zy0, zx1, zy1 = ZONES["text"]
+    sx = lambda v: int((x0 + (x1 - x0) * v / W) * ew / sw)
+    sy = lambda v: int((y0 + (y1 - y0) * v / H) * eh / sh)
+    reg = edges[max(0, sy(zy0)):max(1, sy(zy1)), max(0, sx(zx0)):max(1, sx(zx1))]
+    if reg.size == 0:
+        return 0.0
+    dens = float((reg > 40).mean())
+    return round(10 * (1 - min(1.0, dens / 0.25)), 2)
+
+
+def face_features(path, rec, lead_names_=(), w=None, h=None):
+    """Spec §5 for one panel: (features, reject_reason or '', hero_face).
+    rec is the panel's face_boxes record."""
+    st = _pix_stats(path)
+    if st is None:
+        return None, "missing", None
+    lum, std, lapv, edges = st
+    if lum < REJECT["mean_luminance_below"]:
+        return None, "dark", None
+    if (rec or {}).get("bubble_coverage", 0) > REJECT["bubble_coverage_above"]:
+        return None, "bubbles", None
+    if (rec or {}).get("watermark"):
+        return None, "watermark", None
+    if w is None:
+        from PIL import Image
+        with Image.open(path) as im:
+            w, h = im.size
+    faces = [f for f in (rec or {}).get("faces") or [] if f.get("box")]
+    area = lambda f: (f["box"][2] - f["box"][0]) * (f["box"][3] - f["box"][1])
+    big = [f for f in faces if area(f) >= REJECT["no_face_area_below"]]
+    if not big:
+        return None, "no_face", None
+    hero = max([f for f in big if f.get("is_mc")] or big, key=area)
+    win = crop_window(w, h, W, H, hero["box"])
+    fb = face_in_box(hero["box"], win, w, h, W, H)
+    fh = fb[3] - fb[1]
+    if fh < REJECT["face_height_below_pct"] * H:
+        return None, "small_face", hero
+    # §3 hard rule: the hook never overlaps the face. A face that blocks the
+    # text zone in the normal AND the mirrored layout cannot make a thumbnail.
+    # the band the smallest legal hook needs: one line at the 84 px floor
+    # (+ stroke both sides + shadow) — hook_layout drops words to fit it
+    tz = (ZONES["text"][0], ZONES["text"][3] - (CAP_FLOOR + 2 * stroke_for(CAP_FLOOR) + 8),
+          ZONES["text"][2], ZONES["text"][3])
+    if _intersects(tz, fb):
+        # a mirror flips the art and re-anchors the crop on the flipped face
+        mb = mirror_box(hero["box"])
+        fbm = face_in_box(mb, crop_window(w, h, W, H, mb), w, h, W, H)
+        if _intersects(tz, fbm):
+            return None, "face_covers_text", hero
+    feat = {"face_area_pct": min(10.0, 100.0 * (fb[2] - fb[0]) * fh / float(W * H)),
+            "is_mc": 10.0 if hero.get("is_mc") else 0.0,
+            "face_height_px": float(fh),
+            "contrast": std / 10.0,
+            "sharpness": min(500.0, lapv),
+            "negative_space": _text_room(edges, win, w, h),
+            "crowded_faces": float(min(5, max(0, len(faces) - 1)))}
+    return feat, "", hero
+
+
+def panel_score(feat):
+    return round(sum(PANEL_WEIGHTS[k] * feat[k] for k in PANEL_WEIGHTS), 2)
+
+
+def rank_panels_report(pdir, limit=8, exclude=(), bible=None, faces=None):
+    """Face-first ranking (spec 07 §5). Returns (panels, report).
+
+    Each kept panel carries `face_box` (normalised, on its own file),
+    `face_is_mc`, `bubbles`, `features`, `text_ok`. report = per-stage reject
+    counts. Without face data for the project (the face pass has not run) the
+    old description-based ranking is used and report["face_data"] is False;
+    when every panel fails the face rules, the best panels with ANY face are
+    returned with report["relaxed"] True so a chapter still gets a thumbnail."""
+    import face_boxes as _fbm
+    faces = faces if faces is not None else _fbm.load(pdir)
+    descs = _read(os.path.join(pdir, "descriptions.json"), []) or []
+    if isinstance(descs, dict):
+        descs = list(descs.values())
+    excl = set(exclude or ())
+    report = {"panels": len(descs), "face_data": bool(faces), "rejects": {}, "kept": 0,
+              "relaxed": False, "lookalike_bits": LOOKALIKE_BITS}
+    rej = report["rejects"]
+    bump = lambda k: rej.__setitem__(k, rej.get(k, 0) + 1)
+    if not faces:
+        kept = _rank_by_description(pdir, descs, limit, excl, bible)
+        report["kept"] = len(kept)
+        return kept, report
+    leads = lead_names(bible)
+    out, relaxed = [], []
+    for d in descs:
+        pid = d.get("panel_id")
+        why = _not_thumbnail(d)
+        if why:
+            bump("role:" + why)
+            continue
+        f = _resolve_panel(pdir, d.get("file"), pid)
+        if not f:
+            bump("missing")
+            continue
+        rec = faces.get(pid)
+        if not rec or not rec.get("analysed"):
+            bump("not_analysed")
+            continue
+        feat, reason, hero = face_features(f, rec, leads, d.get("width"), d.get("height"))
+        text = ((d.get("visual_description") or "") + " " + (d.get("ocr_text") or "")).lower()
+        lead = next((n for n in leads if re.search(r"\b" + re.escape(n) + r"\b", text)), "")
+        row = {"panel_id": pid, "file": f, "lead": lead or (hero or {}).get("name", "") if (hero or {}).get("is_mc") else lead,
+               "ticked": False, "why": (d.get("visual_description") or "")[:150],
+               "face_box": (hero or {}).get("box"), "face_is_mc": bool((hero or {}).get("is_mc")),
+               "bubbles": rec.get("bubbles") or []}
+        if reason:
+            bump(reason)
+            if reason in ("no_face", "small_face", "face_covers_text"):
+                anyf = hero or pick_face(rec)
+                if anyf:
+                    # fallback order: a face too small, then one that blocks the
+                    # text, then a face under 8% — MC first within each
+                    pri = {"small_face": 0, "face_covers_text": 1, "no_face": 2}[reason]
+                    relaxed.append(dict(row, face_box=anyf["box"], face_is_mc=bool(anyf.get("is_mc")),
+                                        score={"total": 0, "relaxed_from": reason}, features={},
+                                        _rank=(pri, -(10 if anyf.get("is_mc") else 0)
+                                               - 100 * (anyf["box"][3] - anyf["box"][1]))))
+            continue
+        total = panel_score(feat)
+        row.update(score={"total": total, **{k: round(v, 2) for k, v in feat.items()}},
+                   features=feat, text_ok=feat["negative_space"] >= TEXT_ROOM_MIN)
+        out.append(row)
+    report["survived"] = len(out)
+    if not out and relaxed:
+        report["relaxed"] = True
+        relaxed.sort(key=lambda r: r["_rank"])
+        for r in relaxed:
+            r.pop("_rank", None)
+            r["text_ok"] = False
+        out = relaxed
+    out.sort(key=lambda x: (x["panel_id"] in excl, -x["score"]["total"]))
+    kept = _dedupe(out, limit, report)
+    report["kept"] = len(kept)
+    return kept, report
+
+
+def _dedupe(rows, limit, report=None):
+    kept, hashes = [], []
+    for c in rows:
+        try:
+            h = _dhash(c["file"])
+        except Exception:
+            h = None
+        if h is not None and any(_lookalike(h, k) for k in hashes):
+            if report is not None:
+                report["rejects"]["duplicate"] = report["rejects"].get("duplicate", 0) + 1
+            continue
+        if h is not None:
+            hashes.append(h)
+        kept.append(c)
+        if len(kept) >= limit:
+            break
+    return kept
+
+
 def rank_panels(pdir, limit=8, exclude=(), bible=None):
-    """Best thumbnail candidates, grounded in panels that exist on disk.
+    """Best thumbnail candidates (see rank_panels_report)."""
+    return rank_panels_report(pdir, limit, exclude, bible)[0]
+
+
+def _rank_by_description(pdir, descs, limit, excl, bible):
+    """The pre-spec ranking, used only when a project has no face data yet.
 
     Scrapper's picking lessons (owner, 2026-10-04): never a bubble, blank or
     credits panel; the series lead (by the Series Bible's names) ranks up; no
     two look-alikes; `exclude` (the panels the last set used) sinks to the end
     so "Regenerate" offers the next-best instead of the same picks.
     """
-    descs = _read(os.path.join(pdir, "descriptions.json"), []) or []
-    if isinstance(descs, dict):
-        descs = list(descs.values())
     segs = _read(os.path.join(pdir, "segments.json"), []) or []
     by_panel = {}
     for s in segs:
         by_panel.setdefault(s.get("panel_id"), s)
     leads = lead_names(bible)
-    excl = set(exclude or ())
     out = []
     for d in descs:
         pid = d.get("panel_id")
@@ -442,22 +657,45 @@ def rank_panels(pdir, limit=8, exclude=(), bible=None):
             sc["total"] += 14
         out.append({"panel_id": pid, "file": f, "score": sc, "lead": lead,
                     "ticked": bool((by_panel.get(pid) or {}).get("user_included")),
-                    "why": (d.get("visual_description") or "")[:150]})
+                    "why": (d.get("visual_description") or "")[:150],
+                    "face_box": None, "face_is_mc": False, "bubbles": [], "text_ok": True})
     out.sort(key=lambda x: (x["panel_id"] in excl, -x["score"]["total"]))
-    kept, hashes = [], []
-    for c in out:
-        try:
-            h = _dhash(c["file"])
-        except Exception:
-            h = None
-        if h is not None and any(_lookalike(h, k) for k in hashes):
+    return _dedupe(out, limit)
+
+
+def face_candidates(pdir, cap=FACE_PASS_MAX):
+    """Panels worth a face pass: the cheap STEP-1 filters first (role, near-
+    black, missing file), at most `cap` (THUMB_FACE_PASS_MAX, default 60 —
+    about 5 cents), best description score first."""
+    descs = _read(os.path.join(pdir, "descriptions.json"), []) or []
+    if isinstance(descs, dict):
+        descs = list(descs.values())
+    rows = []
+    for d in descs:
+        if _not_thumbnail(d):
             continue
-        if h is not None:
-            hashes.append(h)
-        kept.append(c)
-        if len(kept) >= limit:
-            break
-    return kept
+        f = _resolve_panel(pdir, d.get("file"), d.get("panel_id"))
+        if not f:
+            continue
+        st = _pix_stats(f)
+        if st is None or st[0] < REJECT["mean_luminance_below"]:
+            continue
+        rows.append((score_panel(d)["total"], d.get("panel_id"), f))
+    rows.sort(key=lambda r: -r[0])
+    return [(pid, f) for _s, pid, f in rows[:cap]]
+
+
+def ensure_face_boxes(pdir, bible=None, api_key=None, _post=None):
+    """The ONE metered vision pass per chapter (owner-approved, face boxes
+    only): candidate panels + the series cover. Cached, so a re-run is free."""
+    import face_boxes as _fbm
+    items = face_candidates(pdir)
+    cov = cover_file(pdir)
+    if cov:
+        items.append(("_cover", cov))
+    if not items:
+        return {}
+    return _fbm.detect(pdir, items, bible=bible, api_key=api_key, _post=_post)
 
 
 def _read(path, default=None):

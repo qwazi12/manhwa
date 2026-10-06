@@ -284,3 +284,69 @@ def test_bubble_under_the_hook_is_inpainted(tmp_path):
     assert c["_bubbles_inpainted"] == 1
     assert white(ctrl) is not None                      # control: the bubble is there
     assert white(out) is None                           # inpainted: no bubble pixels left
+
+
+# ------------------------------------------------------------------ A6
+def _face_project(tmp_path):
+    """Five panels + face_boxes.json: a good MC close-up, a near-duplicate of
+    it (re-encoded, shifted 3 px), a different good panel, a near-black panel
+    and a panel whose only face is tiny."""
+    import json as _j
+    from PIL import Image
+    pdir = tmp_path / "fp"
+    (pdir / "crops").mkdir(parents=True)
+    a, fa, _ = _panel(tmp_path, "a.png", (1050, 220, 1380, 620))
+    Image.open(a).save(pdir / "crops" / "p1.png")
+    im = Image.open(a).convert("RGB")
+    dup = Image.new("RGB", im.size)
+    dup.paste(im.crop((3, 0, im.width, im.height)), (0, 0))
+    dup.save(pdir / "crops" / "p2.jpg", quality=70)
+    Image.open(pdir / "crops" / "p2.jpg").save(pdir / "crops" / "p2.png")
+    import random
+    rnd = random.Random(11)
+    other = Image.new("RGB", (1600, 1000), (190, 120, 60))
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(other)
+    for _ in range(400):
+        x, y = rnd.randint(0, 1590), rnd.randint(0, 990)
+        d.rectangle([x, y, x + 9, y + 9], fill=(rnd.randint(150, 230), 90, 40))
+    d.rectangle((1000, 200, 1360, 640), fill=(120, 200, 230))
+    other.save(pdir / "crops" / "p3.png")
+    Image.new("RGB", (1600, 1000), (6, 6, 8)).save(pdir / "crops" / "p4.png")
+    t, ft, _ = _panel(tmp_path, "t.png", (800, 400, 840, 440))
+    Image.open(t).save(pdir / "crops" / "p5.png")
+    descs = [{"panel_id": "p%d" % i, "file": "p%d.png" % i, "width": 1600, "height": 1000,
+              "ok": True, "visual_description": "", "ocr_text": ""} for i in range(1, 6)]
+    (pdir / "descriptions.json").write_text(_j.dumps(descs))
+    import face_boxes as fbm
+    rec = lambda f, box, mc=True: {"key": fbm._key(str(pdir / "crops" / f)), "analysed": True,
+                                   "faces": [{"box": box, "name": "", "is_mc": mc}] if box else [],
+                                   "bubbles": [], "bubble_coverage": 0.0, "watermark": False}
+    faces = {"p1": rec("p1.png", fa), "p2": rec("p2.png", fa), "p3": rec("p3.png", [1000 / 1600, 0.2, 1360 / 1600, 0.64]),
+             "p4": rec("p4.png", fa), "p5": rec("p5.png", ft)}
+    (pdir / "face_boxes.json").write_text(_j.dumps(faces))
+    return pdir
+
+
+def test_near_duplicate_panels_are_excluded(tmp_path):
+    import numpy as np
+    from PIL import Image
+    pdir = _face_project(tmp_path)
+    kept, rep = ts.rank_panels_report(str(pdir))
+    ids = [k["panel_id"] for k in kept]
+    assert ("p1" in ids) != ("p2" in ids), ids              # one of the near-dupes, never both
+    assert rep["rejects"].get("duplicate") == 1
+    assert rep["rejects"].get("dark") == 1 and rep["rejects"].get("no_face") == 1
+    assert all(k["face_box"] for k in kept)                  # A6: face_box on every panel
+    # render the two picks side by side (3D); the halves must be different art
+    c = {"composition": "two-panels", "focal_file": kept[0]["file"], "face_box": kept[0]["face_box"],
+         "second_file": kept[1]["file"], "second_face_box": kept[1]["face_box"],
+         "chapter": "7", "palette": {"accent": [200, 30, 30]}}
+    out = os.path.join(ART, "a6_no_near_dupes.png")
+    ts.render_concept(str(pdir), c, {}, out)
+    a = np.asarray(Image.open(out).convert("RGB"), dtype=np.int16)
+    left, right = a[100:600, 40:600], a[100:600, 680:1240]
+    assert np.abs(left.mean(axis=(0, 1)) - right.mean(axis=(0, 1))).sum() > 60
+    # control: the two near-dupes really are the same picture to the eye
+    h1, h2 = ts._dhash(str(pdir / "crops" / "p1.png")), ts._dhash(str(pdir / "crops" / "p2.png"))
+    assert ts._lookalike(h1, h2)
