@@ -387,3 +387,21 @@ def test_default_composition_is_panel_hero(tmp_path):
     h0 = colorsys.rgb_to_hls(*[v / 255 for v in (210, 30, 30)])[0]
     h1 = colorsys.rgb_to_hls(*[v / 255 for v in cs1[0]["palette"]["accent"]])[0]
     assert abs(((h1 - h0 + 0.5) % 1.0) - 0.5) * 360 == pytest.approx(12, abs=2)
+
+
+def test_hook_is_cut_to_fit_below_a_big_face_not_dropped(tmp_path):
+    """A big face that a 2-line hook overlaps on BOTH sides: the hook is cut
+    (fewer words/lines) to sit clear of the face, never silently dropped."""
+    from PIL import Image
+    path, face, _ = _panel(tmp_path, "big_face.png", (300, 60, 1100, 640), size=(1600, 900))
+    out = os.path.join(ART, "a4_big_face_hook_cut.png")
+    # face_is_mc False: no arrow, so every yellow pixel measured is the hook
+    c = _hero(path, face, overlay_text="RUNCANDEL CLAN HAD RULED", face_is_mc=False)
+    ts.render_concept(str(tmp_path), c, {}, out)
+    im = Image.open(out)
+    skin = _bbox_of(im, SKIN)
+    text = _bbox_of(im.crop((0, 300, 1280, 720)), YELLOW)
+    assert text, "the hook was dropped"
+    text = (text[0], text[1] + 300, text[2], text[3] + 300)
+    assert not ts._intersects(skin, text), (skin, text)
+    assert c["_hook_layout"]["cap"] >= ts.CAP_FLOOR and c["_hook_layout"]["dropped"] >= 1

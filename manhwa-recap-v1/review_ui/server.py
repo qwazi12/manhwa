@@ -1361,6 +1361,68 @@ def _ensure_project_cover(pdir):
     return ""
 
 
+class ThumbPreviewIn(BaseModel):
+    project: str
+    name: str = ""
+    composition: str = ""
+
+
+@app.post("/api/thumbcopilot/preview")
+def api_thumbcopilot_preview(body: ThumbPreviewIn):
+    """Render the spec-07 DEFAULT thumbnail (round 0) for a chapter into
+    thumbnails/_preview/ WITHOUT touching its saved options or its chosen
+    thumbnail — for side-by-side comparison. Runs the (cached, metered)
+    face pass; nothing else costs anything. Returns the selection report."""
+    import thumbnail_studio as tstudio
+    pdir = project_dir_for(body.project)
+    _ensure_project_cover(pdir)
+    meta = _read_json(os.path.join(pdir, "project.json"))
+    name = os.path.basename(body.name or "") or (latest_export(body.project)[0] or "")
+    store = load_publish(pdir)
+    title = ({**publish_defaults(pdir), **(store.get(name) or {})}).get("title") or ""
+    key = tstudio.series_key(meta)
+    style = tstudio.load_style(_yt_root(), key) or tstudio.build_style_pack(pdir, meta)
+    bible = None
+    try:
+        import series_bible as _sbib
+        import ingest as _ing
+        slug, _c = _ing.parse_series_chapter(meta.get("url") or "")
+        bible = _sbib.load_series_bible(slug, pdir) if slug else None
+    except Exception:
+        bible = None
+    face_note = ""
+    try:
+        import gemini_tts as _gt
+        tstudio.ensure_face_boxes(pdir, bible=bible, api_key=_gt.env_any_case("GEMINI_API_KEY"))
+    except usage.UsageCapExceeded as e:
+        face_note = "face check waits for budget: " + str(e)[:120]
+    except Exception as e:  # noqa
+        face_note = "face check failed: " + str(e)[:160]
+    _panels, report = tstudio.rank_panels_report(pdir, 8, bible=bible)
+    cs = tstudio.rank_concepts(tstudio.build_concepts(pdir, meta, style, title, bible=bible), style, title)
+    if not cs:
+        raise HTTPException(422, "no usable panels for a thumbnail")
+    c = next((x for x in cs if x["composition"] == body.composition), None) if body.composition else None
+    c = c or cs[0]
+    out = os.path.join(pdir, "thumbnails", "_preview", f"spec07_{c['composition']}.png")
+    r = tstudio.render_concept(pdir, c, style, out)
+    return {"ok": True, "file": os.path.relpath(out, pdir), "composition": c["composition"], "title_used": title,
+            "focal_panel": c.get("focal_panel"), "face_box": c.get("face_box"), "mirrored": r.get("mirrored"),
+            "arrow": c.get("_arrow"), "hook": c.get("_hook_layout"), "cover_trim": c.get("_cover_trim"),
+            "font": tstudio.font_path(), "selection": report, "face_note": face_note,
+            "lookalike": {"bits": tstudio.LOOKALIKE_BITS, "rgb": tstudio.LOOKALIKE_RGB},
+            "options": [x["composition"] for x in cs]}
+
+
+@app.get("/api/thumbcopilot/preview.png")
+def api_thumbcopilot_preview_png(project: str, composition: str = "panel-hero"):
+    pdir = project_dir_for(project)
+    p = os.path.join(pdir, "thumbnails", "_preview", f"spec07_{os.path.basename(composition)}.png")
+    if not os.path.exists(p):
+        raise HTTPException(404, "no preview rendered")
+    return FileResponse(p, media_type="image/png")
+
+
 @app.post("/api/thumbcopilot/generate")
 def api_thumbcopilot_generate(body: ThumbGenIn):
     """Concepts for this chapter, built on the series' approved style.

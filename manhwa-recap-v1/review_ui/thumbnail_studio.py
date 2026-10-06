@@ -1483,8 +1483,14 @@ def render_concept(pdir, concept, style, out_path, width=W):
         elif not overlap:
             pass                              # the unmirrored frame was already legal
         else:
-            img, info = _compose(pdir, concept, style, mirror=False, avoid=info["face"])
-            _log("text_cut_for_face", composition=concept.get("composition"), out=os.path.basename(out_path))
+            # Neither side clears the face at full size: keep the layout whose
+            # face is on the right and cut the hook (fewer lines/words, never a
+            # smaller floor) to fit beside or below it.
+            pick_m = bool(info2["face"] and (info2["face"][0] + info2["face"][2]) > (f[0] + f[2]))
+            face = info2["face"] if pick_m else f
+            img, info = _compose(pdir, concept, style, mirror=pick_m, avoid=face)
+            _log("text_cut_for_face", composition=concept.get("composition"), out=os.path.basename(out_path),
+                 mirrored=pick_m, kept=(concept.get("_hook_layout") or {}).get("lines"))
     concept["_mirrored"] = info["mirrored"]
     concept["_face_out"] = list(info["face"]) if info["face"] else None
     concept["_text_box"] = list(info["text_box"]) if info["text_box"] else None
@@ -1714,9 +1720,17 @@ def _compose(pdir, concept, style, mirror=False, avoid=None):
         zx0, zy0, zx1, zy1 = text_zone
         if mirror and comp not in ("split", "two-panels", "diptych", "anchor-split"):
             pass                              # the art moved, the text stays bottom-left
+        lay = None
         if avoid:
-            zx1 = min(zx1, int(avoid[0]) - 18) if avoid[0] > zx0 else zx1
-        lay = hook_layout(txt, zx1 - zx0, zy1 - zy0) if zx1 - zx0 > 60 else None
+            floor_h = CAP_FLOOR + 2 * stroke_for(CAP_FLOOR) + 8
+            below = int(avoid[3]) + 12
+            if zy1 - below >= floor_h:
+                # under the face: same zone width, only the height that's clear
+                lay = hook_layout(txt, zx1 - zx0, zy1 - max(zy0, below))
+            if lay is None and avoid[0] > zx0 + 60:
+                zx1 = min(zx1, int(avoid[0]) - 18)        # beside the face
+        if lay is None:
+            lay = hook_layout(txt, zx1 - zx0, zy1 - zy0) if zx1 - zx0 > 60 else None
         if lay:
             st = lay["stroke"]
             est_w = max(int(lay["font"].getlength(l)) for l in lay["lines"]) + 2 * st
