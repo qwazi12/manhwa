@@ -788,26 +788,74 @@ def rank_concepts(concepts, style, title=""):
 
 
 # ========================================================= COMPOSITION
-def _cover_crop(im, box_w, box_h):
-    """Fill the box, centred, without distorting — letterboxing a thumbnail
-    wastes the little space it has."""
+# Spec 07 §3 / A2: CROP TO FILL, never pillarbox. The crop is a source window
+# with the box's aspect, anchored so the face lands at the face-zone centre.
+FACE_TARGET = ((ZONES["face"][0] + ZONES["face"][2]) / 2.0 / W,      # 0.7625
+               (ZONES["face"][1] + ZONES["face"][3]) / 2.0 / H)      # 0.4167
+FACE_TARGET_H = 0.34        # zoom so the face is ~a third of the frame tall
+MAX_UPSCALE = 2.5           # never zoom past 2.5x the source pixels
+NO_FACE_TOP = 0.12          # no face: the band starts at 12% of the height
+BACKDROP_UPSCALE = 1.9      # 3B step 4: above this upscale, sharp-on-blur
+SHARP_SHARE = 0.62          # ...with the sharp art on the right 62%
+SHARP_MIN_SHARE = 0.60      # never less than 60% of the frame
+FEATHER_PX = 40
+
+
+def crop_window(sw, sh, box_w, box_h, face=None, target=FACE_TARGET, zoom=True):
+    """Source rectangle (x0, y0, x1, y1) with the box's aspect that FILLS it.
+
+    face: normalised [x0, y0, x1, y1] on the source. With a face the window is
+    zoomed (up to MAX_UPSCALE) toward FACE_TARGET_H and positioned so the face
+    centre lands at `target` (fractions of the box), then clamped to the image.
+    Without one: centred across, the 12%-height line at the face height (3B step 2)."""
+    ar = box_w / float(box_h)
+    cw = min(float(sw), sh * ar)
+    ch = cw / ar
+    if face:
+        fx0, fy0, fx1, fy1 = face[0] * sw, face[1] * sh, face[2] * sw, face[3] * sh
+        if zoom:
+            want = (fy1 - fy0) / FACE_TARGET_H
+            floor_h = box_h / MAX_UPSCALE
+            nh = min(ch, max(want, floor_h, (fx1 - fx0) / ar / 0.40))
+            ch, cw = nh, nh * ar
+        cx = (fx0 + fx1) / 2.0 - target[0] * cw
+        cy = (fy0 + fy1) / 2.0 - target[1] * ch
+    else:
+        # "bias to y = 12% of the cover height, where the face usually sits":
+        # that line goes where a face would go (the face-zone height).
+        cx = (sw - cw) / 2.0
+        cy = sh * NO_FACE_TOP - target[1] * ch
+    cx = max(0.0, min(cx, sw - cw))
+    cy = max(0.0, min(cy, sh - ch))
+    return (cx, cy, cx + cw, cy + ch)
+
+
+def face_in_box(face, window, sw, sh, box_w, box_h):
+    """The face box in OUTPUT pixels for a given source window."""
+    x0, y0, x1, y1 = window
+    kx, ky = box_w / (x1 - x0), box_h / (y1 - y0)
+    return (int((face[0] * sw - x0) * kx), int((face[1] * sh - y0) * ky),
+            int((face[2] * sw - x0) * kx), int((face[3] * sh - y0) * ky))
+
+
+def mirror_box(b):
+    return [round(1 - b[2], 4), b[1], round(1 - b[0], 4), b[3]] if b else b
+
+
+def _cover_crop(im, box_w, box_h, face=None, target=FACE_TARGET, zoom=True):
+    """Fill the box from a face-anchored window — never letterbox/pillarbox."""
     from PIL import Image
     sw, sh = im.size
     if not sw or not sh:
         return im.resize((box_w, box_h))
-    scale = max(box_w / sw, box_h / sh)
-    nw, nh = max(1, int(sw * scale)), max(1, int(sh * scale))
-    im = im.resize((nw, nh), Image.LANCZOS)
-    # Bias slightly BELOW the top rather than to the very top. Covers put the
-    # subject in the upper-middle, and the very top of a scanlated cover is
-    # where the site watermark sits — starting at 0 framed the watermark and
-    # cut the face.
-    left = (nw - box_w) // 2
-    top = int((nh - box_h) * 0.22)
-    return im.crop((left, top, left + box_w, top + box_h))
+    win = crop_window(sw, sh, box_w, box_h, face, target, zoom)
+    return im.resize((box_w, box_h), Image.LANCZOS, box=tuple(win))
 
 
-TALL_FIT = 0.6     # a source this much taller than the box is fitted whole
+def upscale_of(im_size, box_w, box_h, face=None, target=FACE_TARGET):
+    win = crop_window(im_size[0], im_size[1], box_w, box_h, face, target)
+    return box_h / max(1e-6, win[3] - win[1])
+
 
 # Aggregator watermarks ("ASURASCANS.COM" badge, site URLs) are stamped on the
 # top or bottom edge of the scraped series cover. The owner chose (2026-10-05)
@@ -816,27 +864,211 @@ TALL_FIT = 0.6     # a source this much taller than the box is fitted whole
 # Tunable per deploy; a watermark placed elsewhere on the cover is not caught.
 COVER_TRIM_TOP = float(os.environ.get("THUMB_COVER_TRIM_TOP", "0.07"))
 COVER_TRIM_BOTTOM = float(os.environ.get("THUMB_COVER_TRIM_BOTTOM", "0.05"))
+TITLE_BAND_MAX = 0.45       # the cover's own logo never takes more than this
 
 
-def _trim_watermark_bands(im):
+WIDE_BLOCK = 0.5            # a text block this wide is a band (logo); narrower is a mark
+
+
+def title_band_from_blocks(blocks):
+    """Spec A5: the cover's own typography (title logo, credits, watermark) from
+    the text-block boxes the face pass returns for the cover (face_boxes.py
+    `text_blocks`). Returns (top_frac, bottom_frac, marks):
+
+      * a WIDE block (>= half the width) in the bottom 45% / top third becomes
+        an edge trim, from that edge to the block's far side;
+      * a NARROW block (a corner watermark, a credit tag) is returned in
+        `marks` to be inpainted from its surroundings — trimming the whole row
+        band for a corner badge cut the MC's head off the ch.358 cover.
+
+    Measured on ch.358's cover: a pixel edge-density detector could not tell
+    the brush-lettered logo from the painted art, so detection is the model's
+    box, never a guess."""
+    top, bottom, marks = 0.0, 0.0, []
+    for b in blocks or []:
+        try:
+            x0, y0, x1, y1 = [float(v) for v in b[:4]]
+        except Exception:
+            continue
+        if x1 - x0 < WIDE_BLOCK:
+            marks.append([x0, y0, x1, y1])
+        elif y0 >= 1 - TITLE_BAND_MAX:
+            bottom = max(bottom, min(TITLE_BAND_MAX, 1 - y0 + 0.01))
+        elif y1 <= 0.34:
+            top = max(top, min(0.34, y1 + 0.01))
+        else:
+            marks.append([x0, y0, x1, y1])
+    return round(top, 3), round(bottom, 3), marks
+
+
+def cover_trim_for(im, style=None, text_blocks=None):
+    """Per-series trim: the style pack's `cover_trim` wins (owner override),
+    else the detected title band + marks, else the watermark defaults.
+    Returns (top_frac, bottom_frac, source, marks)."""
+    ct = (style or {}).get("cover_trim") or {}
+    if ct.get("top_pct") is not None and ct.get("bottom_pct") is not None:
+        return float(ct["top_pct"]) / 100.0, float(ct["bottom_pct"]) / 100.0, "style pack", []
+    if text_blocks:
+        t, b, marks = title_band_from_blocks(text_blocks)
+        return t, b, "detected", marks
+    return COVER_TRIM_TOP, COVER_TRIM_BOTTOM, "default (no logo box)", []
+
+
+COVER_FACE_MIN_AREA = 0.01  # a cover face smaller than 1% of the cover is a crowd face
+
+
+def pick_face(rec, min_area=0.0):
+    """The face to anchor on from a face_boxes record: the largest MC face,
+    else the largest face of at least `min_area` (fraction of the image)."""
+    faces = [f for f in (rec or {}).get("faces") or [] if f.get("box")]
+    area = lambda f: (f["box"][2] - f["box"][0]) * (f["box"][3] - f["box"][1])
+    mc = [f for f in faces if f.get("is_mc")]
+    for pool in (mc, [f for f in faces if area(f) >= min_area]):
+        if pool:
+            return max(pool, key=area)
+    return None
+
+
+def _trim_watermark_bands(im, trim=None):
     w, h = im.size
-    top, bottom = int(h * COVER_TRIM_TOP), int(h * COVER_TRIM_BOTTOM)
-    if h - top - bottom < h * 0.6:
+    tt, tb = (trim or (COVER_TRIM_TOP, COVER_TRIM_BOTTOM))[:2]
+    top, bottom = int(h * tt), int(h * tb)
+    if h - top - bottom < h * 0.45:
         return im
     return im.crop((0, top, w, h - bottom))
 
 
-def _backdrop_fit(im, box_w, box_h):
-    """A tall webtoon panel shown WHOLE on a blurred, dimmed copy of itself
-    (Scrapper's portrait fit) instead of a crop that cuts the face."""
+def _backdrop_fit(im, box_w, box_h, face=None):
+    """Spec 3B step 4 — the ONLY permitted background fill: a blurred copy of
+    the art fills the frame and the SHARP face-anchored crop covers the right
+    62% (never under 60%), feathered 40 px into the blur."""
     from PIL import Image, ImageEnhance, ImageFilter
-    back = _cover_crop(im, box_w, box_h).filter(ImageFilter.GaussianBlur(max(8, box_w // 40)))
-    back = ImageEnhance.Brightness(back).enhance(0.45)
-    sw, sh = im.size
-    scale = min(box_w / sw, box_h / sh)
-    fg = im.resize((max(1, int(sw * scale)), max(1, int(sh * scale))), Image.LANCZOS)
-    back.alpha_composite(fg, ((box_w - fg.width) // 2, (box_h - fg.height) // 2))
+    back = _cover_crop(im, box_w, box_h, face).filter(ImageFilter.GaussianBlur(max(8, box_w // 40)))
+    back = ImageEnhance.Brightness(back).enhance(0.55)
+    sw_ = max(int(box_w * SHARP_MIN_SHARE), int(box_w * SHARP_SHARE))
+    # inside the sharp area the face still sits at the face-zone centre
+    tx = (FACE_TARGET[0] * box_w - (box_w - sw_)) / float(sw_)
+    sharp = _cover_crop(im, sw_, box_h, face, target=(tx, FACE_TARGET[1]))
+    mask = Image.new("L", (sw_, box_h), 255)
+    px = mask.load()
+    for x in range(min(FEATHER_PX, sw_)):
+        v = int(255 * x / float(FEATHER_PX))
+        for y in range(box_h):
+            px[x, y] = v
+    back.paste(sharp, (box_w - sw_, 0), mask)
     return back
+
+
+# ---- A3: the arrow (spec 07 §4.2)
+ARROW = {"shaft": 16, "tip_shaft": 12, "head": 56, "outline": 6,
+         "min_len": 200, "max_len": 340, "gap": (18, 30)}
+
+
+def _arrow(img, start_xy, end_xy, fill=HOOK_FILL, outline=(0, 0, 0)):
+    """A straight arrow, tip at end_xy: 16 px shaft tapering toward a 56x56
+    head, `fill` with a 6 px `outline` drawn OUTSIDE the shape (the fill keeps
+    its full width). Anti-aliased by drawing at 3x."""
+    import math
+    from PIL import Image, ImageDraw, ImageFilter
+    sx, sy = start_xy
+    ex, ey = end_xy
+    L = math.hypot(ex - sx, ey - sy)
+    if L < 1:
+        return None
+    ux, uy = (ex - sx) / L, (ey - sy) / L
+    nx, ny = -uy, ux
+    hd = ARROW["head"]
+    bx, by = ex - ux * hd, ey - uy * hd                # head base centre
+    s0, s1 = ARROW["shaft"] / 2.0, ARROW["tip_shaft"] / 2.0
+    poly = [(sx + nx * s0, sy + ny * s0), (bx + nx * s1, by + ny * s1),
+            (bx + nx * hd / 2, by + ny * hd / 2), (ex, ey),
+            (bx - nx * hd / 2, by - ny * hd / 2), (bx - nx * s1, by - ny * s1),
+            (sx - nx * s0, sy - ny * s0)]
+    S = 3
+    o = ARROW["outline"]
+    x0 = int(min(p[0] for p in poly)) - o - 4
+    y0 = int(min(p[1] for p in poly)) - o - 4
+    x1 = int(max(p[0] for p in poly)) + o + 4
+    y1 = int(max(p[1] for p in poly)) + o + 4
+    big = Image.new("L", ((x1 - x0) * S, (y1 - y0) * S), 0)
+    ImageDraw.Draw(big).polygon([((x - x0) * S, (y - y0) * S) for x, y in poly], fill=255)
+    m_fill = big.resize((x1 - x0, y1 - y0), Image.LANCZOS)
+    m_line = big.filter(ImageFilter.MaxFilter(2 * o * S + 1))     # outline = dilation
+    m_line = m_line.resize((x1 - x0, y1 - y0), Image.LANCZOS)
+    img.paste(Image.new("RGBA", m_line.size, tuple(outline) + (255,)), (x0, y0), m_line)
+    img.paste(Image.new("RGBA", m_fill.size, tuple(fill) + (255,)), (x0, y0), m_fill)
+    return (x0, y0, x1, y1)
+
+
+def _ray_box_exit(px, py, ux, uy, box):
+    """Distance along (ux,uy) from (px,py) to the first edge of `box`."""
+    bx0, by0, bx1, by1 = box
+    ts = []
+    for t in (((bx0 - px) / ux) if ux else None, ((bx1 - px) / ux) if ux else None,
+              ((by0 - py) / uy) if uy else None, ((by1 - py) / uy) if uy else None):
+        if t is not None and t > 0:
+            x, y = px + ux * t, py + uy * t
+            if bx0 - 0.5 <= x <= bx1 + 0.5 and by0 - 0.5 <= y <= by1 + 0.5:
+                ts.append(t)
+    return min(ts) if ts else None
+
+
+def arrow_path(text_box, face_box, canvas=(W, H), gap=24):
+    """Start on the outer edge of the text block (its face-side top corner),
+    end `gap` px short of the face box, length clamped to 200-340 px."""
+    import math
+    if not face_box:
+        return None
+    fx = (face_box[0] + face_box[2]) / 2.0
+    fy = (face_box[1] + face_box[3]) / 2.0
+    if text_box:
+        tx0, ty0, tx1, ty1 = text_box
+        sx = tx1 - 40 if fx > (tx0 + tx1) / 2.0 else tx0 + 40
+        sy = ty0 - 14
+    else:
+        sx, sy = (canvas[0] * 0.30, canvas[1] * 0.72)
+    L = math.hypot(fx - sx, fy - sy)
+    if L < 1:
+        return None
+    ux, uy = (fx - sx) / L, (fy - sy) / L
+    # distance from start to the face edge along the ray
+    t_in = _ray_box_exit(sx, sy, ux, uy, face_box)
+    if t_in is None:
+        return None
+    end_t = t_in - gap
+    length = max(ARROW["min_len"], min(ARROW["max_len"], end_t))
+    st = end_t - length                                 # move the start, never the tip
+    return ((sx + ux * st, sy + uy * st), (sx + ux * end_t, sy + uy * end_t))
+
+
+# ---- A4: bubble suppression (spec 07 §5, composite stage)
+def inpaint_rect(img, rect, margin=28, passes=14):
+    """Fill `rect` from its own surroundings: seed with the ring's median
+    colour, diffuse the ring in with repeated blurs (only inside the rect),
+    finish with a median filter. Nothing new is drawn — it is the panel's own
+    pixels spread over the bubble."""
+    from PIL import Image, ImageFilter, ImageStat
+    x0, y0, x1, y1 = [int(v) for v in rect]
+    W_, H_ = img.size
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W_, x1), min(H_, y1)
+    if x1 - x0 < 2 or y1 - y0 < 2:
+        return
+    ex0, ey0 = max(0, x0 - margin), max(0, y0 - margin)
+    ex1, ey1 = min(W_, x1 + margin), min(H_, y1 + margin)
+    reg = img.crop((ex0, ey0, ex1, ey1)).convert("RGB")
+    inner = Image.new("L", reg.size, 0)
+    inner.paste(255, (x0 - ex0, y0 - ey0, x1 - ex0, y1 - ey0))
+    ring = Image.eval(inner, lambda v: 255 - v)
+    med = tuple(int(v) for v in ImageStat.Stat(reg, ring).median)
+    reg.paste(med, mask=inner)
+    for _ in range(passes):
+        reg.paste(reg.filter(ImageFilter.GaussianBlur(10)), mask=inner)
+    reg.paste(reg.filter(ImageFilter.MedianFilter(5)), mask=inner)
+    img.paste(reg.convert(img.mode), (ex0, ey0), inner)
+
+
+def _intersects(a, b):
+    return bool(a and b and a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3])
 
 
 def _scrim(img, box, rgba=(0, 0, 0, 170), horizontal=False):
@@ -910,21 +1142,55 @@ def render_concept(pdir, concept, style, out_path, width=W):
     if anchor and not os.path.isabs(anchor):
         anchor = os.path.join(pdir, anchor)
 
-    def place(path, box):
+    def place(path, box, face=None, target=FACE_TARGET, backdrop_ok=False):
+        """Crop-to-fill `box` from `path` (spec A2: never pillarbox). Returns
+        the face box in canvas pixels, True when placed without a face, or
+        False when nothing could be placed."""
         if not (path and os.path.exists(path)):
             return False
         try:
             with Image.open(path) as src:
                 im = src.convert("RGBA")
                 if anchor and os.path.abspath(path) == os.path.abspath(anchor):
-                    im = _trim_watermark_bands(im)
+                    trim = cover_trim_for(im, style, concept.get("cover_text_blocks"))
+                    concept["_cover_trim"] = {"top_pct": round(trim[0] * 100, 1),
+                                              "bottom_pct": round(trim[1] * 100, 1), "source": trim[2],
+                                              "marks_inpainted": len(trim[3])}
+                    for m in trim[3]:
+                        inpaint_rect(im, (m[0] * im.width - 4, m[1] * im.height - 4,
+                                          m[2] * im.width + 4, m[3] * im.height + 4))
+                    h0 = im.height
+                    im = _trim_watermark_bands(im, trim)
+                    if face and im.height != h0:   # face box was measured on the untrimmed cover
+                        top = int(h0 * trim[0])
+                        face = [face[0], (face[1] * h0 - top) / im.height, face[2],
+                                (face[3] * h0 - top) / im.height]
+                        if face[1] < 0 or face[3] > 1:
+                            face = None
                 bw, bh = box[2] - box[0], box[3] - box[1]
-                if im.width and im.height and (im.width / im.height) < (bw / bh) * TALL_FIT:
-                    img.alpha_composite(_backdrop_fit(im, bw, bh), (box[0], box[1]))
-                else:
-                    img.alpha_composite(_cover_crop(im, bw, bh), (box[0], box[1]))
-            return True
-        except Exception:
+                if backdrop_ok and upscale_of(im.size, bw, bh, face, target) > BACKDROP_UPSCALE:
+                    img.alpha_composite(_backdrop_fit(im, bw, bh, face), (box[0], box[1]))
+                    concept["_backdrop"] = True
+                    sw_ = int(bw * SHARP_SHARE)
+                    tx = (FACE_TARGET[0] * bw - (bw - sw_)) / float(sw_)
+                    win = crop_window(im.width, im.height, sw_, bh, face, (tx, FACE_TARGET[1]))
+                    fb = face_in_box(face, win, im.width, im.height, sw_, bh) if face else None
+                    return (True if not fb else
+                            (fb[0] + box[0] + bw - sw_, fb[1] + box[1], fb[2] + box[0] + bw - sw_, fb[3] + box[1]))
+                win = crop_window(im.width, im.height, bw, bh, face, target)
+                up = bh / max(1e-6, win[3] - win[1])
+                tile = im.resize((bw, bh), Image.LANCZOS, box=tuple(win))
+                if up > 1.3:                       # 3A step 3: soft crop -> unsharp mask
+                    from PIL import ImageFilter
+                    tile = tile.filter(ImageFilter.UnsharpMask(radius=2, percent=80, threshold=2))
+                img.alpha_composite(tile, (box[0], box[1]))
+                if not face:
+                    return True
+                fb = face_in_box(face, win, im.width, im.height, bw, bh)
+                return (fb[0] + box[0], fb[1] + box[1], fb[2] + box[0], fb[3] + box[1])
+        except Exception as e:
+            print(json.dumps({"service": "thumbnail_studio", "event": "place_failed",
+                              "file": os.path.basename(str(path)), "error": str(e)[:200]}), flush=True)
             return False
 
     if comp == "cover-badge":
@@ -932,7 +1198,8 @@ def render_concept(pdir, concept, style, out_path, width=W):
         # never fall back to a story panel under the name "Cover art" (the
         # 2026-10-06 bug) — no real cover, no cover design.
         if not (anchor and os.path.exists(anchor) and COVER_NAME in os.path.basename(anchor)
-                and place(anchor, (0, 0, width, height))):
+                and place(anchor, (0, 0, width, height), concept.get("cover_face_box"),
+                          backdrop_ok=True)):
             raise ValueError("no series cover for this chapter — the Cover art design can't be made")
     elif comp == "anchor-split" and anchor and os.path.exists(anchor):
         split = int(width * 0.42)

@@ -258,8 +258,10 @@ def main():
         edge = im.convert("RGB").getpixel((10, 10))
     with Image.open(tall["focal_file"]) as src:
         bg = src.convert("RGB").getpixel((1, 1))
-    check("a tall panel is fitted whole on a dimmed blurred backdrop (edges dimmed, not cropped art)",
-          sum(edge) < sum(bg) * 0.6)
+    # Spec 07 A2 (2026-10-06) reverses the old portrait fit: CROP TO FILL, never
+    # pillarbox — the frame's edge is the panel's own (undimmed) art.
+    check("a tall panel is cropped to fill (edges are the art, not a dimmed blurred bar)",
+          sum(edge) >= sum(bg) * 0.8)
 
     # ================ 8. missing imagery degrades, never crashes
     bare = make_project(root, "nopages_1", "No Pages", "1", panels=3, cover=False)

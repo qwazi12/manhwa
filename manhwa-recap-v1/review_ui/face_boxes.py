@@ -11,6 +11,7 @@ For each panel image the model returns, in coordinates normalised to that image:
   faces[]         {box [x0,y0,x1,y1], name, is_mc}  — is_mc judged against the
                   series cast list (Series Bible names + visual cues)
   bubbles[]       speech-bubble / caption boxes (for bubble suppression)
+  text_blocks[]   title logo / credits / site lettering (cover typography trim)
   bubble_coverage fraction of the panel covered by bubbles/captions
   watermark       a site watermark or credits text is visible
 Cached in <project>/face_boxes.json keyed by panel id + file size/mtime, so a
@@ -89,9 +90,11 @@ Return ONLY a JSON array with one object per image, in order:
 {{"i": <image number>,
   "faces": [{{"box": [x0, y0, x1, y1], "name": "<cast name or ''>", "is_mc": true|false}}],
   "bubbles": [[x0, y0, x1, y1]],
+  "text_blocks": [[x0, y0, x1, y1]],
   "bubble_coverage": <0..1, fraction of the image covered by speech bubbles, captions or sound-effect text boxes>,
   "watermark": true|false}}
 Rules: coordinates are fractions of the image width/height (0..1), x0<x1, y0<y1.
+text_blocks: title logos, series-name lettering, credits or site text that is NOT a speech bubble.
 A face box covers the face only (forehead to chin, ear to ear), not hair or body.
 Include every clearly visible face, largest first. is_mc only when the face matches the main character's look.
 No face visible -> "faces": []."""
@@ -150,6 +153,7 @@ def detect(pdir, panels, bible=None, api_key=None, _post=None, batch=BATCH):
             faces.sort(key=lambda x: -((x["box"][2] - x["box"][0]) * (x["box"][3] - x["box"][1])))
             data[pid] = {"key": _key(f), "faces": faces,
                          "bubbles": [b for b in (_clean_box(x) for x in r.get("bubbles") or []) if b],
+                         "text_blocks": [b for b in (_clean_box(x) for x in r.get("text_blocks") or []) if b],
                          "bubble_coverage": max(0.0, min(1.0, float(r.get("bubble_coverage") or 0))),
                          "watermark": bool(r.get("watermark")), "analysed": bool(r)}
         _save(pdir, data)

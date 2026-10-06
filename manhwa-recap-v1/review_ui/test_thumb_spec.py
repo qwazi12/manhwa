@@ -84,3 +84,90 @@ def test_text_never_shrinks_below_floor():
 def test_font_is_condensed_heavy_sans():
     assert ts.font_available(), ts.font_path()
     assert "Anton" in os.path.basename(ts.font_path())
+
+
+# ------------------------------------------------------------------ A2
+def _sharpness(img, box):
+    """Mean absolute Laplacian in a region — high for sharp art, ~0 for blur."""
+    import numpy as np
+    from PIL import ImageFilter
+    g = img.convert("L").crop(box)
+    a = np.asarray(g.filter(ImageFilter.Kernel((3, 3), [0, 1, 0, 1, -4, 1, 0, 1, 0], 1, 128)),
+                   dtype=np.float32)
+    return float(np.abs(a - 128).mean())
+
+
+def _portrait_project(tmp_path, face=(300, 250, 460, 430)):
+    """A project whose real series cover is portrait 720x1080, sharp texture
+    edge to edge, with a skin-coloured 'face' block."""
+    import random
+    from PIL import Image, ImageDraw
+    rnd = random.Random(7)
+    pdir = tmp_path / "proj"
+    (pdir / "pages").mkdir(parents=True)
+    (pdir / "crops").mkdir()
+    im = Image.new("RGB", (720, 1080), (30, 60, 110))
+    d = ImageDraw.Draw(im)
+    for y in range(0, 1080, 6):
+        for x in range(0, 720, 6):
+            v = rnd.randint(0, 255)
+            d.rectangle([x, y, x + 5, y + 5], fill=(v, 255 - v, (v * 3) % 256))
+    d.rectangle(face, fill=(232, 180, 150))
+    im.save(pdir / "pages" / "_cover.png")
+    return pdir, [face[0] / 720, face[1] / 1080, face[2] / 720, face[3] / 1080]
+
+
+def test_no_pillarbox_when_cover_is_portrait(tmp_path):
+    from PIL import Image, ImageFilter
+    pdir, fbox = _portrait_project(tmp_path)
+    out = os.path.join(ART, "a2_portrait_cover.png")
+    concept = {"composition": "cover-badge", "anchor_image": "pages/_cover.png",
+               "chapter": "358", "palette": {"accent": [200, 30, 30]},
+               "cover_face_box": fbox}
+    ts.render_concept(str(pdir), concept, {}, out)
+    im = Image.open(out)
+    assert im.size == (1280, 720)
+    centre = _sharpness(im, (440, 120, 840, 600))
+    left = _sharpness(im, (0, 120, 192, 600))
+    right = _sharpness(im, (1088, 120, 1280, 600))
+    # negative control: the metric must catch a blurred side bar
+    blurred = im.filter(ImageFilter.GaussianBlur(20))
+    assert _sharpness(blurred, (0, 120, 192, 600)) < 0.25 * centre
+    assert left > 0.6 * centre and right > 0.6 * centre, (left, centre, right)
+    assert not concept.get("_backdrop")
+    # the face is anchored into the frame: its colour is present in the output
+    px = im.convert("RGB").load()
+    skin = sum(1 for y in range(0, 720, 4) for x in range(0, 1280, 4) if px[x, y] == (232, 180, 150))
+    assert skin > 500, skin
+
+
+# ------------------------------------------------------------------ A5
+def test_cover_logo_band_and_corner_mark_are_removed(tmp_path):
+    """The cover's own title logo (a wide block at the bottom) is trimmed off and
+    a corner watermark is inpainted: neither colour survives in the render."""
+    from PIL import Image, ImageDraw
+    pdir, fbox = _portrait_project(tmp_path)
+    cov = Image.open(pdir / "pages" / "_cover.png").convert("RGB")
+    d = ImageDraw.Draw(cov)
+    LOGO, MARK = (255, 255, 40), (20, 20, 200)   # never in the noise (its r+g is 255)
+    d.rectangle([100, 800, 620, 1040], fill=LOGO)          # title logo, bottom 26%
+    d.rectangle([560, 10, 710, 50], fill=MARK)             # site badge, top-right
+    cov.save(pdir / "pages" / "_cover.png")
+    blocks = [[100 / 720, 800 / 1080, 620 / 720, 1040 / 1080], [560 / 720, 10 / 1080, 710 / 720, 50 / 1080]]
+    out = os.path.join(ART, "a5_logo_trim.png")
+    concept = {"composition": "cover-badge", "anchor_image": "pages/_cover.png", "chapter": "358",
+               "palette": {"accent": [200, 30, 30]}, "cover_text_blocks": blocks}
+    ts.render_concept(str(pdir), concept, {}, out)
+    px = Image.open(out).convert("RGB").load()
+    near = lambda p, c: sum(abs(a - b) for a, b in zip(p, c)) < 60
+    logo = sum(1 for y in range(0, 720, 3) for x in range(0, 1280, 3) if near(px[x, y], LOGO))
+    mark = sum(1 for y in range(0, 720, 3) for x in range(0, 1280, 3) if near(px[x, y], MARK))
+    assert logo == 0 and mark == 0, (logo, mark)
+    assert concept["_cover_trim"]["bottom_pct"] >= 26 and concept["_cover_trim"]["marks_inpainted"] == 1
+    # negative control: with the trim switched off (style-pack override 0/0) the
+    # logo colour IS found, so the check above is measuring something real
+    concept2 = dict(concept, cover_face_box=[0.2, 0.75, 0.8, 0.95])
+    ts.render_concept(str(pdir), concept2, {"cover_trim": {"top_pct": 0, "bottom_pct": 0}},
+                      os.path.join(ART, "a5_logo_untrimmed_control.png"))
+    px2 = Image.open(os.path.join(ART, "a5_logo_untrimmed_control.png")).convert("RGB").load()
+    assert sum(1 for y in range(0, 720, 3) for x in range(0, 1280, 3) if near(px2[x, y], LOGO)) > 500
