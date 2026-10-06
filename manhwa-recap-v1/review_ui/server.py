@@ -6305,8 +6305,11 @@ def _ap_deps():
                 if j.get("status") in ("queued", "running", "paused", "pausing")}
 
     def queue_busy():
+        # A chapter paused by a usage limit today also holds the line: starting
+        # another would only pause too (owner, 2026-10-06: ch.182 started and
+        # paused right after ch.181). They resume first when there is room.
         return any(j.get("status") in ("queued", "running", "paused", "pausing")
-                   for j in list(INGEST.values()))
+                   for j in list(INGEST.values())) or bool(_paused_today())
 
     def spend():
         d = usage.daily_summary()
@@ -6379,16 +6382,40 @@ def _resume_interrupted():
     return n
 
 
-def _resume_budget_paused():
-    """A new spend day: chapters the cap paused go first, oldest first."""
+def _cap_headroom():
+    """Room under EVERY daily limit for one more chapter right now (spend,
+    AI calls, voice characters). Used to resume chapters the moment a limit
+    is raised, not only at midnight (owner, 2026-10-06)."""
+    try:
+        d = usage.daily_summary()
+        if d.get("date") != usage._today():
+            return True
+        est = _autopilot.estimate(_autopilot.load(_ingest_mod.PROJECTS)["ledger"])
+        return (float(d.get("est_cost_usd") or 0) + est <= usage.daily_cap()
+                and int(d.get("gemini_calls") or 0) + 700 <= usage.MAX_DAILY_GEMINI_CALLS
+                and int(d.get("tts_chars") or 0) + 15000 <= usage.MAX_DAILY_TTS_CHARS)
+    except Exception:
+        return False
+
+
+def _paused_today():
     today = usage._today()
+    return [j for j in _waiting_ingests("budget_paused") if j.get("paused_day") == today]
+
+
+def _resume_budget_paused():
+    """Chapters a usage limit paused go first, oldest first: on a new spend
+    day, or as soon as there is room again today (a limit was raised)."""
+    today = usage._today()
+    room = _cap_headroom()
     n = 0
     for j in sorted(_waiting_ingests("budget_paused"), key=lambda x: x.get("ts", 0)):
-        if j.get("paused_day") == today:
+        if j.get("paused_day") == today and not room:
             continue
         _enqueue_ingest(j.get("url", ""), False, j.get("engine", "gemini"), j.get("variant", ""),
                         j.get("direct_speech"), job_id=j["job"],
-                        why="resumed: a new spend day started")
+                        why=("resumed: a new spend day started" if j.get("paused_day") != today
+                             else "resumed: there is room under the limits again"))
         _autopilot.set_status_for_job(_ingest_mod.PROJECTS, j["job"], "queued")
         n += 1
     return n
@@ -6600,7 +6627,15 @@ def spend_cap_set(body: SpendCapIn):
 
 def _spend_cap_view():
     o = usage.cap_override()
-    return {"cap": usage.daily_cap(), "railway_default": usage.MAX_DAILY_SPEND_USD,
+    d = usage.daily_summary()
+    today = d.get("date") == usage._today()
+    return {"limits": [
+                {"name": "AI calls", "used": int(d.get("gemini_calls") or 0) if today else 0,
+                 "max": usage.MAX_DAILY_GEMINI_CALLS, "var": "MAX_DAILY_GEMINI_CALLS"},
+                {"name": "Voice characters", "used": int(d.get("tts_chars") or 0) if today else 0,
+                 "max": usage.MAX_DAILY_TTS_CHARS, "var": "MAX_DAILY_TTS_CHARS"}],
+            "paused_by_limit": len(_paused_today()),
+            "cap": usage.daily_cap(), "railway_default": usage.MAX_DAILY_SPEND_USD,
             "ceiling": max(usage.MAX_DAILY_SPEND_CEILING_USD, usage.MAX_DAILY_SPEND_USD),
             "set_in_app": bool(o), "set_at": (o or {}).get("set_at")}
 
@@ -7094,6 +7129,16 @@ def _chapter_rows():
                        review_state=review_state, load_publishes=load_publishes, archived=arch)
         st = _cs.decide(f)
         lab = _project_label(pdir)
+        ij = ing.get(pid) or {}
+        if not (lab.get("title") or "").strip() or not meta.get("url"):
+            # still being made: no project.json yet, so name it from its link
+            # (owner, 2026-10-06: blank "Waiting" cards on Home)
+            _s, _c = _i.parse_series_chapter(ij.get("url") or "")
+            if _s:
+                _st = _i.to_title_case(_i.clean_series_slug(_s))
+                lab = {**lab, "series": lab.get("series") or _st, "chapter": lab.get("chapter") or _c,
+                       "title": (lab.get("title") or "").strip() or f"{_st} Ch.{_c}"}
+            meta = {**meta, "url": meta.get("url") or ij.get("url")}
         rows.append({"id": pid, "series": _cs.clean_title(lab["series"] or meta.get("series") or "", meta.get("url")),
                      "chapter": lab["chapter"],
                      "title": _cs.clean_title(lab["title"], meta.get("url")), "url": meta.get("url"), "status": st, "video": f.get("video"),

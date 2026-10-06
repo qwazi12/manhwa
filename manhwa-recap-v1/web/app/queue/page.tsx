@@ -10,6 +10,9 @@ type Tab = "review" | "scheduled" | "posted" | "errors";
 export default function Queue() {
   const studio = useApi<any>("/api/studio", 15000);
   const ready = useApi<any>("/api/chapters?status=video_ready", 15000);
+  const all = useApi<any>("/api/chapters", 60000);
+  const sidOf: Record<string, string> = {};
+  for (const r of all.data?.chapters || []) if (r.series_id) sidOf[r.id] = r.series_id;
   const [tab, setTab] = useState<Tab>("review");
   const [stats, setStats] = useState<Record<string, any>>({});
   const act = useAct();
@@ -35,7 +38,7 @@ export default function Queue() {
   }
   return (
     <>
-      <PageHead title="Queue" sub="Watch a video, approve it, and it takes the next free posting slot. Posted videos keep their links." />
+      <PageHead title="Posting schedule" sub="Watch a video, approve it, and it takes the next free posting time. Posted videos keep their links." />
       <Card>
         <div className="spread">
           <div className="row">
@@ -57,12 +60,18 @@ export default function Queue() {
             <div className="list">
               <div className="it small muted">These are already on Home → Needs you. Approve one and it moves to Scheduled; “↩ Back to review” there brings it back here.</div>{toReview.map((r: any) => (
               <div className="it" key={r.id}>
-                <div className="row"><StatusPill s={r.status} /><b>{r.title}</b>{r.status?.superseded && <span className="small" style={{ color: "var(--yellow)" }}>the cut changed after approval</span>}</div>
+                <div className="row" style={{ minWidth: 0, flex: 1, flexWrap: "nowrap" }}>
+                  <Pic project={r.id} name={r.video} sid={r.series_id} />
+                  <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
+                    <b>{r.title}</b>
+                    <span className="row"><StatusPill s={r.status} />{r.status?.superseded && <span className="small" style={{ color: "var(--yellow)" }}>the cut changed after approval</span>}</span>
+                  </div>
+                </div>
                 <Link className="btn sm primary" href={`/chapter/${r.id}?tab=video`}>Watch the video →</Link>
               </div>))}</div>))}
           {tab === "scheduled" && (queued.length === 0 ? <Empty>Nothing scheduled. Approve a video after watching it and it lands here.</Empty> : (
             <div className="list">{queued.map((r: any, i: number) => (
-              <QRow key={r.qid} r={r}>
+              <QRow key={r.qid} r={r} sid={sidOf[r.project]}>
                 <span className="small muted">{r.qstatus === "posting" ? "uploading…" : i === 0 ? (sched.enabled ? `next · ${sched.next || ""}` : "next") : `#${i + 1}`}</span>
                 {r.qstatus === "queued" && <>
                   <ConfirmButton className="sm primary" confirm={`Post now (${r.privacy})?`} disabled={r.missing}
@@ -82,9 +91,12 @@ export default function Queue() {
                 })}>Load YouTube views</Busy></div>}
               <div className="list">{s.published.map((p: any) => (
                 <div className="it" key={p.project + p.name}>
+                  <div className="row" style={{ minWidth: 0, flex: 1, flexWrap: "nowrap" }}>
+                  <Pic project={p.project} name={p.name} sid={sidOf[p.project]} />
                   <div style={{ display: "grid", gap: 3 }}>
                     <b>{p.title}</b>
                     <span className="small muted">{p.label} · {when(p.at)} · {p.privacy}{p.partial ? " · some channels failed" : ""}</span>
+                  </div>
                   </div>
                   <div className="row">{p.posts.map((x: any) => (
                     <span key={x.account_id} className="row">
@@ -95,7 +107,7 @@ export default function Queue() {
             </>))}
           {tab === "errors" && (failed.length === 0 ? <Empty>No failed posts.</Empty> : (
             <div className="list">{failed.map((r: any) => (
-              <QRow key={r.qid} r={r}>
+              <QRow key={r.qid} r={r} sid={sidOf[r.project]}>
                 <span className="small" style={{ color: "var(--red)" }}>{r.qerror}</span>
                 <ConfirmButton className="sm" confirm="Try again?" onConfirm={() => act(async () => { await api("/api/studio/queue/post", { id: r.qid }); reload(); }, "Posting")}>↻ Try again</ConfirmButton>
                 <ConfirmButton className="sm" confirm="Back to Needs you for another look?" onConfirm={() => back(r)}>↩ Back to review</ConfirmButton>
@@ -107,12 +119,22 @@ export default function Queue() {
   );
 }
 
-function QRow({ r, children }: { r: any; children: React.ReactNode }) {
+/** The video's own thumbnail, else the series cover (owner, 2026-10-06:
+ *  image cards on the posting schedule). */
+function Pic({ project, name, sid, thumb }: { project: string; name?: string | null; sid?: string | null; thumb?: string | null }) {
+  const [src, setSrc] = useState<string | null>(thumb || (name ? `/thumbnail?project=${enc(project)}&name=${enc(name)}` : null) || (sid ? `/api/watchlist/cover/${enc(sid)}` : null));
+  const [triedCover, setTriedCover] = useState(!name && !thumb);
+  return src ? (
+    <img src={src} alt="" loading="lazy" style={{ width: 128, aspectRatio: "16/9", objectFit: "cover", borderRadius: 8, background: "var(--panel2)", flex: "none" }}
+      onError={() => { if (!triedCover && sid) { setTriedCover(true); setSrc(`/api/watchlist/cover/${enc(sid)}`); } else setSrc(null); }} />
+  ) : <div style={{ width: 128, aspectRatio: "16/9", background: "var(--panel2)", borderRadius: 8, flex: "none" }} />;
+}
+
+function QRow({ r, sid, children }: { r: any; sid?: string; children: React.ReactNode }) {
   return (
     <div className="it">
-      <div className="row" style={{ minWidth: 0, flex: 1 }}>
-        {r.thumb ? <img src={r.thumb} alt="" style={{ width: 96, aspectRatio: "16/9", objectFit: "cover", borderRadius: 6 }} /> :
-          <div style={{ width: 96, aspectRatio: "16/9", background: "var(--panel2)", borderRadius: 6 }} />}
+      <div className="row" style={{ minWidth: 0, flex: 1, flexWrap: "nowrap" }}>
+        <Pic project={r.project} name={r.name} sid={sid} thumb={r.thumb} />
         <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
           <b>{r.title || r.label}</b>
           <span className="small muted">{r.label} · {mmss(r.duration)} · {r.privacy} → {(r.targets || []).join(", ") || "no channel"}{r.missing ? " · the video file is gone" : ""}</span>

@@ -20,10 +20,10 @@ How to pause, resume, re-run, read the logs, and recover from the usual failures
 | One step of a chapter | Chapter → step strip → **↻ Redo** (describe / script / voice / timeline) | ≈ $0.45 / $0.24 / $0.14 / free |
 | Render and export again | Chapter → **Render again** (joins the render queue) | free (CPU); the sheet offers a paid re-voice only when the studio voice changed (≈ $0.15–0.25) |
 | Choose which chapters autopilot makes next | Library → a series → **Chapters** → tick → **＋ Add to Make next**. The **Make next** card at the top of Library shows the order (↑ ↓ ⤒ ✕). Made chapters leave the list; a failing one is skipped. Same daily limit and budget | ≈ $0.50 each |
-| Take a scheduled or failed video back for another look | Queue → Scheduled or Errors → **↩ Back to review**: off the posting queue, back to Home → Needs you; approve again to re-schedule | — |
+| Take a scheduled or failed video back for another look | Posting schedule → Scheduled or Errors → **↩ Back to review**: off the posting queue, back to Home → Needs you; approve again to re-schedule | — |
 | Render several chapters | Library → All chapters → tick → **🎬 Render selected**. One at a time, in order, each in its own voice. Progress: jobs bar and Activity → **Renders**; ✕ takes a waiting one out, ■ Stop stops the running one. | free |
 | A chapter from scratch | paste the chapter link → Options → **Make it again from scratch** | ≈ $0.50 |
-| A failed post | Queue → Errors → **↻ Try again** | — |
+| A failed post | Posting schedule → Errors → **↻ Try again** | — |
 | Copy to Drive again | Chapter → **Copy now** | free |
 | Cast list | Library → Cast → **Research again** | ≈ $0.05 |
 
@@ -40,7 +40,7 @@ How to pause, resume, re-run, read the logs, and recover from the usual failures
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Chapter shows **Waiting (budget_paused)** | daily spend cap reached | it resumes by itself after midnight ET; or raise the daily limit in Settings → Spending (up to `MAX_DAILY_SPEND_CEILING_USD`) |
+| Chapter shows **Waiting (budget_paused)** | a daily limit was reached (spend, AI calls `MAX_DAILY_GEMINI_CALLS` = 12000 live, or voice characters `MAX_DAILY_TTS_CHARS`); Settings → Spending shows all three with today's use | it resumes by itself as soon as there is room (raise the spend limit in Settings, or the call/character limits on Railway) or at midnight ET; autopilot waits for it before starting another |
 | Chapter **Failed** at scrape | source blocked or the link changed | open the source link; paste the current link again |
 | Narration on thin strips of one picture | splitter cut a full-bleed page (fixed 2026-10-04 by the flat-gutter rule) | Chapter → ↻ Redo **describe** |
 | "No description was produced" in Issues | a describe call failed | Issues → **Re-run description** on that row |

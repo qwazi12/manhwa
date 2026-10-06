@@ -9118,3 +9118,21 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Iron-Blooded 181 paused at 07:23 (match step):** `MAX_DAILY_GEMINI_CALLS=6000 would be exceeded (5972 + 32)`. A *call-count* runaway cap, separate from the $ limit. Each chapter uses ~350–550 Gemini calls (describe per panel plus embeddings), so ~14 chapters a day exhaust it, whatever the $18/$16 budgets say. With per_day=20 this always trips.
   - Proposed: raise it on Railway (e.g. 15000; the $ limit stays the real guard) and show every limit in Settings → Spending. **Waiting for the owner** (it's a guardrail change, and a Railway variable change restarts the server).
 - Rejected-work note: the per-job "unknown" bucket bug is gone; today's counters show every chapter under its own job id (only $0.62 / 25 calls under "unknown").
+
+### 2026-10-06 07:45 ET — Owner: raise the call cap to 12000; reconcile Home / Library / Upcoming; image cards + rename Queue → Posting Schedule; fold Upcoming into Scheduled for processing
+- **Done live:** Railway `MAX_DAILY_GEMINI_CALLS=12000` (set with `railway variables --set`; redeploy 2ae5a9c9 succeeded 07:41).
+  - Resumed Death Knight 89 and Iron-Blooded 181/182 (all 200, queued behind 183, which autopilot started right after the restart).
+  - The first resume attempt hit the server while it was starting up (1 × 404, 2 silent); retried one by one.
+- **Correction:** Death Knight 89's "resumed by you" was correct. Autopilot logs "picked …" when it starts one; the 07:23 restart had none, so it came from a Resume button (Home Needs you or the jobs bar), not an autopilot retry.
+- **Found:** after 181 paused on the call cap, autopilot started 182, which paused at once, because `queue_busy` ignored `budget_paused` jobs. That wastes money and adds paused work.
+- **Fixes (local commit):**
+  - `_cap_headroom()`: room for one more chapter under spend, AI calls (+700) and voice characters (+15k).
+  - `_resume_budget_paused` (scheduler, every 10 min) now also resumes chapters paused **today** once there is room, e.g. after a limit is raised. Message: "resumed: there is room under the limits again".
+  - `_paused_today()`: autopilot's `queue_busy` is true while any chapter is paused by a limit today, so it waits instead of starting more.
+  - `_chapter_rows`: a chapter still being made (no project.json title or url yet) is named "<Series> Ch.N" from its ingest link and gets its url, so series_id and cover work. Fixes the blank "Waiting" cards on Home.
+  - `_spend_cap_view` adds `limits` [AI calls used/max, voice characters used/max, with Railway variable names] and `paused_by_limit`. Settings → Spending lists them, with a banner when chapters are paused.
+  - **Upcoming folded into Library → Scheduled for processing:** new `components/ScheduleBoard.tsx` (autopilot state/limits, Being made now with series covers + Open, the grouped scheduled list, "Then autopilot takes these" with covers + 📌/⤒, Rendering). The `/upcoming` page redirects there, the nav item is removed, and the unused `MakeNext.tsx` is deleted.
+  - **Queue → "Posting schedule"** (nav + page title). Image cards: To watch, Scheduled, Errors and Posted rows show the video's thumbnail, else the series cover.
+  - Docs: RUNBOOK (Posting schedule naming; the budget_paused row now covers all three limits and the auto-resume).
+- **Tests:** new `test_limits_resume` 6/6. Full suite 85/85. `next build` ok.
+- Pending: push at the next gap (4 chapters in line), then a live reconciliation of Home Needs you vs Library vs Scheduled.

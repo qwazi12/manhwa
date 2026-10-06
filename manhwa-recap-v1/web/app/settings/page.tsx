@@ -228,6 +228,10 @@ function CapEditor({ sp }: { sp: any }) {
   const left = Math.max(0, (sp.cap || 0) - (sp.today || 0));
   return (
     <div style={{ display: "grid", gap: 8, padding: "8px 0" }}>
+      {(sp.limits || []).map((l: any) => (
+        <div className="kv" key={l.var}><span>{l.name} today</span><span className="num">{l.used.toLocaleString()} of {l.max.toLocaleString()}{l.used >= l.max * 0.9 ? " · nearly used" : ""} <span className="faint">(Railway: {l.var})</span></span></div>
+      ))}
+      {sp.paused_by_limit > 0 && <div className="banner warn">{sp.paused_by_limit} chapter(s) paused by a daily limit. They resume by themselves as soon as there’s room (for example after you raise a limit) or at midnight ET.</div>}
       <div className="kv"><span>Daily limit</span><span className="num">{money(sp.cap)}{sp.set_in_app ? ` · set here ${when(sp.set_at)}` : " · the Railway value"} · {money(left)} left today</span></div>
       <div className="row">
         <label className="field" style={{ maxWidth: 200 }}>New daily limit ($, up to {money(sp.ceiling)})

@@ -5,7 +5,7 @@ import { api, useApi } from "@/lib/api";
 import { enc, when } from "@/lib/fmt";
 import PasteBox from "@/components/PasteBox";
 import AllChapters from "@/components/AllChapters";
-import ScheduledList from "@/components/ScheduledList";
+import ScheduleBoard from "@/components/ScheduleBoard";
 import { Busy, Card, Chips, ConfirmButton, Empty, PageHead, Pill, StatusPill, Tabs, useAct } from "@/components/ui";
 
 const TIERS: [string, string][] = [["greenlight", "Make now"], ["high_upside", "Next up"], ["watchlist", "Watching"]];
@@ -43,7 +43,7 @@ export default function Library() {
           <Busy className="sm" title="YouTube recap demand for every series (free; runs weekly by itself)" onClick={() => act(async () => { await api("/api/demand/run", {}); }, "Checking demand — about a minute")}>📈 Check demand</Busy>
         </div>
       </div>
-      {view === "chapters" ? <AllChapters /> : view === "scheduled" ? <ScheduledList ap={ap.data} reload={ap.reload} /> : <>
+      {view === "chapters" ? <AllChapters /> : view === "scheduled" ? <ScheduleBoard /> : <>
       <div className="spread">
         <Chips<F> value={f} onChange={setF} items={[["all", `All (${n("all")})`], ["needs", `Needs you (${n("needs")})`],
           ["greenlight", `Make now (${n("greenlight")})`], ["high_upside", `Next up (${n("high_upside")})`],
