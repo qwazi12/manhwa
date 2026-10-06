@@ -941,7 +941,13 @@ def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None, rou
     upgrade = not hero.get("text_ok", True)
 
     order = list(SPEC_ROTATION[round_ % 6:] + SPEC_ROTATION[:round_ % 6])
-    if round_ == 0 and upgrade:
+    if round_ == 0 and report.get("relaxed") and real_cover:
+        # No panel passed §5: every candidate's face blocks the hook (measured
+        # on ch.358), so 3C/3E — which reuse that panel — fail too. The cover
+        # recipe is the §5-step-5 upgrade that still carries a hook.
+        order.remove("cover-hero")
+        order.insert(0, "cover-hero")
+    elif round_ == 0 and upgrade:
         lift = next((c for c in ("split", "cover-inset") if real_cover), None)
         if lift:
             order.remove(lift)
@@ -1528,6 +1534,7 @@ def _compose(pdir, concept, style, mirror=False, avoid=None):
     if anchor and not os.path.isabs(anchor):
         anchor = os.path.join(pdir, anchor)
     info = {"face": None, "text_box": None, "mirrored": mirror, "inpainted": 0, "chapter": ""}
+    concept.pop("_hook_layout", None)          # never report a hook this pass didn't draw
     bubbles_out = []
 
     def place(path, box, face=None, target=FACE_TARGET, backdrop_ok=False, bubbles=(), flip=False):

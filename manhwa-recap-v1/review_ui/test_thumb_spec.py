@@ -405,3 +405,27 @@ def test_hook_is_cut_to_fit_below_a_big_face_not_dropped(tmp_path):
     text = (text[0], text[1] + 300, text[2], text[3] + 300)
     assert not ts._intersects(skin, text), (skin, text)
     assert c["_hook_layout"]["cap"] >= ts.CAP_FLOOR and c["_hook_layout"]["dropped"] >= 1
+
+
+def test_relaxed_selection_defaults_to_cover_hero(tmp_path):
+    """When no panel passes the face rules, the default is the cover recipe
+    (3B), and a render that drops its hook never reports one."""
+    import json as _j
+    from PIL import Image
+    pdir = _face_project(tmp_path)
+    Image.new("RGB", (720, 1080), (90, 60, 140)).save(pdir / "pages" / "_cover.png") if (pdir / "pages").exists() \
+        else ((pdir / "pages").mkdir(), Image.new("RGB", (720, 1080), (90, 60, 140)).save(pdir / "pages" / "_cover.png"))
+    fb = _j.loads((pdir / "face_boxes.json").read_text())
+    for k in fb:                                   # every face now fills the frame -> blocks the hook
+        if fb[k]["faces"]:
+            fb[k]["faces"][0]["box"] = [0.05, 0.05, 0.95, 0.98]
+    (pdir / "face_boxes.json").write_text(_j.dumps(fb))
+    cs = ts.rank_concepts(ts.build_concepts(str(pdir), {"chapter": "358"}, {}, "HE WON"), {}, "HE WON")
+    assert cs[0]["composition"] == "cover-hero" and cs[0]["recommended"]
+    out = os.path.join(ART, "a7_relaxed_cover_hero.png")
+    ts.render_concept(str(pdir), cs[0], {}, out)
+    assert _bbox_of(Image.open(out).crop((0, 400, 1280, 720)), YELLOW)   # the hook is drawn
+    ph = next(c for c in cs if c["composition"] == "panel-hero")
+    ts.render_concept(str(pdir), ph, {}, os.path.join(ART, "a7_relaxed_panel_hero.png"))
+    drawn = _bbox_of(Image.open(os.path.join(ART, "a7_relaxed_panel_hero.png")).crop((0, 400, 1280, 720)), YELLOW)
+    assert bool(drawn) == bool(ph.get("_hook_layout"))                 # no phantom hook
