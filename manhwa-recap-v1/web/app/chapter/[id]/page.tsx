@@ -19,8 +19,16 @@ const GROUPS: [string, string[]][] = [
   ["Being made", ["making", "rendering"]], ["Scheduled & posted", ["scheduled", "posting", "posted"]], ["Archived", ["archived"]],
 ];
 
+// Owner, 2026-10-05: the board showed Murim ch.44 while "Watch the video" showed
+// Iron-Blooded ch.180. Switching chapters reused this page with the previous
+// chapter's state (the chosen video version, tab, sheet). Keying by the chapter
+// id gives every chapter a fresh page.
 export default function Chapter() {
   const { id } = useParams<{ id: string }>();
+  return <ChapterPage key={id} id={id} />;
+}
+
+function ChapterPage({ id }: { id: string }) {
   const router = useRouter();
   const { data: c, reload, error } = useApi<any>(`/api/chapter/${encodeURIComponent(id)}`, 10000);
   const list = useApi<any>("/api/chapters", 30000);
@@ -255,7 +263,7 @@ export default function Chapter() {
                 </div>
               );
             })()}
-            <VideoTab key={`${shown}:${(c.videos || []).find((x: any) => x.name === shown)?.size_mb}`} id={id} name={shown} status={c.status} onChange={() => { reload(); list.reload(); }} />
+            <VideoTab key={`${id}:${shown}:${(c.videos || []).find((x: any) => x.name === shown)?.size_mb}`} id={id} name={shown} status={c.status} onChange={() => { reload(); list.reload(); }} />
           </>
         ) : (
           <>

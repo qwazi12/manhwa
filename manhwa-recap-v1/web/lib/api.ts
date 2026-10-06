@@ -30,19 +30,27 @@ export function useApi<T = any>(path: string | null, ms = 0) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const alive = useRef(true);
+  // Only the answer for the CURRENT path may land: a slow reply for the page
+  // you just left (e.g. the previous chapter) used to arrive late and replace
+  // the new one's data (owner, 2026-10-05: Murim's board, Iron-Blooded's video).
+  const current = useRef(path);
+  current.current = path;
   const load = useCallback(async () => {
     if (!path) return;
     try {
       const d = await api<T>(path);
-      if (alive.current) { setData(d); setError(null); }
+      if (alive.current && current.current === path) { setData(d); setError(null); }
     } catch (e: any) {
-      if (alive.current) setError(e.message || String(e));
+      if (alive.current && current.current === path) setError(e.message || String(e));
     } finally {
-      if (alive.current) setLoading(false);
+      if (alive.current && current.current === path) setLoading(false);
     }
   }, [path]);
+  const first = useRef(true);
   useEffect(() => {
     alive.current = true;
+    if (!first.current) setData(null);      // never show the previous path's data
+    first.current = false;
     setLoading(true);
     load();
     if (!ms) return () => { alive.current = false; };

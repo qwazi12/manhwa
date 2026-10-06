@@ -737,7 +737,31 @@ def latest_export(project=""):
     return best, pid
 
 
+_QC_CACHE = {}
+
+
 def _qc_bundle(pdir, name):
+    """Cached until the timeline, the segment review or the video changes
+    (owner, 2026-10-05: "Watch the video loads very slowly" — /api/review
+    took 4.7 s, almost all of it re-validating the timeline on every open)."""
+    def _m(*p):
+        try:
+            return os.stat(os.path.join(pdir, *p)).st_mtime_ns
+        except OSError:
+            return 0
+    key = (os.path.abspath(pdir), name, _m("segments.json"), _m("review.json"),
+           _m("project.json"), _m("exports", os.path.basename(name or "")))
+    hit = _QC_CACHE.get(key)
+    if hit is not None:
+        return hit
+    out = _qc_bundle_build(pdir, name)
+    if len(_QC_CACHE) > 200:
+        _QC_CACHE.clear()
+    _QC_CACHE[key] = out
+    return out
+
+
+def _qc_bundle_build(pdir, name):
     """Existing signals only — surfaced, not recomputed."""
     import storyboard_edit as _sbe
     meta = {}
@@ -2469,6 +2493,10 @@ def _after_export(pdir, name):
     """Background, after an export: prepare it for publishing, then copy it
     (with its thumbnail) to Drive."""
     _prepare_publish(pdir, name)
+    try:
+        _qc_bundle(pdir, name)        # warm the Watch tab's checks so it opens at once
+    except Exception:
+        pass
     if name and _drive.configured():
         _drive_copy(pdir, name)
 

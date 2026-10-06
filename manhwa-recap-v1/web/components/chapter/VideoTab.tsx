@@ -35,7 +35,7 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
   const [notes, setNotes] = useState("");
   const [cb, setCb] = useState(Date.now());
   useEffect(() => { if (pub.data?.metadata && !md) setMd(pub.data.metadata); }, [pub.data]);
-  useEffect(() => { if (rv.data?.review) setNotes(rv.data.review.notes || ""); }, [rv.data?.review?.reviewed_at]);
+  useEffect(() => { if (rv.data?.review) setNotes(rv.data?.review.notes || ""); }, [rv.data?.review?.reviewed_at]);
   // Like Scrapper: a video gets its title, description, tags and thumbnail
   // without a click. New renders are prepared by the server; a video made
   // before that is prepared once when it is opened here (owner, 2026-10-05).
@@ -60,7 +60,9 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
     setMd(d.metadata);            // show what was filled in
     setCb(Date.now());
   }, [pub.data]);
-  if ((!draft && !rv.data) || !pub.data || !md) return <Empty>Loading…</Empty>;
+  // The player and the details show as soon as /api/publish answers; the
+  // quality checks fill in when /api/review does (it used to block the tab).
+  if (!pub.data || !md) return <Empty>Loading…</Empty>;
   const p = pub.data;
   const review = rv.data?.review || {};
   const rec = pst.data?.publish;
@@ -91,7 +93,7 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
   return (
     <div className="vgrid">
       <div className="vcol vleft">
-        {!draft && <Card title="Watch" right={<span className="small muted">{rv.data.stat?.size_mb} MB · {name}</span>}>
+        {!draft && <Card title="Watch" right={<span className="small muted">{rv.data?.stat?.size_mb} MB · {name}</span>}>
           <video controls playsInline preload="metadata" src={`/export/${enc(name)}?project=${enc(id)}&s=${rv.data?.stat?.size_mb ?? ""}`} />
           {review.superseded && <div className="banner warn">The board changed after this video was approved. Render again, then approve the new video.</div>}
           <label className="field">Notes for yourself or the next edit
@@ -113,7 +115,7 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
             </details>
           )}
         </Card>}
-        {!draft && rv.data.qc && <QualityCard qc={rv.data.qc} />}
+        {!draft && rv.data?.qc && <QualityCard qc={rv.data?.qc} />}
         {!draft && <>
         <Card title="Post">
           {posted.length > 0 ? (
@@ -166,7 +168,7 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
             </>
           )}
         </Card>
-        <p className="small faint">Runtime {mmss(rv.data.qc?.runtime_s)} · {rv.data.qc?.segments_in_video} segments · matched {rv.data.qc?.match_method}</p>
+        <p className="small faint">Runtime {mmss(rv.data?.qc?.runtime_s)} · {rv.data?.qc?.segments_in_video} segments · matched {rv.data?.qc?.match_method}</p>
         </>}
       </div>
       <div className="vcol">

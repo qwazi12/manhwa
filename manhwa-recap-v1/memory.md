@@ -9025,3 +9025,45 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
   - `api_seo_generate` adds a credit line, built in code with no URLs ("Original work: <title> (<Korean>) by <author> (story) & <artist> (art), published on <platform>. Support the official release."). `sources.web` and `sources.series_youtube` are shown on the Watch tab under "Where the suggestions came from".
   - Cost: about 2 Gemini calls per series per week plus 1 per chapter; 200 YouTube quota units per run. CONFIG.md updated.
   - Tests: new `test_seo_research` 12/12; `test_seo` 159/159. Full suite 82/83 (only the known date-bound test). `next build` ok.
+
+### 2026-10-05 (22:00 ET) — Owner's review batch + WORK PLAN (owner: "plan and note down everything, save to memory.md, then continue")
+**Owner's messages, in summary:**
+- Make next is inefficient: wants a Mix button like Scrapper, jobs grouped by title with image cards (chapters → show images), same-series chapters grouped into one set.
+- Watch the video loads slowly.
+- The board showed Murim ch.44 while Watch the video showed Iron-Blooded ch.180 ("that disconnect shouldn't happen").
+- "What gets published": how are ratings done; titles need uniformity across chapters; what research goes in; SEO should be done once a video is approved/rendered; dig deeper (manhwa, YouTube, search, chapter) like Scrapper.
+- Thumbnails: the "CH .." badge should be smaller or moved top-left (it covers the cover art); better designs; "Cover art + chapter number" is the go-to and must stay; the others need work; "↻ New options" gives nothing new.
+- Library: like Series / All chapters, add a tab for Make next called "Up Scheduled For Processing".
+- Still seeing budget_paused in Needs you although the budget is $12.22 of $18: "I thought you fixed it?"
+
+**Findings so far:**
+- The pause fix (0ec7094) had **never deployed**. My push watcher waited for an empty jobs bar, but budget_paused jobs stay listed there, so it never pushed. Meanwhile each new autopilot chapter hit the shared "unknown" TTS bucket and paused: Murim 45, Mercenary 97/98, Death Knight 88.
+  - Pushed manually at ~22:00 ET (nothing was actually running): 0ec7094, a3ab405 and 07b664f are live.
+  - Resumed all 4 paused chapters via `/api/jobs/resume` (all 200, now queued). Regressor 31 is running.
+- The chapter mix-up was a frontend state leak, not data (verified: each chapter's video, SEO and metadata are correct server-side).
+  - (a) `/chapter/[id]` reused page state (selected version, tab) across chapter switches;
+  - (b) `useApi` let a slow reply for the previous path overwrite the new one. `/api/review` took 4.7 s, so this was very likely.
+- Slow Watch tab: `/api/review` 4.7 s (`_qc_bundle` → `validate_timeline` on every open), and VideoTab rendered nothing until it answered. Other calls are < 0.15 s. The Murim export itself is fine (level 4.0, moov first).
+- Export speed setting is 1.1, but the logs say "(1.0x" for the 20:27 and 21:48 exports. **To investigate.**
+- Scrapper's Mix (`/api/queue/shuffle`): modes round_robin (interleave groups, shuffled), random, by_channel; recorded for undo.
+
+**PLAN (in order; each: tests → memory.md → commit → push only when no chapter is being made, or with owner OK):**
+1. ✅ (local commit, not pushed) Fix the chapter mix-up: the page is keyed by chapter id; `useApi` drops stale replies and clears data on a path change; VideoTab keyed by project+video.
+2. ✅ (local) Fast Watch tab: `_qc_bundle` cached by mtimes (segments, review, project, export), warmed after export; VideoTab shows player and details without waiting for `/api/review`. Test `test_qc_cache` 4/4.
+3. Library tab **"Scheduled for processing"** (owner's name "Up Scheduled For Processing"):
+   - Make next grouped by series as **cover-image cards**, each a set of its chapters in order, with an overall position.
+   - **Mix** button like Scrapper: Round-robin (interleave series), Random, By series (keep each series together), with **Undo** (restores the previous order).
+   - Drag whole groups or single chapters; ⤒ group to top; ✕ group.
+   - Backend: `priority_edit` "mix" mode + undo snapshot.
+   - The Upcoming page uses the same grouped view.
+4. **SEO titles: uniformity + explainable scoring.**
+   - Per-series title template (Settings; default like "{hook} | {series} Ch.{chapter}"), so every chapter of a series reads the same. The model writes only the hook; the code assembles the title.
+   - Show how the score works (relevance / channel fit / discovery / hook) in plain words, and fix "relevance 0" (the old rule kept the series name out of titles).
+   - Confirm SEO runs automatically after render (live since 89075ac / dfe4656) and that the new research (07b664f) shows on new suggestions; re-run SEO for waiting videos.
+5. **Thumbnails:**
+   - CH badge smaller and top-left on "Cover art + chapter number" (keep it the default and first).
+   - Better designs for the other concepts.
+   - "↻ New options" must give genuinely new looks (rotate compositions, focal panels, palettes, crops), not the same picks.
+6. Export speed: find why exports say 1.0x while the setting is 1.1.
+7. Explain to the owner: how ratings are computed, what research feeds SEO (now), and the push timing.
+- **Push policy note:** autopilot runs nearly continuously now (20/day), so "idle" may rarely happen. Interrupted ingests resume on boot from cached stages. Ask the owner once whether pushing mid-chapter is acceptable.
