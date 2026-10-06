@@ -9259,3 +9259,41 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - Mirroring flips any lettering in the panel.
   - Live render of ch.358 with real crops: pending deploy.
 - **Pending:** B1–B4, the remaining Part C tests, the final ch.358 render on the server, and rerunning thumbnails for existing videos (owner's call).
+
+### 2026-10-06 16:10 ET — Spec 06 Part B (B1–B4) + ch.358 live render (Part D)
+- **Commits:**
+  - f578d6a: B1 chapter title "{hook} - {Series} Chapter {N} Manhwa Recap".
+    - The validator rejects the old P{n}|…|#manhwa pattern, titles with no hook, and duplicate titles.
+    - Within a chapter, a duplicate only counts against exports that actually went out.
+    - Overflow: drop "Manhwa Recap", then shorten the series at a word.
+  - 264d3a7: B2 description blocks 1–7, plus a gate on block-2 3-gram overlap above 80%. B4 `series_pack.py` aliases go into tags, block 5 and narration (opening line, alias rotating by chapter).
+  - ff63af0: B3 ranges. `chapters_start`/`chapters_end` are ints; the formula title follows the overflow rule; each range is a new `<series>_ch<a>-<b>` project (kind=range) that `list_projects` skips.
+    - API: /api/ranges/plan, /api/ranges/build, GET /api/ranges.
+  - 773a720: read-only `/api/thumbcopilot/preview` (+ preview.png). When the face blocks a full-size hook, the hook is cut to fit below the face instead of being dropped.
+  - 9a1a0df: when no panel passes §5, the default is 3B cover-hero; a hook that wasn't drawn is never reported.
+- **Deploys:** 830398f8 (15:56) and 34d4b2e2 (16:04), each pushed with no jobs running.
+- **ch.358 live** (`i-am-the-fated-villain_358`, preview only; its saved options and chosen thumbnail are untouched):
+  - 58 panels. Rejects: bubbles 17, no_face 20, face_covers_text 3, watermark 1, role:credits 3, role:fragment 4, not_analysed 10. **0 survived**, so the relaxed fallback ran.
+  - First render: the default (3C split) and 3A dropped the hook. Fixed in 9a1a0df.
+  - Final default: 3B cover-hero, hook "VILLAIN KINGS" at 106 px cap, arrow, CH 358 badge. Cover trim: top 0%, bottom 30.9%, 1 mark inpainted. Font: /app/…/fonts/Anton-Regular.ttf.
+  - The left of the frame is the 3B step-4 blurred backdrop (permitted case: the cover is upscaled more than 1.9×).
+  - Files are in ~/Desktop/ch358_compare/ (local only, not committed).
+- **Paid calls this session (owner-approved face boxes only):**
+  - ch.358 frames, first run: ~$0.14.
+  - Cost tuning: 3 small calls.
+  - Covers: 1 call.
+  - Swordmaster ch.1: $0.064.
+  - Server face pass for ch.358 on real crops: one chapter, about 5¢ (estimate; not read from the server ledger).
+  - No image generation.
+- **Not done:**
+  - Glow (§4.4).
+  - Arc arrow.
+  - Playlist insertion (Upload-Post playlist field unconfirmed).
+  - Range UI button.
+  - Settings UI for the footer.
+  - AsuraScans alt-title scrape (the page was empty from this machine).
+  - Real arc data for timestamps.
+- **Open for the owner:**
+  - The 8%-face-area rule rejects most panels.
+  - Queued chapters with no hook in their title will be blocked by B1 (the 2 queued now pass).
+  - Privacy public vs the Stage 7 gate is still unanswered.
