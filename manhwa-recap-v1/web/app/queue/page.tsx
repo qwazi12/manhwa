@@ -23,6 +23,9 @@ export default function Queue() {
   const sched = s?.schedule || {};
   const reload = () => { studio.reload(); ready.reload(); };
   const live = queued.filter((r: any) => r.qstatus === "queued");
+  // Owner, 2026-10-05: send a scheduled or failed video back to Home → Needs you
+  const back = (r: any) => act(async () => { await api("/api/studio/queue/back", { project: r.project, name: r.name }); reload(); },
+    "Back in Needs you — approve it again to re-schedule");
   async function move(id: string, dir: number) {
     const ids = live.map((r: any) => r.qid);
     const i = ids.indexOf(id), k = i + dir;
@@ -51,7 +54,8 @@ export default function Queue() {
       {!s ? <Empty>Loading…</Empty> : (
         <Card pad={false}>
           {tab === "review" && (toReview.length === 0 ? <Empty>No videos waiting. When a chapter is rendered, it appears here to watch.</Empty> : (
-            <div className="list">{toReview.map((r: any) => (
+            <div className="list">
+              <div className="it small muted">These are already on Home → Needs you. Approve one and it moves to Scheduled; “↩ Back to review” there brings it back here.</div>{toReview.map((r: any) => (
               <div className="it" key={r.id}>
                 <div className="row"><StatusPill s={r.status} /><b>{r.title}</b>{r.status?.superseded && <span className="small" style={{ color: "var(--yellow)" }}>the cut changed after approval</span>}</div>
                 <Link className="btn sm primary" href={`/chapter/${r.id}?tab=video`}>Watch the video →</Link>
@@ -65,6 +69,7 @@ export default function Queue() {
                     onConfirm={() => act(async () => { await api("/api/studio/queue/post", { id: r.qid }); reload(); }, "Posting")}>Post now</ConfirmButton>
                   <button className="sm" disabled={i === 0} onClick={() => move(r.qid, -1)} aria-label="Move up">↑</button>
                   <button className="sm" disabled={i === live.length - 1} onClick={() => move(r.qid, 1)} aria-label="Move down">↓</button>
+                  <ConfirmButton className="sm" confirm="Take it off the queue and back to Needs you?" title="off the posting queue, back to Home → Needs you to watch again" onConfirm={() => back(r)}>↩ Back to review</ConfirmButton>
                   <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/studio/queue/remove", { id: r.qid }); reload(); }, "Taken off the queue")}>Remove</Busy>
                 </>}
               </QRow>))}</div>))}
@@ -93,6 +98,7 @@ export default function Queue() {
               <QRow key={r.qid} r={r}>
                 <span className="small" style={{ color: "var(--red)" }}>{r.qerror}</span>
                 <ConfirmButton className="sm" confirm="Try again?" onConfirm={() => act(async () => { await api("/api/studio/queue/post", { id: r.qid }); reload(); }, "Posting")}>↻ Try again</ConfirmButton>
+                <ConfirmButton className="sm" confirm="Back to Needs you for another look?" onConfirm={() => back(r)}>↩ Back to review</ConfirmButton>
                 <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/studio/queue/remove", { id: r.qid }); reload(); }, "Removed")}>Remove</Busy>
               </QRow>))}</div>))}
         </Card>

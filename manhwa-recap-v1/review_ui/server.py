@@ -2341,7 +2341,7 @@ class _SkipSeo(Exception):
 
 def _budget_left():
     try:
-        return float(usage.MAX_DAILY_SPEND_USD) - float(usage.daily_summary().get("est_cost_usd") or 0)
+        return float(usage.daily_cap()) - float(usage.daily_summary().get("est_cost_usd") or 0)
     except Exception:
         return 0.0
 
@@ -3551,7 +3551,7 @@ def _revoice_plan(pdir):
     model = want.get("model") or ""
     est = sum(usage._est_cost("tts", len(t), model) for t in texts)
     spent = float(usage.daily_summary().get("est_cost_usd") or 0.0)
-    cap = float(usage.MAX_DAILY_SPEND_USD)
+    cap = float(usage.daily_cap())
     return {"from": _voice_label(have), "to": _voice_label(want), "lines": len(texts),
             "est_usd": round(est, 3), "spent_today": round(spent, 3), "cap": cap,
             "fits": spent + est <= cap}
@@ -6159,13 +6159,13 @@ def health():
         warnings.append(f"Gemini daily calls are near limit ({gemini_calls}/{usage.MAX_DAILY_GEMINI_CALLS}).")
     if tts_chars >= usage.MAX_DAILY_TTS_CHARS * 0.9:
         warnings.append(f"TTS daily characters are near limit ({tts_chars}/{usage.MAX_DAILY_TTS_CHARS}).")
-    if est_cost_usd >= usage.MAX_DAILY_SPEND_USD * 0.9:
-        warnings.append(f"Daily spend is near cap (${est_cost_usd:.2f}/${usage.MAX_DAILY_SPEND_USD:.2f}).")
+    if est_cost_usd >= usage.daily_cap() * 0.9:
+        warnings.append(f"Daily spend is near cap (${est_cost_usd:.2f}/${usage.daily_cap():.2f}).")
         
     status = "OK"
     if len(warnings) > 0:
         status = "WARNING"
-    if pct > 95.0 or est_cost_usd >= usage.MAX_DAILY_SPEND_USD:
+    if pct > 95.0 or est_cost_usd >= usage.daily_cap():
         status = "CRITICAL"
         
     return {
@@ -6182,7 +6182,7 @@ def health():
             "tts_chars": tts_chars,
             "tts_limit": usage.MAX_DAILY_TTS_CHARS,
             "est_cost_usd": est_cost_usd,
-            "spend_limit_usd": usage.MAX_DAILY_SPEND_USD,
+            "spend_limit_usd": usage.daily_cap(),
             "warnings": warnings
         },
         "config": {
@@ -6232,7 +6232,7 @@ def _ap_deps():
     def spend():
         d = usage.daily_summary()
         spent = d.get("est_cost_usd", 0.0) if d.get("date") == usage._today() else 0.0
-        return float(spent or 0.0), float(usage.MAX_DAILY_SPEND_USD)
+        return float(spent or 0.0), float(usage.daily_cap())
 
     def chapter_url(row, chapter):
         m = row["mirror"]
@@ -6499,6 +6499,65 @@ def autopilot_check_now():
     _autopilot.runtime["last_refresh"] = 0.0
     threading.Thread(target=_scheduler_pass, daemon=True).start()
     return {"ok": True, "note": "checking sources — the card updates within a minute"}
+
+
+class SpendCapIn(BaseModel):
+    usd: float | None = None      # None = back to the Railway value
+
+
+@app.post("/api/spend/cap")
+def spend_cap_set(body: SpendCapIn):
+    """Change the site's daily spend limit (owner, 2026-10-05). Bounded by the
+    Railway ceiling MAX_DAILY_SPEND_CEILING_USD; every paid call is still
+    checked against it in usage.gate."""
+    try:
+        before, after = usage.set_daily_cap(body.usd)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _ev("settings", f"Daily spend limit {('$%g' % before)} → {('$%g' % after)}"
+                    + (" (back to the Railway value)" if body.usd is None else ""), "warn" if after > before else "info")
+    return {"ok": True, **_spend_cap_view()}
+
+
+def _spend_cap_view():
+    o = usage.cap_override()
+    return {"cap": usage.daily_cap(), "railway_default": usage.MAX_DAILY_SPEND_USD,
+            "ceiling": max(usage.MAX_DAILY_SPEND_CEILING_USD, usage.MAX_DAILY_SPEND_USD),
+            "set_in_app": bool(o), "set_at": (o or {}).get("set_at")}
+
+
+class QueueBackIn(BaseModel):
+    project: str
+    name: str
+
+
+@app.post("/api/studio/queue/back")
+def queue_back_to_review(body: QueueBackIn):
+    """Owner, 2026-10-05: take a scheduled or failed video off the posting
+    queue and back to Home → Needs you ("Watch the video") for another look.
+    Its notes, SEO and thumbnail are kept; approving again re-queues it."""
+    import publish_queue as _pqb
+    import ingest as _i
+    pdir = project_dir_for(body.project)
+    pid = os.path.basename(pdir.rstrip("/"))
+    name = os.path.basename(body.name)
+    rows = [x for x in _pqb.load(_i.PROJECTS)["items"] if (x["project"], x["name"]) == (pid, name)]
+    if any(x["status"] == "posting" for x in rows):
+        raise HTTPException(409, "it's being posted right now — stop it from the jobs bar first")
+    for x in rows:
+        if x["status"] in ("queued", "failed"):
+            _pqb.remove(_i.PROJECTS, x["id"])
+    recs = load_reviews(pdir)
+    rec = recs.get(name) or {"history": []}
+    if rec.get("status") and rec["status"] != "review_pending":
+        rec.setdefault("history", []).append({"status": rec["status"], "notes": rec.get("notes", ""),
+                                              "at": rec.get("reviewed_at")})
+    rec["status"] = "review_pending"
+    rec["reviewed_at"] = time.time()
+    recs[name] = rec
+    save_reviews(pdir, recs)
+    _ev("publish", f"{_pretty(pid)}: taken off the posting queue and back to Needs you for review")
+    return {"ok": True, "review": review_state(pdir, name, rec)}
 
 
 class PriorityIn(BaseModel):
@@ -7523,7 +7582,7 @@ def settings_overview():
                        "now": time.time()},
         "spending": {"today": round(spent, 2), "cap": cap, "autopilot_spent": _ap_spent_today(),
                      "autopilot_budget": st["settings"].get("budget_usd"),
-                     "prices_read": usage.GEMINI_PRICES_READ},
+                     "prices_read": usage.GEMINI_PRICES_READ, **_spend_cap_view()},
         "autopilot": {"enabled": st["settings"].get("enabled"), "per_day": st["settings"].get("per_day"),
                       "window": st["settings"].get("window"),
                       "model": os.environ.get("PIPELINE_MODEL", "gemini-3.8-flash"),

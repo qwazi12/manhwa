@@ -40,6 +40,7 @@ import fcntl
 import json
 import os
 import threading
+import time
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -77,6 +78,57 @@ MAX_TTS_CHARS_PER_JOB = int(_envf("MAX_TTS_CHARS_PER_JOB", 120000))
 MAX_DAILY_GEMINI_CALLS = int(_envf("MAX_DAILY_GEMINI_CALLS", 6000))
 MAX_DAILY_TTS_CHARS = int(_envf("MAX_DAILY_TTS_CHARS", 400000))
 MAX_DAILY_SPEND_USD = _envf("MAX_DAILY_SPEND_USD", 5.0)
+# Owner, 2026-10-05: the daily limit can be changed in Settings, but never past
+# this ceiling, which stays a Railway variable. The check below is unchanged;
+# only the number it compares against comes from daily_cap().
+MAX_DAILY_SPEND_CEILING_USD = _envf("MAX_DAILY_SPEND_CEILING_USD", 25.0)
+CAP_OVERRIDE_NAME = "spend_cap.json"
+
+
+def _cap_path():
+    return os.path.join(USAGE_DIR, CAP_OVERRIDE_NAME)
+
+
+def cap_override():
+    """The limit set in Settings, or None (then the Railway value applies)."""
+    try:
+        with open(_cap_path(), encoding="utf-8") as f:
+            rec = json.load(f)
+        v = float(rec.get("usd"))
+        return {**rec, "usd": v} if v > 0 else None
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def daily_cap():
+    """The daily spend limit in force: the Settings value if set, never above
+    the Railway ceiling; otherwise MAX_DAILY_SPEND_USD."""
+    o = cap_override()
+    if o is None:
+        return MAX_DAILY_SPEND_USD
+    return min(o["usd"], max(MAX_DAILY_SPEND_CEILING_USD, MAX_DAILY_SPEND_USD))
+
+
+def set_daily_cap(usd, by="owner"):
+    """usd=None goes back to the Railway value. Returns (before, after)."""
+    before = daily_cap()
+    if usd is None:
+        try:
+            os.remove(_cap_path())
+        except OSError:
+            pass
+    else:
+        usd = round(float(usd), 2)
+        top = max(MAX_DAILY_SPEND_CEILING_USD, MAX_DAILY_SPEND_USD)
+        if not 0.5 <= usd <= top:
+            raise ValueError(f"the daily limit must be between $0.50 and ${top:.0f} "
+                             f"(the ceiling is the Railway variable MAX_DAILY_SPEND_CEILING_USD)")
+        os.makedirs(USAGE_DIR, exist_ok=True)
+        tmp = _cap_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"usd": usd, "set_at": time.time(), "by": by, "previous": before}, f)
+        os.replace(tmp, _cap_path())
+    return before, daily_cap()
 
 # Rough, clearly-labeled ESTIMATES (not billing-accurate) used only to give
 # the daily spend cap a concrete number. Override via env if pricing changes.
@@ -542,9 +594,10 @@ def gate(kind, units, model=""):
                 raise UsageCapExceeded(
                     f"MAX_DAILY_TTS_CHARS={MAX_DAILY_TTS_CHARS} would be "
                     f"exceeded today ({d['tts_chars']} + {units})")
-        if d["est_cost_usd"] + est_cost > MAX_DAILY_SPEND_USD:
+        cap = daily_cap()
+        if d["est_cost_usd"] + est_cost > cap:
             raise UsageCapExceeded(
-                f"MAX_DAILY_SPEND_USD=${MAX_DAILY_SPEND_USD} would be exceeded "
+                f"the daily spend limit of ${cap:g} would be exceeded "
                 f"today (${d['est_cost_usd']:.4f} + ${est_cost:.4f} est.)")
 
     meter = Meter()

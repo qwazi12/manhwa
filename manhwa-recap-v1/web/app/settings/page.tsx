@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, useApi } from "@/lib/api";
-import { ago, money } from "@/lib/fmt";
+import { ago, money, when } from "@/lib/fmt";
 import { Busy, Card, ConfirmButton, Empty, PageHead, Pill, useAct } from "@/components/ui";
 
 export default function Settings() {
@@ -172,7 +172,8 @@ function Spending({ d }: any) {
       <div className="kv"><span>Whole site today</span><span className="num">{money(d.spending.today)} of {money(d.spending.cap)}</span></div>
       <div className="kv"><span>Autopilot today</span><span className="num">{money(d.spending.autopilot_spent)} of {money(d.spending.autopilot_budget)}</span></div>
       <div className="kv"><span>Price list</span><span>Google’s published rates, read {d.spending.prices_read}</span></div>
-      <p className="small muted">The ${Math.round(d.spending.cap)} site limit is the Railway variable MAX_DAILY_SPEND_USD. Details are in Activity → Spend.</p>
+      <CapEditor sp={d.spending} />
+      <p className="small muted">Every paid call (AI, voice, SEO) is checked against this limit before it runs; when it’s reached, work pauses until midnight ET. Autopilot also has its own budget (Autopilot card). Details are in Activity → Spend.</p>
     </Card>
   );
 }
@@ -214,5 +215,28 @@ function Tools() {
       </div>
       <p className="small muted">Everything the old pages did is in the new studio. The old studio stays under Legacy for whenever you want it.</p>
     </Card>
+  );
+}
+
+/** The site's daily spend limit (owner, 2026-10-05: "allow me to increase
+ *  daily spending"). Never above the Railway ceiling. */
+function CapEditor({ sp }: { sp: any }) {
+  const act = useAct();
+  const [v, setV] = useState<number | "">(sp.cap ?? "");
+  useEffect(() => { setV(sp.cap ?? ""); }, [sp.cap]);
+  const left = Math.max(0, (sp.cap || 0) - (sp.today || 0));
+  return (
+    <div style={{ display: "grid", gap: 8, padding: "8px 0" }}>
+      <div className="kv"><span>Daily limit</span><span className="num">{money(sp.cap)}{sp.set_in_app ? ` · set here ${when(sp.set_at)}` : " · the Railway value"} · {money(left)} left today</span></div>
+      <div className="row">
+        <label className="field" style={{ maxWidth: 200 }}>New daily limit ($, up to {money(sp.ceiling)})
+          <input id="spend-cap" type="number" min={0.5} max={sp.ceiling} step={1} value={v} onChange={(e) => setV(e.target.value === "" ? "" : Number(e.target.value))} /></label>
+        <ConfirmButton className="sm primary" disabled={v === "" || Number(v) === sp.cap}
+          confirm={`Set the daily limit to $${v}?`}
+          onConfirm={() => act(async () => { await api("/api/spend/cap", { usd: Number(v) }); location.reload(); }, "Daily limit changed")}>Save</ConfirmButton>
+        {sp.set_in_app && <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/spend/cap", { usd: null }); location.reload(); }, "Back to the Railway value")}>Back to {money(sp.railway_default)}</Busy>}
+      </div>
+      <span className="small faint">The most it can be set to ({money(sp.ceiling)}) is the Railway variable MAX_DAILY_SPEND_CEILING_USD. Undo: “Back to {money(sp.railway_default)}”.</span>
+    </div>
   );
 }

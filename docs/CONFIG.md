@@ -62,7 +62,8 @@ The scheduler checks every **10 minutes** (first check 60 s after boot); `AUTOPI
 | `YOUTUBE_API_KEY` | demand research, views |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Google Drive copy (omnistream-bot) |
 | `Flamingo_Remix_DRIVE_FOLDER_ID` (or `DRIVE_FOLDER_ID`) | Shared Drive folder for copies |
-| `MAX_DAILY_SPEND_USD` | hard daily stop for the whole site (live: $10) |
+| `MAX_DAILY_SPEND_USD` | hard daily stop for the whole site (live: $10); Settings → Spending can change it, up to the ceiling below |
+| `MAX_DAILY_SPEND_CEILING_USD` | the most Settings may raise the daily limit to (default $25) |
 | `MAX_DAILY_GEMINI_CALLS`, `MAX_DAILY_TTS_CHARS`, `MAX_DAILY_CLAUDE_CALLS`, `MAX_*_PER_JOB` | per-day and per-chapter call caps |
 | `PIPELINE_MODEL` (default `gemini-3.8-flash`), `AUTOPILOT_TIER` (default `flex`), `RECAP_SERVICE_TIER` | model and price tier |
 | `EXPORT_SPEED` | overrides the Settings speed when set |

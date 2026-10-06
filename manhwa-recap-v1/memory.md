@@ -8971,3 +8971,23 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 - **Docs:** CONFIG.md autopilot row; RUNBOOK re-run row.
 - **Tests:** new `test_autopilot_priority` 14/14 (order kept, list before round robin then fewest-made, running state, made ones leave, failure skipped with reason, unreleased waits, top/set/remove/clear, budget and off still stop it, bad action refused); `test_autopilot` 50/50. Full suite 79/80 (only the known date-bound test). `next build` ok.
 - **Live (6ce1e6e):** pushed automatically at 20:28 ET, once the Iron-Blooded ch.180 render had finished and the server was idle. `GET /api/autopilot` now returns `priority: []`. Autopilot is ON; it is waiting on the site cap ($10.02 of $10) until midnight ET, with the next round-robin pick Death Knight ch.88. `POST /api/autopilot/priority` refuses a bad action with 400. No list entries were added; that is for the owner.
+
+### 2026-10-05 — Owner: send queue items back to Needs you; let me raise daily spending; "what research does SEO actually do? Scrapper's LongForm does actual research, right?"
+- **Back to review:**
+  - `POST /api/studio/queue/back {project, name}` takes a queued or **failed** row off the posting queue (refused while posting). It sets the review to `review_pending`, keeping the notes and recording the previous verdict in history.
+  - The chapter then shows "Watch the video", i.e. Home → Needs you. Approving again re-queues it.
+  - Queue page: "↩ Back to review" on Scheduled and Errors rows. The To watch tab notes that those videos are already in Needs you.
+- **Daily spend limit in Settings:**
+  - `usage.daily_cap()` = the Settings value (`projects/_usage/spend_cap.json`) bounded by the Railway ceiling `MAX_DAILY_SPEND_CEILING_USD` (default $25), else `MAX_DAILY_SPEND_USD`.
+  - `usage.gate` still checks every paid call; only the number comes from `daily_cap()`. All 7 server uses of the old constant now call it.
+  - `POST /api/spend/cap {usd|null}` logs a "settings" event (before → after).
+  - Settings → Spending shows the limit, where it was set, what's left today, Save (confirm) and "Back to $10".
+  - Docs: CONFIG (ceiling variable), RUNBOOK (failure row, back-to-review row).
+- **SEO research, as it is today (`seo.py`):**
+  - (1) A truth card from project data only: series, chapter, narration, OCR and visual text, characters (the series bible, which *is* web-researched by `series_research`).
+  - (2) Channel style: the last 50 uploads of our own channel via the YouTube Data API (cached a day).
+  - (3) **One** YouTube search, "manhwa recap <genre>" (not series-specific), with the top 10 by views → structural patterns only.
+  - (4) One Gemini call (gemini-3.5-flash, ≈ $0.012) writes title, description, tags and hashtags.
+  - No per-chapter web or Google search, no series-specific YouTube query.
+- **Scrapper LongForm** (`studio/stage_gather.py` + `gemini.research`): a TMDB fact sheet plus **Gemini with Google Search grounding**, restricted to trusted sources, with source URLs resolved and tiered (`sources.py`). Claims are only used when sourced, and the description lists the sources. So yes, Scrapper does real research; ours is much thinner. Upgrade proposed to the owner, not built.
+- **Tests:** new `test_spend_cap_back` 13/13. Full suite 80/81 (only the known date-bound test). `next build` ok.
