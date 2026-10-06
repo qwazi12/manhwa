@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..")))
 
+os.environ.pop("GEMINI_API_KEY", None)   # rule 12: never a real model call from a test
 import thumbnail_studio as ts   # noqa: E402
 import thumbnail as tb          # noqa: E402
 import server as srv            # noqa: E402
@@ -246,9 +247,13 @@ def main():
     ml = json.load(open(os.path.join(lab, "project.json")))
     _kl, sl = ts.ensure_style(root, lab, ml)
     cl = ts.build_concepts(lab, ml, sl, "Title", bible=bible)
-    clean = [c for c in cl if c["composition"] == "clean"]
-    check("a Clean picture option (no text, no badge) features the lead",
-          clean and clean[0]["focal_panel"] == dl[2]["panel_id"] and not clean[0]["overlay_text"])
+    # Spec 07 A7: panel hero (3A) is the default and leads round 0; 3F "clean"
+    # is offered only for an unmistakable MC face (face data), so a project
+    # without face boxes never gets it. The no-text rendering is still checked.
+    check("round 0 leads with the panel hero (spec 3A default)", cl and cl[0]["composition"] == "panel-hero")
+    check("no Clean option without face data (3F needs an MC face)",
+          not [c for c in cl if c["composition"] == "clean"])
+    clean = [dict(cl[0], composition="clean", overlay_text="")]
     out = ts.render_concept(lab, clean[0], sl, os.path.join(lab, "clean.jpg"))
     check("...and renders with no text", out["has_text"] is False)
     tall = dict(clean[0], focal_file=os.path.join(lab, "crops", dl[5]["panel_id"] + ".png"), composition="hero-focus")
@@ -279,8 +284,9 @@ def main():
     # ============ 8b. cover art + chapter/part number (the owner's ask)
     check("cover-badge is a supported composition",
           "cover-badge" in ts.COMPOSITIONS)
-    check("...and is the default for a brand new series",
-          ts.build_style_pack(ch1, meta1)["composition"] == "cover-badge")
+    # Spec 07 A7: the panel hero (3A) is the default; the cover design stays offered.
+    check("panel hero is the default for a brand new series",
+          ts.build_style_pack(ch1, meta1)["composition"] == "panel-hero")
     cb = [c for c in cons if c["composition"] == "cover-badge"]
     check("a cover-art concept is offered when the series' real cover exists", bool(cb))
     # QA (owner, 2026-10-06): "Cover art" must BE the cover

@@ -350,3 +350,40 @@ def test_near_duplicate_panels_are_excluded(tmp_path):
     # control: the two near-dupes really are the same picture to the eye
     h1, h2 = ts._dhash(str(pdir / "crops" / "p1.png")), ts._dhash(str(pdir / "crops" / "p2.png"))
     assert ts._lookalike(h1, h2)
+
+
+# ------------------------------------------------------------------ A7
+def test_default_composition_is_panel_hero(tmp_path):
+    import colorsys
+    from PIL import Image
+    pdir = _face_project(tmp_path)
+    meta = {"series": "Test Series", "chapter": "362"}
+    style = {"palette": {"bg": [14, 16, 22], "accent": [210, 30, 30]}}
+    cs = ts.rank_concepts(ts.build_concepts(str(pdir), meta, style, "HE WON - Test Series Chapter 362"),
+                          style, "HE WON")
+    rec = [c for c in cs if c.get("recommended")]
+    assert len(rec) == 1 and rec[0]["composition"] == "panel-hero" == ts.DEFAULT_COMPOSITION
+    assert ts.build_style_pack(str(pdir), meta)["composition"] == "panel-hero"
+    out = os.path.join(ART, "a7_default_panel_hero.png")
+    ts.render_concept(str(pdir), rec[0], style, out)
+    im = Image.open(out).convert("RGB")
+    px = im.load()
+    assert im.size == (1280, 720)
+    # the layout, measured: face in the right half, hook bottom-left, badge
+    # top-left in the accent colour, an arrow between hook and face
+    face_col = SKIN if rec[0]["focal_panel"] in ("p1", "p2") else (120, 200, 230)
+    skin = _bbox_of(im, face_col)
+    assert skin and (skin[0] + skin[2]) / 2 > 700, (rec[0]["focal_panel"], skin)
+    hook = _bbox_of(im.crop((0, 440, 700, 720)), YELLOW)
+    assert hook and hook[0] < 80
+    badge = sum(1 for y in range(28, 90, 2) for x in range(28, 200, 2) if px[x, y] == (210, 30, 30))
+    assert badge > 300
+    arrow = sum(1 for y in range(100, 440, 2) for x in range(300, 900, 2) if px[x, y] == YELLOW)
+    assert arrow > 50
+    assert rec[0]["_arrow"]
+    # ↻ rotates: round 1 starts further on and shifts the hue by 12 degrees
+    cs1 = ts.build_concepts(str(pdir), meta, style, "HE WON", round_=1)
+    assert cs1[0]["composition"] != "panel-hero"
+    h0 = colorsys.rgb_to_hls(*[v / 255 for v in (210, 30, 30)])[0]
+    h1 = colorsys.rgb_to_hls(*[v / 255 for v in cs1[0]["palette"]["accent"]])[0]
+    assert abs(((h1 - h0 + 0.5) % 1.0) - 0.5) * 360 == pytest.approx(12, abs=2)

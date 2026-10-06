@@ -689,6 +689,8 @@ def ensure_face_boxes(pdir, bible=None, api_key=None, _post=None):
     """The ONE metered vision pass per chapter (owner-approved, face boxes
     only): candidate panels + the series cover. Cached, so a re-run is free."""
     import face_boxes as _fbm
+    if not (api_key or _post):
+        return _fbm.load(pdir)              # no key (tests, local): cached boxes only
     items = face_candidates(pdir)
     cov = cover_file(pdir)
     if cov:
@@ -739,10 +741,14 @@ def save_style(root, key, pack):
 ZONES = {"text": (28, 470, 672, 692), "face": (700, 40, 1252, 560),
          "badge": (28, 28, 232, 88), "inset": (900, 470, 1252, 692)}
 
-COMPOSITIONS = ("cover-badge", "anchor-split", "hero-focus", "badge-stack", "diptych", "cover-frame")
+# Spec 07 §3 recipes (A7): 3A is the DEFAULT; ↻ rotates 3A->3B->3C->3E->3D->3F.
+SPEC_ROTATION = ("panel-hero", "cover-hero", "split", "cover-inset", "two-panels", "clean")
+COMPOSITIONS = SPEC_ROTATION + ("cover-badge", "anchor-split", "hero-focus", "badge-stack", "diptych",
+                                "cover-frame")
+DEFAULT_COMPOSITION = "panel-hero"
 
 
-def build_style_pack(pdir, meta, composition="cover-badge"):
+def build_style_pack(pdir, meta, composition=DEFAULT_COMPOSITION):
     """Derive a series identity from the manhwa's OWN artwork.
 
     Proposed, not approved: until the operator approves it this is a draft, so
@@ -769,7 +775,7 @@ def build_style_pack(pdir, meta, composition="cover-badge"):
                        "max_words": MAX_HOOK_WORDS},
         "badge": {"style": "corner-block", "label": "CH",
                   "position": "bottom-left"},
-        "composition": composition if composition in COMPOSITIONS else "anchor-split",
+        "composition": composition if composition in COMPOSITIONS else DEFAULT_COMPOSITION,
         "text_zone": "lower-left",
         "prefers_text": True,
         "approved": False,
@@ -791,7 +797,7 @@ def ensure_style(root, pdir, meta, force=False):
         pack["inherited"] = True
         return key, pack
     fresh = build_style_pack(pdir, meta,
-                            composition=(pack or {}).get("composition", "cover-badge"))
+                            composition=(pack or {}).get("composition", DEFAULT_COMPOSITION))
     if pack and not force:
         fresh["approved"] = pack.get("approved", False)
         fresh["approved_at"] = pack.get("approved_at")
@@ -874,94 +880,129 @@ def _shift_hue(rgb, deg):
 
 
 # Owner, 2026-10-05: "↻ New options doesn't give anything new". Each press
-# (round) now rotates which designs are offered, picks different panels (the
-# used ones are excluded) and shifts the accent colour. The cover option is
-# always first and stays the same, as the owner's go-to.
-DESIGN_POOL = [
-    ("Series anchor + chapter hook", "anchor-split", True,
-     "The series anchor keeps the upload recognisable in a feed; the chapter panel supplies what is new."),
-    ("Full-bleed hook panel", "hero-focus", True, "One focal moment at full bleed reads fastest at sidebar size."),
-    ("Clean picture", "clean", False, "Just the art, no text or badge."),
-    ("Two moments", "diptych", True, "Two of the chapter's strongest panels side by side: setup and payoff."),
-    ("Cover on the moment", "cover-frame", False,
-     "The series cover as a card over a blurred moment from this chapter: recognisable and new at once."),
-    ("Badge-forward variant", "badge-stack", True, "Chapter number is the loudest element — helps serial viewers find the next part."),
-]
+# (round) rotates the designs (spec A7: 3A->3B->3C->3E->3D->3F), uses panels
+# not used before, and shifts the accent hue by +/-12 degrees.
+DESIGN_POOL = {
+    "panel-hero": ("Panel hero", True,
+                   "The MC's face large on the right, the hook bottom-left, an arrow to the face — "
+                   "the layout the top channels in the niche use (spec 3A)."),
+    "cover-hero": ("Cover hero", True,
+                   "The series cover cropped to fill around the face, its own logo cut off, our hook on it (3B)."),
+    "split": ("Panel + cover", True,
+              "This chapter's moment on the left, the series cover on the right: new and recognisable (3C)."),
+    "cover-inset": ("Cover inset", True,
+                    "The chapter's moment full-frame with a small series cover in the corner (3E)."),
+    "two-panels": ("Two moments", True, "Two of the chapter's strongest panels: setup and payoff (3D)."),
+    "clean": ("Clean picture", False, "Just the MC's best panel — no text, no badge (3F)."),
+    "hero-focus": ("Full-bleed hook panel", True, "One focal moment at full bleed reads fastest at sidebar size."),
+    "badge-stack": ("Badge-forward variant", True,
+                    "Chapter number is the loudest element — helps serial viewers find the next part."),
+}
+HUE_STEP = 12
+
+
+def _needs_cover(comp):
+    return comp in ("cover-hero", "split", "cover-inset")
 
 
 def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None, round_=0):
-    """3-5 chapter concepts, all built on the SAME approved series style.
+    """Chapter concepts, all on the SAME series style.
 
-    Only three things vary between chapters by design: the focal panel, the
-    chapter badge, and the hook text. Everything else — palette, composition,
-    badge style, typography — comes from the style pack, which is what makes a
-    playlist of these look like one series.
+    Spec 07 A7: panel hero (3A) is the default and is recommended; each round
+    rotates the recipe order 3A->3B->3C->3E->3D->3F starting one further on,
+    draws from panels not used before, and shifts the accent hue +/-12 deg.
+    §5 step 5: when the hero panel has no quiet room for the hook, the default
+    upgrades to a gradient recipe (3C, else 3E, else 3A with a gradient)
+    instead of shrinking the text. The series cover + chapter number design
+    (the owner's go-to) is kept as an extra option when the real cover exists.
     """
-    panels = rank_panels(pdir, 8, exclude=exclude, bible=bible)
+    import face_boxes as _fbm
+    panels, report = rank_panels_report(pdir, 8, exclude=exclude, bible=bible)
     chapter = str((meta or {}).get("chapter") or "").strip()
     hook = hook_from_title(title) if title else ""
     pal = (style or {}).get("palette", {})
-    comp = (style or {}).get("composition", "anchor-split")
+    comp = (style or {}).get("composition", DEFAULT_COMPOSITION)
     inherited = bool((style or {}).get("approved"))
-    anchors = (style or {}).get("anchor_images") or []
     out = []
     if not panels:
         return out
-
-    # Concept 1 — always the series cover with the chapter number (the owner's
-    # go-to); then three designs from the pool, rotated each round.
     part = part_from_title(title)
-    plans = []
-    # QA (owner, 2026-10-06): the cover design is only offered when THIS
-    # chapter has the series' real cover file; the anchor of a series style
-    # can point at another chapter's page or a story panel.
     real_cover = cover_file(pdir)
-    if real_cover:
-        anchors = [os.path.relpath(real_cover, pdir)] + [a for a in anchors if a != os.path.relpath(real_cover, pdir)]
-    if real_cover:
-        plans.append(("Cover art + chapter number", "cover-badge", panels[0], False,
-                      "The series cover with just the chapter number on it \u2014 "
-                      "the same image every chapter, so a playlist reads as one "
-                      "series and only the number changes."))
-    k = len(DESIGN_POOL)
-    picks = [DESIGN_POOL[(round_ * 3 + i) % k] for i in range(k)]
-    if not real_cover:
-        picks = [p for p in picks if p[1] != "cover-frame"]       # needs the real cover too
-    if not anchors:
-        picks = [p for p in picks if p[1] not in ("anchor-split", "cover-frame")]
-    want = 3 if real_cover else 4
-    for di, (name, composition, use_text, why) in enumerate(picks[:want]):
-        panel = panels[min(di, len(panels) - 1)]
-        if composition == "clean":
-            panel = next((p for p in panels if p.get("lead")), panel)
-            if panel.get("lead"):
-                why = why[:-1] + " \u2014 the series lead (%s)." % panel["lead"].title()
-        plans.append((name, composition, panel, use_text and bool(hook), why))
+    anchor = os.path.relpath(real_cover, pdir) if real_cover else None
+    cov = (_fbm.load(pdir) or {}).get("_cover") or {}
+    cface = pick_face(cov, COVER_FACE_MIN_AREA)
+    hero = panels[0]
+    upgrade = not hero.get("text_ok", True)
+
+    order = list(SPEC_ROTATION[round_ % 6:] + SPEC_ROTATION[:round_ % 6])
+    if round_ == 0 and upgrade:
+        lift = next((c for c in ("split", "cover-inset") if real_cover), None)
+        if lift:
+            order.remove(lift)
+            order.insert(0, lift)
+    avail = []
+    for c in order:
+        if _needs_cover(c) and not real_cover:
+            continue
+        if c == "two-panels" and len(panels) < 2:
+            continue
+        if c == "clean" and not (hero.get("face_is_mc") and not report.get("relaxed")
+                                 and hero["score"]["total"] >= max(p["score"]["total"] for p in panels)):
+            continue                         # 3F only for an unmistakable MC, top-scored panel
+        avail.append(c)
+    # A7 "keep the other compositions for the reroll rotation": when a chapter
+    # can't fill three spec recipes (no cover, one panel), the older full-bleed
+    # designs fill in after them.
+    for legacy in ("hero-focus", "badge-stack"):
+        if len(avail) < 3:
+            avail.append(legacy)
+    picks = avail[:max(4, min(n, 5)) - (1 if real_cover else 0)] if len(avail) > 4 else avail[:4]
+    default = picks[0] if picks else None
+
     pal_r = dict(pal)
     if round_ and pal.get("accent"):
-        pal_r["accent"] = _shift_hue(pal["accent"], (round_ * 67) % 360)
+        pal_r["accent"] = _shift_hue(pal["accent"], HUE_STEP if round_ % 2 else -HUE_STEP)
 
-    for i, (name, composition, panel, use_text, why) in enumerate(plans[:max(4, min(n, 5))]):
+    plans = []
+    for di, c in enumerate(picks):
+        p = panels[min(di, len(panels) - 1)] if c != "clean" else hero
+        name, use_text, why = DESIGN_POOL[c]
+        plans.append((name, c, p, use_text and bool(hook), why))
+    if real_cover:
+        plans.append(("Cover art + chapter number", "cover-badge", hero, False,
+                      "The series cover with just the chapter number on it \u2014 the same image every "
+                      "chapter, so a playlist reads as one series and only the number changes."))
+
+    for i, (name, composition, panel, use_text, why) in enumerate(plans):
+        second = next((q for q in panels if q["panel_id"] != panel["panel_id"]), None)
         out.append({
             "id": "c%d" % i,
             "name": name,
             "type": _dominant_type(panel),
             "composition": composition,
+            "default": composition == default,
             "focal_panel": panel["panel_id"],
             "focal_file": panel["file"],
             "focal_why": panel["why"],
             "panel_score": panel["score"],
-            # cover-badge needs the anchor too — it IS the anchor, full-bleed.
-            "anchor_image": (anchors[0] if anchors and composition in
-                             ("anchor-split", "cover-badge", "cover-frame") else None),
-            "second_file": (panels[1]["file"] if composition == "diptych" and len(panels) > 1 else None),
+            "face_box": panel.get("face_box"),
+            "face_is_mc": bool(panel.get("face_is_mc")),
+            "bubbles": panel.get("bubbles") or [],
+            "gradient": composition == "panel-hero" and not panel.get("text_ok", True),
+            "anchor_image": anchor if (_needs_cover(composition) or composition == "cover-badge") else None,
+            "cover_face_box": (cface or {}).get("box"),
+            "cover_face_is_mc": bool((cface or {}).get("is_mc")),
+            "cover_text_blocks": cov.get("text_blocks") or [],
+            "second_file": second["file"] if (second and composition == "two-panels") else None,
+            "second_face_box": second.get("face_box") if (second and composition == "two-panels") else None,
             "chapter": chapter,
             "part": part,
             "badge": ((style or {}).get("badge") or {}).get("label", "CH"),
             "overlay_text": hook if use_text else "",
-            "text_zone": (style or {}).get("text_zone", "lower-left"),
+            "text_zone": "lower-left",
             "palette": pal if composition == "cover-badge" else pal_r,
             "round": round_,
+            "selection": {k: report.get(k) for k in ("face_data", "relaxed", "rejects", "survived")},
             "follows_series_style": inherited and composition == comp,
             "style_relation": ("inherits the approved series style"
                                if inherited and composition == comp
@@ -1020,8 +1061,10 @@ def rank_concepts(concepts, style, title=""):
         c["score"] = score_concept(c, style, title)
         c["recommended"] = False
     if concepts:
-        concepts.sort(key=lambda c: (c.get("composition") != "cover-badge", -c["score"]["total"]))
-        concepts[0]["recommended"] = True       # the cover is the owner's go-to
+        # Spec A7: the default recipe (3A panel hero, or its §5 upgrade) leads
+        # and is what _prepare_publish applies automatically.
+        concepts.sort(key=lambda c: (not c.get("default"), -c["score"]["total"]))
+        concepts[0]["recommended"] = True
     return concepts
 
 

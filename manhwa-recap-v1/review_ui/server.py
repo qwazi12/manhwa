@@ -1345,6 +1345,19 @@ def api_thumbcopilot_generate(body: ThumbGenIn):
         bible = _sbib.load_series_bible(slug, pdir) if slug else None
     except Exception:
         bible = None
+    # Spec 07 §5: one metered vision pass per chapter for face/bubble/logo boxes
+    # (owner-approved 2026-10-06, analysis only — nothing is generated).
+    # Cached per panel; over the spend limit the panels rank without faces.
+    face_note = ""
+    try:
+        import gemini_tts as _gt
+        tstudio.ensure_face_boxes(pdir, bible=bible, api_key=_gt.env_any_case("GEMINI_API_KEY"))
+    except usage.UsageCapExceeded as e:
+        face_note = "face check waits for budget: " + str(e)[:120]
+    except Exception as e:  # noqa
+        face_note = "face check failed: " + str(e)[:160]
+    if face_note:
+        _ev("publish", f"{os.path.basename(pdir)}: thumbnail {face_note}", "warn")
     prev = tstudio.get_concepts(pdir, name) or {}
     used = [c.get("focal_panel") for c in prev.get("concepts") or []] if not body.new_style else []
     rnd = 0 if body.new_style or not prev else int(prev.get("round", 0)) + 1
@@ -1369,6 +1382,7 @@ def api_thumbcopilot_generate(body: ThumbGenIn):
         "cut_signature": cut_signature(pdir=pdir),
         "generated_at": time.time(),
         "chosen": prev.get("chosen"),          # an applied choice survives
+        "face_note": face_note,
     }
     tstudio.put_concepts(pdir, name, rec)
     return _thumb_state(pdir, name)
