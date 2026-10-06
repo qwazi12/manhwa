@@ -53,6 +53,8 @@ def make_project(root, pid, series, chapter, panels=6, cover=True):
               open(os.path.join(pdir, "project.json"), "w"))
     if cover:
         _img(os.path.join(pdir, "pages", "001.webp"), 1200, 800, (30, 40, 120))
+        # the series' real cover, as _ensure_project_cover copies it from Library
+        _img(os.path.join(pdir, "pages", "_cover.jpg"), 600, 900, (40, 30, 110))
     descs, segs = [], []
     moods = ["a close-up of a face, eyes wide with shock",
              "a sword strike mid-battle, blood in the air",
@@ -91,8 +93,8 @@ def main():
     key, style = ts.ensure_style(root, ch1, meta1)
     check("the series key is derived from the series, not the project",
           key == "doctors-rebirth")
-    check("an anchor image is taken from the source pages",
-          style["anchor_images"] and "001" in style["anchor_images"][0])
+    check("the series anchor is the real cover when there is one (not a story page)",
+          style["anchor_images"] and "_cover" in style["anchor_images"][0])
     check("a palette is derived from the artwork, not hardcoded",
           style["palette"]["accent"] != [0, 213, 255])
     check("the badge, composition and typography are all defined",
@@ -278,7 +280,19 @@ def main():
     check("...and is the default for a brand new series",
           ts.build_style_pack(ch1, meta1)["composition"] == "cover-badge")
     cb = [c for c in cons if c["composition"] == "cover-badge"]
-    check("a cover-art concept is offered when an anchor exists", bool(cb))
+    check("a cover-art concept is offered when the series' real cover exists", bool(cb))
+    # QA (owner, 2026-10-06): "Cover art" must BE the cover
+    nocov = make_project(root, "nocover-series_7", "No Cover Series", "7", cover=False)
+    mnc = json.load(open(os.path.join(nocov, "project.json")))
+    _knc, snc = ts.ensure_style(root, nocov, mnc)
+    cnc = ts.build_concepts(nocov, mnc, snc, "Title")
+    check("no real cover: no 'Cover art' concept is offered", not any(c["composition"] == "cover-badge" for c in cnc))
+    fake = dict(cb[0], anchor_image="pages/001.webp")
+    try:
+        ts.render_concept(ch1, fake, style, os.path.join(ch1, "qa.jpg"))
+        check("a 'Cover art' design refuses a story page instead of the cover", False)
+    except ValueError:
+        check("a 'Cover art' design refuses a story page instead of the cover", True)
     if cb:
         check("...it carries the anchor image, not just a panel",
               cb[0]["anchor_image"] is not None)

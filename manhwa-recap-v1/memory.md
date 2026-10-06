@@ -9224,3 +9224,12 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - Full suite 87/87; `next build` ok.
 - **Found in the settings log:** posting was switched OFF at 08:36:39 ET from the site (the owner's Pause button, as far as I can tell; I made no change). Default privacy was set to **public** at 07:18 ET. **Flagged to the owner:** CLAUDE.md says scraped content needs the Stage 7 rights gate before anything public.
 - **Live (3a8122b), deployed with Stellar 130 paused, then resumed.** The line is Stellar 130 running, 182 next, 183 waiting its turn (183 now shows in the jobs bar right after the restart). `rerender_all` redrew **11** chosen thumbnails; Extra's Academy 114 now has the small "CH 114" badge top-left. This memory note is committed locally and goes up with the next deploy (not worth another restart).
+
+### 2026-10-06 09:30 ET — Owner: "Is there QA making sure Cover art + chapter number is what the name says? This thumbnail doesn't contain a cover" (Extra's Academy ch.114)
+- **Cause:** there was no QA. The concept used the series style's anchor image (a path relative to whichever chapter built the style, often page 1 of a chapter, i.e. a story page). A chapter without a cover file fell back silently: `render_concept` cover-badge did `if not place(anchor): place(focal)`, drawing a story panel under the name "Cover art + chapter number". Library already holds every series' real cover (`/api/watchlist/cover/{id}`, cached in `_covers/`), but thumbnails never used it.
+- **Fix:**
+  - `_ensure_project_cover(pdir)` copies the series' Library cover into the chapter as `pages/_cover.<ext>` (fetching and caching it if needed) before concepts are generated.
+  - `build_concepts` offers "Cover art + chapter number" (and "Cover on the moment") **only when the chapter has that real cover file**, and puts it first in the anchors.
+  - **QA in rendering:** cover-badge raises "no series cover for this chapter" instead of drawing a panel; apply returns 409 with that reason.
+  - `_rerender_chosen_thumbnails` now rebuilds the options for any chosen "cover" whose anchor wasn't the real cover and re-picks the real cover design.
+- **Tests:** `test_thumbnail_studio` 114/114 (fixture now has a real `_cover.jpg`; new: no real cover → no cover concept; a cover design with a story page refuses). Full suite 87/87.

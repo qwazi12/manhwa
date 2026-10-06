@@ -144,6 +144,12 @@ def readable_ink(bg):
 
 
 # ------------------------------------------------------------ source images
+def cover_file(pdir):
+    """This chapter's copy of the series' real cover, or ""."""
+    c = sorted(glob.glob(os.path.join(pdir, "pages", COVER_NAME + ".*")))
+    return c[0] if c else ""
+
+
 def cover_candidates(pdir):
     """The series anchor: the source pages, earliest first.
 
@@ -535,16 +541,24 @@ def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None, rou
     # go-to); then three designs from the pool, rotated each round.
     part = part_from_title(title)
     plans = []
-    if anchors:
+    # QA (owner, 2026-10-06): the cover design is only offered when THIS
+    # chapter has the series' real cover file; the anchor of a series style
+    # can point at another chapter's page or a story panel.
+    real_cover = cover_file(pdir)
+    if real_cover:
+        anchors = [os.path.relpath(real_cover, pdir)] + [a for a in anchors if a != os.path.relpath(real_cover, pdir)]
+    if real_cover:
         plans.append(("Cover art + chapter number", "cover-badge", panels[0], False,
                       "The series cover with just the chapter number on it \u2014 "
                       "the same image every chapter, so a playlist reads as one "
                       "series and only the number changes."))
     k = len(DESIGN_POOL)
     picks = [DESIGN_POOL[(round_ * 3 + i) % k] for i in range(k)]
+    if not real_cover:
+        picks = [p for p in picks if p[1] != "cover-frame"]       # needs the real cover too
     if not anchors:
         picks = [p for p in picks if p[1] not in ("anchor-split", "cover-frame")]
-    want = 3 if anchors else 4
+    want = 3 if real_cover else 4
     for di, (name, composition, use_text, why) in enumerate(picks[:want]):
         panel = panels[min(di, len(panels) - 1)]
         if composition == "clean":
@@ -778,10 +792,13 @@ def render_concept(pdir, concept, style, out_path, width=W):
         except Exception:
             return False
 
-    if comp == "cover-badge" and anchor and os.path.exists(anchor):
-        # The cover fills the frame; the number is the only thing added.
-        if not place(anchor, (0, 0, width, height)):
-            place(focal, (0, 0, width, height))
+    if comp == "cover-badge":
+        # The cover fills the frame; the number is the only thing added. QA:
+        # never fall back to a story panel under the name "Cover art" (the
+        # 2026-10-06 bug) — no real cover, no cover design.
+        if not (anchor and os.path.exists(anchor) and COVER_NAME in os.path.basename(anchor)
+                and place(anchor, (0, 0, width, height))):
+            raise ValueError("no series cover for this chapter — the Cover art design can't be made")
     elif comp == "anchor-split" and anchor and os.path.exists(anchor):
         split = int(width * 0.42)
         place(anchor, (0, 0, split, height))

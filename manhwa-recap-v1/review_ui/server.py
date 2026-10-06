@@ -1276,6 +1276,40 @@ def api_thumbcopilot(project: str = "", name: str = ""):
     return _thumb_state(pdir, name)
 
 
+def _ensure_project_cover(pdir):
+    """Put the series' real cover (the one Library shows) into this chapter as
+    pages/_cover.<ext>, so "Cover art + chapter number" is the actual cover
+    (owner, 2026-10-06: Extra's Academy ch.114's "cover" was a story panel —
+    the chapter had no cover file and the design silently drew a panel).
+    Returns the path, or "" when the series has no cover."""
+    import glob as _g
+    import shutil as _sh
+    import thumbnail_studio as tstudio
+    have = _g.glob(os.path.join(pdir, "pages", tstudio.COVER_NAME + ".*"))
+    if have:
+        return have[0]
+    try:
+        import watchlist as _wl
+        meta = _read_json(os.path.join(pdir, "project.json"))
+        sx, _m = _wl.find_by_mirror(_wl.load(_wl_root()), meta.get("url") or "")
+        if not sx:
+            return ""
+        try:
+            api_watchlist_cover(sx["id"])               # fetches and caches it if needed
+        except HTTPException:
+            return ""
+        for ext in ("jpg", "png", "webp"):
+            src = os.path.join(_wl_root(), "_covers", f"{sx['id']}.{ext}")
+            if os.path.exists(src):
+                os.makedirs(os.path.join(pdir, "pages"), exist_ok=True)
+                dst = os.path.join(pdir, "pages", f"{tstudio.COVER_NAME}.{ext}")
+                _sh.copyfile(src, dst)
+                return dst
+    except Exception:
+        return ""
+    return ""
+
+
 @app.post("/api/thumbcopilot/generate")
 def api_thumbcopilot_generate(body: ThumbGenIn):
     """Concepts for this chapter, built on the series' approved style.
@@ -1289,6 +1323,7 @@ def api_thumbcopilot_generate(body: ThumbGenIn):
     name = os.path.basename(body.name or "")
     if not name:
         raise HTTPException(400, "which export are these concepts for?")
+    _ensure_project_cover(pdir)
     meta = _read_json(os.path.join(pdir, "project.json"))
     key, style = tstudio.ensure_style(_yt_root(), pdir, meta, force=body.new_style)
     if body.composition and body.composition in tstudio.COMPOSITIONS:
@@ -1396,11 +1431,22 @@ def _rerender_chosen_thumbnails():
         pdir = os.path.join(_i.PROJECTS, pid)
         if pid.startswith("_") or not os.path.isdir(os.path.join(pdir, "exports")):
             continue
-        for name, rec in (tstudio.load_concepts(pdir) or {}).items():
+        _ensure_project_cover(pdir)
+        for name, rec in list((tstudio.load_concepts(pdir) or {}).items()):
             cid = ((rec or {}).get("chosen") or {}).get("concept_id")
             if not cid or not os.path.exists(os.path.join(pdir, "exports", name)):
                 continue
+            chosen = next((c for c in rec.get("concepts") or [] if c.get("id") == cid), {})
             try:
+                if chosen.get("composition") == "cover-badge" and tstudio.COVER_NAME not in (chosen.get("anchor_image") or ""):
+                    # the old "cover" was a panel: rebuild the options so the
+                    # cover design uses the real cover, and pick that
+                    api_thumbcopilot_generate(ThumbGenIn(project=pid, name=name))
+                    cs = (tstudio.get_concepts(pdir, name) or {}).get("concepts") or []
+                    cid = next((c["id"] for c in cs if c.get("composition") == "cover-badge"), None)
+                    if not cid:
+                        skipped += 1
+                        continue
                 api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=cid))
                 n += 1
             except Exception:  # noqa
@@ -1441,7 +1487,10 @@ def api_thumbcopilot_apply(body: ThumbApplyIn):
     key = tstudio.series_key(_read_json(os.path.join(pdir, "project.json")))
     style = tstudio.load_style(_yt_root(), key)
     tmp = os.path.join(pdir, "exports", "_thumbs", "apply_%s.jpg" % body.concept_id)
-    tstudio.render_concept(pdir, c, style, tmp)
+    try:
+        tstudio.render_concept(pdir, c, style, tmp)
+    except ValueError as e:                    # QA refused it (e.g. no real cover)
+        raise HTTPException(409, str(e))
     with open(tmp, "rb") as f:
         data = f.read()
     try:
