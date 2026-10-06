@@ -5,7 +5,7 @@ import { api, useApi } from "@/lib/api";
 import { enc, when } from "@/lib/fmt";
 import PasteBox from "@/components/PasteBox";
 import AllChapters from "@/components/AllChapters";
-import MakeNext from "@/components/MakeNext";
+import ScheduledList from "@/components/ScheduledList";
 import { Busy, Card, Chips, ConfirmButton, Empty, PageHead, Pill, StatusPill, Tabs, useAct } from "@/components/ui";
 
 const TIERS: [string, string][] = [["greenlight", "Make now"], ["high_upside", "Next up"], ["watchlist", "Watching"]];
@@ -21,9 +21,9 @@ export default function Library() {
   const ap = useApi<any>("/api/autopilot", 20000);
   const [f, setF] = useState<F>("all");
   const [q, setQ] = useState("");
-  const [view, setView] = useState<"series" | "chapters">("series");
+  const [view, setView] = useState<"series" | "chapters" | "scheduled">("series");
   const act = useAct();
-  useEffect(() => { try { if (new URLSearchParams(location.search).get("view") === "chapters") setView("chapters"); } catch {} }, []);
+  useEffect(() => { try { const v = new URLSearchParams(location.search).get("view"); if (v === "chapters" || v === "scheduled") setView(v); } catch {} }, []);
   const series: any[] = data?.series || [];
   const needs = (s: any) => ["to_review", "video_ready", "failed", "waiting"].some((k) => s.counts?.[k]);
   const shown = useMemo(() => series.filter((s) =>
@@ -35,15 +35,15 @@ export default function Library() {
       <PageHead title="Library" sub="Every series you track, with its chapters. Autopilot makes the next chapter of each series in turn." />
       <PasteBox onDone={reload} />
       <div className="spread">
-        <Tabs value={view} onChange={setView} tabs={[["series", "Series"], ["chapters", "All chapters"]]} />
+        <Tabs value={view} onChange={setView} tabs={[["series", "Series"], ["chapters", "All chapters"],
+          ["scheduled", `Scheduled for processing${ap.data?.priority?.length ? ` (${ap.data.priority.length})` : ""}`]]} />
         <div className="row">
           <AddTitle onDone={reload} />
           <Busy className="sm" title="re-read every series page for new chapters, dates and covers (free)" onClick={() => act(async () => { await api("/api/watchlist/refresh_all", {}); reload(); }, "Every series checked")}>↻ Check all series</Busy>
           <Busy className="sm" title="YouTube recap demand for every series (free; runs weekly by itself)" onClick={() => act(async () => { await api("/api/demand/run", {}); }, "Checking demand — about a minute")}>📈 Check demand</Busy>
         </div>
       </div>
-      {view === "chapters" ? <AllChapters /> : <>
-      <MakeNext ap={ap.data} reload={ap.reload} />
+      {view === "chapters" ? <AllChapters /> : view === "scheduled" ? <ScheduledList ap={ap.data} reload={ap.reload} /> : <>
       <div className="spread">
         <Chips<F> value={f} onChange={setF} items={[["all", `All (${n("all")})`], ["needs", `Needs you (${n("needs")})`],
           ["greenlight", `Make now (${n("greenlight")})`], ["high_upside", `Next up (${n("high_upside")})`],
@@ -144,15 +144,15 @@ function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; 
     const chapters = [...tick].sort((a, b) => parseFloat(a) - parseFloat(b));
     await api("/api/autopilot/priority", { action: "add", series_id: s.id, chapters });
     setTick([]); onPrio();
-  }, `Added ${tick.length} to Make next`);
+  }, `Scheduled ${tick.length} for processing`);
   const made: Record<string, any> = {};
   for (const r of s.chapters || []) made[String(r.chapter)] = r;
   const list: any[] = src.data?.chapters || [];
   return (
     <div style={{ borderTop: "1px solid var(--border)" }}>
       <div className="spread" style={{ padding: "8px 14px", borderBottom: "1px solid var(--border)" }}>
-        <span className="small muted">Tick chapters, then add them to <b>Make next</b>: autopilot makes them first, in order.</span>
-        <button className="sm primary" disabled={!tick.length} onClick={addTicked}>＋ Add to Make next ({tick.length})</button>
+        <span className="small muted">Tick chapters, then schedule them: autopilot makes them first, in order (see the <b>Scheduled for processing</b> tab).</span>
+        <button className="sm primary" disabled={!tick.length} onClick={addTicked}>＋ Schedule for processing ({tick.length})</button>
       </div>
       <div className="list" style={{ maxHeight: 420, overflowY: "auto" }}>
         {(s.chapters || []).filter((r: any) => !list.some((c) => String(c.ch) === String(r.chapter))).map((r: any) => (
@@ -166,7 +166,7 @@ function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; 
                 {place(c.ch) < 0 && <input type="checkbox" aria-label={`Tick ch.${c.ch}`} checked={tick.includes(String(c.ch))}
                   onChange={(e) => setTick(e.target.checked ? [...tick, String(c.ch)] : tick.filter((x) => x !== String(c.ch)))} />}
                 <b>Ch.{c.ch}</b><span className="small muted">{c.date || ""}</span>
-                {place(c.ch) >= 0 ? <Pill tone="info">Make next #{place(c.ch) + 1}</Pill> : <StatusPill s={{ key: "found", label: "Not made", tone: "muted" }} />}</div>
+                {place(c.ch) >= 0 ? <Pill tone="info">Scheduled #{place(c.ch) + 1}</Pill> : <StatusPill s={{ key: "found", label: "Not made", tone: "muted" }} />}</div>
               <div className="row">
                 <ConfirmButton className="sm" confirm="Make it? (~$0.50)" onConfirm={() => act(async () => { await api("/api/autopilot/run", { series_id: s.id, chapter: String(c.ch) }); reload(); }, `Making ch.${c.ch}`)}>Make</ConfirmButton>
                 <ConfirmButton className="sm ghost" confirm={`Plan from ch.${c.ch}?`} title="autopilot makes this chapter and every one after it, in order"

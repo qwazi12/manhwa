@@ -45,7 +45,7 @@ function Frame({ children }: { children: ReactNode }) {
     ["/", "Home", "Paste a link · what needs you", needN, needN > 0],
     [last ? `/chapter/${last.id}` : "/library?view=chapters", "Board", last ? last.title : "Open a chapter to check it", null, false],
     ["/library", "Library", "Series and chapters", h?.n_series ?? null, false],
-    ["/upcoming", "Upcoming", "What autopilot makes next, in order", h?.make_next || null, false],
+    ["/upcoming", "Upcoming", "Being made, scheduled, then autopilot", h?.make_next || null, false],
     ["/queue", "Queue", h?.queue?.schedule_on ? `Next post ${h.queue.next_post || "—"}` : "Review, scheduled, posted",
       (c.video_ready || 0) + (h?.queue?.scheduled || 0), (c.video_ready || 0) > 0],
     ["/activity", "Activity", "Live, jobs, spend", h?.jobs?.length || null, (h?.jobs?.length || 0) > 0],

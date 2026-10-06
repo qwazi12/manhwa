@@ -9067,3 +9067,12 @@ Plan page: https://claude.ai/artifact/GcD1LpeugZuBArDhN5kGKF
 6. Export speed: find why exports say 1.0x while the setting is 1.1.
 7. Explain to the owner: how ratings are computed, what research feeds SEO (now), and the push timing.
 - **Push policy note:** autopilot runs nearly continuously now (20/day), so "idle" may rarely happen. Interrupted ingests resume on boot from cached stages. Ask the owner once whether pushing mid-chapter is acceptable.
+- **Step 3 done (local commit): Library → "Scheduled for processing" tab.** The owner asked for the name "Up Scheduled For Processing"; I used "Scheduled for processing" and will say so.
+  - New `components/ScheduledList.tsx`:
+    - **By series:** one card per series with its cover, the chapters as chips with their overall #position and expected day; ↑ ↓, drag, ⤒ (whole series next) and ✕ (whole series), plus ✕ per chapter.
+    - **In order:** the exact sequence with small covers, drag, ↑ ↓ ⤒ ✕.
+    - **🔀 Mix ▾** like Scrapper: Round-robin (recommended), By series, Random. Every mode keeps each series' chapters in story order.
+    - **↶ Undo** (one step) and Clear.
+  - Backend `autopilot.mix()`; `priority_edit` gains mix(mode), undo (snapshot in `settings.priority_prev`, taken before mix, clear, set, group_top and group_remove), group_top and group_remove. API `mode` field; the response includes `can_undo`.
+  - The Library Series view no longer has the Make next card (now the tab). The Upcoming page uses the same grouped list. User-facing wording changed: "Schedule for processing", "Scheduled #n", Home tile → `/library?view=scheduled`.
+  - Tests: `test_autopilot_priority` 24/24 (mix modes keep story order, undo, groups); `test_autopilot` 50/50. `next build` ok.

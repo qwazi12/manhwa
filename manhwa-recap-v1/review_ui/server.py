@@ -6631,6 +6631,7 @@ class PriorityIn(BaseModel):
     series_id: str = ""
     chapters: list[str] = []
     order: list[dict] = []        # for "set": [{series_id, chapter}, ...]
+    mode: str = "round_robin"     # for "mix": round_robin | by_series | random
 
 
 @app.post("/api/autopilot/priority")
@@ -6639,12 +6640,12 @@ def autopilot_priority(body: PriorityIn):
     (owner, 2026-10-05). Returns the list with each entry's state."""
     try:
         _autopilot.priority_edit(_ingest_mod.PROJECTS, body.action, body.series_id,
-                                 body.chapters, body.order)
+                                 body.chapters, body.order, body.mode)
     except ValueError as e:
         raise HTTPException(400, str(e))
     st = _autopilot.status(_ingest_mod.PROJECTS, _ap_deps())
     return {"ok": True, "priority": st["priority"], "next": st["next"], "waiting": st["waiting"],
-            "enabled": st["enabled"]}
+            "enabled": st["enabled"], "can_undo": st["settings"].get("priority_prev") is not None}
 
 
 class AutopilotRunIn(BaseModel):

@@ -3,7 +3,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { api, useApi } from "@/lib/api";
 import { money } from "@/lib/fmt";
-import { Busy, Card, ConfirmButton, Empty, PageHead, Pill, useAct } from "@/components/ui";
+import { Busy, Card, Empty, PageHead, Pill, useAct } from "@/components/ui";
+import ScheduledList from "@/components/ScheduledList";
 
 const TONE: Record<string, string> = { ready: "ok", running: "info", waiting: "warn", blocked: "bad", no_source: "bad" };
 const WORD: Record<string, string> = { ready: "ready", running: "being made", waiting: "waiting", blocked: "needs you", no_source: "no source" };
@@ -71,36 +72,7 @@ export default function Upcoming() {
         </div>
       </Card>
 
-      <Card pad={false} title={`Your Make next list (${list.length})`}
-        right={list.length > 0 && <ConfirmButton className="sm ghost" confirm="Clear your list?" onConfirm={() => edit({ action: "clear" }, "List cleared")}>Clear</ConfirmButton>}>
-        <div style={{ padding: "8px 14px", borderBottom: "1px solid var(--border)" }} className="small muted">
-          Made first, top to bottom. Drag a row (or use ↑ ↓ ⤒) to change the order. Add chapters from Library → a series → Chapters, or pin them from the list below.
-        </div>
-        <div className="list">
-          {list.length === 0 ? <Empty>Your list is empty — autopilot takes turns across series (below).</Empty> : list.map((r, i) => (
-            <div className="it" key={`${r.series_id}|${r.chapter}`} draggable
-              onDragStart={() => setDrag(i)} onDragOver={(e) => { e.preventDefault(); setOver(i); }}
-              onDragEnd={() => { setDrag(null); setOver(null); }}
-              onDrop={(e) => { e.preventDefault(); if (drag != null) move(drag, i); setDrag(null); setOver(null); }}
-              style={{ cursor: "grab", outline: over === i && drag !== i ? "2px dashed var(--accent)" : undefined, opacity: drag === i ? 0.5 : 1 }}>
-              <div className="row" style={{ minWidth: 0, flex: 1 }}>
-                <span className="faint" aria-hidden>⋮⋮</span>
-                <span className="num faint" style={{ minWidth: 22 }}>{i + 1}</span>
-                <b>{r.title} ch.{r.chapter}</b>
-                <Pill tone={TONE[r.state] || "muted"}>{WORD[r.state] || r.state}</Pill>
-                {dayWord(dayOf(r)) && r.state === "ready" && <span className="small muted">{dayWord(dayOf(r))}</span>}
-                {r.reason && <span className="small muted">{r.reason}</span>}
-              </div>
-              <div className="row">
-                <button className="sm ghost" aria-label="Move up" disabled={i === 0} onClick={() => move(i, i - 1)}>↑</button>
-                <button className="sm ghost" aria-label="Move down" disabled={i === list.length - 1} onClick={() => move(i, i + 1)}>↓</button>
-                {i > 0 && <Busy className="sm ghost" title="make it next" onClick={() => edit({ action: "top", series_id: r.series_id, chapters: [r.chapter] })}>⤒</Busy>}
-                <Busy className="sm ghost" aria-label="Remove" onClick={() => edit({ action: "remove", series_id: r.series_id, chapters: [r.chapter] }, "Removed from your list")}>✕</Busy>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
+      <ScheduledList ap={d} reload={ap.reload} />
 
       <Card pad={false} title={`Then autopilot takes these (${after.length} shown)`}>
         <div style={{ padding: "8px 14px", borderBottom: "1px solid var(--border)" }} className="small muted">

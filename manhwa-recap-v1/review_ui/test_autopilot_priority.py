@@ -90,6 +90,29 @@ def main():
           == [("charlie", "2", "make_next"), ("alpha", "8", "round_robin"), ("bravo", "3", "round_robin"), ("alpha", "9", "round_robin")])
     check("forecast gives each one a day from the chapters-a-day limit", [x["day"] for x in f[:4]] == [0, 0, 1, 1])
     check("a pinned chapter isn't listed twice", sum(1 for x in f if (x["series_id"], x["chapter"]) == ("charlie", "2")) == 1)
+    # Mix (Scrapper-style) + undo + groups
+    import random
+    root3 = tempfile.mkdtemp(prefix="apm_")
+    ap.priority_edit(root3, "add", "alpha", ["8", "9", "10"])
+    ap.priority_edit(root3, "add", "bravo", ["3", "4"])
+    ap.priority_edit(root3, "add", "charlie", ["1"])
+    before = [(e["series_id"], e["chapter"]) for e in ap.settings(root3)["priority"]]
+    ap.priority_edit(root3, "mix", mode="round_robin")
+    after = [(e["series_id"], e["chapter"]) for e in ap.settings(root3)["priority"]]
+    firsts = {sid for sid, _ in after[:3]}
+    check("round-robin mix: one chapter from each series in turn", firsts == {"alpha", "bravo", "charlie"})
+    check("...each series stays in story order", [c for s_, c in after if s_ == "alpha"] == ["8", "9", "10"])
+    ap.priority_edit(root3, "undo")
+    check("Undo restores the order before the mix", [(e["series_id"], e["chapter"]) for e in ap.settings(root3)["priority"]] == before)
+    m = ap.mix([{"series_id": "a", "chapter": c} for c in ("1", "2", "3")] + [{"series_id": "b", "chapter": c} for c in ("7", "8")],
+               "random", random.Random(3))
+    check("random mix keeps story order within a series", [e["chapter"] for e in m if e["series_id"] == "a"] == ["1", "2", "3"])
+    m = ap.mix([{"series_id": "a", "chapter": "1"}, {"series_id": "b", "chapter": "7"}, {"series_id": "a", "chapter": "2"}], "by_series", random.Random(1))
+    check("by-series mix keeps each series together", [e["series_id"] for e in m] in (["a", "a", "b"], ["b", "a", "a"]))
+    ap.priority_edit(root3, "group_top", "charlie")
+    check("move a whole series to the top", ap.settings(root3)["priority"][0]["series_id"] == "charlie")
+    ap.priority_edit(root3, "group_remove", "alpha")
+    check("remove a whole series", all(e["series_id"] != "alpha" for e in ap.settings(root3)["priority"]))
     try:
         ap.priority_edit(root, "nope")
         check("unknown action refused", False)

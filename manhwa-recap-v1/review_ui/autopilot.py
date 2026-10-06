@@ -133,11 +133,15 @@ def save(root, st):
 
 _SAY = {
     "chapter_queued": lambda f: (f"picked {f.get('series')} ch.{f.get('chapter')} ({f.get('why') or 'round robin'})", "info"),
-    "priority_add": lambda f: (f"Make next: added {', '.join('ch.' + str(c) for c in f.get('chapters') or [])} of {f.get('series')} ({f.get('n')} in the list)", "info"),
-    "priority_remove": lambda f: (f"Make next: removed {', '.join('ch.' + str(c) for c in f.get('chapters') or [])} of {f.get('series')}", "info"),
-    "priority_top": lambda f: (f"Make next: moved {f.get('series')} ch.{(f.get('chapters') or [''])[0]} to the top", "info"),
-    "priority_set": lambda f: ("Make next: order changed", "info"),
-    "priority_clear": lambda f: ("Make next: list cleared", "info"),
+    "priority_add": lambda f: (f"Scheduled for processing: added {', '.join('ch.' + str(c) for c in f.get('chapters') or [])} of {f.get('series')} ({f.get('n')} in the list)", "info"),
+    "priority_remove": lambda f: (f"Scheduled for processing: removed {', '.join('ch.' + str(c) for c in f.get('chapters') or [])} of {f.get('series')}", "info"),
+    "priority_top": lambda f: (f"Scheduled for processing: moved {f.get('series')} ch.{(f.get('chapters') or [''])[0]} to the top", "info"),
+    "priority_set": lambda f: ("Scheduled for processing: order changed", "info"),
+    "priority_clear": lambda f: ("Scheduled for processing: list cleared", "info"),
+    "priority_mix": lambda f: (f"Scheduled for processing: mixed ({f.get('mode')}, {f.get('n')} chapters)", "info"),
+    "priority_undo": lambda f: ("Scheduled for processing: last change undone", "info"),
+    "priority_group_top": lambda f: (f"Scheduled for processing: {f.get('series')} moved to the top", "info"),
+    "priority_group_remove": lambda f: (f"Scheduled for processing: {f.get('series')} removed", "info"),
     "chapter_requested": lambda f: (f"made on request: {f.get('series')} ch.{f.get('chapter')}", "info"),
     "chapter_done": lambda f: (f"{f.get('key')} done", "ok"),
     "chapter_failed": lambda f: (f"{f.get('key')} failed: {f.get('error')}", "error"),
@@ -406,7 +410,7 @@ def _prio(st):
     return list(st["settings"].get("priority") or [])
 
 
-def priority_edit(root, action, series_id="", chapters=(), order=None):
+def priority_edit(root, action, series_id="", chapters=(), order=None, mode="round_robin"):
     """add (append, in the order given) | remove | top | clear | set (full order).
     Returns the new list."""
     with _lock:
@@ -421,7 +425,7 @@ def priority_edit(root, action, series_id="", chapters=(), order=None):
                     cur.append({"series_id": series_id, "chapter": k[1], "added_at": time.time()})
                     have.add(k)
             if len(cur) > MAX_PRIORITY:
-                raise ValueError(f"the Make next list holds at most {MAX_PRIORITY} chapters")
+                raise ValueError(f"the scheduled list holds at most {MAX_PRIORITY} chapters")
         elif action == "remove":
             drop = {(series_id, norm_chapter(c)) for c in chapters}
             cur = [e for e in cur if keyf(e) not in drop]
@@ -430,17 +434,66 @@ def priority_edit(root, action, series_id="", chapters=(), order=None):
             cur = [e for e in cur if keyf(e) == k] + [e for e in cur if keyf(e) != k]
         elif action == "clear":
             cur = []
+        elif action == "mix":
+            if mode not in ("round_robin", "by_series", "random"):
+                raise ValueError("mix mode must be round_robin, by_series or random")
+            cur = mix(cur, mode)
+        elif action == "undo":
+            prev = st["settings"].get("priority_prev")
+            if prev is None:
+                raise ValueError("nothing to undo")
+            cur, prev_now = prev, cur
+        elif action == "group_top":
+            cur = [e for e in cur if e["series_id"] == series_id] + [e for e in cur if e["series_id"] != series_id]
+        elif action == "group_remove":
+            cur = [e for e in cur if e["series_id"] != series_id]
         elif action == "set":
             by = {keyf(e): e for e in cur}
             new = [by[(o["series_id"], norm_chapter(o["chapter"]))] for o in (order or [])
                    if (o.get("series_id"), norm_chapter(o.get("chapter"))) in by]
             cur = new + [e for e in cur if e not in new]
         else:
-            raise ValueError("action must be add, remove, top, clear or set")
+            raise ValueError("action must be add, remove, top, clear, set, mix, undo, group_top or group_remove")
+        if action in ("mix", "clear", "set", "group_top", "group_remove"):
+            st["settings"]["priority_prev"] = _prio(st)       # one step of Undo
+        elif action == "undo":
+            st["settings"]["priority_prev"] = prev_now
         st["settings"]["priority"] = cur
         save(root, st)
-    audit("priority_" + action, series=series_id, chapters=list(chapters), n=len(cur))
+    audit("priority_" + action, series=series_id, chapters=list(chapters), n=len(cur), mode=mode)
     return cur
+
+
+def mix(entries, mode="round_robin", rnd=None):
+    """Scrapper's Mix & Shuffle, for chapters (owner, 2026-10-05).
+    round_robin: one chapter from each series in turn, series in random order,
+                 each series' chapters kept in STORY order (never chapter 5 before 4);
+    by_series:   all of one series, then the next (series order shuffled);
+    random:      a full shuffle, then each series' chapters put back in story
+                 order in the slots that series landed on."""
+    import random
+    r = rnd or random.Random()
+    by = {}
+    for e in entries:
+        by.setdefault(e["series_id"], []).append(e)
+    for v in by.values():
+        v.sort(key=lambda e: chap_key(e["chapter"]))
+    series = list(by)
+    r.shuffle(series)
+    if mode == "by_series":
+        return [e for sid in series for e in by[sid]]
+    if mode == "random":
+        slots = [e["series_id"] for e in entries]
+        r.shuffle(slots)
+        it = {sid: iter(v) for sid, v in by.items()}
+        return [next(it[sid]) for sid in slots]
+    out, i = [], 0
+    while len(out) < len(entries):
+        for sid in series:
+            if i < len(by[sid]):
+                out.append(by[sid][i])
+        i += 1
+    return out
 
 
 def priority_rows(st, series_view, canon, live_projects=(), now=None):
@@ -611,8 +664,8 @@ def tick(root, deps, now=None):
                       job=job, source="autopilot", url=url)
     started = {"series": p["title"], "chapter": p["next"], "job": job, "project": pid, "at": now}
     runtime["last_started"] = started
-    runtime["last_result"] = f"started {p['title']} ch.{p['next']}" + (" (Make next list)" if p.get("priority") else "")
-    audit("chapter_queued", **started, why="your Make next list" if p.get("priority") else "round robin")
+    runtime["last_result"] = f"started {p['title']} ch.{p['next']}" + (" (your scheduled list)" if p.get("priority") else "")
+    audit("chapter_queued", **started, why="your scheduled list" if p.get("priority") else "round robin")
     return started
 
 
