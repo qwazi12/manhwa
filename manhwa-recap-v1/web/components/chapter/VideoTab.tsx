@@ -42,6 +42,28 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
   const prep = useRef<{ asked: boolean; started: number }>({ asked: false, started: 0 });
   const [preparing, setPreparing] = useState(false);
   const [seoRun, setSeoRun] = useState<any>(null);
+  const [seoLive, setSeoLive] = useState<any>(null);
+  // Poll a 🔎 SEO run: on open (one may be running already) and every 1.5 s
+  // while it runs; when it ends, show what it did and the filled-in fields.
+  useEffect(() => {
+    if (draft || !name) return;
+    let stop = false, timer: any = null;
+    const tick = async () => {
+      try {
+        const st = await api(`/api/seo/run/status?project=${enc(id)}&name=${enc(name)}`);
+        if (stop) return;
+        if (st?.status === "running") { setSeoLive(st); timer = setTimeout(tick, 1500); return; }
+        if (st?.status === "done" && (seoLive === null || seoLive?.status === "running")) {
+          setSeoRun({ ...(st.result || {}), elapsed: st.elapsed, steps: st.steps });
+          if (st.result?.metadata) setMd(st.result.metadata);
+          pub.reload();
+        }
+        setSeoLive(st);
+      } catch { /* the next click retries */ }
+    };
+    if (seoLive === null || seoLive?.status === "running") tick();
+    return () => { stop = true; if (timer) clearTimeout(timer); };
+  }, [id, name, seoLive?.status]);
   useEffect(() => {
     const d = pub.data;
     if (draft || !d || d.missing) return;
@@ -177,13 +199,21 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
         <Card title="What gets published" right={!draft ? <ConfirmButton className="sm primary"
             confirm="Run live SEO? It researches the series on the web, re-reads your channel's latest uploads and searches YouTube, then REPLACES the title, description and tags. Costs a few cents."
             onConfirm={() => act(async () => {
-              const r = await api("/api/seo/run", { project: id, name });
-              if (r?.metadata) setMd(r.metadata);
-              setSeoRun(r); pub.reload();
-            }, "SEO done — title, description and tags filled in")}>🔎 SEO</ConfirmButton> : undefined}>
+              setSeoRun(null);
+              setSeoLive(await api("/api/seo/run/start", { project: id, name }));
+            }, "SEO started — progress shows below")}>{seoLive?.status === "running" ? "🔎 SEO…" : "🔎 SEO"}</ConfirmButton> : undefined}>
+          {seoLive?.status === "running" && (
+            <div className="banner info small" style={{ display: "grid", gap: 2 }}>
+              <b>🔎 SEO running · {Math.round(seoLive.elapsed)}s — usually about a minute</b>
+              {(seoLive.steps || []).map((x: any, i: number) => <span key={i}>✓ {x.step} ({x.secs}s)</span>)}
+              {seoLive.stage && <span>⏳ {seoLive.stage}… {Math.round(seoLive.stage_secs || 0)}s</span>}
+              <span className="faint">You can leave this page; it keeps going and the result shows here when you come back.</span>
+            </div>
+          )}
+          {seoLive?.status === "error" && <div className="banner warn small"><b>SEO didn’t finish:</b> {seoLive.error}</div>}
           {seoRun && (
             <div className="banner info small" style={{ display: "grid", gap: 2 }}>
-              <b>Live SEO filled in: {(seoRun.filled || []).join(", ") || "nothing"}{Object.keys(seoRun.failed || {}).length ? ` · not filled: ${Object.entries(seoRun.failed).map(([k, v]: any) => `${k} (${v})`).join("; ")}` : ""}</b>
+              <b>Live SEO done{seoRun.elapsed ? ` in ${Math.round(seoRun.elapsed)}s` : ""} — filled in: {(seoRun.filled || []).join(", ") || "nothing"}{Object.keys(seoRun.failed || {}).length ? ` · not filled: ${Object.entries(seoRun.failed).map(([k, v]: any) => `${k} (${v})`).join("; ")}` : ""}</b>
               {Object.entries(seoRun.ran || {}).map(([k, x]: any) => (
                 <span key={k}>{x.error ? "⚠" : "✓"} {x.label}: {x.detail || "—"}{x.error ? ` — ${x.error}` : ""}</span>
               ))}

@@ -1812,7 +1812,9 @@ def api_seo_generate(body: SeoGenIn):
     if not name:
         raise HTTPException(400, "which export are these suggestions for?")
 
+    _seo_stage(pdir, name, "reading the chapter")
     card = _seo.truth_card(pdir)                     # 1. project truth FIRST
+    _seo_stage(pdir, name, "web research (Google)")
     # 2. web research about the series (Google-grounded, sourced, cached a week)
     web, web_err = None, None
     try:
@@ -1836,6 +1838,7 @@ def api_seo_generate(body: SeoGenIn):
                                 or card.get("series") or "")
     except Exception:
         pass
+    _seo_stage(pdir, name, "your channel's uploads + YouTube searches")
     style, res = {"titles": {"samples": 0}, "descriptions": {"samples": 0,
                                                              "top_hashtags": []}}, {}
     quota = 0
@@ -1848,6 +1851,7 @@ def api_seo_generate(body: SeoGenIn):
         res = {"ok": False, "error": "no YouTube API key configured",
                "n": 0, "patterns": {}, "top": []}
 
+    _seo_stage(pdir, name, "writing the title, description and tags")
     try:
         out = _seo.generate(pdir, name, card, style, res, usage=usage)
     except usage.UsageCapExceeded:
@@ -1915,6 +1919,65 @@ def api_seo_generate(body: SeoGenIn):
     return _seo_state(pdir, name)
 
 
+_SEO_RUNS = {}          # (project dir, export) -> live progress of a 🔎 SEO run
+
+
+def _seo_stage(pdir, name, stage):
+    r = _SEO_RUNS.get((pdir, name))
+    if r is not None and r.get("status") == "running":
+        if r.get("stage"):
+            r["steps"].append({"step": r["stage"], "secs": round(time.time() - r["stage_at"], 1)})
+        r["stage"], r["stage_at"] = stage, time.time()
+
+
+@app.post("/api/seo/run/start")
+def api_seo_run_start(body: SeoGenIn):
+    """Start a 🔎 SEO run in the background and return at once; the page polls
+    /api/seo/run/status, which shows each step and how long it took (owner,
+    2026-10-06: "how long does it take and how do I know it's working")."""
+    import threading
+    pdir = project_dir_for(body.project)
+    name = os.path.basename(body.name or "")
+    if not name:
+        raise HTTPException(400, "which video is this for?")
+    key = (pdir, name)
+    if (_SEO_RUNS.get(key) or {}).get("status") == "running":
+        return {"ok": True, "already": True, **_seo_run_view(key)}
+    _SEO_RUNS[key] = {"status": "running", "started": time.time(), "stage": None, "stage_at": time.time(),
+                      "steps": [], "result": None, "error": None}
+
+    def go():
+        r = _SEO_RUNS[key]
+        try:
+            res = api_seo_run(body)
+            _seo_stage(pdir, name, None)
+            r.update(status="done", result={k: res.get(k) for k in ("filled", "failed", "ran", "problems", "metadata")})
+        except usage.UsageCapExceeded as e:
+            r.update(status="error", error="today's spend limit is used up — " + str(e)[:160])
+        except HTTPException as e:
+            r.update(status="error", error=str(e.detail)[:300])
+        except Exception as e:  # noqa
+            r.update(status="error", error=str(e)[:300])
+        r["ended"] = time.time()
+    threading.Thread(target=go, daemon=True).start()
+    return {"ok": True, **_seo_run_view(key)}
+
+
+def _seo_run_view(key):
+    r = _SEO_RUNS.get(key)
+    if not r:
+        return {"status": "none"}
+    end = r.get("ended") or time.time()
+    return {"status": r["status"], "stage": r.get("stage"), "elapsed": round(end - r["started"], 1),
+            "stage_secs": round(time.time() - r["stage_at"], 1) if r["status"] == "running" else None,
+            "steps": r["steps"], "result": r.get("result"), "error": r.get("error")}
+
+
+@app.get("/api/seo/run/status")
+def api_seo_run_status(project: str, name: str):
+    return _seo_run_view((project_dir_for(project), os.path.basename(name)))
+
+
 @app.post("/api/seo/run")
 def api_seo_run(body: SeoGenIn):
     """The one-click SEO (owner, 2026-10-06: "a button called SEO … to get real
@@ -1929,6 +1992,7 @@ def api_seo_run(body: SeoGenIn):
     if not name:
         raise HTTPException(400, "which video is this for?")
     api_seo_generate(SeoGenIn(project=body.project, name=name, refresh_style=True))
+    _seo_stage(pdir, name, "filling in what gets published")
     filled, failed = [], {}
     for field in ("title", "description", "tags"):
         try:

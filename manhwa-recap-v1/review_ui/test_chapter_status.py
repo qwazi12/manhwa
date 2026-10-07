@@ -36,6 +36,12 @@ def main():
     check("archived wins", D({"archived": {"x": 1}, "posted": True})["key"] == "archived")
     check("a board rebuilt after the last video needs checking again (even if posted/archived)",
           D({"has_board": True, "has_video": True, "board_newer": True, "posted": True, "archived": {"x": 1}})["key"] == "to_review")
+    # owner, 2026-10-06 (ch.358): on the Posting schedule -> never "Check the board"
+    v = D({"has_board": True, "has_video": True, "board_newer": True, "scheduled": True})
+    check("a queued video stays Scheduled even if its board changed later (not Needs you)",
+          v["key"] == "scheduled" and "board changed" in v.get("note", ""))
+    check("...and one being uploaded stays Posting",
+          D({"has_board": True, "has_video": True, "board_newer": True, "posting": True})["key"] == "posting")
     check("...but not while it's still being made",
           D({"has_board": True, "board_newer": True, "ingest_status": "running"})["key"] == "making")
     check("every status has a label, tone and plain hint",

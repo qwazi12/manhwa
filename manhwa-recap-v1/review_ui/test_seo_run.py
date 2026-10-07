@@ -55,3 +55,45 @@ def test_seo_button_researches_then_fills_title_description_and_tags(tmp_path, m
     assert r["ran"]["web"]["detail"] == "7 sources" and r["problems"] == []
     saved = json.loads((d / "publish.json").read_text())["final_31.mp4"]
     assert saved["title"] == md["title"]                     # persisted, not just returned
+
+
+def test_seo_run_in_background_reports_steps_and_time(tmp_path, monkeypatch):
+    import time
+    import ingest as ing
+    import server as srv
+    import seo as _seo
+    ing.PROJECTS = str(tmp_path)
+    pid = "murim-psychopath_45"
+    d = tmp_path / pid
+    (d / "exports").mkdir(parents=True)
+    (d / "exports" / "f.mp4").write_bytes(b"\0")
+    (d / "project.json").write_text('{"series": "Murim Psychopath", "chapter": "45"}')
+
+    def slow_generate(body):
+        pdir = str(d)
+        srv._seo_stage(pdir, body.name, "web research (Google)")
+        time.sleep(0.3)
+        srv._seo_stage(pdir, body.name, "writing the title, description and tags")
+        import chapter_title as ct
+        _seo.put(pdir, body.name, {"titles": [{"text": ct.build("He Smiles At The Trap", "Murim Psychopath", "45"),
+                                               "hook": "He Smiles At The Trap", "recommended": True}],
+                                   "summary": "He walks into the trap on purpose.", "description": "x",
+                                   "tags": ["murim"], "hashtags": ["#manhwa"], "sources": {}, "applied": {}})
+    monkeypatch.setattr(srv, "api_seo_generate", slow_generate)
+    st = srv.api_seo_run_start(srv.SeoGenIn(project=pid, name="f.mp4"))
+    assert st["status"] == "running"
+    seen = set()
+    for _ in range(50):
+        st = srv.api_seo_run_status(pid, "f.mp4")
+        if st.get("stage"):
+            seen.add(st["stage"])
+        if st["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert st["status"] == "done", st
+    assert "web research (Google)" in seen                      # progress was visible while it ran
+    steps = [x["step"] for x in st["steps"]]
+    assert steps[:2] == ["web research (Google)", "writing the title, description and tags"]
+    assert st["steps"][0]["secs"] >= 0.25 and st["elapsed"] >= 0.3
+    assert st["result"]["filled"] == ["title", "description", "tags"]
+    assert st["result"]["metadata"]["title"].startswith("He Smiles At The Trap - Murim Psychopath Chapter 45")
