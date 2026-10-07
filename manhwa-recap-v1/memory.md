@@ -9392,3 +9392,16 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
     - `test_chapter_media.py`: 2/2 passed.
     - `test_thumb_spec.py`: 10/10 passed.
     - Next.js production build: clean pass (11/11 pages compiled).
+
+### 2026-10-06 — Owner: "Internal Server Error on ⚡ Save as series defaults"
+- **Cause:** the endpoint (added by the parallel session in 1021bc8/4e4ead3) called `tstudio.get_all_concepts`, which doesn't exist. Reproduced locally: AttributeError → 500. The click crashed before saving, so **no data changed**.
+- **Also found:** with only that fixed, the button would have:
+  - overwritten every chapter of the series (posted and queued too) with this chapter's title (same hook, number swapped) and description;
+  - replaced their tags;
+  - redrawn every series' thumbnails, running the paid face check per chapter.
+- **Fix (864976c):**
+  - `load_concepts`.
+  - Playlist, privacy and channels, plus the series tags MERGED into each chapter's own, go to this series' chapters that haven't posted.
+  - Titles and descriptions are never copied; no title/description templates are saved.
+  - The thumbnail redraw is limited to this series and skips posted videos.
+- **Test:** `test_series_defaults.py`. All suites pass.
