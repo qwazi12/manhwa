@@ -9405,3 +9405,4 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - Titles and descriptions are never copied; no title/description templates are saved.
   - The thumbnail redraw is limited to this series and skips posted videos.
 - **Test:** `test_series_defaults.py`. All suites pass.
+- **Owner, follow-up:** "no, I liked how it was, just needed the button to work." Restored the original behaviour exactly: the title/description templates propagate, tags are replaced, and thumbnails redraw for all series. The only change kept from 864976c is `get_all_concepts` → `load_concepts`. `test_series_defaults.py` now checks the original behaviour (no 500; ch.31 gets "… Chapter 31" from ch.32's title, plus its tags and playlist).
