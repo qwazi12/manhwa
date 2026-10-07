@@ -7860,8 +7860,14 @@ def home_view():
     for r in rows:
         counts[r["status"]["key"]] = counts.get(r["status"]["key"], 0) + 1
     need = []
+    # Owner, 2026-10-06: nothing on the Posting schedule (queued or posting)
+    # appears under Needs you, whatever its board status says.
+    q = _pq.sync(_i.PROJECTS, _pub_status)
+    on_schedule = {x.get("project") for x in q["items"] if x.get("status") in ("queued", "posting")}
     for r in rows:
         k = r["status"]["key"]
+        if r["id"] in on_schedule:
+            continue
         if k in ("to_review", "video_ready", "failed", "waiting"):
             need.append({"kind": k, "id": r["id"], "title": r["title"], "status": r["status"],
                          "series_id": r.get("series_id"), "cover": r.get("cover"), "auto": r.get("auto"),
@@ -7883,7 +7889,6 @@ def home_view():
                          "action": "See the suggestions"})
     except Exception:
         pass
-    q = _pq.sync(_i.PROJECTS, _pub_status)
     sched = _studio.load().get("schedule") or {}
     spent, cap = _ap_deps()["spend"]()
     st = _autopilot.load(_i.PROJECTS)

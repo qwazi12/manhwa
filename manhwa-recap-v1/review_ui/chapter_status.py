@@ -42,6 +42,16 @@ def decide(f):
     """f: {archived, posted, posting, scheduled, approved_video, has_video,
     superseded, rendering, has_board, board_newer, ingest_status, ingest_error}"""
     ist = f.get("ingest_status")
+    # Owner, 2026-10-06: a video on the Posting schedule is never "Needs you".
+    # ch.358 was approved and queued, but its board file was saved after the
+    # video, so the rule below put it back under "Check the board". The queued
+    # video is what posts; the note says the board moved on.
+    if (f.get("scheduled") or f.get("posting")) and not f.get("posted") and not f.get("archived"):
+        v = view("posting" if f.get("posting") else "scheduled")
+        if f.get("board_newer") and f.get("has_board"):
+            v["note"] = ("the board changed after this video — the scheduled video is the one that posts; "
+                         "send it back to review to use the new board")
+        return v
     # a board rebuilt AFTER the last video (a re-run, or a new version of a
     # posted chapter) needs checking again, whatever happened to the old video
     # (2026-10-04: ch.30 was re-run after posting and still said "Archived")

@@ -9337,3 +9337,16 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - `test_thumb_spec.py`: 10/10 passed.
   - `test_chapter_media.py`: 2/2 passed.
   - Next.js web build: clean pass (zero errors).
+
+### 2026-10-06 20:20 ET — Railway Deployment Verification & Error Resolution
+- **Issue reported:** Railway UI showed:
+  `Deployment failed during the initialization process`
+  `Initialization › Snapshot code (00:00) Failed to create code snapshot.`
+- **Diagnosis:**
+  - Deployment `5bf34c91` (commit `1021bc8`) had actually built and succeeded at 20:04:22 ET.
+  - However, a concurrent local CLI upload attempt (`fc13c831` at 20:04:46) had dropped connection (`BadRecordMac` TLS network error) during tarball transmission, causing Railway to initialize an empty deployment shell that failed code snapshotting at 00:00. This left a visible red failure card in the Railway dashboard.
+- **Resolution:**
+  - Ran `railway deployment redeploy -s recap-studio -y --from-source` to trigger a clean deployment from GitHub `origin main`.
+  - Deployment `fc8ddf78-14c6-48bb-8be4-06275644fadc` completed with `SUCCESS` at 20:18:16 ET.
+  - The failed CLI deployment `fc13c831` was automatically purged/removed by Railway.
+  - Live status verified: `● Online`, `https://recap-studio-production.up.railway.app/health` returns `{"status":"ok"}`.
