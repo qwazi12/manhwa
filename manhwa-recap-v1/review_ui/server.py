@@ -1025,19 +1025,25 @@ def _publish_defaults_base(pdir):
     except OSError:
         pass
     title = _ct.build(hook, series, chapter, YT_TITLE_MAX, _studio.title_template()) if series else "Chapter Recap"
+    import series_pack as _sp
+    sid, _, _, _ = _series_ident(pdir)
+    sp = _sp.load(_yt_root(), sid) if sid else None
+    base_tags = [t for t in [series, "recap", "manhwa"] if t]
+    if sp and sp.get("default_tags"):
+        base_tags = list(dict.fromkeys(base_tags + sp["default_tags"]))
     return {
         "title": title[:YT_TITLE_MAX],
         "description": (f"A recap of {series} chapter {chapter}."
                         if series else "A chapter recap."),
-        "tags": [t for t in [series, "recap", "manhwa"] if t],
+        "tags": base_tags,
         "category_id": "1",
         # Owner, 2026-10-04: default channel 🦩 Flamingo Remix (mk:youtube).
         # Privacy is private unless the owner saved "public" in ⚙️ Settings &
         # Channels (studio_settings.py) — never public by omission.
-        "privacy": _studio.publish_defaults().get("privacy", "private"),
-        "targets": list(_studio.publish_defaults().get("targets") or []),
+        "privacy": (sp.get("default_privacy") if sp else None) or _studio.publish_defaults().get("privacy", "private"),
+        "targets": list((sp.get("default_targets") if sp else None) or _studio.publish_defaults().get("targets") or []),
         "publish_at": "",
-        "playlist": series,
+        "playlist": (sp.get("playlist_id") if sp else None) or series,
         "made_for_kids": False,
         # The narration is synthetic speech, so this starts TRUE — YouTube
         # requires disclosure of realistic altered or synthetic content.
@@ -1187,6 +1193,36 @@ class PublishIn(BaseModel):
     project: str = ""
     name: str
     metadata: dict
+
+
+class SeriesDefaultsIn(BaseModel):
+    project: str
+    metadata: dict
+
+
+@app.post("/api/publish/series_defaults")
+def api_publish_series_defaults(body: SeriesDefaultsIn):
+    """Save the tags, playlist, privacy and targets from this chapter as the series defaults."""
+    pdir = project_dir_for(body.project)
+    sid, series, n, meta = _series_ident(pdir)
+    if not sid:
+        raise HTTPException(400, "project has no series")
+    import series_pack as _sp
+    root = _yt_root()
+    pack = _series_pack(pdir) or {}
+    md = body.metadata or {}
+    if md.get("tags"):
+        tags = md["tags"] if isinstance(md["tags"], list) else [t.strip() for t in str(md["tags"]).split(",") if t.strip()]
+        pack["default_tags"] = list(dict.fromkeys(tags))
+    if md.get("playlist"):
+        pack["playlist_id"] = str(md["playlist"]).strip()
+    if md.get("privacy"):
+        pack["default_privacy"] = str(md["privacy"])
+    if md.get("targets"):
+        pack["default_targets"] = list(md["targets"])
+    _sp.save(root, pack)
+    _ev("publish", f"{series}: saved series publishing defaults", "ok")
+    return {"ok": True, "series": series, "pack": pack}
 
 
 @app.post("/api/publish")
@@ -1564,11 +1600,10 @@ def thumbconcept(project: str = "", name: str = "", concept_id: str = ""):
                         headers={"Cache-Control": "no-store"})
 
 
-def _rerender_chosen_thumbnails():
-    """Redraw every video's CHOSEN thumbnail with the current design (owner,
-    2026-10-06: the small top-left "CH" badge only reached new thumbnails).
-    Same concept, same panel, same text — only the layout code is newer. Free
-    (local PIL), never touches an uploaded thumbnail."""
+def _rerender_chosen_thumbnails(force_cover_default=True):
+    """Redraw every video's thumbnail with the approved series style (or latest layout).
+    When force_cover_default=True, it applies the series approved cover composition
+    (cover-badge / cover-center) to every chapter that has an export."""
     import ingest as _i
     import thumbnail_studio as tstudio
     n, skipped = 0, 0
@@ -1577,26 +1612,32 @@ def _rerender_chosen_thumbnails():
         if pid.startswith("_") or not os.path.isdir(os.path.join(pdir, "exports")):
             continue
         _ensure_project_cover(pdir)
-        for name, rec in list((tstudio.load_concepts(pdir) or {}).items()):
-            cid = ((rec or {}).get("chosen") or {}).get("concept_id")
-            if not cid or not os.path.exists(os.path.join(pdir, "exports", name)):
+        meta = _read_json(os.path.join(pdir, "project.json"))
+        key = tstudio.series_key(meta)
+        style = tstudio.load_style(_yt_root(), key)
+        target_comp = (style or {}).get("composition") if (style or {}).get("approved") else "cover-badge"
+        for name in sorted(os.listdir(os.path.join(pdir, "exports"))):
+            if not name.endswith(".mp4"):
                 continue
-            chosen = next((c for c in rec.get("concepts") or [] if c.get("id") == cid), {})
             try:
-                if chosen.get("composition") == "cover-badge" and tstudio.COVER_NAME not in (chosen.get("anchor_image") or ""):
-                    # the old "cover" was a panel: rebuild the options so the
-                    # cover design uses the real cover, and pick that
-                    api_thumbcopilot_generate(ThumbGenIn(project=pid, name=name))
-                    cs = (tstudio.get_concepts(pdir, name) or {}).get("concepts") or []
-                    cid = next((c["id"] for c in cs if c.get("composition") == "cover-badge"), None)
-                    if not cid:
-                        skipped += 1
-                        continue
-                api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=cid))
-                n += 1
-            except Exception:  # noqa
+                # Regenerate concepts with fresh cover and new options
+                api_thumbcopilot_generate(ThumbGenIn(project=pid, name=name))
+                cs = (tstudio.get_concepts(pdir, name) or {}).get("concepts") or []
+                cid = None
+                if target_comp:
+                    cid = next((c["id"] for c in cs if c.get("composition") == target_comp), None)
+                if not cid:
+                    rec_c = next((c for c in cs if c.get("recommended")), cs[0] if cs else None)
+                    cid = rec_c["id"] if rec_c else None
+                if cid:
+                    api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=cid))
+                    n += 1
+                else:
+                    skipped += 1
+            except Exception as e:
+                print(f"[rerender] error on {pid}/{name}: {e}", flush=True)
                 skipped += 1
-    _ev("publish", f"thumbnails redrawn with the new chapter badge: {n}" + (f" ({skipped} skipped)" if skipped else ""), "ok")
+    _ev("publish", f"thumbnails updated retroactively with series style: {n}" + (f" ({skipped} skipped)" if skipped else ""), "ok")
     return n
 
 
@@ -1604,6 +1645,12 @@ def _rerender_chosen_thumbnails():
 def api_thumbcopilot_rerender_all():
     threading.Thread(target=_rerender_chosen_thumbnails, daemon=True).start()
     return {"ok": True, "note": "redrawing in the background — Activity shows when it's done"}
+
+
+@app.post("/api/thumbcopilot/apply_retroactive")
+def api_thumbcopilot_apply_retroactive():
+    threading.Thread(target=_rerender_chosen_thumbnails, daemon=True).start()
+    return {"ok": True, "note": "applying cover thumbnail style retroactively to all chapters in background"}
 
 
 @app.post("/api/thumbcopilot/apply")

@@ -743,7 +743,7 @@ ZONES = {"text": (28, 470, 672, 692), "face": (700, 40, 1252, 560),
 
 # Spec 07 §3 recipes (A7): 3A is the DEFAULT; ↻ rotates 3A->3B->3C->3E->3D->3F.
 SPEC_ROTATION = ("panel-hero", "cover-hero", "split", "cover-inset", "two-panels", "clean")
-COMPOSITIONS = SPEC_ROTATION + ("cover-badge", "anchor-split", "hero-focus", "badge-stack", "diptych",
+COMPOSITIONS = SPEC_ROTATION + ("cover-badge", "cover-center", "anchor-split", "hero-focus", "badge-stack", "diptych",
                                 "cover-frame")
 DEFAULT_COMPOSITION = "panel-hero"
 
@@ -903,12 +903,16 @@ DESIGN_POOL = {
     "hero-focus": ("Full-bleed hook panel", True, "One focal moment at full bleed reads fastest at sidebar size."),
     "badge-stack": ("Badge-forward variant", True,
                     "Chapter number is the loudest element — helps serial viewers find the next part."),
+    "cover-badge": ("Cover art + chapter number", False,
+                    "The series cover cropped to fill 16:9 with just the chapter number on it — clean, zero text."),
+    "cover-center": ("Cover art centered + blur", False,
+                     "The series cover centered over a blurred background with just the chapter number on it — clean, zero text."),
 }
 HUE_STEP = 12
 
 
 def _needs_cover(comp):
-    return comp in ("cover-hero", "split", "cover-inset")
+    return comp in ("cover-hero", "split", "cover-inset", "cover-badge", "cover-center")
 
 
 def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None, round_=0):
@@ -968,22 +972,48 @@ def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None, rou
     for legacy in ("hero-focus", "badge-stack"):
         if len(avail) < 3:
             avail.append(legacy)
-    picks = avail[:max(4, min(n, 5)) - (1 if real_cover else 0)] if len(avail) > 4 else avail[:4]
-    default = picks[0] if picks else None
+    if inherited and comp in COMPOSITIONS and (comp not in ("cover-badge", "cover-center") or real_cover):
+        default = comp
+    else:
+        default = avail[0] if avail else None
 
     pal_r = dict(pal)
     if round_ and pal.get("accent"):
         pal_r["accent"] = _shift_hue(pal["accent"], HUE_STEP if round_ % 2 else -HUE_STEP)
 
     plans = []
-    for di, c in enumerate(picks):
-        p = panels[min(di, len(panels) - 1)] if c != "clean" else hero
-        name, use_text, why = DESIGN_POOL[c]
-        plans.append((name, c, p, use_text and bool(hook), why))
     if real_cover:
-        plans.append(("Cover art + chapter number", "cover-badge", hero, False,
-                      "The series cover with just the chapter number on it \u2014 the same image every "
-                      "chapter, so a playlist reads as one series and only the number changes."))
+        cbadge = ("Cover art + chapter number", "cover-badge", hero, False,
+                  "The series cover cropped to fill 16:9 with just the chapter number on it — clean, zero text.")
+        ccenter = ("Cover art centered + blur", "cover-center", hero, False,
+                   "The series cover centered over a blurred background with just the chapter number on it — clean, zero text.")
+        if default == "cover-center":
+            plans.append(ccenter)
+            plans.append(cbadge)
+        elif default == "cover-badge":
+            plans.append(cbadge)
+            plans.append(ccenter)
+        else:
+            rem_c = [c for c in avail if c == default] + [c for c in avail if c != default]
+            for di, c in enumerate(rem_c[:max(1, n - 2)]):
+                p = panels[min(di, len(panels) - 1)] if c != "clean" else hero
+                name, use_text, why = DESIGN_POOL.get(c, (c, True, ""))
+                plans.append((name, c, p, use_text and bool(hook), why))
+            plans.append(cbadge)
+            plans.append(ccenter)
+
+        if len(plans) == 2:
+            rem = [c for c in avail if c not in ("cover-badge", "cover-center")]
+            for di, c in enumerate(rem[:max(1, n - len(plans))]):
+                p = panels[min(di, len(panels) - 1)] if c != "clean" else hero
+                name, use_text, why = DESIGN_POOL.get(c, (c, True, ""))
+                plans.append((name, c, p, use_text and bool(hook), why))
+    else:
+        picks = avail[:max(4, min(n, 5))]
+        for di, c in enumerate(picks):
+            p = panels[min(di, len(panels) - 1)] if c != "clean" else hero
+            name, use_text, why = DESIGN_POOL.get(c, (c, True, ""))
+            plans.append((name, c, p, use_text and bool(hook), why))
 
     for i, (name, composition, panel, use_text, why) in enumerate(plans):
         second = next((q for q in panels if q["panel_id"] != panel["panel_id"]), None)
@@ -1001,7 +1031,7 @@ def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None, rou
             "face_is_mc": bool(panel.get("face_is_mc")),
             "bubbles": panel.get("bubbles") or [],
             "gradient": composition == "panel-hero" and not panel.get("text_ok", True),
-            "anchor_image": anchor if (_needs_cover(composition) or composition == "cover-badge") else None,
+            "anchor_image": anchor if (_needs_cover(composition) or composition in ("cover-badge", "cover-center")) else None,
             "cover_face_box": (cface or {}).get("box"),
             "cover_face_is_mc": bool((cface or {}).get("is_mc")),
             "cover_text_blocks": cov.get("text_blocks") or [],
@@ -1012,7 +1042,7 @@ def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None, rou
             "badge": ((style or {}).get("badge") or {}).get("label", "CH"),
             "overlay_text": hook if use_text else "",
             "text_zone": "lower-left",
-            "palette": pal if composition == "cover-badge" else pal_r,
+            "palette": pal if composition in ("cover-badge", "cover-center") else pal_r,
             "round": round_,
             "selection": {k: report.get(k) for k in ("face_data", "relaxed", "rejects", "survived")},
             "follows_series_style": inherited and composition == comp,
@@ -1062,6 +1092,8 @@ def score_concept(c, style, title=""):
     clutter = 0
     if c.get("composition") == "anchor-split" and len(txt.split()) > 4:
         clutter = -6            # anchor + panel + long text is three ideas
+    if c.get("default"):
+        consistency += 15
     total = max(0, focal + drama + consistency + align + readability + clutter)
     return {"total": int(total), "focal": focal, "drama": drama,
             "consistency": consistency, "title_alignment": align,
@@ -1156,7 +1188,7 @@ def upscale_of(im_size, box_w, box_h, face=None, target=FACE_TARGET):
 # cover is placed, so neither the picture nor its blurred backdrop shows them.
 # Tunable per deploy; a watermark placed elsewhere on the cover is not caught.
 COVER_TRIM_TOP = float(os.environ.get("THUMB_COVER_TRIM_TOP", "0.07"))
-COVER_TRIM_BOTTOM = float(os.environ.get("THUMB_COVER_TRIM_BOTTOM", "0.05"))
+COVER_TRIM_BOTTOM = float(os.environ.get("THUMB_COVER_TRIM_BOTTOM", "0.32"))
 TITLE_BAND_MAX = 0.45       # the cover's own logo never takes more than this
 
 
@@ -1191,6 +1223,8 @@ def title_band_from_blocks(blocks):
             top = max(top, min(0.34, y1 + 0.01))
         else:
             marks.append([x0, y0, x1, y1])
+    if bottom < COVER_TRIM_BOTTOM:
+        bottom = COVER_TRIM_BOTTOM
     return round(top, 3), round(bottom, 3), marks
 
 
@@ -1204,7 +1238,7 @@ def cover_trim_for(im, style=None, text_blocks=None):
     if text_blocks:
         t, b, marks = title_band_from_blocks(text_blocks)
         return t, b, "detected", marks
-    return COVER_TRIM_TOP, COVER_TRIM_BOTTOM, "default (no logo box)", []
+    return COVER_TRIM_TOP, COVER_TRIM_BOTTOM, "default (zero-text)", []
 
 
 COVER_FACE_MIN_AREA = 0.01  # a cover face smaller than 1% of the cover is a crowd face
@@ -1493,7 +1527,7 @@ def draw_badge(img, label, accent):
     return (x0 - o, y0 - o, x0 + bw + o, y0 + bh + o)
 
 
-MIRROR_LEFT_FACE = ("panel-hero", "cover-hero", "cover-inset", "cover-badge", "hero-focus", "badge-stack")
+MIRROR_LEFT_FACE = ("panel-hero", "cover-hero", "cover-inset", "cover-badge", "cover-center", "hero-focus", "badge-stack")
 
 
 def _log(event, **kw):
@@ -1644,13 +1678,47 @@ def _compose(pdir, concept, style, mirror=False, avoid=None):
     text_zone = list(ZONES["text"])
 
     if comp == "cover-badge":
-        # The cover fills the frame; the number is the only thing added. QA:
-        # never fall back to a story panel under the name "Cover art" (the
-        # 2026-10-06 bug) — no real cover, no cover design.
-        primary = place(anchor, (0, 0, width, height), cfb, backdrop_ok=True, flip=mirror) if has_cover else None
+        # The cover fills the frame; the number is the only thing added.
+        # backdrop_ok=False: always crop to fill 16:9 across the canvas, never pillarbox into blur.
+        primary = place(anchor, (0, 0, width, height), cfb, backdrop_ok=False, flip=mirror) if has_cover else None
         if not primary:
             raise ValueError("no series cover for this chapter — the Cover art design can't be made")
         is_mc = bool(concept.get("cover_face_is_mc"))
+    elif comp == "cover-center":
+        # Cover art centered over blurred cover background, zero text, clean CH badge
+        if not has_cover:
+            raise ValueError("no series cover for this chapter — the Cover art design can't be made")
+        try:
+            with Image.open(anchor) as src:
+                cv = src.convert("RGBA")
+            trim = cover_trim_for(cv, style, concept.get("cover_text_blocks"))
+            concept["_cover_trim"] = {"top_pct": round(trim[0] * 100, 1),
+                                      "bottom_pct": round(trim[1] * 100, 1), "source": trim[2],
+                                      "marks_inpainted": len(trim[3])}
+            for m in trim[3]:
+                inpaint_rect(cv, (m[0] * cv.width - 4, m[1] * cv.height - 4,
+                                  m[2] * cv.width + 4, m[3] * cv.height + 4))
+            cv = _trim_watermark_bands(cv, trim)
+            # Background: blurred cover crop filling 1280x720
+            bg_blur = _cover_crop(cv, width, height, cfb).filter(ImageFilter.GaussianBlur(32))
+            bg_blur = ImageEnhance.Brightness(bg_blur).enhance(0.55)
+            img.alpha_composite(bg_blur, (0, 0))
+            # Foreground: centered sharp cover
+            ch_ = int(height * 0.94)
+            cw_ = int(cv.width * ch_ / max(1, cv.height))
+            sharp = cv.resize((cw_, ch_), Image.LANCZOS)
+            x0 = (width - cw_) // 2
+            y0 = (height - ch_) // 2
+            sh = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            ImageDraw.Draw(sh).rectangle([x0 - 8, y0 - 4, x0 + cw_ + 8, y0 + ch_ + 8], fill=(0, 0, 0, 180))
+            img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(12)))
+            ImageDraw.Draw(img).rectangle([x0 - 2, y0 - 2, x0 + cw_ + 1, y0 + ch_ + 1], fill=accent + (255,))
+            img.alpha_composite(sharp, (x0, y0))
+            primary = {"face": None, "bubbles": []}
+            is_mc = bool(concept.get("cover_face_is_mc"))
+        except Exception as e:
+            _log("cover_center_failed", error=str(e)[:200])
+            primary = place(anchor, (0, 0, width, height), cfb, backdrop_ok=False, flip=mirror)
     elif comp == "panel-hero":                                       # 3A
         primary = place(focal, (0, 0, width, height), fb, bubbles=bub, flip=mirror)
         gradient = bool(concept.get("gradient"))                     # §5 step 5 fallback

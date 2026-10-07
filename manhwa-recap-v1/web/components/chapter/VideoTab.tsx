@@ -288,8 +288,10 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
           <div className="row small">
             <label className="check"><input type="checkbox" checked={!!md.made_for_kids} onChange={(e) => save({ made_for_kids: e.target.checked }, "Saved")} /> Made for kids</label>
             <label className="check"><input type="checkbox" checked={!!md.synthetic_disclosure} onChange={(e) => save({ synthetic_disclosure: e.target.checked }, "Saved")} /> Uses a synthetic voice (YouTube disclosure)</label>
+            <Busy className="sm ghost" title="Save these tags, playlist and settings as the series default"
+              onClick={() => act(async () => { await api("/api/publish/series_defaults", { project: id, metadata: md }); pub.reload(); }, "Saved as series defaults")}>Save as series defaults</Busy>
           </div>
-          <p className="small muted">Defaults for channels and privacy come from Settings. Changes here apply to this video only.</p>
+          <p className="small muted">Defaults for channels and privacy come from Settings. Changes here apply to this video only, or click 'Save as series defaults' to lock them for this series.</p>
         </Card>
         {!draft && <Card title="Thumbnail" right={<span className="row">
           <Busy className="sm" onClick={() => act(async () => { await api("/api/thumbcopilot/generate", { project: id, name }); pub.reload(); setCb(Date.now()); }, "New options")}>↻ New options</Busy>
@@ -316,6 +318,8 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
             <span className="muted">Series look: {tc.style_approved ? "locked for every chapter" : "draft"}</span>
             <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/thumbcopilot/generate", { project: id, name, new_style: true }); pub.reload(); setCb(Date.now()); }, "A new series look")}>New series look</Busy>
             {!tc.style_approved && <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/thumbcopilot/style/approve", { project: id, name }); pub.reload(); }, "Series look locked")}>Lock this look for the series</Busy>}
+            <Busy className="sm ghost" title="Update every chapter's thumbnail to use the approved series cover look"
+              onClick={() => act(async () => { await api("/api/thumbcopilot/apply_retroactive", {}); pub.reload(); }, "Applying to all chapters in background")}>Apply to all chapters</Busy>
           </div>
           {concepts.length === 0 ? <Empty>{preparing ? "Making options from the chapter’s pictures…" : "No options yet — press New options."}</Empty> : (
             <div className="thumbs">

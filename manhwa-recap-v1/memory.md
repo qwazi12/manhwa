@@ -9308,3 +9308,32 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - The 10 warnings are all "segment clips missing" on rendered chapters (normal clean-up; should be quietened).
   - ch.31's video is 463 s vs a 500 s storyboard (within tolerance; maybe the board changed after the render).
 - Tests: `test_chapter_media.py` 2/2; all suites pass.
+
+### 2026-10-06 20:05 ET — Cover Thumbnail Defaults, Zero-Text Trimming & Series Publishing Defaults
+- **Owner ask:**
+  1. Use series cover art as preferred thumbnail with zero text (like A Regressors Tale of Cultivation Ch.31).
+  2. Second preferred style: main series cover centered with blurred background.
+  3. Ensure "Use for the series" locks the thumbnail style across subsequent chapters.
+  4. Make series defaults available for "What gets published" (tags, playlist, settings).
+  5. Apply the clean cover thumbnail retroactively to prior chapters.
+- **Root causes diagnosed:**
+  - `thumbnail_studio.py`: `build_concepts()` computed `default` from hardcoded `picks[0]` (panel-hero/cover-hero), ignoring `style.get("composition")` even when approved. `rank_concepts()` then marked that panel concept `recommended: True`, causing `_prepare_publish` to auto-apply a text-heavy story panel over the approved cover-badge.
+  - Cover trimming fell back to only 5% bottom trim on untagged covers, leaving titles visible on taller posters (like Mount Hua Ch.180).
+- **Fixes applied:**
+  - `thumbnail_studio.py`:
+    - Added `cover-center` ("Cover art centered + blur") composition: sharp trimmed cover centered over 1280x720 blurred cover background with shadow and accent border.
+    - Zero-text rule: `COVER_TRIM_BOTTOM` default raised from 5% to 32% so bottom title bands are never visible even without detected vision boxes.
+    - `cover-badge`: `backdrop_ok = False` to enforce full 16:9 crop across the canvas without pillarboxing into side blur.
+    - `build_concepts`: when a series style is approved (or when real_cover exists), the approved/preferred cover composition is slot `c0`, marked `default: True` and scored `recommended: True`, followed by the second cover style at `c1`.
+  - `server.py`:
+    - Added `POST /api/publish/series_defaults` to save series-wide tags, playlist, privacy, and targets into `_series_packs/<sid>.json`.
+    - `_publish_defaults_base` now inherits these series defaults for every chapter of that series.
+    - Updated `_rerender_chosen_thumbnails` to regenerate and apply the approved cover thumbnail style across all chapters with exports; added `POST /api/thumbcopilot/apply_retroactive`.
+  - `VideoTab.tsx`:
+    - Added "Save as series defaults" button in "What gets published".
+    - Added "Apply to all chapters" button in Thumbnail section.
+- **Verification:**
+  - `test_thumbnail_studio.py`: 115/115 passed.
+  - `test_thumb_spec.py`: 10/10 passed.
+  - `test_chapter_media.py`: 2/2 passed.
+  - Next.js web build: clean pass (zero errors).
