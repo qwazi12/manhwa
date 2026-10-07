@@ -1029,12 +1029,23 @@ def _apply_desc_template(template: str, chapter: str) -> str:
     return template.replace("{chapter}", str(chapter).strip())
 
 
+def _went_out(pdir, name):
+    """True when this export was already posted (Upload-Post or direct upload)."""
+    rec = (load_publishes(pdir) or {}).get(name) or {}
+    if any(r.get("status") == "published" for r in rec.get("results") or []):
+        return True
+    return ((_read_json(os.path.join(pdir, UPLOADS_NAME)) or {}).get(name) or {}).get("status") == "uploaded"
+
+
 def _propagate_series_defaults(sid, series, pack):
+    """Series-wide settings onto this series' chapters that haven't posted:
+    playlist, privacy, channels, and the series tags MERGED into each
+    chapter's own tags. Titles and descriptions are never copied (each
+    chapter's hook and summary are its own)."""
     import ingest as _i
     root = _i.PROJECTS
     applied = 0
-    t_tmpl = pack.get("title_template")
-    d_tmpl = pack.get("description_template")
+    t_tmpl = d_tmpl = None
     tags = pack.get("default_tags")
     playlist = pack.get("playlist_id")
     privacy = pack.get("default_privacy")
@@ -1053,13 +1064,16 @@ def _propagate_series_defaults(sid, series, pack):
             if DRAFT not in target_keys:
                 target_keys.append(DRAFT)
             for k in target_keys:
+                if k != DRAFT and _went_out(pdir, k):
+                    continue                     # already posted: leave its record as it went out
                 item = dict(store.get(k) or {})
                 if t_tmpl:
                     item["title"] = _apply_title_template(t_tmpl, ch_n)
                 if d_tmpl:
                     item["description"] = _apply_desc_template(d_tmpl, ch_n)
                 if tags:
-                    item["tags"] = list(tags)
+                    import series_pack as _spk
+                    item["tags"] = _spk.tags_with_aliases(list(item.get("tags") or []), list(tags))
                 if playlist:
                     item["playlist"] = playlist
                 if privacy:
@@ -1073,7 +1087,7 @@ def _propagate_series_defaults(sid, series, pack):
             print(f"[propagate_series_defaults] error on {f}: {e}", flush=True)
 
     try:
-        _rerender_chosen_thumbnails(force_cover_default=True)
+        _rerender_chosen_thumbnails(force_cover_default=True, only_series=sid, skip_posted=True)
     except Exception as e:
         print(f"[propagate_series_defaults] thumbnail rerender error: {e}", flush=True)
 
@@ -1309,13 +1323,13 @@ def api_publish_series_defaults(body: SeriesDefaultsIn):
     pack = _series_pack(pdir) or {}
     md = body.metadata or {}
 
-    title = (md.get("title") or "").strip()
-    if title:
-        pack["title_template"] = _make_title_template(title, chapter_n)
-
-    desc = (md.get("description") or "").strip()
-    if desc:
-        pack["description_template"] = _make_desc_template(desc, chapter_n)
+    # Owner, 2026-10-06: the title's hook and the description's summary belong
+    # to ONE chapter. Copying them as series templates gave every chapter the
+    # same hook ("He Returns - … Chapter 31/30/29") and the same summary, which
+    # the B1 duplicate rule and the B2 block-2 rule then block from posting.
+    # The series title FORMAT lives in Settings; each chapter keeps its own words.
+    pack.pop("title_template", None)
+    pack.pop("description_template", None)
 
     if md.get("tags"):
         tags = md["tags"] if isinstance(md["tags"], list) else [t.strip() for t in str(md["tags"]).split(",") if t.strip()]
@@ -1331,7 +1345,7 @@ def api_publish_series_defaults(body: SeriesDefaultsIn):
     key = tstudio.series_key(meta)
     style = tstudio.load_style(_yt_root(), key)
     chosen_comp = None
-    all_recs = tstudio.get_all_concepts(pdir)
+    all_recs = tstudio.load_concepts(pdir)
     rec = all_recs.get(body.name or DRAFT) or {}
     if rec.get("chosen"):
         chosen_comp = rec["chosen"].get("composition")
@@ -1729,7 +1743,7 @@ def thumbconcept(project: str = "", name: str = "", concept_id: str = ""):
                         headers={"Cache-Control": "no-store"})
 
 
-def _rerender_chosen_thumbnails(force_cover_default=True):
+def _rerender_chosen_thumbnails(force_cover_default=True, only_series=None, skip_posted=False):
     """Redraw every video's thumbnail with the approved series style (or latest layout).
     When force_cover_default=True, it applies the series approved cover composition
     (cover-badge / cover-center) to every chapter that has an export."""
@@ -1740,6 +1754,8 @@ def _rerender_chosen_thumbnails(force_cover_default=True):
         pdir = os.path.join(_i.PROJECTS, pid)
         if pid.startswith("_") or not os.path.isdir(os.path.join(pdir, "exports")):
             continue
+        if only_series and _series_ident(pdir)[0] != only_series:
+            continue                             # series defaults touch that series only
         _ensure_project_cover(pdir)
         meta = _read_json(os.path.join(pdir, "project.json"))
         key = tstudio.series_key(meta)
@@ -1747,6 +1763,8 @@ def _rerender_chosen_thumbnails(force_cover_default=True):
         target_comp = (style or {}).get("composition") if (style or {}).get("approved") else "cover-badge"
         for name in sorted(os.listdir(os.path.join(pdir, "exports"))):
             if not name.endswith(".mp4"):
+                continue
+            if skip_posted and _went_out(pdir, name):
                 continue
             try:
                 # Regenerate concepts with fresh cover and new options
