@@ -103,7 +103,10 @@ def main():
         from PIL import Image
         im = Image.new("RGBA", (500, 1000))
         out = ts._trim_watermark_bands(im)
-        check("the cover's watermark bands (top 7%, bottom 5%) are trimmed", out.size == (500, 1000 - 70 - 50))
+        # the trims are settings (THUMB_COVER_TRIM_TOP/BOTTOM; bottom raised to 32% on
+        # 2026-10-06 so a cover's title band never shows): assert the configured cut
+        check("the cover's watermark/title bands are trimmed at the configured %",
+              out.size == (500, 1000 - int(1000 * ts.COVER_TRIM_TOP) - int(1000 * ts.COVER_TRIM_BOTTOM)))
         src = open(os.path.join(HERE, "server.py"), encoding="utf-8").read()
         check("a finished ingest prepares the draft SEO", "args=(project_dir_for(meta[\"id\"]), DRAFT)" in src)
         check("every new render prepares itself, then copies to Drive",
