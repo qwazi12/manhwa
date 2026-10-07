@@ -690,7 +690,9 @@ RULES
 - Ground every claim in THE VIDEO. If something is not in the narration or
   panel data, do not state it. Never invent characters, plot points, or a
   different series.
-- TITLES: write ONLY the HOOK of each title, at most 60 characters. The
+- TITLES: write ONLY the HOOK of each title, at most {hook_room} characters (that is
+  exactly the room this series' name and chapter leave inside 100 — a longer hook
+  gets cut mid-sentence). The
   publisher builds every title from one fixed format so all chapters of a series
   look the same: {template}. So the hook must NOT contain the series name, the
   chapter number or a part marker — those are added for you. Keep the channel's
@@ -895,6 +897,17 @@ def _clamp(out, card, style=None, patterns=None):
     }
 
 
+def _hook_room(card):
+    """Characters left for the hook once the series name and chapter are in
+    the title format (never under 30, never over 70)."""
+    import chapter_title as _ct
+    tmpl = card.get("title_template") or _ct.TEMPLATE
+    probe = _ct.build("X" * 200, card.get("title_series") or card.get("series") or "",
+                      card.get("chapter") or "", YT_TITLE_MAX, tmpl)
+    room = len(probe.split(" - ")[0].rstrip("…")) if " - " in probe else 60
+    return max(30, min(70, room))
+
+
 def generate(pdir, name, card, style, res, model=None, _call=None, usage=None):
     """One gated model call that packages the truth card in the channel's voice."""
     model = model or os.environ.get("SEO_MODEL", "gemini-3.5-flash")
@@ -906,6 +919,7 @@ def generate(pdir, name, card, style, res, model=None, _call=None, usage=None):
         research=json.dumps((res or {}).get("patterns", {}), indent=1, ensure_ascii=False),
         web=json.dumps(web or {"note": "no web research available"}, indent=1, ensure_ascii=False),
         template=(card.get("title_template") or "{hook} - {series} Chapter {chapter} Manhwa Recap").replace("{", "<").replace("}", ">"),
+        hook_room=_hook_room(card),
         series_yt=json.dumps([{"title": t["title"], "views": t["views"]} for t in sy.get("top") or []]
                              or {"note": sy.get("error") or "no series search"}, indent=1, ensure_ascii=False),
         tmax=YT_TITLE_MAX, tagmax=YT_TAGS_CHARS_MAX)

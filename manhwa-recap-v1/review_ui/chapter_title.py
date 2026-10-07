@@ -39,8 +39,14 @@ def build(hook, series, chapter, limit=LIMIT, template=TEMPLATE):
     series = series or ""
     fixed = lambda tp, se: len(tp.replace("{hook}", "").replace("{series}", se)
                                .replace("{chapter}", str(chapter or "")))
-    if fixed(template, series) > limit - HOOK_MIN_ROOM and template.endswith(" Manhwa Recap"):
-        template = template[:-len(" Manhwa Recap")]
+    hook_len = len(" ".join((hook or "").split()))
+    # Owner, 2026-10-06 (ch.32): a hook cut mid-sentence ("Crushes His… -") is
+    # worse than a title without the "Manhwa Recap" tail, so the tail goes first.
+    if template.endswith(" Manhwa Recap"):
+        short = template[:-len(" Manhwa Recap")]
+        if fixed(template, series) > limit - HOOK_MIN_ROOM or (
+                fixed(template, series) + hook_len > limit >= fixed(short, series) + hook_len):
+            template = short          # only when that lets the whole hook fit (or room is tiny)
     while series and fixed(template, series) > limit - HOOK_MIN_ROOM:
         cut = series.rstrip("…").rsplit(" ", 1)[0]
         series = (cut + "…") if cut and cut != series.rstrip("…") else ""
