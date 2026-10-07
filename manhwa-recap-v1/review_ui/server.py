@@ -996,6 +996,90 @@ def save_publish(pdir, data):
 import studio_settings as _studio
 
 
+def _make_title_template(title: str, chapter: str) -> str:
+    ch = str(chapter).strip()
+    if not ch or not title:
+        return title or ""
+    m = re.search(r"\b(Chapter|Ch\.?|Episode|Ep\.?|Part|Pt\.?|#)\s*" + re.escape(ch) + r"\b", title, re.IGNORECASE)
+    if m:
+        prefix = m.group(1)
+        return title[:m.start()] + prefix + " {chapter}" + title[m.end():]
+    m = re.search(r"\b" + re.escape(ch) + r"\b", title)
+    if m:
+        return title[:m.start()] + "{chapter}" + title[m.end():]
+    return title.rstrip() + " Ch. {chapter}"
+
+
+def _apply_title_template(template: str, chapter: str) -> str:
+    if not template:
+        return ""
+    return template.replace("{chapter}", str(chapter).strip())
+
+
+def _make_desc_template(desc: str, chapter: str) -> str:
+    ch = str(chapter).strip()
+    if not ch or not desc:
+        return desc or ""
+    return re.sub(r"\b(Chapter|Ch\.?|Episode|Ep\.?|Part|Pt\.?|#)\s*" + re.escape(ch) + r"\b", r"\1 {chapter}", desc, flags=re.IGNORECASE)
+
+
+def _apply_desc_template(template: str, chapter: str) -> str:
+    if not template:
+        return ""
+    return template.replace("{chapter}", str(chapter).strip())
+
+
+def _propagate_series_defaults(sid, series, pack):
+    import ingest as _i
+    root = _i.PROJECTS
+    applied = 0
+    t_tmpl = pack.get("title_template")
+    d_tmpl = pack.get("description_template")
+    tags = pack.get("default_tags")
+    playlist = pack.get("playlist_id")
+    privacy = pack.get("default_privacy")
+    targets = pack.get("default_targets")
+
+    for f in os.listdir(root):
+        pdir = os.path.join(root, f)
+        if not os.path.isdir(pdir) or f.startswith("_"):
+            continue
+        try:
+            csid, cseries, ch_n, cmeta = _series_ident(pdir)
+            if csid != sid:
+                continue
+            store = load_publish(pdir)
+            target_keys = list(store.keys())
+            if DRAFT not in target_keys:
+                target_keys.append(DRAFT)
+            for k in target_keys:
+                item = dict(store.get(k) or {})
+                if t_tmpl:
+                    item["title"] = _apply_title_template(t_tmpl, ch_n)
+                if d_tmpl:
+                    item["description"] = _apply_desc_template(d_tmpl, ch_n)
+                if tags:
+                    item["tags"] = list(tags)
+                if playlist:
+                    item["playlist"] = playlist
+                if privacy:
+                    item["privacy"] = privacy
+                if targets:
+                    item["targets"] = list(targets)
+                store[k] = item
+            save_publish(pdir, store)
+            applied += 1
+        except Exception as e:
+            print(f"[propagate_series_defaults] error on {f}: {e}", flush=True)
+
+    try:
+        _rerender_chosen_thumbnails(force_cover_default=True)
+    except Exception as e:
+        print(f"[propagate_series_defaults] thumbnail rerender error: {e}", flush=True)
+
+    return applied
+
+
 def _publish_defaults_base(pdir):
     """Sensible starting metadata from what the project already knows."""
     meta = {}
@@ -1031,10 +1115,19 @@ def _publish_defaults_base(pdir):
     base_tags = [t for t in [series, "recap", "manhwa"] if t]
     if sp and sp.get("default_tags"):
         base_tags = list(dict.fromkeys(base_tags + sp["default_tags"]))
+
+    if sp and sp.get("title_template"):
+        title = _apply_title_template(sp["title_template"], chapter)
+
+    if sp and sp.get("description_template"):
+        description = _apply_desc_template(sp["description_template"], chapter)
+    else:
+        description = (f"A recap of {series} chapter {chapter}."
+                        if series else "A chapter recap.")
+
     return {
         "title": title[:YT_TITLE_MAX],
-        "description": (f"A recap of {series} chapter {chapter}."
-                        if series else "A chapter recap."),
+        "description": description,
         "tags": base_tags,
         "category_id": "1",
         # Owner, 2026-10-04: default channel 🦩 Flamingo Remix (mk:youtube).
@@ -1197,20 +1290,33 @@ class PublishIn(BaseModel):
 
 class SeriesDefaultsIn(BaseModel):
     project: str
-    metadata: dict
+    name: str = ""
+    metadata: dict = {}
+    apply_all: bool = True
 
 
 @app.post("/api/publish/series_defaults")
 def api_publish_series_defaults(body: SeriesDefaultsIn):
-    """Save the tags, playlist, privacy and targets from this chapter as the series defaults."""
+    """Save title format, description template, tags, playlist, privacy,
+    targets and thumbnail look as series defaults, and apply across all chapters."""
     pdir = project_dir_for(body.project)
-    sid, series, n, meta = _series_ident(pdir)
+    sid, series, chapter_n, meta = _series_ident(pdir)
     if not sid:
         raise HTTPException(400, "project has no series")
     import series_pack as _sp
+    import thumbnail_studio as tstudio
     root = _yt_root()
     pack = _series_pack(pdir) or {}
     md = body.metadata or {}
+
+    title = (md.get("title") or "").strip()
+    if title:
+        pack["title_template"] = _make_title_template(title, chapter_n)
+
+    desc = (md.get("description") or "").strip()
+    if desc:
+        pack["description_template"] = _make_desc_template(desc, chapter_n)
+
     if md.get("tags"):
         tags = md["tags"] if isinstance(md["tags"], list) else [t.strip() for t in str(md["tags"]).split(",") if t.strip()]
         pack["default_tags"] = list(dict.fromkeys(tags))
@@ -1220,9 +1326,32 @@ def api_publish_series_defaults(body: SeriesDefaultsIn):
         pack["default_privacy"] = str(md["privacy"])
     if md.get("targets"):
         pack["default_targets"] = list(md["targets"])
+
+    # Lock thumbnail style for the series
+    key = tstudio.series_key(meta)
+    style = tstudio.load_style(_yt_root(), key)
+    chosen_comp = None
+    all_recs = tstudio.get_all_concepts(pdir)
+    rec = all_recs.get(body.name or DRAFT) or {}
+    if rec.get("chosen"):
+        chosen_comp = rec["chosen"].get("composition")
+    if chosen_comp:
+        tstudio.approve_style(_yt_root(), key, style, composition=chosen_comp)
+    else:
+        tstudio.approve_style(_yt_root(), key, style)
+
+    style = tstudio.load_style(_yt_root(), key)
+    pack["thumbnail_dna"] = {"composition": style.get("composition"), "palette": style.get("palette"),
+                             "badge": style.get("badge"), "approved": True}
+
     _sp.save(root, pack)
-    _ev("publish", f"{series}: saved series publishing defaults", "ok")
-    return {"ok": True, "series": series, "pack": pack}
+
+    applied = 0
+    if body.apply_all:
+        applied = _propagate_series_defaults(sid, series, pack)
+
+    _ev("publish", f"{series}: saved series defaults & applied to {applied} chapters", "ok")
+    return {"ok": True, "series": series, "pack": pack, "applied": applied}
 
 
 @app.post("/api/publish")
@@ -4142,9 +4271,17 @@ def _render_clips(seg_indices, on_start, on_done, control=None):
         raise error
 
 
+_FINALIZE_LOCK = threading.Lock()
+
+
 def _run_finalize_job(job_id):
     """The APPROVE chain (user contract): render every ticked-but-missing
     clip, then export the final narrated MP4 — one job, visible progress."""
+    with _FINALIZE_LOCK:
+        _do_run_finalize_job(job_id)
+
+
+def _do_run_finalize_job(job_id):
     import time
     usage.set_job(job_id)          # a re-voice counts under this render, not "unknown"
     j = JOBS[job_id]
@@ -6732,6 +6869,7 @@ class ApproveIn(BaseModel):
     approved: bool
     rerender_all: bool = False   # force: rebuild every ticked clip
     keep_voice: bool = False     # render in the chapter's own voice, no re-voice
+    force_start: bool = False    # internal: queue worker starting the single allowed render
 
 
 class DelLineIn(BaseModel):
@@ -6800,11 +6938,25 @@ def storyboard_approve(body: ApproveIn):
     if not ticked:
         return {"ok": True, "approved": True, "job": None,
                 "note": "nothing ticked — tick segments, then approve again"}
+
+    curr_pid = get_active_project_id()
+    # Concurrency rule: NEVER RENDER MULTIPLE CHAPTERS AT THE SAME TIME.
+    # If another chapter is currently rendering and this is not the queue worker starting it, queue it!
+    if not getattr(body, "force_start", False):
+        active_other = _render_lock(except_pid=curr_pid)
+        is_running = any(j.get("type") == "finalize" and j.get("status") in ("queued", "running") for j in JOBS.values())
+        if active_other or is_running:
+            it, why = _rq.add(_ingest_mod.PROJECTS, curr_pid, keep_voice=bool(body.keep_voice))
+            _rq_kick()
+            pos = _rq.position(_ingest_mod.PROJECTS, curr_pid) or {}
+            return {"ok": True, "approved": True, "job": None, "queued": True, "render_queue": pos,
+                    "note": f"Another chapter is rendering — queued #{pos.get('place', 1)} in line (never renders simultaneously)"}
+
     job_id = uuid.uuid4().hex[:12]
     JOBS[job_id] = {"type": "finalize", "status": "queued", "stage": "queued",
                     "done": 0, "total": 0, "current_seg": None, "error": None,
                     "export": None, "url": None, "ts": time.time(),
-                    "project": get_active_project_id(), "keep_voice": bool(body.keep_voice)}
+                    "project": curr_pid, "keep_voice": bool(body.keep_voice)}
     _persist_job(job_id)
     threading.Thread(target=_run_finalize_job, args=(job_id,),
                      daemon=True).start()
@@ -7673,7 +7825,7 @@ def _rq_worker():
         name = _pretty(it["project"])
         try:
             activate_project(ActivateIn(id=it["project"]))
-            r = storyboard_approve(ApproveIn(approved=True, keep_voice=it.get("keep_voice", True)))
+            r = storyboard_approve(ApproveIn(approved=True, keep_voice=it.get("keep_voice", True), force_start=True))
             job = r.get("job")
             if not job:
                 raise RuntimeError(r.get("note") or "nothing to render")

@@ -9363,3 +9363,32 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
 - **Test fix:** `test_prepare_publish` trim check now reads the configured trims (the parallel session's 1021bc8 raised the bottom trim to 32%) (fa4931b).
 - **Handbook:** E13b rewritten for spec 07; E18 Home gets the Needs-you rule; new E19 (SEO button and timing, title/description/tags rules, series pack, ranges, per-chapter pictures, QA).
 - **Parallel session:** another agent is committing to ~/dev/manhwa at the same time (1021bc8 cover defaults, e81211c). Fetch and check before every push.
+
+### 2026-10-06 20:45 ET — Unified "Save as series defaults" & Sequential Render Queue Lock
+- **Owner requests:**
+  1. Replace fragmented buttons with ONE singular button: "Save as series defaults".
+  2. Smart system to learn title format (auto-adjusting chapter number for each chapter) and description template.
+  3. Sequential rendering guarantee: clicking Render on another chapter while a video renders MUST queue it; never render multiple chapters at the same time; a queued chapter can only run after the previous one completes.
+- **Root causes & gaps addressed:**
+  - `storyboard_approve` previously spawned a background thread without checking `_render_lock()`, which could allow concurrent renders if triggered directly.
+  - UI in `page.tsx` previously hid the button completely when `inQueue` was true (`inQueue ? null`), leaving users unsure if the chapter was queued.
+  - Series publishing defaults had no title pattern or description templating, forcing manual editing per chapter.
+- **Implementations:**
+  - `server.py`:
+    - Added `_make_title_template`, `_apply_title_template`, `_make_desc_template`, `_apply_desc_template` to auto-detect chapter numbers in titles (e.g. `Ch. 31`, `Chapter 31`, `#31`) and substitute target chapter numbers dynamically.
+    - Updated `api_publish_series_defaults` (`POST /api/publish/series_defaults`): saves `title_template`, `description_template`, `default_tags`, `playlist_id`, `default_privacy`, `default_targets`, locks `thumbnail_dna` style, and propagates across all chapters of the series via `_propagate_series_defaults`.
+    - Updated `_publish_defaults_base` so newly ingested chapters automatically inherit series title and description templates.
+    - Added `_FINALIZE_LOCK = threading.Lock()` around `_run_finalize_job`.
+    - Hardened `storyboard_approve`: if another render is active, adds to `_rq` instead of spawning a concurrent thread. `_rq_worker` polls until each job completes before advancing to the next.
+  - `VideoTab.tsx`:
+    - Streamlined to 1 master button: `⚡ Save as series defaults` (saves title pattern, description template, tags, playlist, targets, thumbnail look, and propagates across the series).
+    - Removed redundant buttons ("Lock this look for the series", "Apply to all chapters", "Use for the series").
+  - `page.tsx`:
+    - Updated header button to display `Queued (#{inQueue.place}) ✕` when waiting in queue.
+    - Banner clearly indicates sequential execution: "Chapters render one by one; it will start automatically once the previous render finishes."
+- **Verification:**
+    - `test_job_control.py`: 51/51 passed.
+    - `test_thumbnail_studio.py`: 115/115 passed.
+    - `test_chapter_media.py`: 2/2 passed.
+    - `test_thumb_spec.py`: 10/10 passed.
+    - Next.js production build: clean pass (11/11 pages compiled).

@@ -143,7 +143,13 @@ function ChapterPage({ id }: { id: string }) {
             }, "Chapter deleted")}>🗑 Delete</ConfirmButton>
           {rendering ? (
             <ConfirmButton className="sm danger" confirm="Stop the render?" onConfirm={() => act(async () => { await api("/api/jobs/control", { job_id: rj.id, action: "stop" }); reload(); }, "Stopping")}>■ Stop render</ConfirmButton>
-          ) : inQueue ? null : canRender && !["making"].includes(k) && (
+          ) : inQueue ? (
+            <span className="pill warn" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
+              Queued (#{inQueue.place})
+              <button className="sm ghost" title="Take out of queue" style={{ padding: "0 4px", fontSize: 11, lineHeight: 1 }}
+                onClick={() => act(async () => { await api("/api/render-queue/remove", { id: inQueue.item }); reload(); }, "Removed from queue")}>✕</button>
+            </span>
+          ) : canRender && !["making"].includes(k) && (
             <button className={k === "to_review" ? "primary" : ""} onClick={() => setSheet(!sheet)}>{shown ? "Render again" : "Render video"}</button>
           )}
         </>}
@@ -185,7 +191,7 @@ function ChapterPage({ id }: { id: string }) {
       {rendering && <RenderProgress rj={rj} />}
       {inQueue && !rendering && (
         <div className="banner info spread">
-          <span><b>Waiting in the render queue</b> — {inQueue.place === 1 ? "it’s next" : `#${inQueue.place} in line`}. It starts by itself; progress shows here and in the bar at the top.</span>
+          <span><b>Waiting in the render queue</b> — {inQueue.place === 1 ? "it’s next" : `#${inQueue.place} in line`}. Chapters render one by one; it will start automatically once the previous render finishes.</span>
           <Busy className="sm" onClick={() => act(async () => { await api("/api/render-queue/remove", { id: inQueue.item }); reload(); }, "Taken out of the queue")}>Take out</Busy>
         </div>
       )}
