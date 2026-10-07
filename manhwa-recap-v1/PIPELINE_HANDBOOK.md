@@ -874,14 +874,30 @@ The left-menu item **📺 Publishing Studio** (it replaced "Review & Publish") o
 - **No automatic posting:** the posting schedule (step 5) will post the next queued video at set times, but only once it's switched on in Settings.
 - Data lives in `projects/_post_queue.json` (`review_ui/publish_queue.py`). Routes: `/api/studio*`. Tests: `test_publishing_studio.py`.
 
-### E13b. How the thumbnail copilot picks its pictures (2026-10-04)
+### E13b. How the thumbnail copilot picks its pictures (updated 2026-10-06)
 
-- **Skipped:** bubble cards, slivers, credits pages, and near-black or flat images. These are the same image-check roles that keep such panels out of the video.
-- **Ranked up:** the series lead. A panel whose description names the Series Bible's protagonist or one of their aliases gets +14.
-- **No look-alikes:** two panels with the same layout and colour are never both offered.
-- **↻ Regenerate:** the panels used last time go to the back of the list, so you see the next-best picks.
-- **Clean picture:** one option is always the art alone, with no text and no badge.
-- **Tall panels** are shown whole on a blurred, dimmed copy of themselves instead of being cropped.
+Spec: `docs/audit/07_THUMBNAIL_RECIPE.md`. Engine: `review_ui/thumbnail_studio.py`. Everything is composited from the chapter's own pictures and the series cover. No image is ever generated.
+
+- **Face boxes:** one metered Gemini vision pass per chapter (`face_boxes.py`) finds the faces, which face is the series lead, speech bubbles, and the cover's logo/watermark.
+  - It covers at most 60 panels plus the cover (`THUMB_FACE_PASS_MAX`).
+  - About 1¢ per 10 panels; cached, so a chapter is analysed once.
+  - Without a key, or past the daily limit, panels rank without faces.
+- **Panels are rejected when** they are near-black (luminance < 18), more than 22% bubbles, watermarked, have no face covering ≥ 8% of the panel, have a face under 22% of the frame height, or the face would block the hook. Credits, bubble cards and slivers are skipped as before.
+- **Score of the survivors:** face size ×3, series lead ×2.5, face height, contrast, sharpness, room for the text ×1.5, minus extra faces.
+- **No look-alikes:** two panels within 18 bits of dHash **and** a colour difference of 30 or less count as the same picture.
+- **Layout:**
+  - Crop to fill 16:9 around the face; no blurred side bars. The one exception is a small cover enlarged more than 1.9×: the sharp art covers the right 62% and a blurred copy fills the rest.
+  - Face on the right; if it's in the left 45%, the art is mirrored.
+  - Yellow `#FFD400` hook (Anton font, 84 px minimum cap height; words are cut, never shrunk), black outline.
+  - One arrow to the lead's face, stopping 18–30 px short of it.
+  - A bubble under the hook is painted over from its surroundings.
+- **Cover:** the cover's own logo and watermark are removed (wide bands trimmed, corner marks painted over). Default bottom trim is 32% (`THUMB_COVER_TRIM_BOTTOM`), so a title band never shows.
+- **CH badge** (top left): it always contrasts with the art behind it. When the series colour is too close (CIE ΔE < 35), it switches to the complement, then yellow, red, white or black.
+- **Designs:**
+  - Panel hero, cover hero, panel + cover, cover inset, two moments, clean.
+  - The cover designs ("Cover art + chapter number", "Cover art centered + blur") lead when the series has a cover. An approved series style is always first.
+  - ↻ rotates to the next designs, uses unseen panels, and shifts the colour ±12°.
+- **Preview without changing anything:** `POST /api/thumbcopilot/preview` renders a chapter's default into `thumbnails/_preview/`.
 
 ## E14. ⏱️ Posting schedule (2026-10-04) — off unless you switch it on
 
@@ -930,7 +946,7 @@ manhwa.nodepilot.dev now opens the new studio. The old board and the per-video r
 
 | Place | What you do there |
 |---|---|
-| **Home** | Paste any Asura or WEBTOON series or chapter link. See what needs you (videos to approve, boards to review, failures, demand suggestions), the next post, and today's spend. |
+| **Home** | Paste any Asura or WEBTOON series or chapter link. See what needs you (videos to approve, boards to review, failures, demand suggestions), the next post, and today's spend. **A video on the Posting schedule (queued or posting) never appears under Needs you** (2026-10-06). |
 | **Library** | Every series: priority, autopilot state, cast list (edit it or research it again), YouTube demand, and its chapters. Use **Make** or **Plan from here** for any chapter. |
 | **Chapter** | The step strip (Pages → Video) with ↻ Redo per step, and **Render video**. Three tabs: **Board** (segments in video order: edit a line, length, in-video, and More for swap, add or remove a line, move the cut, whole panel, duplicate, move), **Issues** (timing and pacing, story check, script editor changes), and **Video & publish** (watch; **Approve & schedule**; title, description, tags, thumbnail; Post now). |
 | **Queue** | To review · Scheduled · Posted · Errors. Approving a video puts it in the next free slot. |
@@ -941,3 +957,58 @@ manhwa.nodepilot.dev now opens the new studio. The old board and the per-video r
 - **Two taps** for anything that spends money, posts or deletes. There are no pop-up dialogs.
 - **Google Drive:** after every export, the video, thumbnail and script are copied to the Flamingo Remix Shared Drive under `Series / Ch N`. Once the copy is safe, the chapter's render clips are deleted to free disk; the next render rebuilds them. Settings shows whether Drive is connected, and the Chapter page has a **Copy now** button.
 - **Login:** the same login as before. If a login or secret variable goes missing on Vercel, the site shows a configuration error rather than opening up.
+
+## E19. Since 2026-10-04: publishing, SEO, pages, QA (updated 2026-10-06)
+
+### Needs you vs the Posting schedule
+- **A video waiting on the Posting schedule (queued or posting) is never in Needs you.** Its status stays **Scheduled**, even if its board was saved again after the video was made. In that case the chapter shows a note: the scheduled video is the one that posts; send it back to review to use the new board.
+- To take something off the schedule and check it again: Posting schedule → ↩ back to review.
+
+### 🔎 SEO — one click, live (Chapter → Video & publish → "What gets published")
+- **What it does:**
+  1. Fresh research: Google web research on the series (official and Korean titles, author/artist, the names people search for), your channel's latest 50 uploads, a YouTube search of comparable recaps, and a YouTube search for this series.
+  2. Writes, then **replaces** the title, description and tags. It asks first.
+- **How long:** about **1½–2 minutes**. Measured on ch.32: 102 s, with all four sources answering.
+- **How you know it's working:** the button reads "🔎 SEO…" and a box shows each step as it finishes, with its seconds and a running timer. Steps: reading the chapter → web research → your channel's uploads + YouTube searches → writing → filling in.
+  - You can leave the page; the result is there when you come back.
+  - When it ends, the box lists what was filled and a ✓ or ⚠ per source, so a failed web search is shown, not hidden.
+  - Anything still blocking the post is listed.
+- **Cost:** a few cents, through the daily spend limit. Too little budget → it stops and says so.
+- The older "Suggest…" and "↻ New suggestions" buttons still make suggestions to pick one by one.
+
+### What a chapter's title, description and tags look like (`chapter_title.py`, `description_blocks.py`, `series_pack.py`)
+- **Title:** `{hook} - {Series} Chapter {N} Manhwa Recap`, max 100 characters.
+  - The writer is told exactly how many characters the hook may use for that series.
+  - " Manhwa Recap" is dropped only when that lets the whole hook fit.
+  - Refused before posting: the old `P{n} | … | #manhwa` pattern, a title with no hook ("Chapter N" alone), and a title identical to another video's. Within one chapter, a duplicate only counts against videos that actually went out.
+- **Description, in this order:**
+  1. hook + series + "Chapter N" (≤ 150 chars)
+  2. 2–3 sentences about THIS chapter
+  3. timestamps by arc (none for a single chapter)
+  4. playlist / previous / next links that exist
+  5. series info with every alias, status, chapter count, credit
+  6. fixed footer (setting `description_footer`)
+  7. 3–5 hashtags
+  - If block 2 repeats more than 80% of the previous chapter's (word 3-grams), the video can't post until it's rewritten.
+- **Tags:** the writer's tags plus every alias of the series, within YouTube's 500 characters.
+- **Series pack** (`projects/_series_packs/<series>.json`): title, aliases (web research, Series Bible, watchlist, URL, plus `aliases_manual` that a refresh never drops), characters, genres, status, chapter count, playlist id, thumbnail style. Narration opens with "{title}, also known as {alias}", the alias rotating by chapter.
+- **Series defaults:** "Save as series defaults" in What gets published stores tags, playlist, privacy and channels for every chapter of the series.
+
+### Range videos (Track B, `range_compile.py`) — API only for now
+- `POST /api/ranges/plan` previews chapters a–b; `POST /api/ranges/build` stitches each chapter's latest **approved** video (stream copy, no AI cost) into a NEW video. It refuses when any chapter in the range isn't approved.
+- **Title:** `Full {H}H | {Series} Chapter {a}-{b} | Manhwa Recap | {Genre} | Best Manhwa {Year}`, ≤ 100. "Best Manhwa {Year}" is dropped first, then the genre.
+- The range is stored as two numbers (`chapters_start`, `chapters_end`), never parsed from a title. It lives in its own folder `<series>_ch<a>-<b>`, which is reviewed and posted like any video but never counted as a chapter in Library.
+- **Not done yet:** adding videos to a YouTube playlist automatically, and a button.
+
+### Looking at one chapter while another renders
+- Every picture and clip on a chapter's Board is fetched for **that chapter** (`?project=`). Before 2026-10-06 they came from whichever chapter was open or rendering, which is why ch.32 showed ch.31's pictures.
+- While another chapter renders, a Board is view-only: look, watch and review, but edits wait until the render ends.
+
+### Chapter QA
+- `GET /api/qa/chapters` (read-only) checks every chapter:
+  - its source link matches its folder;
+  - every picture is from its own folder;
+  - its pages and pictures aren't copies of the neighbouring chapter's;
+  - its newest video's length matches its storyboard.
+- 2026-10-06: 33 chapters, 0 problems. The "segment clips missing" warnings are normal clean-up after export.
+

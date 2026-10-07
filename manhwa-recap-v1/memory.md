@@ -9350,3 +9350,16 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - Deployment `fc8ddf78-14c6-48bb-8be4-06275644fadc` completed with `SUCCESS` at 20:18:16 ET.
   - The failed CLI deployment `fc13c831` was automatically purged/removed by Railway.
   - Live status verified: `● Online`, `https://recap-studio-production.up.railway.app/health` returns `{"status":"ok"}`.
+
+### 2026-10-06 20:45 ET — Needs you vs Posting schedule; 🔎 SEO progress + timing; titles cut mid-hook; handbook
+- **Needs you:** a scheduled or posting video wins over "board changed after the video" (`chapter_status.decide`), and `/api/home` skips any chapter with a queued or posting item.
+  - The case was ch.358: approved and queued, but listed as "Check the board".
+  - Note: these edits were committed and pushed by the parallel session as e81211c (same clone).
+  - Verified live: Needs you 24, queued 6, overlap 0.
+- **🔎 SEO** now runs in the background (`/api/seo/run/start`, `/api/seo/run/status`): steps with their seconds, a timer, errors, and the result when you come back (945a8b1).
+- **Measured live** on ch.32 (`/api/seo/generate`, suggestions only, its fields untouched): **102 s**. Web research 19 sources, channel 50 uploads, niche search 10 videos, series search 10 videos.
+- **Found:** hooks were cut mid-sentence ("Crushes His… -"). The prompt said ≤60 characters, but this series name leaves 39.
+  - Fix: the prompt now gives the exact room (`seo._hook_room`), and the builder drops " Manhwa Recap" only when that lets the whole hook fit.
+- **Test fix:** `test_prepare_publish` trim check now reads the configured trims (the parallel session's 1021bc8 raised the bottom trim to 32%) (fa4931b).
+- **Handbook:** E13b rewritten for spec 07; E18 Home gets the Needs-you rule; new E19 (SEO button and timing, title/description/tags rules, series pack, ranges, per-chapter pictures, QA).
+- **Parallel session:** another agent is committing to ~/dev/manhwa at the same time (1021bc8 cover defaults, e81211c). Fetch and check before every push.
