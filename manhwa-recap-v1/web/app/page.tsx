@@ -1,4 +1,5 @@
 "use client";
+import { Fragment } from "react";
 import Link from "next/link";
 import { api, useApi } from "@/lib/api";
 import { ago, money } from "@/lib/fmt";
@@ -25,8 +26,12 @@ export default function Home() {
       <Card title="Needs you" pad={false}>
         {!h ? <Empty>Loading…</Empty> : h.need.length === 0 ? <Empty>Nothing waiting for you. New chapters arrive here when they are ready.</Empty> : (
           <div className="needgrid">
-            {h.need.map((n: any, i: number) => (
-              <Link key={i} href={ACTION_HREF(n)} className="needcard">
+            {h.need.map((n: any, i: number) => (<Fragment key={i}>
+              {/* owner, 2026-10-07: one series at a time, in chapter order */}
+              {n.series && n.series !== h.need[i - 1]?.series && (
+                <div className="small muted" style={{ gridColumn: "1 / -1", fontWeight: 700, marginTop: i ? 8 : 0 }}>
+                  {n.series} · {h.need.filter((x: any) => x.series === n.series).length} to do, in chapter order</div>)}
+              <Link href={ACTION_HREF(n)} className="needcard">
                 {n.series_id && n.cover ? <img src={`/api/watchlist/cover/${encodeURIComponent(n.series_id)}`} alt="" loading="lazy" /> : <div className="ph" style={{ display: "grid", placeItems: "center", fontSize: 34 }}>{n.kind === "demand" ? "📈" : ""}</div>}
                 <div className="nb">
                   <b>{n.title}</b>
@@ -36,7 +41,7 @@ export default function Home() {
                   <span className="btn sm" style={{ justifySelf: "start" }}>{n.action} →</span>
                 </div>
               </Link>
-            ))}
+            </Fragment>))}
           </div>
         )}
       </Card>

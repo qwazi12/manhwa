@@ -49,6 +49,14 @@ def _find(d, item_id):
     return next((x for x in d["items"] if x["id"] == item_id), None)
 
 
+def series_chapter(project):
+    """('series-slug', 81.0) from a project id like 'series-slug_81' (versions
+    like '_81-v2' count as 81); (None, None) when it isn't a chapter id."""
+    import re
+    m = re.match(r"^(.*)_(\d+(?:\.\d+)?)(?:-v\d+)?$", project or "")
+    return (m.group(1), float(m.group(2))) if m else (None, None)
+
+
 def add(root, entries):
     """Queue exports. Idempotent: one already queued, posting or posted is skipped.
     Returns (added, skipped) lists of {project, name}."""
@@ -62,9 +70,19 @@ def add(root, entries):
                 skipped.append({"project": e["project"], "name": e["name"]})
                 continue
             now = time.time()
-            d["items"].append({"id": uuid.uuid4().hex[:10], "project": e["project"], "name": e["name"],
-                               "status": "queued", "added_at": now, "updated_at": now,
-                               "job": None, "error": None})
+            row = {"id": uuid.uuid4().hex[:10], "project": e["project"], "name": e["name"],
+                   "status": "queued", "added_at": now, "updated_at": now, "job": None, "error": None}
+            # Owner, 2026-10-07: a series posts in chapter order. A chapter goes
+            # in just before any LATER chapter of the same series already waiting
+            # (approving ch.81 after ch.93 still posts ch.81 first).
+            ser, ch = series_chapter(e["project"])
+            at = next((i for i, x in enumerate(d["items"]) if x["status"] == "queued" and ser
+                       and series_chapter(x["project"])[0] == ser
+                       and (series_chapter(x["project"])[1] or 0) > (ch or 0)), None)
+            if at is None:
+                d["items"].append(row)
+            else:
+                d["items"].insert(at, row)
             added.append({"project": e["project"], "name": e["name"]})
         _save(root, d)
     return added, skipped

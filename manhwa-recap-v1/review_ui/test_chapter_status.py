@@ -88,8 +88,13 @@ def main():
         check("counts per status", d["counts"].get("to_review") == 1 and d["counts"].get("video_ready") == 1)
         h = c.get("/api/home").json()
         kinds = [n["kind"] for n in h["need"]]
-        check("Home lists what needs you (video to approve before board to review)",
-              kinds[:2] == ["video_ready", "to_review"])
+        # owner, 2026-10-07: Needs you is grouped by series in chapter order
+        # (it used to put videos before boards)
+        nd = [n for n in h["need"] if n.get("id")]
+        check("Home lists what needs you, grouped by series in chapter order",
+              {"video_ready", "to_review"} <= set(kinds)
+              and [(n["series"].lower(), float(n["chapter"])) for n in nd]
+              == sorted((n["series"].lower(), float(n["chapter"])) for n in nd))
         check("Home has spend, autopilot, queue and disk", all(k in h for k in ("spend", "autopilot", "queue", "disk")))
         lib = c.get("/api/library").json()
         mur = next(x for x in lib["series"] if x["id"] == sid)

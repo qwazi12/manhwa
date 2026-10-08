@@ -47,9 +47,12 @@ export default function PostingSchedule() {
   const chanName = (id: string) => { const a = accounts.find((x) => x.account_id === id); return a ? `${a.username || id}${a.platform ? ` (${a.platform})` : ""}` : id; };
   const reload = () => { studio.reload(); ready.reload(); };
 
+  // review a series in chapter order (owner, 2026-10-07), so approvals post in order
+  const chNum = (id: string) => { const m = /_(\d+(?:\.\d+)?)(?:-v\d+)?$/.exec(id || ""); return m ? parseFloat(m[1]) : 1e9; };
+  const serOf = (id: string) => (id || "").replace(/_(\d+(?:\.\d+)?)(?:-v\d+)?$/, "");
   const reviewRows = (ready.data?.chapters || []).map((r: any) => ({
     key: `${r.id}|${r.video}`, kind: "review", project: r.id, name: r.video, title: r.title, label: r.title, sid: r.series_id, superseded: r.status?.superseded,
-  }));
+  })).sort((a: any, b: any) => serOf(a.project).localeCompare(serOf(b.project)) || chNum(a.project) - chNum(b.project));
   const qRows = (s?.queue || []).map((r: any) => ({ ...r, key: `${r.project}|${r.name}`, kind: r.qstatus === "failed" ? "error" : r.qstatus === "posting" ? "posting" : "ready", sid: sidOf[r.project] }));
   const readyRows = qRows.filter((r: any) => r.kind !== "error");
   const errorRows = qRows.filter((r: any) => r.kind === "error");

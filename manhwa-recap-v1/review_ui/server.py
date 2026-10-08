@@ -8224,11 +8224,18 @@ def home_view():
             continue
         if k in ("to_review", "video_ready", "failed", "waiting"):
             need.append({"kind": k, "id": r["id"], "title": r["title"], "status": r["status"],
+                         "series": r.get("series") or "", "chapter": r.get("chapter"),
                          "series_id": r.get("series_id"), "cover": r.get("cover"), "auto": r.get("auto"),
                          "action": {"to_review": "Check the board", "video_ready": "Watch the video",
                                     "failed": "See why and retry", "waiting": "Resume"}[k]})
-    order = {"failed": 0, "waiting": 1, "video_ready": 2, "to_review": 3}
-    need.sort(key=lambda x: order[x["kind"]])
+    # Owner, 2026-10-07: review a series in chapter order (ch.81 before ch.93)
+    # so posting follows it — Needs you is grouped by series, chapters ascending.
+    def _chn(x):
+        try:
+            return float(str(x.get("chapter") or "").split(" ")[0])
+        except ValueError:
+            return float("inf")
+    need.sort(key=lambda x: ((x.get("series") or x.get("title") or "").lower(), _chn(x)))
     try:
         dem = __import__("demand_research").load(_i.PROJECTS).get("series") or {}
         tiers = {s["id"]: s.get("tier") for s in _wl_view()["series"]}
