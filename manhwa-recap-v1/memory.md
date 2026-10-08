@@ -9406,3 +9406,22 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - The thumbnail redraw is limited to this series and skips posted videos.
 - **Test:** `test_series_defaults.py`. All suites pass.
 - **Owner, follow-up:** "no, I liked how it was, just needed the button to work." Restored the original behaviour exactly: the title/description templates propagate, tags are replaced, and thumbnails redraw for all series. The only change kept from 864976c is `get_all_concepts` → `load_concepts`. `test_series_defaults.py` now checks the original behaviour (no 500; ch.31 gets "… Chapter 31" from ch.32's title, plus its tags and playlist).
+
+### 2026-10-07 20:45 ET — Owner: "11, 3 and 9 … none have gone out. Is the scheduler working? Look at Scrapper"
+- **Facts from the live slot log:**
+  - The scheduler runs and fires on time. The 21:00 slot on Oct 6 posted Murim Psychopath ch.45.
+  - Oct 7 **11:00 refused** Iron-Blooded Sword Hound ch.180: same title as ch.183 ("**NEW PART** Abandoned By His Clan…"). The B1 duplicate rule blocks both.
+  - Oct 7 **15:00 refused** Fated Villain ch.358: its board changed after approval (superseded).
+- **The real defect:** each slot tried only the first queued video, so a refusal spent the slot. Refused items also became "failed" and showed only in the Errors tab, never in Needs you.
+- **Scrapper (`backend/app/social/queue_manager.py`):** every ready item gets its own slot (`plan_schedule`), and a failure only affects that item (status retry/error); the queue keeps moving.
+- **Fix (0b77174):**
+  - `_local_post_blockers` runs before posting.
+  - A refused video is marked failed with the reason, and the SAME slot goes to the next queued video (≤ 10 tries). The slot log says what was skipped.
+  - `chapter_status`: a failed queue row → Needs you "couldn't post — reason".
+  - `/api/studio` flags queued videos that will be refused (`blocked`, no planned time).
+  - `/queue` card shows "won't post until fixed".
+- **Tests:** `test_posting_schedule.py` 24/24 (adds today's scenario); all suites pass.
+- **Deploy:** waited while the Hound ch.180 render ran; pushed after it ended (see next line).
+- **Owner actions needed:**
+  - Give Hound ch.180 or ch.183 a new title (🔎 SEO on one of them).
+  - Re-approve Fated Villain ch.358 (watch the new render, or send it back).
