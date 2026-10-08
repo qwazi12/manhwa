@@ -9425,3 +9425,19 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
 - **Owner actions needed:**
   - Give Hound ch.180 or ch.183 a new title (🔎 SEO on one of them).
   - Re-approve Fated Villain ch.358 (watch the new render, or send it back).
+
+### 2026-10-07 21:15 ET — Owner: back in line, mass edit, privacy on cards, stuck "uploading", Errors + Needs review, made vs tracked
+- **Murim Psychopath ch.45** was live on YouTube (https://www.youtube.com/watch?v=2i-77WVNEjc) while the schedule showed "uploading now…". Its record only settled when `/api/publishing/publish/status` was called.
+  - Fix: `_reconcile_posting()` runs every scheduler pass, like Scrapper's `reconcile_posting`.
+- **Posting schedule:**
+  - ↩ Back in line: one video, the selected ones, or all failed (`publish_queue.requeue`, bulk action `requeue`).
+  - ✏️ Mass edit: title, description, tags, privacy; only filled fields change.
+  - Privacy menu in the bulk bar and on every card.
+  - "↻ Retry" renamed 🚀 Post now; ↩ to review renamed 👁 To review.
+- **A failed post whose chapter was re-rendered** is closed (`drop_stale_failures`), so the chapter is no longer in Errors and Needs review at once.
+- **Made vs tracked, measured live:**
+  - Library, chapters and tracker agree on folders and latest chapters for all 15 series.
+  - Disconnect: autopilot's "made" includes chapters whose folders were removed (Regressor's Tale 30, Murim 44, Fog Land 2). Their Library cards showed "Not made" with a paid Make button.
+  - Fix: they now show as "Made · folder removed" with the reason. From now on `_delete_one_project` records the removal in `projects/_gone.json` (why, plus the YouTube link if posted).
+  - Series cards also list chapters skipped between made ones (Fated Villain 359–360).
+- **Tests:** `test_queue_tools.py`, `test_library_truth.py`; all suites pass. Commit 640a1e8, pushed with no jobs running.
