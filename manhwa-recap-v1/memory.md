@@ -9453,3 +9453,27 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - The Posting schedule's Needs review tab uses the same order.
   - Approving out of order still posts in chapter order (`publish_queue.add` inserts before later chapters of the same series).
 - **Tests:** `test_series_defaults.py` 2/2, `test_needs_you.py` 3/3, `test_chapter_status` updated to the new order rule. All suites pass.
+
+### 2026-10-08 — Spec 10: per-chapter SEO system (docs/audit/10_SEO_SYSTEM_SPEC.md), thumbnails excluded by the owner
+- **Saved the spec** with the mojibake restored, so the frozen blocks are byte-exact.
+- **Built (622b33a, 43c1439):**
+  - `chapter_seo.py`: title skeleton (T1/T2, short fallback), description with the frozen boilerplate (D1–D5), 3 tag blocks ≤500 (H1/H2), 3 hashtags (H3/H4), timecode rules (D4), hook rules (§5), validation suite.
+  - `series_hooks.py`: Phase D, 3 candidates with sources, owner locks one.
+  - Server:
+    - `/api/series/seo`, `/api/series/hooks`, `/api/series/hooks/lock` (re-titles the series' unposted chapters), `/api/series/playlist`.
+    - Chapter package after render and on 🔎 SEO for locked series.
+    - `validate_publish` runs the suite on packaged videos.
+    - Needs you gets a "Pick the title hook" item.
+    - Music credit setting.
+  - `upload_post`: `youtube_playlist_id` and `youtube_first_comment` (both documented by Upload-Post).
+  - UI: Library → 🏷 Title hook; Settings → music credit.
+- **Bug fixed:** `series_pack.build()` dropped owner-set fields, so any refresh wiped "Save as series defaults". Owner keys now persist.
+- **Not possible / not done:**
+  - End screens: no API anywhere.
+  - Pinning the comment: not possible via API.
+  - Creating playlists: the deployment has no YouTube write access (Google OAuth not configured), so the owner creates them and pastes the link.
+  - §10 legacy remediation of live videos: needs YouTube write access.
+  - Timecodes: our videos have no sections yet, so they're omitted.
+  - P1 publish window scheduling, P5 48h/7d tracking, Phase C weekly recon store: next.
+  - Chapter title scrape is best effort (Asura page title).
+- **Decision taken:** a series with a locked hook uses spec 10 for title/description/tags. Series without one keep the current behaviour (settings title format, "Use for series") until the hook is picked.
