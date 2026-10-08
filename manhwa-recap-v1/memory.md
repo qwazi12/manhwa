@@ -9441,3 +9441,15 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - Fix: they now show as "Made · folder removed" with the reason. From now on `_delete_one_project` records the removal in `projects/_gone.json` (why, plus the YouTube link if posted).
   - Series cards also list chapters skipped between made ones (Fated Villain 359–360).
 - **Tests:** `test_queue_tools.py`, `test_library_truth.py`; all suites pass. Commit 640a1e8, pushed with no jobs running.
+
+### 2026-10-07 21:40 ET — "Use for series" sticks; Needs you in chapter order
+- **Owner:** "it can and should have the same title, just the ch number should change … use for series should do that for most things if not all."
+  - The automatic SEO fill-in after a render used to replace a new chapter's series title, description and tags. It now skips any field the series pack sets.
+  - Series defaults also carry category, made-for-kids and the synthetic-voice disclosure.
+  - The duplicate-title message now says to add the chapter number or use series defaults.
+  - Iron-Blooded ch.180 and ch.183 are identical **with no chapter number**. One click of ⚡ Save as series defaults on either gives every Hound chapter that title with its own number. That's the owner's call; I didn't click it. (bb5aa52)
+- **Owner:** "group the same series together and by chapter order."
+  - Needs you is sorted by series, then chapter, with a heading per series on Home.
+  - The Posting schedule's Needs review tab uses the same order.
+  - Approving out of order still posts in chapter order (`publish_queue.add` inserts before later chapters of the same series).
+- **Tests:** `test_series_defaults.py` 2/2, `test_needs_you.py` 3/3, `test_chapter_status` updated to the new order rule. All suites pass.
