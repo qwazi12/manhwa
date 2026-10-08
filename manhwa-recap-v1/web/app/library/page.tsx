@@ -63,12 +63,14 @@ export default function Library() {
 
 function SeriesCard({ s, reload, prio, onPrio }: { s: any; reload: () => void; prio: any[]; onPrio: () => void }) {
   const act = useAct();
-  const [open, setOpen] = useState<null | "chapters" | "cast" | "manage">(null);
+  const [open, setOpen] = useState<null | "chapters" | "cast" | "manage" | "hook">(null);
+  // Home's "Pick the title hook" links here (?hook=<series id>)
+  useEffect(() => { try { if (new URLSearchParams(location.search).get("hook") === s.id) { setOpen("hook"); setTimeout(() => document.getElementById(`series-${s.id}`)?.scrollIntoView({ block: "start" }), 300); } } catch {} }, [s.id]);
   const d = s.demand;
   const paused = s.state === "paused";
   return (
     <Card pad={false}>
-      <div style={{ display: "grid", gridTemplateColumns: "84px 1fr", gap: 14, padding: 14 }}>
+      <div id={`series-${s.id}`} style={{ display: "grid", gridTemplateColumns: "84px 1fr", gap: 14, padding: 14 }}>
         {s.cover ? <img className="cover" src={`/api/watchlist/cover/${enc(s.id)}`} alt="" loading="lazy" /> : <div className="cover" />}
         <div style={{ display: "grid", gap: 7, minWidth: 0 }}>
           <div className="spread">
@@ -125,6 +127,7 @@ function SeriesCard({ s, reload, prio, onPrio }: { s: any; reload: () => void; p
               <Busy className="sm" onClick={() => act(async () => { await api("/api/autopilot/series", { series_id: s.id, action: "retry" }); reload(); }, "Will retry")}>↻ Retry</Busy>
             )}
             <button className={`sm ${open === "chapters" ? "primary" : ""}`} onClick={() => setOpen(open === "chapters" ? null : "chapters")}>Chapters ({(s.chapters || []).length} made)</button>
+            <button className={`sm ${open === "hook" ? "primary" : ""}`} onClick={() => setOpen(open === "hook" ? null : "hook")}>🏷 Title hook</button>
             <button className={`sm ${open === "cast" ? "primary" : ""}`} onClick={() => setOpen(open === "cast" ? null : "cast")}>Cast</button>
             <button className={`sm ${open === "manage" ? "primary" : ""}`} onClick={() => setOpen(open === "manage" ? null : "manage")}>Manage</button>
           </div>
@@ -132,6 +135,7 @@ function SeriesCard({ s, reload, prio, onPrio }: { s: any; reload: () => void; p
       </div>
       {open === "chapters" && <ChapterList s={s} reload={reload} prio={prio} onPrio={onPrio} />}
       {open === "cast" && <Cast s={s} />}
+      {open === "hook" && <HookPanel s={s} />}
       {open === "manage" && <Manage s={s} reload={reload} />}
     </Card>
   );
@@ -261,6 +265,68 @@ function AddTitle({ onDone }: { onDone: () => void }) {
       <Busy className="sm primary" disabled={!title.trim()} onClick={() => act(async () => { await api("/api/watchlist/series", { title: title.trim(), tier: "watchlist" }); setTitle(""); setOpen(false); onDone(); }, "Added — paste its link later")}>Add</Busy>
       <button className="sm ghost" onClick={() => setOpen(false)}>Cancel</button>
     </span>
+  );
+}
+
+/** Spec 10 Phase D: the series' one title hook. Every chapter's title is
+ *  "[N] hook — series | Manhwa Recap"; only the number changes. */
+function HookPanel({ s }: { s: any }) {
+  const act = useAct();
+  const pid = (s.chapters || []).find((r: any) => r.id)?.id;
+  const info = useApi<any>(pid ? `/api/series/seo?project=${enc(pid)}` : null);
+  const [own, setOwn] = useState("");
+  const [pl, setPl] = useState("");
+  if (!pid) return <div style={{ padding: 14 }}><Empty>Make a chapter of this series first — the hook is built from its research.</Empty></div>;
+  const x = info.data;
+  const cands: any[] = x?.hook_candidates?.candidates || [];
+  const lock = (hook: string, mechanic?: number, provenance?: string[]) => act(async () => {
+    const r = await api("/api/series/hooks/lock", { project: pid, hook, mechanic: mechanic ?? null, provenance: provenance || [], apply: true });
+    info.reload(); return r;
+  }, "Locked — this series' chapters use it from now on");
+  return (
+    <div style={{ borderTop: "1px solid var(--border)", padding: 14, display: "grid", gap: 10 }}>
+      {!x ? <Empty>Loading…</Empty> : <>
+        {x.title_lock ? (
+          <div className="banner info small" style={{ display: "grid", gap: 2 }}>
+            <b>Locked hook: “{x.title_lock.series_hook}”</b>
+            <span>Every chapter: <code>{x.example_title}</code></span>
+            <span className="faint">Only the chapter number changes. Changing the hook re-titles this series’ chapters that haven’t posted.</span>
+          </div>
+        ) : <span className="small" style={{ color: "var(--yellow)" }}>No hook yet — this series’ chapters can’t get their final title until you pick one.</span>}
+        <div className="row">
+          <ConfirmButton className="sm" confirm="Write 3 hook ideas from this series’ research? (about 1¢)"
+            onConfirm={() => act(async () => { await api("/api/series/hooks", { project: pid }); info.reload(); }, "3 ideas ready")}>✨ Suggest 3 hooks</ConfirmButton>
+          <span className="small faint">Room for the hook: {x.hook_budget} characters ({x.series})</span>
+        </div>
+        {cands.map((c: any, i: number) => (
+          <div key={i} className="sugg" style={{ display: "grid", gap: 2 }}>
+            <div className="spread"><b>{c.hook}</b>
+              <ConfirmButton className="sm primary" disabled={(c.problems || []).length > 0} confirm={`Lock “${c.hook}” for every chapter?`}
+                onConfirm={() => lock(c.hook, c.mechanic, c.provenance)}>Use this</ConfirmButton></div>
+            <span className="small muted">{c.mechanic_name || `mechanic ${c.mechanic}`} · {c.chars} chars · e.g. <code>{c.example_title}</code></span>
+            {c.why && <span className="small faint">{c.why}</span>}
+            {(c.provenance || []).length > 0 && <span className="small faint">from: {c.provenance.map((u: string, k: number) => <a key={k} href={u} target="_blank" rel="noreferrer" style={{ marginRight: 6 }}>{u.replace(/^https?:\/\//, "").slice(0, 40)}</a>)}</span>}
+            {(c.problems || []).length > 0 && <span className="small" style={{ color: "var(--red)" }}>can’t use: {c.problems.join("; ")}</span>}
+          </div>
+        ))}
+        <div className="row">
+          <input value={own} onChange={(e) => setOwn(e.target.value)} placeholder="…or type your own hook" style={{ flex: 1, minWidth: 200 }} />
+          <ConfirmButton className="sm" disabled={!own.trim()} confirm={`Lock “${own.trim()}” for every chapter?`} onConfirm={() => lock(own.trim())}>Lock mine</ConfirmButton>
+        </div>
+        <div className="row">
+          <span className="small">Series playlist{x.playlist_id ? `: ${x.playlist_id}` : " (none yet — create it on YouTube, paste its link)"}</span>
+          <input value={pl} onChange={(e) => setPl(e.target.value)} placeholder="https://www.youtube.com/playlist?list=PL…" style={{ flex: 1, minWidth: 200 }} />
+          <Busy className="sm" disabled={!pl.trim()} onClick={() => act(async () => { await api("/api/series/playlist", { project: pid, playlist: pl.trim() }); setPl(""); info.reload(); }, "Playlist saved — new posts are added to it")}>Save</Busy>
+        </div>
+        <details><summary className="small muted">What the description and tags use for this series</summary>
+          <div className="small" style={{ display: "grid", gap: 2, marginTop: 4 }}>
+            <span>Also known as: {(x.fields?.series_name_alt || []).join(", ") || "—"} {x.fields?.series_name_ko ? `/ ${x.fields.series_name_ko}` : ""}</span>
+            <span>Story: {(x.fields?.authors?.story || []).join(", ") || "—"} · Art: {(x.fields?.authors?.art || []).join(", ") || "—"} · Publisher: {x.fields?.publisher || "—"}</span>
+            <span>Hashtags: #ManhwaRecap #{x.fields?.series_hashtag} #MangaRecap</span>
+            <span className="faint">Series tags: {(x.tags_series_block || []).join(", ")}</span>
+          </div></details>
+      </>}
+    </div>
   );
 }
 

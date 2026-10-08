@@ -69,3 +69,25 @@ def test_a_new_chapter_keeps_the_series_title_with_its_own_number(tmp_path, monk
     # and the two never count as duplicates
     import chapter_title as ct
     assert not [p for p in ct.problems(md["title"], S, "184", [p183["title"]]) if "already" in p]
+
+
+def test_series_defaults_survive_a_series_refresh(tmp_path, monkeypatch):
+    """Bug found 2026-10-08: any later refresh of the series record wiped what
+    'Save as series defaults' stored."""
+    import ingest as ing
+    import server as srv
+    ing.PROJECTS = str(tmp_path)
+    slug, S = "murim-psychopath", "Murim Psychopath"
+    d = tmp_path / f"{slug}_45"
+    (d / "exports").mkdir(parents=True)
+    (d / "exports" / "f.mp4").write_bytes(b"\0")
+    (d / "project.json").write_text(json.dumps({"series": S, "chapter": "45",
+        "url": f"https://asurascans.com/comics/{slug}-bd5bdaf8/chapter/45"}))
+    (d / "publish.json").write_text(json.dumps({"f.mp4": {}}))
+    monkeypatch.setattr(srv, "_rerender_chosen_thumbnails", lambda **kw: None)
+    srv.api_publish_series_defaults(srv.SeriesDefaultsIn(project=f"{slug}_45", name="f.mp4", metadata={
+        "title": "He Thought Murim Was Just a Game Ch. 45", "tags": ["murim"], "privacy": "public"}))
+    pack = srv._series_pack(str(d))                          # a refresh (e.g. building a description)
+    assert pack.get("title_template") and pack.get("default_tags") == ["murim"]
+    assert pack.get("default_privacy") == "public"
+    assert pack["series_hashtag"] == "MurimPsychopath" and pack["series_name_en"]

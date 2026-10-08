@@ -7,7 +7,7 @@ import { Card, Empty, PageHead, StatusPill } from "@/components/ui";
 import PasteBox from "@/components/PasteBox";
 
 const ACTION_HREF = (n: any) =>
-  n.kind === "demand" ? "/library?f=suggest" : n.kind === "video_ready" ? `/chapter/${n.id}?tab=video` : `/chapter/${n.id}`;
+  n.kind === "demand" ? "/library?f=suggest" : n.kind === "hook" ? `/library?hook=${encodeURIComponent(n.series_id || "")}` : n.kind === "video_ready" ? `/chapter/${n.id}?tab=video` : `/chapter/${n.id}`;
 
 export default function Home() {
   const { data: h, reload } = useApi<any>("/api/home", 15000);

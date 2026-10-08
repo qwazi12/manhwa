@@ -1179,6 +1179,16 @@ def validate_publish(md, pdir=None, name=None):
     elif len(title) > YT_TITLE_MAX:
         out.append(f"Title is {len(title)} characters; the limit is {YT_TITLE_MAX}.")
     meta = (_read_json(os.path.join(pdir, "project.json")) or {}) if pdir else {}
+    if pdir and md.get("seo_v2"):
+        # Spec 10 §9 Stage 3/4: failures block approval and posting
+        import chapter_seo as _cseo
+        try:
+            _pk = _series_pack(pdir, refresh=False) or {}
+            _sid, _sr, _n, _m = _series_ident(pdir)
+            if _n is not None:
+                out += _cseo.validate(md, _pk.get("series_name_en") or _sr, _n)
+        except Exception:
+            pass
     if title and pdir and meta.get("kind") == "range":
         import range_compile as _rc
         out += [p for p in _rc.problems(title, meta) if not p.startswith("Title is ")]
@@ -2117,6 +2127,310 @@ def api_seo_run_status(project: str, name: str):
     return _seo_run_view((project_dir_for(project), os.path.basename(name)))
 
 
+# ====================================================================
+#  Spec 10 — per-chapter SEO system (docs/audit/10_SEO_SYSTEM_SPEC.md)
+#  The title is series-locked ("[N] hook — series | Manhwa Recap"); the
+#  description and tags do the literal matching. chapter_seo.py builds it,
+#  series_hooks.py is the one creative decision per series (Phase D).
+# ====================================================================
+SEO_CHAPTER_NAME = "seo_chapter.json"
+
+
+def _went_out(pdir, name):
+    """True when this export was already posted (Upload-Post or direct upload)."""
+    rec = (load_publishes(pdir) or {}).get(name) or {}
+    if any(r.get("status") == "published" for r in rec.get("results") or []):
+        return True
+    return ((_read_json(os.path.join(pdir, UPLOADS_NAME)) or {}).get(name) or {}).get("status") == "uploaded"
+
+
+def _seo_chapter_rec(pdir):
+    return _read_json(os.path.join(pdir, SEO_CHAPTER_NAME)) or {}
+
+
+def _seo_chapter_save(pdir, rec):
+    tmp = os.path.join(pdir, SEO_CHAPTER_NAME + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(rec, f, indent=1, ensure_ascii=False)
+    os.replace(tmp, os.path.join(pdir, SEO_CHAPTER_NAME))
+
+
+def _chapter_page_title(url, timeout=15):
+    """Stage 1 (best effort): the chapter's own title from its release page
+    ("Chapter 45 - Intensifying by the Minute"). '' when the page has none."""
+    import urllib.request
+    if not url:
+        return ""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            html = r.read(400000).decode("utf-8", "ignore")
+    except Exception:
+        return ""
+    for pat in (r'property="og:title"\s+content="([^"]+)"', r"<title>([^<]+)</title>", r"<h1[^>]*>([^<]+)</h1>"):
+        m = re.search(pat, html, re.I)
+        if not m:
+            continue
+        t = __import__("html").unescape(m.group(1))
+        mm = re.search(r"(?i)chapter\s*[\d.]+\s*[-–—:|]\s*(.+?)(\s*[-–—|]\s*(asura|read|manhwa|webtoon).*)?$", t)
+        if mm:
+            cand = mm.group(1).strip(" -–—:|")
+            if cand and not re.search(r"(?i)asura|scans|read online|^chapter", cand) and len(cand) <= 80:
+                return cand
+    return ""
+
+
+def _chapter_tease(pdir, api_key):
+    """Stage 2: from the approved script — the dramatic beat, a NON-SPOILER
+    tease (≤ 180 chars) and 1-2 new names. One metered call, cached by the
+    script's hash, so an unchanged script is never paid for twice."""
+    import hashlib
+    import series_research as sr
+    try:
+        with open(os.path.join(pdir, "script.txt"), encoding="utf-8") as f:
+            script = f.read()
+    except OSError:
+        return {}
+    h = hashlib.sha1(script.encode()).hexdigest()[:16]
+    rec = _seo_chapter_rec(pdir)
+    if (rec.get("hook_beat") or {}).get("script_hash") == h:
+        return rec["hook_beat"]
+    if not api_key:
+        return {}
+    meta = _read_json(os.path.join(pdir, "project.json")) or {}
+    resp = sr._post({"contents": [{"parts": [{"text": (
+        "This is the narration script of one manhwa chapter recap. Return ONLY JSON "
+        '{"dramatic_beat": "the chapter\'s biggest moment in one short sentence", '
+        '"tease": "ONE or TWO sentences, max 180 characters, that make a viewer want to watch WITHOUT revealing how '
+        'the chapter ends; no chapter numbers, no counts of chapters", '
+        '"new_entities": ["1-2 character or place names that matter in this chapter"]}\n'
+        f"Series: {meta.get('series')}, chapter {meta.get('chapter')}.\n\nSCRIPT:\n{script[:9000]}")}]}],
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1024, "responseMimeType": "application/json"}},
+        api_key)
+    try:
+        out = json.loads(sr._text(resp))
+    except Exception:
+        out = {}
+    beat = {"dramatic_beat": str(out.get("dramatic_beat") or "")[:200],
+            "tease": " ".join(str(out.get("tease") or "").split())[:200],
+            "new_entities": [str(x)[:40] for x in (out.get("new_entities") or [])][:2],
+            "source": "approved script", "script_hash": h, "at": time.time()}
+    rec = _seo_chapter_rec(pdir)
+    rec["hook_beat"] = beat
+    _seo_chapter_save(pdir, rec)
+    return beat
+
+
+def _competitor_check(series, n):
+    """Stage 3: a fresh YouTube search for '<series> Chapter N' (100 quota
+    units). Records whether the exact phrase is already taken; informational."""
+    import yt_api
+    if not yt_api.configured():
+        return {"checked_at": time.time(), "error": "no YouTube API key"}
+    q = f"{series} Chapter {n}"
+    try:
+        hits = yt_api.Client().search_recaps(q, limit=10)
+    except Exception as e:
+        return {"checked_at": time.time(), "error": str(e)[:200]}
+    taken = [h for h in hits if q.lower() in (h.get("title") or "").lower()]
+    return {"checked_at": time.time(), "query": q, "exact_phrase_taken": bool(taken),
+            "competitors": [{"title": h["title"], "channel": h["channel"]} for h in hits[:5]]}
+
+
+def _music_credit_for(pdir):
+    """C2: one line, only when this chapter's render used background music."""
+    credit = (_studio.load().get("music_credit") or "").strip()
+    used = os.path.exists(os.path.join(pdir, "bgm.mp3")) or bool(os.environ.get("HF_BGM"))
+    return credit if (credit and used) else ""
+
+
+def _series_locked(pdir):
+    """(pack, title_lock) when this chapter's series has an approved hook."""
+    pack = _series_pack(pdir, refresh=False) or _series_pack(pdir) or {}
+    lock = pack.get("title_lock") or {}
+    return pack, (lock if lock.get("approved_by_user") and lock.get("series_hook") else None)
+
+
+def _build_chapter_package(pdir, name, api_key=None, competitor=True):
+    """Stages 1-3 for one chapter export -> {title, description, tags, hashtags,
+    problems, ...}, saved to seo_chapter.json. Raises ValueError when the
+    series has no locked hook yet (Phase D comes first)."""
+    import chapter_seo as _cseo
+    pack, lock = _series_locked(pdir)
+    if not lock:
+        raise ValueError("this series has no title hook yet — pick one in Library → the series → 🏷 Title hook")
+    sid, series_raw, n, meta = _series_ident(pdir)
+    if n is None:
+        raise ValueError("this video has no chapter number")
+    series = pack.get("series_name_en") or series_raw
+    rec = _seo_chapter_rec(pdir)
+    if "chapter_title" not in rec:                                   # Stage 1 (once)
+        rec["chapter_title"] = _chapter_page_title(meta.get("url") or "")
+        rec["chapter_title_provenance"] = meta.get("url") or ""
+        _seo_chapter_save(pdir, rec)
+    beat = _chapter_tease(pdir, api_key) if api_key else (rec.get("hook_beat") or {})   # Stage 2
+    prev_dir = _chapter_project(sid, n - 1)
+    pl = pack.get("playlist_id") or ""
+    pl_link = f"https://www.youtube.com/playlist?list={pl}" if pl else ""
+    prev_link = _published_video_url(prev_dir)
+    desc = _cseo.build_description(series, n, pack, chapter_title=rec.get("chapter_title") or "",
+                                   tease=beat.get("tease") or "", prev_n=n - 1, prev_link=prev_link,
+                                   playlist_link=pl_link, timecodes=[], music_credit=_music_credit_for(pdir))
+    pkg = {"title": _cseo.build_title(n, lock, series), "description": desc,
+           "tags": _cseo.build_tags(series, n, pack), "hashtags": _cseo.hashtags(series),
+           "first_comment": " | ".join(x for x in ([f"Start from Chapter 1: {pl_link}"] if pl_link else [])
+                                       + ([f"Chapter {n - 1}: {prev_link}"] if prev_link else [])),
+           "playlist_id": pl}
+    pkg["problems"] = _cseo.validate(pkg, series, n)
+    if competitor:
+        pkg["competitor_check"] = _competitor_check(series, n)              # Stage 3
+    rec = _seo_chapter_rec(pdir)
+    rec.setdefault("exports", {})[name] = {**pkg, "built_at": time.time(), "status": "awaiting_approval"}
+    _seo_chapter_save(pdir, rec)
+    return pkg
+
+
+def _apply_chapter_package(pdir, name, pkg):
+    store = load_publish(pdir)
+    md = {**publish_defaults(pdir), **(store.get(name) or {})}
+    md.update(title=pkg["title"], description=pkg["description"], tags=list(pkg["tags"]),
+              seo_v2=True, youtube_playlist_id=pkg.get("playlist_id") or "",
+              first_comment=pkg.get("first_comment") or "",
+              summary_block=(_seo_chapter_rec(pdir).get("hook_beat") or {}).get("tease") or md.get("summary_block"),
+              summary_at=time.time())
+    store[name] = md
+    save_publish(pdir, store)
+    return md
+
+
+class HookGenIn(BaseModel):
+    project: str
+
+
+class HookLockIn(BaseModel):
+    project: str
+    hook: str
+    mechanic: int | None = None
+    provenance: list[str] = []
+    apply: bool = True                 # rebuild this series' unposted chapters with it
+
+
+class PlaylistIn(BaseModel):
+    project: str
+    playlist: str                      # a playlist URL or its id
+
+
+@app.get("/api/series/seo")
+def api_series_seo(project: str):
+    """The series' spec-10 record: locked hook, candidates, playlist, the
+    fields the description/tags use, and an example title."""
+    import chapter_seo as _cseo
+    pdir = project_dir_for(project)
+    pack = _series_pack(pdir) or {}
+    series = pack.get("series_name_en") or ""
+    lock = pack.get("title_lock")
+    return {"series": series, "title_lock": lock, "hook_candidates": pack.get("hook_candidates"),
+            "playlist_id": pack.get("playlist_id") or "", "hook_budget": _cseo.hook_budget(series, 99),
+            "example_title": _cseo.build_title(45, lock, series) if lock else None,
+            "fields": {k: pack.get(k) for k in ("series_name_alt", "series_name_ko", "series_hashtag",
+                                                "authors", "publisher", "genres", "characters_main")},
+            "tags_series_block": _cseo.series_block(pack)}
+
+
+@app.post("/api/series/hooks")
+def api_series_hooks(body: HookGenIn):
+    """Phase D: three hook candidates from the series' cached sources (one
+    metered model call). Nothing is locked until the owner picks."""
+    import series_hooks as _sh
+    import gemini_tts as _gt
+    pdir = project_dir_for(body.project)
+    sid, series_raw, _n, meta = _series_ident(pdir)
+    pack = _series_pack(pdir) or {}
+    series = pack.get("series_name_en") or series_raw
+    bible = None
+    try:
+        import series_bible as _sbib
+        bible = _sbib.load_series_bible(sid, pdir)
+    except Exception:
+        pass
+    try:
+        import seo_research as _sw
+        web = _sw.get(_yt_root(), series, [], meta.get("url") or "", None)
+    except Exception:
+        web = None
+    try:
+        res = _sh.generate(series, pack, bible, web, _gt.env_any_case("GEMINI_API_KEY"))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    import series_pack as _sp
+    pack["hook_candidates"] = res
+    _sp.save(_yt_root(), pack)
+    _ev("publish", f"{series}: 3 title-hook ideas ready — pick one in Library", "ok")
+    return res
+
+
+@app.post("/api/series/hooks/lock")
+def api_series_hooks_lock(body: HookLockIn):
+    """The owner's choice becomes the series' title_lock (T1/T3/T4). With
+    apply, every chapter of the series that hasn't posted gets its package."""
+    import series_hooks as _sh
+    import series_pack as _sp
+    pdir = project_dir_for(body.project)
+    sid, series_raw, _n, _m = _series_ident(pdir)
+    pack = _series_pack(pdir) or {}
+    series = pack.get("series_name_en") or series_raw
+    try:
+        lock = _sh.lock(series, body.hook, body.mechanic, body.provenance)
+    except ValueError as e:
+        raise HTTPException(400, f"that hook can't be used: {e}")
+    pack["title_lock"] = lock
+    _sp.save(_yt_root(), pack)
+    applied = []
+    if body.apply:
+        applied = _apply_series_packages(sid)
+    _ev("publish", f"{series}: title hook locked — \"{lock['series_hook']}\" ({len(applied)} chapter(s) updated)", "ok")
+    return {"ok": True, "title_lock": lock, "applied": applied}
+
+
+def _apply_series_packages(sid, api_key=None):
+    """Rebuild + apply the package on every export of the series that hasn't
+    posted (local only unless a key is passed; no competitor search)."""
+    import ingest as _i
+    out = []
+    for pid in sorted(os.listdir(_i.PROJECTS)):
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(os.path.join(pdir, "exports")):
+            continue
+        if _series_ident(pdir)[0] != sid:
+            continue
+        for name in sorted(os.listdir(os.path.join(pdir, "exports"))):
+            if not name.endswith(".mp4") or _went_out(pdir, name):
+                continue
+            try:
+                _apply_chapter_package(pdir, name, _build_chapter_package(pdir, name, api_key, competitor=False))
+                out.append(pid)
+            except Exception as e:  # noqa
+                print(f"[seo-v2] {pid}/{name}: {str(e)[:160]}", flush=True)
+    return out
+
+
+@app.post("/api/series/playlist")
+def api_series_playlist(body: PlaylistIn):
+    """Phase E/P2: the series playlist (created on YouTube by the owner —
+    the deployment has no YouTube write access); videos are added to it by
+    Upload-Post's youtube_playlist_id when they post."""
+    import series_pack as _sp
+    m = re.search(r"(?:list=)?(PL[\w-]{10,}|UU[\w-]{10,}|OL[\w-]{10,})", body.playlist or "")
+    if not m:
+        raise HTTPException(400, "paste the playlist's link (it contains list=PL…)")
+    pdir = project_dir_for(body.project)
+    pack = _series_pack(pdir) or {}
+    pack["playlist_id"] = m.group(1)
+    _sp.save(_yt_root(), pack)
+    applied = _apply_series_packages(_series_ident(pdir)[0]) if (pack.get("title_lock") or {}).get("approved_by_user") else []
+    return {"ok": True, "playlist_id": m.group(1), "applied": applied}
+
+
 @app.post("/api/seo/run")
 def api_seo_run(body: SeoGenIn):
     """The one-click SEO (owner, 2026-10-06: "a button called SEO … to get real
@@ -2130,6 +2444,23 @@ def api_seo_run(body: SeoGenIn):
     name = os.path.basename(body.name or "")
     if not name:
         raise HTTPException(400, "which video is this for?")
+    if _series_locked(pdir)[1]:
+        # Spec 10: the series' locked title + the chapter's package (tease from
+        # the script, fresh competitor check), not a free-form SEO title.
+        import gemini_tts as _gt
+        _seo_stage(pdir, name, "chapter title, tease from the script, YouTube check")
+        pkg = _build_chapter_package(pdir, name, _gt.env_any_case("GEMINI_API_KEY"))
+        _seo_stage(pdir, name, "filling in what gets published")
+        md = _apply_chapter_package(pdir, name, pkg)
+        pid = os.path.basename(pdir.rstrip("/"))
+        cc = pkg.get("competitor_check") or {}
+        return {"ok": True, "filled": ["title", "description", "tags"], "failed": {},
+                "ran": {"series_lock": {"label": "Series title hook", "detail": "locked", "error": None},
+                        "competitor": {"label": "YouTube check for this chapter",
+                                       "detail": ("exact phrase already used by another channel"
+                                                  if cc.get("exact_phrase_taken") else "exact phrase free"),
+                                       "error": cc.get("error")}},
+                **_publish_payload(pdir, pid, name, md)}
     api_seo_generate(SeoGenIn(project=body.project, name=name, refresh_style=True))
     _seo_stage(pdir, name, "filling in what gets published")
     filled, failed = [], {}
@@ -3231,6 +3562,13 @@ def _prepare_publish(pdir, name, do_seo=True):
     try:
         try:
             if not do_seo:
+                raise _SkipSeo()
+            if name != DRAFT and _series_locked(pdir)[1]:
+                # Spec 10 Stage 1-3: the series-locked package (no free-form SEO)
+                import gemini_tts as _gt
+                _apply_chapter_package(pdir, name, _build_chapter_package(
+                    pdir, name, _gt.env_any_case("GEMINI_API_KEY")))
+                filled += ["title", "description", "tags"]
                 raise _SkipSeo()
             if not (_seo.get(pdir, name) or _seo.get(pdir, DRAFT)):
                 api_seo_generate(SeoGenIn(project=pid, name=name))
@@ -8228,6 +8566,32 @@ def home_view():
                          "series_id": r.get("series_id"), "cover": r.get("cover"), "auto": r.get("auto"),
                          "action": {"to_review": "Check the board", "video_ready": "Watch the video",
                                     "failed": "See why and retry", "waiting": "Resume"}[k]})
+    # Spec 10 Phase D: a series with chapters waiting on you but no title hook
+    # yet gets ONE "pick the hook" item at the top of its group.
+    seen_sid = set()
+    import ingest as _ingx
+    for n in list(need):
+        pid_ = n.get("id")
+        if not pid_ or n.get("kind") not in ("to_review", "video_ready"):
+            continue
+        try:
+            pdir_ = os.path.join(_ingx.PROJECTS, pid_)
+            sid_ = _series_ident(pdir_)[0]
+            if not sid_ or sid_ in seen_sid:
+                continue
+            seen_sid.add(sid_)
+            import series_pack as _spx
+            if ((_spx.load(_yt_root(), sid_) or {}).get("title_lock") or {}).get("approved_by_user"):
+                continue
+        except Exception:
+            continue
+        need.append({"kind": "hook", "id": pid_, "series": n.get("series"), "chapter": "-1",
+                     "series_id": n.get("series_id"), "cover": n.get("cover"),
+                     "title": f"Pick the title hook for {n.get('series')}",
+                     "status": {"key": "found", "label": "Title hook", "tone": "warn",
+                                "reason": "Every chapter's title becomes \"[N] hook — series | Manhwa Recap\". "
+                                          "Pick the hook once; only the chapter number changes after that."},
+                     "action": "Pick the hook"})
     # Owner, 2026-10-07: review a series in chapter order (ch.81 before ch.93)
     # so posting follows it — Needs you is grouped by series, chapters ascending.
     def _chn(x):
@@ -8814,6 +9178,7 @@ def settings_overview():
         "voice": gemini_tts.load_default(_i.PROJECTS) or {},
         "export": {"speed": _studio.export_speed(), "env_override": bool(os.environ.get("EXPORT_SPEED"))},
         "title_template": _studio.title_template(),
+        "music_credit": _studio.load().get("music_credit") or "",
         "drive": __import__("drive_store").status(_i.PROJECTS),
         "schedule": {**(_studio.load().get("schedule") or {}),
                      "next": _pq.next_slot(_studio.load().get("schedule") or {}, time.time())},
@@ -9186,6 +9551,7 @@ def studio_stats(body: StudioStatsIn):
 class StudioSettingsIn(BaseModel):
     export_speed: float | None = None
     title_template: str | None = None
+    music_credit: str | None = None            # spec 10 C2
     publish: dict | None = None
     schedule: dict | None = None
 

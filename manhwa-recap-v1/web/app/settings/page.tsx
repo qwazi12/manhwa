@@ -246,6 +246,19 @@ function CapEditor({ sp }: { sp: any }) {
   );
 }
 
+/** Spec 10 C2: the music credit line, added to descriptions only when the render used background music. */
+function MusicCredit({ d, reload }: any) {
+  const act = useAct();
+  const [m, setM] = useState<string>(d.music_credit || "");
+  return (
+    <div className="row">
+      <label className="field" style={{ flex: 1 }}>🎵 Background music credit (used only on videos that have music)
+        <input value={m} onChange={(e) => setM(e.target.value)} placeholder="e.g. “Epic Battle” by Artist (youtube.com/…)" /></label>
+      <Busy className="sm" disabled={m === (d.music_credit || "")} onClick={() => act(async () => { await api("/api/settings", { music_credit: m }); reload(); }, "Saved")}>Save</Busy>
+    </div>
+  );
+}
+
 /** One title format for every video (owner, 2026-10-05: "we need uniformity
  *  for titles, especially since there will be multiple chapters"). */
 function TitleFormat({ d, reload }: any) {
@@ -260,6 +273,8 @@ function TitleFormat({ d, reload }: any) {
         <Busy className="sm primary" disabled={t === d.title_template} onClick={() => act(async () => { await api("/api/settings", { title_template: t }); reload(); }, "Saved — new suggestions use it")}>Save</Busy>
         <button className="sm ghost" onClick={() => setT("{hook} | {series} Ch.{chapter}")}>Default</button>
       </div>
+      <p className="small muted"><b>Series with a locked title hook</b> (Library → series → 🏷 Title hook) always use “[N] hook — series | Manhwa Recap” instead of this format.</p>
+      <MusicCredit d={d} reload={reload} />
       <p className="small muted">{"{hook}"} is written by the AI for each chapter; {"{series}"} is the series’ official English title (from the web research) and {"{chapter}"} the chapter number. Every chapter of a series gets the same shape. Titles already filled in keep their text until you press ↻ New suggestions.</p>
     </Card>
   );

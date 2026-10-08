@@ -40,8 +40,12 @@ def test_needs_you_is_grouped_by_series_in_chapter_order(tmp_path, monkeypatch):
         mk("hound_93", "Hound", "93"), mk("mount_181", "Mount Hua", "181"), mk("hound_81", "Hound", "81"),
         mk("hound_100", "Hound", "100"), mk("mount_180", "Mount Hua", "180")])
     monkeypatch.setattr(srv._pq, "sync", lambda root, st: {"items": []})
-    order = [n["id"] for n in srv.home_view()["need"] if n.get("id")]
+    need = srv.home_view()["need"]
+    order = [n["id"] for n in need if n.get("id") and n["kind"] != "hook"]
     assert order == ["hound_81", "hound_93", "hound_100", "mount_180", "mount_181"], order
+    # spec 10: a series without a title hook gets ONE "pick the hook" item, first in its group
+    kinds = [(n.get("series"), n["kind"]) for n in need if n.get("id")]
+    assert kinds[0] == ("Hound", "hook") and kinds.count(("Hound", "hook")) == 1
 
 
 def test_approving_out_of_order_still_posts_in_chapter_order(tmp_path):

@@ -302,6 +302,13 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
         for tag in (metadata.get("tags") or []):
             if tag:
                 fields.append(("tags[]", tag))
+        # Spec 10 P2/P3 (2026-10-08): the series playlist (added after it
+        # publishes) and the navigation comment. Upload-Post documents both
+        # (docs.upload-post.com/api/upload-video); YouTube's API can't pin it.
+        if metadata.get("youtube_playlist_id"):
+            fields.append(("youtube_playlist_id", str(metadata["youtube_playlist_id"])))
+        if metadata.get("first_comment"):
+            fields.append(("youtube_first_comment", str(metadata["first_comment"])[:1000]))
 
     if "tiktok" in platforms:
         fields.append(("tiktok_title", metadata.get("title") or "Manhwa Recap"))

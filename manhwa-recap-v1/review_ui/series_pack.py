@@ -64,6 +64,13 @@ def merge_aliases(title_en, *groups):
     return out
 
 
+# Keys only the owner (or an owner-approved step) sets; a refresh never overwrites them.
+OWNER_KEYS = ("aliases_manual", "title_lock", "hook_candidates", "playlist_id", "owner_edits",
+              "title_template", "description_template", "default_tags", "default_privacy",
+              "default_targets", "default_category", "default_made_for_kids",
+              "default_synthetic_disclosure", "music_credit", "recon")
+
+
 def build(series_id, *, series="", web_facts=None, bible=None, watch=None, slug_aliases=(),
           source_url="", total_chapters=None, status="", playlist_id="", style=None, prev=None):
     """A fresh pack from the sources; owner edits in `prev` survive."""
@@ -86,7 +93,25 @@ def build(series_id, *, series="", web_facts=None, bible=None, watch=None, slug_
     if style:
         dna = {"composition": style.get("composition"), "palette": style.get("palette"),
                "badge": style.get("badge"), "approved": bool(style.get("approved"))}
-    return {
+    # Spec 10 §7 series cache fields, derived from the same sources. Korean
+    # (non-Latin) names are the series_name_ko; Latin ones are the alternates.
+    ko = wf.get("korean_title") or next((a for a in aliases if not re.search(r"[A-Za-z]", a)), "")
+    alt = [a for a in aliases if re.search(r"[A-Za-z]", a) and a.lower() != (title_en or "").lower()
+           and a.lower() != (series or "").lower()]
+    mc = [c["name"] for c in chars if "protagonist" in (c.get("role") or "").lower()]
+    spec = {
+        "series_name_en": title_en,
+        "series_name_alt": alt,
+        "series_name_ko": ko,
+        "series_hashtag": re.sub(r"[^A-Za-z0-9]", "", "".join(w[:1].upper() + w[1:] for w in
+                                                             re.findall(r"[A-Za-z0-9']+", title_en or ""))),
+        "authors": {"story": [wf["author"]] if wf.get("author") else [],
+                    "art": [wf["artist"]] if wf.get("artist") else []},
+        "publisher": wf.get("platform") or "",
+        "genres": list(wf.get("genres") or []),
+        "characters_main": mc + [c["name"] for c in chars if c["name"] not in mc][:3],
+    }
+    fresh = {
         "series_id": series_id,
         "title_en": title_en,
         "aliases": aliases,
@@ -100,7 +125,20 @@ def build(series_id, *, series="", web_facts=None, bible=None, watch=None, slug_
         "thumbnail_dna": dna or prev.get("thumbnail_dna"),
         "credit": {k: wf.get(k) for k in ("author", "artist", "platform", "korean_title") if wf.get(k)},
         "updated_at": time.time(),
+        **spec,
     }
+    # Everything the OWNER set (series defaults: title_template, default_tags,
+    # privacy …; spec 10: title_lock, hook candidates, playlist, owner edits of
+    # the series fields) survives a refresh. Bug fixed 2026-10-08: build()
+    # returned a fresh dict, so the next refresh wiped "Save as series defaults".
+    out = dict(prev)
+    out.update(fresh)
+    for k in OWNER_KEYS:
+        if k in prev:
+            out[k] = prev[k]
+    for k, v in (prev.get("owner_edits") or {}).items():
+        out[k] = v
+    return out
 
 
 def tags_with_aliases(tags, aliases, cap=500):

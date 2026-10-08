@@ -108,6 +108,11 @@ def update(patch):
             if len(t.replace("{hook}", "").replace("{series}", "").replace("{chapter}", "")) > 40:
                 raise ValueError("the fixed text in the title format is too long")
             cur["title_template"] = t
+        if patch.get("music_credit") is not None:
+            mc = " ".join(str(patch["music_credit"]).split())
+            if len(mc) > 200:
+                raise ValueError("the music credit is over 200 characters")
+            cur["music_credit"] = mc            # spec 10 C2: one line, used only when a render has music
         if patch.get("description_footer") is not None:
             ft = str(patch["description_footer"]).strip()
             if len(ft) > 1000:
