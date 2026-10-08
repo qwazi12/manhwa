@@ -96,8 +96,11 @@ def build(series_id, *, series="", web_facts=None, bible=None, watch=None, slug_
     # Spec 10 §7 series cache fields, derived from the same sources. Korean
     # (non-Latin) names are the series_name_ko; Latin ones are the alternates.
     ko = wf.get("korean_title") or next((a for a in aliases if not re.search(r"[A-Za-z]", a)), "")
+    # a character's name (or alias) is never an alternate TITLE (live 2026-10-08:
+    # "Dong Bongsu" showed up among Murim Psychopath's titles)
+    people = {n.lower() for c in chars for n in [c["name"]] + list(c.get("aliases") or [])}
     alt = [a for a in aliases if re.search(r"[A-Za-z]", a) and a.lower() != (title_en or "").lower()
-           and a.lower() != (series or "").lower()]
+           and a.lower() != (series or "").lower() and a.lower() not in people]
     mc = [c["name"] for c in chars if "protagonist" in (c.get("role") or "").lower()]
     spec = {
         "series_name_en": title_en,

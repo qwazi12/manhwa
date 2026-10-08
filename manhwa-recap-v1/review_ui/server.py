@@ -2355,7 +2355,14 @@ def api_series_hooks(body: HookGenIn):
         pass
     try:
         import seo_research as _sw
-        web = _sw.get(_yt_root(), series, [], meta.get("url") or "", None)
+        # Phase B: the web research (official/Korean titles, authors, publisher,
+        # genres) runs first when this series has none yet — cached a week.
+        web = _sw.get(_yt_root(), series, list(pack.get("aliases") or []), meta.get("url") or "",
+                      _gt.env_any_case("GEMINI_API_KEY"))
+        if web and (web.get("facts") or {}):
+            pack = _series_pack(pdir) or pack
+    except usage.UsageCapExceeded as e:
+        raise HTTPException(409, "today's spend limit is used up — " + str(e)[:120])
     except Exception:
         web = None
     try:
