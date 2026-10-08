@@ -110,6 +110,38 @@ def mark(root, item_id, **fields):
         return it
 
 
+def requeue(root, item_id):
+    """Scrapper's "back to the line": a failed video goes back in the queue
+    (status queued, error cleared) and takes the next free slot."""
+    with _lock:
+        d = load(root)
+        it = _find(d, item_id)
+        if not it or it["status"] not in ("failed", "removed"):
+            return None
+        it.update(status="queued", error=None, job=None, updated_at=time.time())
+        _save(root, d)
+        return it
+
+
+def drop_stale_failures(root, latest_export):
+    """A failed row for a video that was re-rendered since (the chapter has a
+    newer export) is closed, so the chapter isn't in Errors AND Needs review at
+    once. latest_export(project) -> the newest export's name or None."""
+    n = 0
+    with _lock:
+        d = load(root)
+        for it in d["items"]:
+            if it["status"] == "failed":
+                newest = latest_export(it["project"])
+                if newest and newest != it["name"]:
+                    it.update(status="removed", error=(it.get("error") or "") + " [replaced by a new render]",
+                              updated_at=time.time())
+                    n += 1
+        if n:
+            _save(root, d)
+    return n
+
+
 def ensure_posting(root, project, name, job, day=None):
     """Every publish goes through a queue row (owner, 2026-10-04: a video posted
     from Video review stayed 'queued' and the schedule tried it again). Marks

@@ -3420,7 +3420,36 @@ class ProjectDelIn(BaseModel):
     ids: list[str] = []          # bulk select-and-delete from the Projects tab
 
 
-def _delete_one_project(pid):
+GONE_NAME = "_gone.json"
+
+
+def _note_gone(pdir, why):
+    """Remember a chapter whose folder is removed, so the Library can still
+    say it was made and why it's gone (owner, 2026-10-07: chapters made then
+    cleaned up showed as 'Not made' with a Make button)."""
+    import ingest as _ing
+    meta = _read_json(os.path.join(pdir, "project.json")) or {}
+    posted = None
+    try:
+        for rec in (load_publishes(pdir) or {}).values():
+            for r in rec.get("results") or []:
+                if r.get("status") == "published":
+                    posted = _post_url({"post_url": r.get("url"), "platform_post_id": r.get("platform_post_id")},
+                                       r.get("network") or "youtube") or True
+    except Exception:
+        pass
+    path = os.path.join(_ing.PROJECTS, GONE_NAME)
+    data = _read_json(path) or {}
+    data[os.path.basename(pdir.rstrip("/"))] = {"at": time.time(), "why": why, "url": meta.get("url") or "",
+                                                "series": meta.get("series"), "chapter": str(meta.get("chapter") or ""),
+                                                "posted": posted}
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, path)
+
+
+def _delete_one_project(pid, why="deleted by you"):
     """Remove one project dir. Returns (ok, detail_or_reason, freed_mb)."""
     import ingest as _ing
     import shutil as _sh
@@ -3454,6 +3483,10 @@ def _delete_one_project(pid):
                 size += os.path.getsize(os.path.join(root, fn))
             except OSError:
                 pass
+    try:
+        _note_gone(pdir, why)
+    except Exception as e:  # noqa — the record is a courtesy; never block a delete
+        print(f"[gone] {pid}: {str(e)[:160]}", flush=True)
     _sh.rmtree(pdir)
     return True, "deleted", round(size / 1e6, 1)
 
@@ -7323,7 +7356,7 @@ def _archive_sweep(now=None):
             _autopilot.audit("project_archived", project=pid, reason="published")
             out["archived"].append(pid)
         elif st is not None and _archive.due(pdir, now) and pid != active:
-            ok, why, mb = _delete_one_project(pid)
+            ok, why, mb = _delete_one_project(pid, why="cleaned up after posting (archive)")
             _autopilot.audit("archived_project_deleted" if ok else "archived_delete_skipped",
                              project=pid, detail=why, freed_mb=mb)
             if ok:
@@ -7338,6 +7371,22 @@ def _targets_of(x):
     except HTTPException:
         return []
     return list(({**publish_defaults(pdir), **(load_publish(pdir).get(x["name"]) or {})}).get("targets") or [])
+
+
+def _close_stale_failures():
+    """A failed post whose chapter was re-rendered since is closed (owner,
+    2026-10-07: 'I re-rendered — why is it in Errors AND Needs review?')."""
+    import ingest as _i
+
+    def newest(project):
+        try:
+            return _cs._latest_export(project_dir_for(project))
+        except HTTPException:
+            return None
+    try:
+        return _pq.drop_stale_failures(_i.PROJECTS, newest)
+    except Exception:
+        return 0
 
 
 def _local_post_blockers(project, name):
@@ -7364,6 +7413,26 @@ def _local_post_blockers(project, name):
 SCHEDULE_MAX_TRIES = 10
 
 
+def _reconcile_posting():
+    """Like Scrapper's reconcile_posting: every queued item that's "posting"
+    asks Upload-Post whether YouTube finished, so a finished upload stops
+    showing "uploading now…" (owner, 2026-10-07: Murim Psychopath ch.45 was
+    live on YouTube but showed uploading for a day — nothing ever asked)."""
+    import ingest as _i
+    n = 0
+    for it in list(_pq.load(_i.PROJECTS)["items"]):
+        if it["status"] != "posting":
+            continue
+        try:
+            os_publish_status(it["project"], it["name"])
+            n += 1
+        except Exception as e:  # noqa — one bad record never stops the rest
+            print(f"[reconcile] {it['project']}: {str(e)[:160]}", flush=True)
+    if n:
+        _pq.sync(_i.PROJECTS, _pub_status)
+    return n
+
+
 def _schedule_post_pass(now=None):
     """Posting schedule (step 5): one post per due time slot, through the same
     checked publish job as Post now. Off unless switched on.
@@ -7374,6 +7443,10 @@ def _schedule_post_pass(now=None):
     the next queued video that can post, like Scrapper's queue, where one bad
     item never blocks the day."""
     import ingest as _i
+    try:
+        _reconcile_posting()
+    except Exception:
+        pass
     sched = _studio.load().get("schedule") or {}
     if not sched.get("enabled"):
         return None
@@ -7785,6 +7858,10 @@ def series_board():
             "left_in_plan": r.get("remaining") or [], "plan_from": start,
             "earlier_not_planned": len(earlier),
             "new_since_made": [c for c in chs if top is not None and _autopilot.chap_key(c) > top],
+            # owner, 2026-10-07: gaps INSIDE what was made (358 made, 361 made,
+            # 359-360 not) — said plainly, not hidden in the back catalogue
+            "skipped": [c for c in chs if mine and c not in mine
+                        and min(_autopilot.chap_key(m) for m in mine) < _autopilot.chap_key(c) < top],
             "state": r.get("state"), "reason": r.get("reason"), "made_by_autopilot": r.get("made_by_autopilot", 0),
             "bible": bible, "checked": sx.get("checked"),
             "source_status": (best or {}).get("status"), "source_checked": (best or {}).get("last_checked"),
@@ -8028,6 +8105,7 @@ def _chapter_rows():
     ing, _ = _ingest_by_project()
     rendering = {j.get("project") for j in JOBS.values()
                  if j.get("type") == "finalize" and j.get("status") in ("queued", "running", "paused", "pausing")}
+    _close_stale_failures()
     q = _pq.load(_i.PROJECTS)["items"]
     qby = {}
     for x in q:
@@ -8184,9 +8262,30 @@ def library_view():
         s_, _m = _wl.find_by_mirror(data, r["url"]) if r.get("url") else (None, None)
         if s_:
             owner[r["id"]] = s_["id"]
+    import ingest as _i
+    gone = _read_json(os.path.join(_i.PROJECTS, GONE_NAME)) or {}
+    gone_by = {}
+    for gpid, g in gone.items():
+        s_, _m = _wl.find_by_mirror(data, g.get("url") or "") if g.get("url") else (None, None)
+        if s_:
+            gone_by[(s_["id"], _autopilot.norm_chapter(g.get("chapter") or ""))] = dict(g, project=gpid)
     out = []
     for sx in board["series"]:
         made = [r for r in rows if owner.get(r["id"]) == sx["id"]]
+        have = {_autopilot.norm_chapter(str(r.get("chapter") or "")) for r in made}
+        # Owner, 2026-10-07: a chapter autopilot made whose folder was removed
+        # (deleted, or cleaned up after posting) is still MADE — show it as such,
+        # never as "Not made" with a paid Make button.
+        for c in sx.get("made") or []:
+            if _autopilot.norm_chapter(c) in have:
+                continue
+            g = gone_by.get((sx["id"], _autopilot.norm_chapter(c))) or {}
+            why = g.get("why") or "removed before removals were recorded (deleted, or cleaned up after posting)"
+            posted = g.get("posted")
+            made.append({"id": None, "chapter": c, "title": f"{sx['title']} ch.{c}", "gone": True,
+                         "posted_url": posted if isinstance(posted, str) else None,
+                         "status": {"key": "archived", "label": "Made · folder removed", "tone": "muted",
+                                    "reason": ("posted, then " if posted else "") + why}})
         counts = {}
         for r in made:
             counts[r["status"]["key"]] = counts.get(r["status"]["key"], 0) + 1
@@ -8720,6 +8819,7 @@ def studio_overview():
     post, queued, published (plus failed posts, which go back to Ready)."""
     import ingest as _i
     import thumbnail as _tb
+    _close_stale_failures()
     q = _pq.sync(_i.PROJECTS, _pub_status)
     active = {(x["project"], x["name"]): x for x in q["items"] if x["status"] in _pq.ACTIVE}
     exports = list_exports()
@@ -8949,9 +9049,14 @@ def studio_queue_top(body: StudioItemIn):
 
 
 class StudioBulkIn(BaseModel):
-    action: str                    # approve | back | remove | post_now | channels | seo
+    action: str                    # approve | back | remove | post_now | channels | seo | requeue | edit
     items: list[dict]              # [{project, name, qid?}]
     targets: list[str] = []        # for "channels"
+    # for "edit" (Scrapper's Mass Edit): only the fields given are changed
+    title: str | None = None
+    description: str | None = None
+    tags: list[str] | str | None = None
+    privacy: str | None = None
 
 
 def _redo_seo(project, name):
@@ -8973,8 +9078,10 @@ def _redo_seo(project, name):
 def studio_bulk(body: StudioBulkIn):
     """Do one thing to many videos at once (SocialPilot's bulk bar). Each item
     gets its own result; one failure never stops the rest."""
-    if body.action not in ("approve", "back", "remove", "post_now", "channels", "seo"):
-        raise HTTPException(400, "action must be approve, back, remove, post_now, channels or seo")
+    if body.action not in ("approve", "back", "remove", "post_now", "channels", "seo", "requeue", "edit"):
+        raise HTTPException(400, "action must be approve, back, remove, post_now, channels, seo, requeue or edit")
+    if body.action == "edit" and body.privacy is not None and body.privacy not in YT_PRIVACY:
+        raise HTTPException(400, f"privacy must be one of {', '.join(YT_PRIVACY)}")
     done, failed = [], []
     for it in body.items[:100]:
         pid, name, qid = it.get("project"), it.get("name"), it.get("qid")
@@ -8999,6 +9106,28 @@ def studio_bulk(body: StudioBulkIn):
                 save_publish(pdir, store)
             elif body.action == "seo":
                 threading.Thread(target=_redo_seo, args=(pid, name), daemon=True).start()
+            elif body.action == "requeue":
+                # Scrapper's "back to the line": a failed post waits for the next free slot
+                import ingest as _i
+                if not qid or not _pq.requeue(_i.PROJECTS, qid):
+                    raise HTTPException(409, "only a failed or removed video can go back in line")
+            elif body.action == "edit":
+                pdir = project_dir_for(pid)
+                store = load_publish(pdir)
+                md = {**publish_defaults(pdir), **(store.get(name) or {})}
+                if body.title is not None and body.title.strip():
+                    md["title"] = body.title.strip()[:YT_TITLE_MAX]
+                if body.description is not None and body.description.strip():
+                    md["description"] = body.description.strip()[:YT_DESC_MAX]
+                if body.tags is not None:
+                    tg = body.tags if isinstance(body.tags, list) else str(body.tags).split(",")
+                    tg = [t.strip() for t in tg if t and t.strip()]
+                    if tg:
+                        md["tags"] = tg
+                if body.privacy is not None:
+                    md["privacy"] = body.privacy
+                store[name] = md
+                save_publish(pdir, store)
             else:
                 raise HTTPException(400, "unknown action")
             done.append({"project": pid, "name": name})

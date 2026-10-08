@@ -82,6 +82,7 @@ function SeriesCard({ s, reload, prio, onPrio }: { s: any; reload: () => void; p
             <span>{s.source || "no source"}</span>
             <span>· latest ch.{s.latest || "?"}{s.latest_date ? ` (${s.latest_approx ? "≈ " : ""}${s.latest_date})` : ""}</span>
             {(s.new_since_made || []).length > 0 && <b style={{ color: "var(--text)" }}>· {s.new_since_made.length} new since last made</b>}
+            {(s.skipped || []).length > 0 && <span style={{ color: "var(--yellow)" }}>· skipped ch.{s.skipped.slice(0, 8).join(", ")}{s.skipped.length > 8 ? ` +${s.skipped.length - 8}` : ""}</span>}
           </div>
           <div className="row">
             <Pill tone={(AP_STATE[s.state] || ["muted"])[0]}>Autopilot: {(AP_STATE[s.state] || ["", s.state || "—"])[1]}</Pill>
@@ -158,7 +159,7 @@ function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; 
       </div>
       <div className="list" style={{ maxHeight: 420, overflowY: "auto" }}>
         {(s.chapters || []).filter((r: any) => !list.some((c) => String(c.ch) === String(r.chapter))).map((r: any) => (
-          <ChapterRow key={r.id} label={`Ch.${r.chapter}`} row={r} />
+          <ChapterRow key={r.id || `gone-${r.chapter}`} label={`Ch.${r.chapter}`} row={r} />
         ))}
         {list.map((c) => {
           const r = made[String(c.ch)];
@@ -186,8 +187,10 @@ function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; 
 function ChapterRow({ label, row, date }: { label: string; row: any; date?: string }) {
   return (
     <div className="it">
-      <div className="row"><b>{label}</b>{date && <span className="small muted">{date}</span>}<StatusPill s={row.status} />{row.auto && <span className="small faint">autopilot</span>}</div>
-      <Link className="btn sm" href={`/chapter/${row.id}`}>Open →</Link>
+      <div className="row"><b>{label}</b>{date && <span className="small muted">{date}</span>}<StatusPill s={row.status} />{row.auto && <span className="small faint">autopilot</span>}
+        {row.gone && <span className="small faint">{row.status?.reason}</span>}</div>
+      {row.gone ? (row.posted_url ? <a className="btn sm" href={row.posted_url} target="_blank" rel="noreferrer">▶ YouTube</a> : null)
+        : <Link className="btn sm" href={`/chapter/${row.id}`}>Open →</Link>}
     </div>
   );
 }
