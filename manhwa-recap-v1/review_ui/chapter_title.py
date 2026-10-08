@@ -95,7 +95,9 @@ def problems(title, series="", chapter="", others=()):
         out.append("Title has no hook — it must lead with what happens in the chapter, "
                    "never \"Chapter N\" alone.")
     if any(_norm(t) == _norm(o) for o in others if o):
-        out.append("Another video already has exactly this title — make the hook unique to this chapter.")
+        out.append("Another video already has exactly this title (no chapter number tells them apart) — "
+                   "put this chapter's number in it, or use ⚡ Save as series defaults so every chapter "
+                   "gets the same title with its own number.")
     return out
 
 

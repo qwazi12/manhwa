@@ -1039,6 +1039,8 @@ def _propagate_series_defaults(sid, series, pack):
     playlist = pack.get("playlist_id")
     privacy = pack.get("default_privacy")
     targets = pack.get("default_targets")
+    extra = {k: pack[pk] for k, pk in (("category_id", "default_category"), ("made_for_kids", "default_made_for_kids"),
+                                       ("synthetic_disclosure", "default_synthetic_disclosure")) if pk in pack}
 
     for f in os.listdir(root):
         pdir = os.path.join(root, f)
@@ -1066,6 +1068,7 @@ def _propagate_series_defaults(sid, series, pack):
                     item["privacy"] = privacy
                 if targets:
                     item["targets"] = list(targets)
+                item.update(extra)
                 store[k] = item
             save_publish(pdir, store)
             applied += 1
@@ -1129,7 +1132,7 @@ def _publish_defaults_base(pdir):
         "title": title[:YT_TITLE_MAX],
         "description": description,
         "tags": base_tags,
-        "category_id": "1",
+        "category_id": (sp.get("default_category") if sp else None) or "1",
         # Owner, 2026-10-04: default channel 🦩 Flamingo Remix (mk:youtube).
         # Privacy is private unless the owner saved "public" in ⚙️ Settings &
         # Channels (studio_settings.py) — never public by omission.
@@ -1137,10 +1140,10 @@ def _publish_defaults_base(pdir):
         "targets": list((sp.get("default_targets") if sp else None) or _studio.publish_defaults().get("targets") or []),
         "publish_at": "",
         "playlist": (sp.get("playlist_id") if sp else None) or series,
-        "made_for_kids": False,
+        "made_for_kids": bool((sp or {}).get("default_made_for_kids", False)),
         # The narration is synthetic speech, so this starts TRUE — YouTube
         # requires disclosure of realistic altered or synthetic content.
-        "synthetic_disclosure": True,
+        "synthetic_disclosure": bool((sp or {}).get("default_synthetic_disclosure", True)),
         "thumbnail": None,
     }
 
@@ -1326,6 +1329,13 @@ def api_publish_series_defaults(body: SeriesDefaultsIn):
         pack["default_privacy"] = str(md["privacy"])
     if md.get("targets"):
         pack["default_targets"] = list(md["targets"])
+    # "for most things if not all" (owner, 2026-10-07)
+    if md.get("category_id"):
+        pack["default_category"] = str(md["category_id"])
+    if "made_for_kids" in md:
+        pack["default_made_for_kids"] = bool(md["made_for_kids"])
+    if "synthetic_disclosure" in md:
+        pack["default_synthetic_disclosure"] = bool(md["synthetic_disclosure"])
 
     # Lock thumbnail style for the series
     key = tstudio.series_key(meta)
@@ -3226,7 +3236,16 @@ def _prepare_publish(pdir, name, do_seo=True):
                 api_seo_generate(SeoGenIn(project=pid, name=name))
             base = _publish_defaults_base(pdir)
             md = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
+            # Owner, 2026-10-07: "Use for series" decides these for every chapter;
+            # the automatic SEO fill-in never replaces what the series defaults set.
+            import series_pack as _spk
+            _sp_pack = _spk.load(_yt_root(), _series_ident(pdir)[0]) or {}
+            locked = {"title": bool(_sp_pack.get("title_template")),
+                      "description": bool(_sp_pack.get("description_template")),
+                      "tags": bool(_sp_pack.get("default_tags"))}
             for field in ("title", "description", "tags"):
+                if locked[field]:
+                    continue
                 if not md.get(field) or md.get(field) == base.get(field):
                     try:
                         api_seo_apply(SeoApplyIn(project=pid, name=name, field=field))
