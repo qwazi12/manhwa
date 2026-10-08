@@ -7340,30 +7340,71 @@ def _targets_of(x):
     return list(({**publish_defaults(pdir), **(load_publish(pdir).get(x["name"]) or {})}).get("targets") or [])
 
 
+def _local_post_blockers(project, name):
+    """The publish checks that need no network: the file exists, it is
+    approved, the cut hasn't changed since, the metadata passes. (The full
+    publish_eligibility also asks Upload-Post about the channel.)"""
+    try:
+        pdir = project_dir_for(project)
+    except HTTPException:
+        return ["the chapter folder is gone"]
+    out = []
+    if not _export_stat(pdir, name):
+        return ["the video file no longer exists"]
+    rv = review_state(pdir, name)
+    if rv["status"] != "approved":
+        out.append("not approved in Review")
+    if rv["superseded"]:
+        out.append("the board changed after you approved it — watch and approve the new render")
+    md = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
+    out += validate_publish(md, pdir, name)
+    return out
+
+
+SCHEDULE_MAX_TRIES = 10
+
+
 def _schedule_post_pass(now=None):
-    """Posting schedule (step 5): at most one queued video per due time slot,
-    through the same checked publish job as Post now. Off unless switched on."""
+    """Posting schedule (step 5): one post per due time slot, through the same
+    checked publish job as Post now. Off unless switched on.
+
+    Owner, 2026-10-07 ("11, 3 and 9 … none have gone out — look at Scrapper"):
+    a video that can't post no longer costs the slot. It is marked with the
+    reason (Posting schedule → Errors, and Needs you) and the SAME slot goes to
+    the next queued video that can post, like Scrapper's queue, where one bad
+    item never blocks the day."""
     import ingest as _i
     sched = _studio.load().get("schedule") or {}
     if not sched.get("enabled"):
         return None
     _pq.sync(_i.PROJECTS, _pub_status)
-
-    dec = _pq.decide(sched, _pq.load(_i.PROJECTS), now or time.time(), _targets_of)
-    if dec["action"] == "skip":
-        _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], "skipped: " + dec["why"])
-        _ev("publish", f"schedule {dec['slot']}: nothing posted — {dec['why']}", "warn")
-    elif dec["action"] == "post":
+    refused = []
+    dec = None
+    for _try in range(SCHEDULE_MAX_TRIES):
+        dec = _pq.decide(sched, _pq.load(_i.PROJECTS), now or time.time(), _targets_of)
+        if dec["action"] == "skip":
+            why = dec["why"] + (f" (could not post: {', '.join(refused)})" if refused else "")
+            _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], "skipped: " + why)
+            _ev("publish", f"schedule {dec['slot']}: nothing posted — {why}", "warn")
+            break
+        if dec["action"] != "post":
+            break
         it = dec["item"]
+        blockers = _local_post_blockers(it["project"], it["name"])
         try:
+            if blockers:
+                raise HTTPException(409, "; ".join(blockers))
             r = studio_queue_post(StudioItemIn(id=it["id"]))
             _pq.mark(_i.PROJECTS, it["id"], posted_day=dec["day"])
-            _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], f"posted {it['project']} ({r.get('privacy')})")
+            _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], f"posted {it['project']} ({r.get('privacy')})"
+                          + (f" after skipping {', '.join(refused)}" if refused else ""))
             _ev("publish", f"schedule {dec['slot']}: posting {_pretty(it['project'])}", "ok")
+            break
         except HTTPException as e:
             _pq.mark(_i.PROJECTS, it["id"], status="failed", error=str(e.detail)[:300])
-            _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], "refused: " + str(e.detail)[:200])
-            _ev("publish", f"schedule {dec['slot']}: {_pretty(it['project'])} not posted — {e.detail}", "error")
+            refused.append(_pretty(it["project"]))
+            _ev("publish", f"schedule {dec['slot']}: {_pretty(it['project'])} can't post — {e.detail} "
+                           "(moved to Errors and Needs you; trying the next video)", "error")
     return dec
 
 
@@ -8709,8 +8750,20 @@ def studio_overview():
         else:
             review.append(row)
     sched = _studio.load().get("schedule") or {}
+    # A queued video that would be refused gets no planned time and says why,
+    # so the schedule shows it before its slot comes (owner, 2026-10-07).
+    blocked = {}
+    for x in q["items"]:
+        if x["status"] == "queued":
+            try:
+                b = _local_post_blockers(x["project"], x["name"])
+            except Exception:
+                b = []
+            if b:
+                blocked[x["id"]] = "; ".join(b)
     try:
-        plan = _pq.planned(sched, q, time.time(), _targets_of)
+        plan = _pq.planned(sched, q, time.time(),
+                           lambda x: [] if x["id"] in blocked else _targets_of(x))
     except Exception:
         plan = {}
     for x in q["items"]:
@@ -8718,7 +8771,7 @@ def studio_overview():
             r = dict(by_key.get((x["project"], x["name"])) or
                      {"project": x["project"], "name": x["name"], "label": x["name"], "missing": True})
             r.update(qid=x["id"], qstatus=x["status"], qerror=x.get("error"), added_at=x["added_at"],
-                     planned=plan.get(x["id"]))
+                     planned=plan.get(x["id"]), blocked=blocked.get(x["id"]))
             queue_rows.append(r)
     return {"review": review, "ready": ready, "queue": queue_rows, "published": _studio_published(),
             "retention_days": exports["retention_days"],

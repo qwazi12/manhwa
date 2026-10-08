@@ -69,6 +69,9 @@ def decide(f):
         return view("rendering")
     if ist in LIVE_INGEST:
         return view("making", stage=f.get("ingest_stage"))
+    if f.get("post_error"):
+        # owner, 2026-10-07: a video the schedule couldn't post needs you
+        return view("failed", reason="couldn't post — " + f["post_error"])
     if f.get("has_video"):
         if f.get("approved_video") and not f.get("superseded"):
             return view("scheduled")          # approved but its queue row is missing: treated as scheduled
@@ -134,6 +137,8 @@ def gather(pdir, ingest_rec=None, rendering=False, queue_rows=None, review_state
             f["posting"] = True
         elif row.get("status") == "queued" and (not name or row.get("name") == name):
             f["scheduled"] = True
+        elif row.get("status") == "failed" and (not name or row.get("name") == name):
+            f["post_error"] = (row.get("error") or "the post was refused")[:200]
     if name and review_state:
         try:
             rv = review_state(pdir, name)

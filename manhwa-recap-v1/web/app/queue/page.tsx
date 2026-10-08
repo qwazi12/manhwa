@@ -195,7 +195,8 @@ function Card({ r, i, sched, chanName, stats, checked, onCheck, onChannels, relo
       <Link href={href} className="sp-thumb"><Pic project={r.project} name={r.name} sid={r.sid} thumb={r.thumb} /></Link>
       <b className="sp-title">{r.title || r.label}</b>
       <span className="small muted">{r.label !== r.title ? `${r.label} · ` : ""}{r.duration ? `${mmss(r.duration)} · ` : ""}{r.privacy || ""}{r.missing ? " · the video file is gone" : ""}</span>
-      {r.kind === "ready" && (r.planned ? <span className="sp-time">⏰ {r.planned.label}</span>
+      {r.kind === "ready" && r.blocked && <span className="small" style={{ color: "var(--red)", wordBreak: "break-word" }}>⚠ won’t post until fixed: {r.blocked} — its slot goes to the next video</span>}
+      {r.kind === "ready" && !r.blocked && (r.planned ? <span className="sp-time">⏰ {r.planned.label}</span>
         : <span className="small" style={{ color: "var(--yellow)" }}>{!sched.enabled ? "⏸ waits — posting is paused" : targets.length ? `#${i + 1} in line` : "no channel, so no time"}</span>)}
       {r.kind === "posting" && <span className="sp-time">⏳ uploading now…</span>}
       {r.kind === "posted" && <span className="sp-time">✓ posted {when(r.at)}</span>}

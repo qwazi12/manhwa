@@ -33,6 +33,9 @@ def _proj(root, pid, name):
     json.dump({"series": pid, "chapter": "1"}, open(os.path.join(pdir, "project.json"), "w"))
     open(os.path.join(pdir, "exports", name), "wb").write(b"\0" * 100)
     json.dump({name: {"status": "approved"}}, open(os.path.join(pdir, "reviews.json"), "w"))
+    # a publishable title (B1: hook first, unique per video)
+    json.dump({name: {"title": f"He Wins The Duel {pid} - {pid} Chapter 1 Manhwa Recap", "targets": ["mk:youtube"]}},
+              open(os.path.join(pdir, "publish.json"), "w"))
 
 
 def main():
@@ -115,6 +118,34 @@ def main():
               it["status"] == "failed" and "no channel" in it["error"])
         st = c.get("/api/studio").json()["schedule"]
         check("the studio shows the schedule state and next time", st["enabled"] and st["next"])
+
+        # Owner, 2026-10-07: 11/3/9 slots, the first queued video couldn't post
+        # and the whole slot was lost. Now the same slot goes to the next one.
+        server.os_publish = fake_publish
+        posted.clear()
+        _proj(root, "p3", "c.mp4")
+        _proj(root, "p4", "d.mp4")
+        _proj(root, "p5", "e.mp4")
+        # p3 has the same title as p4 (the Iron-Blooded ch.180 / ch.183 case)
+        json.dump({"c.mp4": {"title": "He Wins The Duel p4 - p4 Chapter 1 Manhwa Recap", "targets": ["mk:youtube"]}},
+                  open(os.path.join(root, "p3", "publish.json"), "w"))
+        c.post("/api/studio/queue", json={"items": [{"project": p, "name": n} for p, n in
+                                                    (("p3", "c.mp4"), ("p4", "d.mp4"), ("p5", "e.mp4"))]})
+        st = c.get("/api/studio").json()
+        b = {r["project"]: r for r in st["queue"]}
+        check("a video that would be refused is flagged on the schedule before its slot (no planned time)",
+              b["p3"].get("blocked") and "title" in b["p3"]["blocked"] and not b["p3"].get("planned"))
+        server._schedule_post_pass(at("12:05", day=7))
+        items = {x["project"]: x for x in pq.load(root)["items"]}
+        # p3 and p4 share a title, so BOTH are refused (each duplicates the
+        # other, like Iron-Blooded ch.180/183); p5 posts in the same 12:00 slot
+        check("refused videos don't cost the slot: the next one that can post goes in the SAME slot",
+              posted == ["p5"] and items["p3"]["status"] == items["p4"]["status"] == "failed")
+        check("...and the slot's record says what was skipped",
+              "after skipping" in pq.load(root)["slots_done"]["2026-10-07"]["12:00"])
+        rows = {x["id"]: x["status"] for x in c.get("/api/chapters").json()["chapters"]}
+        check("the refused video shows as needing you (couldn't post) with the reason",
+              rows["p3"]["key"] == "failed" and "title" in rows["p3"]["reason"])
     finally:
         ingest.PROJECTS, server.os_publish = saved
 
