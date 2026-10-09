@@ -2273,6 +2273,10 @@ def _build_chapter_package(pdir, name, api_key=None, competitor=True, lock_overr
     beat = _chapter_tease(pdir, api_key) if api_key else (rec.get("hook_beat") or {})   # Stage 2
     prev_dir = _chapter_project(sid, n - 1)
     pl = pack.get("playlist_id") or ""
+    # only a real playlist id (live 2026-10-08: series defaults had stored the
+    # playlist NAME there, which made "list=The Regressed Mercenary …")
+    if not re.fullmatch(r"(PL|UU|OL|FL)[\w-]{10,}", pl):
+        pl = ""
     pl_link = f"https://www.youtube.com/playlist?list={pl}" if pl else ""
     prev_link = _published_video_url(prev_dir)
     desc = _cseo.build_description(series, n, pack, chapter_title=rec.get("chapter_title") or "",

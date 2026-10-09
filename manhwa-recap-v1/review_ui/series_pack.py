@@ -99,8 +99,11 @@ def build(series_id, *, series="", web_facts=None, bible=None, watch=None, slug_
     # a character's name (or alias) is never an alternate TITLE (live 2026-10-08:
     # "Dong Bongsu" showed up among Murim Psychopath's titles)
     people = {n.lower() for c in chars for n in [c["name"]] + list(c.get("aliases") or [])}
-    alt = [a for a in aliases if re.search(r"[A-Za-z]", a) and a.lower() != (title_en or "").lower()
-           and a.lower() != (series or "").lower() and a.lower() not in people]
+    # ... and the series' own name re-spelled (URL slug + site id, a guessed
+    # apostrophe: "The Regressed Mercenary Ha's A Plan 7261") isn't one either
+    core = lambda x: re.sub(r"[^a-z]", "", re.sub(r"\s+\d+\s*$", "", (x or "").lower()))
+    own = {core(title_en), core(series)}
+    alt = [a for a in aliases if re.search(r"[A-Za-z]", a) and core(a) not in own and a.lower() not in people]
     mc = [c["name"] for c in chars if "protagonist" in (c.get("role") or "").lower()]
     spec = {
         "series_name_en": title_en,
