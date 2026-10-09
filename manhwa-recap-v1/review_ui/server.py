@@ -2193,8 +2193,9 @@ def _chapter_tease(pdir, api_key):
         return {}
     h = hashlib.sha1(script.encode()).hexdigest()[:16]
     rec = _seo_chapter_rec(pdir)
-    if (rec.get("hook_beat") or {}).get("script_hash") == h and "thumbnail_text" in rec["hook_beat"]:
-        return rec["hook_beat"]
+    hb = rec.get("hook_beat") or {}
+    if hb.get("script_hash") == h and hb.get("tease") and hb.get("thumbnail_text"):
+        return hb
     if not api_key:
         return {}
     meta = _read_json(os.path.join(pdir, "project.json")) or {}
@@ -2206,12 +2207,19 @@ def _chapter_tease(pdir, api_key):
         '"new_entities": ["1-2 character or place names that matter in this chapter"], '
         '"thumbnail_text": "AT MOST 4 words for the thumbnail, from the dramatic beat, punchy, no spoiler of the ending"}\n'
         f"Series: {meta.get('series')}, chapter {meta.get('chapter')}.\n\nSCRIPT:\n{script[:9000]}")}]}],
-        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1024, "responseMimeType": "application/json"}},
+        # 8192: a thinking model spends budget before writing — at 1024 the
+        # reply came back cut off and empty (live, Regressed Mercenary ch.96)
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 8192, "responseMimeType": "application/json"}},
         api_key)
     try:
-        out = json.loads(sr._text(resp))
+        import series_hooks as _shk
+        out = _shk._loads(sr._text(resp))
+        out = out if isinstance(out, dict) else {}
     except Exception:
         out = {}
+    if not (out.get("tease") or out.get("thumbnail_text")):
+        # never replace a good beat with an empty one
+        return rec.get("hook_beat") or {}
     beat = {"dramatic_beat": str(out.get("dramatic_beat") or "")[:200],
             "tease": " ".join(str(out.get("tease") or "").split())[:200],
             "new_entities": [str(x)[:40] for x in (out.get("new_entities") or [])][:2],
