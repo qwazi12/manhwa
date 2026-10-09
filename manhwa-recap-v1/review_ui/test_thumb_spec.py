@@ -451,3 +451,31 @@ def test_chapter_badge_always_contrasts_with_the_art_behind_it(tmp_path):
         assert de >= ts.BADGE_MIN_DELTA_E, (name, fill, bg, de)
         same = sum(abs(a - b) for a, b in zip(fill, accent)) < 12
         assert same == keep, (name, fill, accent)
+
+
+def test_chapter_card_is_added_without_changing_the_existing_options(tmp_path):
+    """Owner, 2026-10-08: do the SEO doc's thumbnail (§4.5) but leave what we had."""
+    import json as _j
+    from PIL import Image
+    pdir = _face_project(tmp_path)
+    style = {"palette": {"bg": [14, 16, 22], "accent": [210, 30, 30]}}
+    before = [c["composition"] for c in ts.build_concepts(str(pdir), {"chapter": "45"}, style, "HE WON")]
+    (pdir / "seo_chapter.json").write_text(_j.dumps({"hook_beat": {"thumbnail_text": "THE TRAP SPRINGS"}}))
+    cs = ts.rank_concepts(ts.build_concepts(str(pdir), {"chapter": "45"}, style, "HE WON"), style, "HE WON")
+    comps = [c["composition"] for c in cs]
+    assert "chapter-card" in comps and comps.count("chapter-card") == 1
+    assert [c for c in comps if c != "chapter-card"] == [c for c in before if c != "chapter-card"] or \
+        set(comps) - {"chapter-card"} == set(before) - {"chapter-card"}
+    assert next(c for c in cs if c["recommended"])["composition"] != "chapter-card"   # default unchanged
+    card = next(c for c in cs if c["composition"] == "chapter-card")
+    assert card["overlay_text"] == "THE TRAP SPRINGS"
+    out = os.path.join(ART, "s10_chapter_card.png")
+    ts.render_concept(str(pdir), card, style, out)
+    im = Image.open(out).convert("RGB")
+    assert im.size == (1280, 720)
+    red = sum(1 for y in range(28, 200, 2) for x in range(28, 400, 2) if im.getpixel((x, y)) == (210, 30, 30))
+    small = ts.render_concept(str(pdir), dict(card, composition="panel-hero"), style, os.path.join(ART, "s10_small_badge.png"))
+    im2 = Image.open(os.path.join(ART, "s10_small_badge.png")).convert("RGB")
+    red2 = sum(1 for y in range(28, 200, 2) for x in range(28, 400, 2) if im2.getpixel((x, y)) == (210, 30, 30))
+    assert red > 2 * red2, (red, red2)                       # the CH. N badge is much bigger
+    assert card["_hook_layout"]["lines"] and "TRAP" in " ".join(card["_hook_layout"]["lines"])

@@ -743,7 +743,7 @@ ZONES = {"text": (28, 470, 672, 692), "face": (700, 40, 1252, 560),
 
 # Spec 07 §3 recipes (A7): 3A is the DEFAULT; ↻ rotates 3A->3B->3C->3E->3D->3F.
 SPEC_ROTATION = ("panel-hero", "cover-hero", "split", "cover-inset", "two-panels", "clean")
-COMPOSITIONS = SPEC_ROTATION + ("cover-badge", "cover-center", "anchor-split", "hero-focus", "badge-stack", "diptych",
+COMPOSITIONS = SPEC_ROTATION + ("chapter-card", "cover-badge", "cover-center", "anchor-split", "hero-focus", "badge-stack", "diptych",
                                 "cover-frame")
 DEFAULT_COMPOSITION = "panel-hero"
 
@@ -900,6 +900,9 @@ DESIGN_POOL = {
                     "The chapter's moment full-frame with a small series cover in the corner (3E)."),
     "two-panels": ("Two moments", True, "Two of the chapter's strongest panels: setup and payoff (3D)."),
     "clean": ("Clean picture", False, "Just the MC's best panel — no text, no badge (3F)."),
+    "chapter-card": ("Chapter card (SEO spec)", True,
+                     "Spec 10 §4.5: 'CH. N' large, the main character's face from this chapter, at most 4 words "
+                     "from its dramatic beat — the same layout every chapter, only the number and words change."),
     "hero-focus": ("Full-bleed hook panel", True, "One focal moment at full bleed reads fastest at sidebar size."),
     "badge-stack": ("Badge-forward variant", True,
                     "Chapter number is the loudest element — helps serial viewers find the next part."),
@@ -1015,6 +1018,17 @@ def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None, rou
             name, use_text, why = DESIGN_POOL.get(c, (c, True, ""))
             plans.append((name, c, p, use_text and bool(hook), why))
 
+    # Spec 10 §4.5 chapter card — ADDED to the options (owner, 2026-10-08:
+    # "do the thumbnail the SEO doc says, but leave what we had").
+    if not any(pl[1] == "chapter-card" for pl in plans):
+        mc = next((q for q in panels if q.get("face_is_mc")), hero)
+        nm, _ut, wy = DESIGN_POOL["chapter-card"]
+        plans.append((nm, "chapter-card", mc, True, wy))
+    card_text = ""
+    try:
+        card_text = ((_read(os.path.join(pdir, "seo_chapter.json"), {}) or {}).get("hook_beat") or {}).get("thumbnail_text") or ""
+    except Exception:
+        card_text = ""
     for i, (name, composition, panel, use_text, why) in enumerate(plans):
         second = next((q for q in panels if q["panel_id"] != panel["panel_id"]), None)
         out.append({
@@ -1040,7 +1054,7 @@ def build_concepts(pdir, meta, style, title="", n=4, exclude=(), bible=None, rou
             "chapter": chapter,
             "part": part,
             "badge": ((style or {}).get("badge") or {}).get("label", "CH"),
-            "overlay_text": hook if use_text else "",
+            "overlay_text": ((card_text or hook) if composition == "chapter-card" else hook) if use_text else "",
             "text_zone": "lower-left",
             "palette": pal if composition in ("cover-badge", "cover-center") else pal_r,
             "round": round_,
@@ -1459,6 +1473,7 @@ def _fit_text(draw, text, max_w, start=96, floor=42):
 
 # Spec 07 §4.3 chapter badge.
 BADGE = {"radius": 8, "cap": 38, "pad_x": 20, "pad_y": 12, "origin": (28, 28), "outline": 3}
+CARD_BADGE_CAP = 76         # spec 10 §4.5 chapter card: the number is big
 GRADIENT = (0, 0, 0, int(255 * 0.65))        # §4.5 transparent -> #000 @65%, bottom 38%
 SPLIT_AT = int(W * 0.58)                     # 3C: panel 58% | cover 42%
 INSET_H = 0.26                               # 3E: cover at 26% of the height
@@ -1505,15 +1520,17 @@ def badge_colour(img, box, accent):
     return best, best_d
 
 
-def draw_badge(img, label, accent):
+def draw_badge(img, label, accent, cap=None):
     """Rounded rect r8, 3 px black outline + drop shadow, 'CH N' at a 38 px
     cap height, padding 20/12, at (28, 28). ~150x62. Its colour is the accent
     unless that blends into the art behind it (badge_colour)."""
     from PIL import Image, ImageDraw, ImageFilter
-    f = font_for_cap(BADGE["cap"])
+    cap = int(cap or BADGE["cap"])
+    f = font_for_cap(cap)
     asc = f.getbbox("H")[1]
     tw = int(f.getlength(label))
-    bw, bh = tw + 2 * BADGE["pad_x"], BADGE["cap"] + 2 * BADGE["pad_y"]
+    pad = max(1.0, cap / float(BADGE["cap"]))
+    bw, bh = tw + int(2 * BADGE["pad_x"] * pad), cap + int(2 * BADGE["pad_y"] * pad)
     x0, y0 = BADGE["origin"]
     accent, _de = badge_colour(img, (x0, y0, x0 + bw, y0 + bh), accent)
     sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
@@ -1523,11 +1540,12 @@ def draw_badge(img, label, accent):
     o = BADGE["outline"]
     d.rounded_rectangle([x0 - o, y0 - o, x0 + bw + o, y0 + bh + o], BADGE["radius"] + o, fill=(0, 0, 0, 255))
     d.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], BADGE["radius"], fill=tuple(accent) + (255,))
-    d.text((x0 + BADGE["pad_x"], y0 + BADGE["pad_y"] - asc), label, font=f, fill=readable_ink(accent) + (255,))
+    d.text((x0 + int(BADGE["pad_x"] * pad), y0 + int(BADGE["pad_y"] * pad) - asc), label, font=f,
+           fill=readable_ink(accent) + (255,))
     return (x0 - o, y0 - o, x0 + bw + o, y0 + bh + o)
 
 
-MIRROR_LEFT_FACE = ("panel-hero", "cover-hero", "cover-inset", "cover-badge", "cover-center", "hero-focus", "badge-stack")
+MIRROR_LEFT_FACE = ("panel-hero", "chapter-card", "cover-hero", "cover-inset", "cover-badge", "cover-center", "hero-focus", "badge-stack")
 
 
 def _log(event, **kw):
@@ -1719,7 +1737,7 @@ def _compose(pdir, concept, style, mirror=False, avoid=None):
         except Exception as e:
             _log("cover_center_failed", error=str(e)[:200])
             primary = place(anchor, (0, 0, width, height), cfb, backdrop_ok=False, flip=mirror)
-    elif comp == "panel-hero":                                       # 3A
+    elif comp in ("panel-hero", "chapter-card"):                     # 3A (+ spec 10 §4.5 card)
         primary = place(focal, (0, 0, width, height), fb, bubbles=bub, flip=mirror)
         gradient = bool(concept.get("gradient"))                     # §5 step 5 fallback
     elif comp == "cover-hero":                                       # 3B
@@ -1829,6 +1847,9 @@ def _compose(pdir, concept, style, mirror=False, avoid=None):
             bcol, _de = badge_colour(img, (bx, by, bx + bw_, by + bh_), accent)
             draw.rectangle([bx, by, bx + bw_, by + bh_], fill=tuple(bcol) + (255,))
             draw.text((bx + bw_ / 2, by + bh_ / 2), label, font=bf, fill=readable_ink(bcol), anchor="mm")
+        elif comp == "chapter-card":
+            # spec 10 §4.5: "CH. N" large, mobile-readable, same place every chapter
+            draw_badge(img, f"CH. {ch}" if not part else label, accent, cap=CARD_BADGE_CAP)
         else:
             draw_badge(img, label, accent)
 

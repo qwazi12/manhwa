@@ -2193,7 +2193,7 @@ def _chapter_tease(pdir, api_key):
         return {}
     h = hashlib.sha1(script.encode()).hexdigest()[:16]
     rec = _seo_chapter_rec(pdir)
-    if (rec.get("hook_beat") or {}).get("script_hash") == h:
+    if (rec.get("hook_beat") or {}).get("script_hash") == h and "thumbnail_text" in rec["hook_beat"]:
         return rec["hook_beat"]
     if not api_key:
         return {}
@@ -2203,7 +2203,8 @@ def _chapter_tease(pdir, api_key):
         '{"dramatic_beat": "the chapter\'s biggest moment in one short sentence", '
         '"tease": "ONE or TWO sentences, max 180 characters, that make a viewer want to watch WITHOUT revealing how '
         'the chapter ends; no chapter numbers, no counts of chapters", '
-        '"new_entities": ["1-2 character or place names that matter in this chapter"]}\n'
+        '"new_entities": ["1-2 character or place names that matter in this chapter"], '
+        '"thumbnail_text": "AT MOST 4 words for the thumbnail, from the dramatic beat, punchy, no spoiler of the ending"}\n'
         f"Series: {meta.get('series')}, chapter {meta.get('chapter')}.\n\nSCRIPT:\n{script[:9000]}")}]}],
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1024, "responseMimeType": "application/json"}},
         api_key)
@@ -2214,6 +2215,8 @@ def _chapter_tease(pdir, api_key):
     beat = {"dramatic_beat": str(out.get("dramatic_beat") or "")[:200],
             "tease": " ".join(str(out.get("tease") or "").split())[:200],
             "new_entities": [str(x)[:40] for x in (out.get("new_entities") or [])][:2],
+            # spec 10 §4.5: <= 4 words from the beat, for the chapter-card thumbnail
+            "thumbnail_text": " ".join(str(out.get("thumbnail_text") or "").split()[:4]).upper()[:28],
             "source": "approved script", "script_hash": h, "at": time.time()}
     rec = _seo_chapter_rec(pdir)
     rec["hook_beat"] = beat
@@ -3735,6 +3738,13 @@ def _prepare_publish(pdir, name, do_seo=True):
         try:
             if name == DRAFT:
                 raise _SkipSeo()                  # thumbnails are made from the video
+            try:
+                # spec 10 §4.5: the chapter card's <= 4 words come from the script
+                # (cached by script hash; ~1 cent once per chapter)
+                import gemini_tts as _gt
+                _chapter_tease(pdir, _gt.env_any_case("GEMINI_API_KEY"))
+            except Exception:
+                pass
             if not (tstudio.get_concepts(pdir, name) or {}).get("concepts"):
                 api_thumbcopilot_generate(ThumbGenIn(project=pid, name=name))
             if not _tb.path_for(pdir, name):
