@@ -2246,7 +2246,9 @@ def _music_credit_for(pdir):
 
 def _series_locked(pdir):
     """(pack, title_lock) when this chapter's series has an approved hook."""
-    pack = _series_pack(pdir, refresh=False) or _series_pack(pdir) or {}
+    # rebuilt each time (local cached sources only — free), so a fix to how the
+    # series fields are derived reaches every package; owner keys survive
+    pack = _series_pack(pdir) or {}
     lock = pack.get("title_lock") or {}
     return pack, (lock if lock.get("approved_by_user") and lock.get("series_hook") else None)
 
