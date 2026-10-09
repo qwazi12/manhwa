@@ -33,12 +33,22 @@ def sources(pack, bible, web):
     if ws.get("premise"):
         out.append({"text": ws["premise"], "url": (rs[0].get("url") if rs and isinstance(rs[0], dict) else "")
                     or src_url, "kind": "series premise (Series Bible)"})
+    syn = ((web or {}).get("facts") or {}).get("synopsis") or (web or {}).get("synopsis_verbatim") or ((web or {}).get("structured") or {}).get("synopsis_verbatim")
+    if isinstance(syn, dict):
+        syn_val = syn.get("value")
+    else:
+        syn_val = syn
+    if syn_val and syn_val != "NOT FOUND" and not ws.get("premise"):
+        web_srcs = (web or {}).get("sources") or []
+        first_url = next((x.get("url") for x in web_srcs if x.get("url")), "") if web_srcs else ""
+        out.append({"text": syn_val, "url": first_url or src_url, "kind": "official synopsis (web research)"})
     facts = (web or {}).get("facts") or {}
-    if facts.get("keywords"):
-        out.append({"text": "Keywords people use for it: " + ", ".join(facts["keywords"][:12]),
+    kws = facts.get("keywords") or ((web or {}).get("structured") or {}).get("genre_tag_phrases") or ((web or {}).get("structured") or {}).get("genres")
+    if kws:
+        out.append({"text": "Keywords people use for it: " + ", ".join(kws[:12]),
                     "url": next((x.get("url") for x in (web or {}).get("sources") or [] if x.get("url")), ""),
                     "kind": "web research"})
-    mc = (pack or {}).get("characters_main") or []
+    mc = (pack or {}).get("characters_main") or ((web or {}).get("structured") or {}).get("characters_main") or []
     if mc:
         out.append({"text": "Main character: " + mc[0], "url": src_url, "kind": "cast"})
     return out

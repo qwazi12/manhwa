@@ -148,6 +148,154 @@ Do not use Reddit, forums, YouTube, TikTok or social media. Do not speculate; if
 unknown, say it is unknown."""
 
 
+def seo_research_prompt(title, aliases, series_url, latest):
+    also = f" (also known as: {', '.join(aliases)})" if aliases else ""
+    return f"""Research the comic "{title}"{also}. We read it at {series_url}. Latest chapter we know: {latest}.
+
+GOAL: SEO metadata for a YouTube recap channel. Search the web for: the series' pages on
+MangaUpdates, its official publisher page (Naver Webtoon / Kakao / KuaiKan / Webnovel / Asura),
+its Fandom wiki, and YouTube videos recapping it.
+
+RETURN, each finding as a span of text with the source URLs that support it:
+
+1. CANONICAL ENGLISH TITLE and MEDIUM (Korean manhwa / Chinese manhua).
+2. OFFICIAL ORIGINAL-LANGUAGE TITLE (the one on the publisher's own page).
+3. ALL ASSOCIATED / ALTERNATE TITLES, every language, copied verbatim.
+4. STORY credits and ART credits. If sources disagree (romanizations), report BOTH with their sources.
+5. ORIGINAL PUBLISHER / PLATFORM.
+6. GENRES AND TAGS as listed.
+7. MAIN CHARACTERS (name + role only).
+8. SEASON/ARC STRUCTURE and LATEST CHAPTER NUMBER with its release date — use release logs and
+   dated entries ONLY; ignore undated "status" fields (they go stale).
+9. THE OFFICIAL SYNOPSIS, verbatim, the one shown on the series page.
+10. YOUTUBE RECON: list recap videos of this series you find — for each: exact title, channel,
+    view count if shown, upload date, and whether the title is (a) bare series name,
+    (b) chapter-number style like [1-45] or (44), or (c) a story hook ("He Thought X...").
+    Note any video whose description contradicts its own title or contains template text
+    from another channel.
+
+RULES:
+- Names, titles and alternate spellings may come from fan wikis. PLOT facts need an official or
+  database source (mangaupdates.com, official publisher). Forums/social/video are NEVER a fact source.
+- Never guess a missing field. Write "NOT FOUND" for anything you cannot source.
+- Report conflicts; do not silently pick one."""
+
+
+def seo_structure_prompt(title, research_text, numbered_sources):
+    return f"""Turn this research about the comic "{title}" into JSON. Use ONLY facts stated in the
+research. Cite the source number(s) supporting each entry.
+
+{research_text}
+
+Sources:
+{numbered_sources}
+
+Return ONLY JSON:
+{{
+ "series_name_en": "...",
+ "medium": "manhwa|manhua",
+ "series_name_original": {{"value": "...", "sources": [n]}},
+ "series_name_alt": ["..."],
+ "authors": {{"story": {{"value": ["..."], "sources": [n], "conflicts": ["..."]}},
+              "art": {{"value": ["..."], "sources": [n], "conflicts": ["..."]}}}},
+ "publisher": {{"value": "...", "sources": [n]}},
+ "genres": ["..."],
+ "genre_tag_phrases": ["2-3 tag phrases per genre, e.g. 'cultivation manhua'"],
+ "characters_main": ["..."],
+ "seasons": [{{"n": 1, "name": "...", "chapters": "1-34"}}],
+ "latest_chapter": {{"number": n, "released_utc": "...", "sources": [n]}},
+ "synopsis_verbatim": {{"value": "...", "sources": [n]}},
+ "youtube_recon": [{{"title": "...", "channel": "...", "views": null, "date": "",
+                    "style": "bare|bracket|hook", "weakness": ""}}],
+ "gap": "one sentence: is exact-phrase + hook format unoccupied, and which mechanic fits"
+}}
+
+RULES: characters go ONLY in characters_main, never in series_name_alt. Never invent a value;
+use null and cite nothing. genre_tag_phrases must be derived only from listed genres."""
+
+
+def research_series_seo(series_id, pack=None, api_key=None, _urlopen=None, _resolve=None):
+    """Spec-10 Phase B web research + structuring for SEO metadata.
+    Two calls: Gemini + Google Search grounding, then JSON structuring with source citations.
+    Metered through usage.gate."""
+    if not api_key:
+        try:
+            import gemini_tts as _gt
+            api_key = _gt.env_any_case("GEMINI_API_KEY")
+        except Exception:
+            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("gemini_api_key")
+    pack = pack or {}
+    title = pack.get("series_name_en") or pack.get("title_en") or pack.get("canonical_title") or str(series_id)
+    aliases = list(pack.get("aliases") or pack.get("aliases_manual") or [])
+    series_url = pack.get("source_url") or pack.get("series_url") or ""
+    latest = pack.get("latest_chapter") or pack.get("total_chapters") or ""
+    if isinstance(latest, dict):
+        latest = latest.get("number") or ""
+
+    # Call 1: Grounded research call
+    data = _post({"contents": [{"parts": [{"text": seo_research_prompt(title, aliases, series_url, latest)}]}],
+                  "tools": [{"google_search": {}}],
+                  "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192}}, api_key, _urlopen)
+    text = _text(data)
+    meta = ((data.get("candidates") or [{}])[0]).get("groundingMetadata") or {}
+    res = _resolve or resolve
+    sources = []
+    for c in meta.get("groundingChunks", []):
+        web = c.get("web") or {}
+        url = res(web.get("uri", ""))
+        host = domain(url) if "://" in url and "grounding-api-redirect" not in url else domain(web.get("title", ""))
+        sources.append({"title": web.get("title", ""), "url": url, "domain": host, "tier": tier(host)})
+    claims = [{"text": (s.get("segment") or {}).get("text", ""),
+               "sources": s.get("groundingChunkIndices", [])} for s in meta.get("groundingSupports", [])]
+
+    # Call 2: Structuring call (JSON, no tools)
+    numbered = _number(sources)
+    structured = {}
+    if text:
+        data_struct = _post({"contents": [{"parts": [{"text": seo_structure_prompt(title, text, numbered)}]}],
+                             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192,
+                                                  "responseMimeType": "application/json"}}, api_key, _urlopen)
+        raw_struct = _text(data_struct)
+        structured = _parse_json(raw_struct) if raw_struct else {}
+
+    syn_val = (structured.get("synopsis_verbatim") or {}).get("value") if isinstance(structured.get("synopsis_verbatim"), dict) else (structured.get("synopsis_verbatim") or "")
+    if syn_val == "NOT FOUND":
+        syn_val = ""
+    orig_val = (structured.get("series_name_original") or {}).get("value") if isinstance(structured.get("series_name_original"), dict) else (structured.get("series_name_original") or "")
+    if orig_val == "NOT FOUND":
+        orig_val = ""
+
+    authors = structured.get("authors") or {}
+    author_names = (authors.get("story") or {}).get("value") if isinstance(authors.get("story"), dict) else authors.get("story")
+    artist_names = (authors.get("art") or {}).get("value") if isinstance(authors.get("art"), dict) else authors.get("art")
+    publisher_val = (structured.get("publisher") or {}).get("value") if isinstance(structured.get("publisher"), dict) else structured.get("publisher")
+    if publisher_val == "NOT FOUND":
+        publisher_val = ""
+
+    facts = {
+        "english_title": structured.get("series_name_en") or title,
+        "korean_title": orig_val,
+        "search_names": structured.get("series_name_alt") or [],
+        "author": author_names[0] if isinstance(author_names, list) and author_names else (author_names or ""),
+        "artist": artist_names[0] if isinstance(artist_names, list) and artist_names else (artist_names or ""),
+        "platform": publisher_val or "",
+        "genres": structured.get("genres") or [],
+        "keywords": structured.get("genre_tag_phrases") or structured.get("genres") or [],
+        "synopsis": syn_val,
+    }
+
+    return {
+        "at": time.time(),
+        "model": MODEL,
+        "text": text,
+        "sources": sources,
+        "claims": claims,
+        "queries": meta.get("webSearchQueries", []),
+        "structured": structured,
+        "facts": facts,
+    }
+
+
 def structure_prompt(title, research_text, numbered_sources):
     return f"""Turn this research about the manhwa "{title}" into JSON. Use ONLY facts stated in the
 research. Cite the source numbers that support each entry.

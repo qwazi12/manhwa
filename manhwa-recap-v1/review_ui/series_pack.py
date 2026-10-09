@@ -68,14 +68,14 @@ def merge_aliases(title_en, *groups):
 OWNER_KEYS = ("aliases_manual", "title_lock", "hook_candidates", "playlist_id", "owner_edits",
               "title_template", "description_template", "default_tags", "default_privacy",
               "default_targets", "default_category", "default_made_for_kids",
-              "default_synthetic_disclosure", "music_credit", "recon")
+              "default_synthetic_disclosure", "music_credit", "recon", "seo_research")
 
 
 def build(series_id, *, series="", web_facts=None, bible=None, watch=None, slug_aliases=(),
           source_url="", total_chapters=None, status="", playlist_id="", style=None, prev=None):
     """A fresh pack from the sources; owner edits in `prev` survive."""
-    wf = web_facts or {}
     prev = prev or {}
+    wf = web_facts or (prev.get("seo_research") or {}).get("facts") or {}
     title_en = wf.get("english_title") or (watch or {}).get("title") or series
     manual = list(prev.get("aliases_manual") or [])
     aliases = merge_aliases(title_en,

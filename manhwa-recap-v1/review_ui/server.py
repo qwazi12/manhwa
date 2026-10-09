@@ -2542,6 +2542,81 @@ def api_seo_run(body: SeoGenIn):
             "confidence": rec.get("confidence"), **_publish_payload(pdir, pid, name, md)}
 
 
+def _all_series_with_chapters():
+    """Returns sorted list of (series_id, pdir) for all distinct series with projects."""
+    import ingest as _i
+    seen = {}
+    if not os.path.isdir(_i.PROJECTS):
+        return []
+    for pid in sorted(os.listdir(_i.PROJECTS)):
+        if pid.startswith("_"):
+            continue
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if not os.path.isdir(pdir):
+            continue
+        try:
+            sid, sname, ch_n, meta = _series_ident(pdir)
+            if sid and sid not in seen:
+                seen[sid] = pdir
+        except Exception:
+            continue
+    return sorted(seen.items())
+
+
+def _bible(series_id, pdir=None):
+    try:
+        import series_bible as _sbib
+        return _sbib.load_series_bible(series_id, pdir=pdir)
+    except Exception:
+        return None
+
+
+@app.post("/api/seo/batch_setup")
+def api_seo_batch_setup():
+    """Spec-10 Phase B+D for EVERY series that has chapters, with skip rules."""
+    import series_research as sr
+    import series_hooks as sh
+    import series_pack as sp
+    import gemini_tts as _gt
+    import ingest as _i
+    key = _gt.env_any_case("GEMINI_API_KEY")
+    results = []
+    for series_id, pdir in _all_series_with_chapters():          # existing project dirs
+        pack = sp.load(_i.PROJECTS, series_id) or _series_pack(pdir) or {}
+        lock = (pack or {}).get("title_lock") or {}
+        # --- SKIP RULES (idempotency) ---
+        if lock.get("approved_by_user"):
+            results.append({"series": series_id, "action": "skipped: hook already locked"})
+            continue
+        if (pack or {}).get("playlist_id") and (lock.get("hook_candidates") or (pack or {}).get("hook_candidates")):
+            results.append({"series": series_id, "action": "skipped: already set up, awaiting owner pick"})
+            continue
+        # --- RESEARCH (cached: only if none / older than 7 days) ---
+        r = (pack or {}).get("seo_research") or {}
+        if not r or (time.time() - r.get("at", 0)) > 7 * 86400:
+            try:
+                r = sr.research_series_seo(series_id, pack, api_key=key)      # the two prompts from §1
+                pack["seo_research"] = r
+            except Exception as e:
+                results.append({"series": series_id, "action": "error: research", "error": str(e)[:200]})
+                _ev("seo_batch", f"{series_id}: research failed — {e}", "warn")
+                continue
+        # --- HOOK CANDIDATES (generate; NEVER lock) ---
+        try:
+            series_name = pack.get("series_name_en") or pack.get("title_en") or series_id
+            cands = sh.generate(series_name, pack, _bible(series_id, pdir), r, key)
+            pack["hook_candidates"] = cands
+            sp.save(_i.PROJECTS, pack)   # OWNER_KEYS survive — 43c1439 fix
+            cand_titles = [c["example_title"] for c in cands.get("candidates", [])]
+            results.append({"series": series_id, "action": "hooks ready — awaiting owner pick",
+                            "candidates": cand_titles})
+            _ev("seo_batch", f"{series_id}: 3 hook candidates ready", "ok")
+        except Exception as e:
+            results.append({"series": series_id, "action": "error: hooks", "error": str(e)[:200]})
+            _ev("seo_batch", f"{series_id}: hook generation failed — {e}", "warn")
+    return {"ok": True, "results": results}
+
+
 # ====================================================================
 #  Spec 06 B2/B4 — series asset pack + fixed description blocks
 # ====================================================================

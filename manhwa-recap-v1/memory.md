@@ -9477,3 +9477,21 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - P1 publish window scheduling, P5 48h/7d tracking, Phase C weekly recon store: next.
   - Chapter title scrape is best effort (Asura page title).
 - **Decision taken:** a series with a locked hook uses spec 10 for title/description/tags. Series without one keep the current behaviour (settings title format, "Use for series") until the hook is picked.
+
+### 2026-10-08 21:26 ET — Spec 10: Deep-research prompts & batch setup workflow
+- **Implemented deep-research prompts in `manhwa-recap-v1/series_research.py`:**
+  - `seo_research_prompt(title, aliases, series_url, latest)`: Grounded web search targeting MangaUpdates, official publisher pages, Fandom wiki, and YouTube recon with 10 numbered sections and strict tier/source rules.
+  - `seo_structure_prompt(title, research_text, numbered_sources)`: Structured JSON extraction mapping 1:1 to tracker fields and series packs (enforces characters go strictly into `characters_main` and never leak into `series_name_alt`; never guesses missing values).
+  - `research_series_seo(series_id, pack, api_key)`: Two-call sequence via `usage.gate` (grounded search + JSON structure). Retains backward compatibility with `facts` dict (synopsis, keywords, authors, artist, platform).
+- **Persistent storage for `seo_research`:**
+  - Added `"seo_research"` to `OWNER_KEYS` in `review_ui/series_pack.py` so research data survives pack refreshes.
+  - `series_pack.build()` falls back to `prev.get("seo_research")` facts when `web_facts` is empty.
+  - Updated `series_hooks.sources()` to consume `synopsis_verbatim` and genre keywords from `seo_research`.
+- **Batch setup endpoint in `review_ui/server.py`:**
+  - Added `_all_series_with_chapters()` and `POST /api/seo/batch_setup`.
+  - Idempotent skip rules: skips if `title_lock.approved_by_user` or (`playlist_id` set and `hook_candidates` already generated awaiting owner pick).
+  - 7-day research cache check.
+  - Generates 3 hook candidates without auto-locking (`approved_by_user` remains false until explicit owner pick).
+- **Tests & Verification:**
+  - Added `review_ui/test_seo_batch_setup.py` (17/17 tests passing): validates prompts, `research_series_seo` two-call flow, Murim oracle structure, `OWNER_KEYS` persistence, batch endpoint execution, and batch idempotency.
+  - Verified `test_chapter_seo.py` (5/5 passing), `test_seo_research.py` (16/16 passing), `test_series_research.py` (30/30 passing), `test_series_defaults.py` (2/2 passing), and `test_seo_v2_flow.py`.
