@@ -9514,3 +9514,26 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - Added `GET /api/seo/batch_setup/status` to query execution status and results.
 - **Verification:**
   - `test_seo_batch_setup.py`: 17/17 passed with synchronous test execution (`background=False`).
+
+
+### 2026-10-08 22:25 ET — Batch SEO executed across all studio series (Spec 10)
+- **Batch execution completed:**
+  - Ran `POST /api/seo/batch_setup` across all 15 series in the studio.
+  - All series now have deep web research cached and 3 candidate hooks generated ready for owner selection in Library.
+  - Locked hook preserved: `fog-land-9299` remained locked as approved by user (`[45] He Came To Teach, But Got Abducted!`).
+  - Pre-existing candidate picks preserved: `a-regressors-tale-of-cultivation`, `i-am-the-fated-villain`, `revenge-of-the-iron-blooded-sword-hound`, `the-regressed-mercenary-has-a-plan`.
+  - Fresh hooks generated for remaining series:
+    - `murim-psychopath`: e.g. `[45] He is Clan Heir, But Psychopath! — Murim Psychopath | Manhwa Recap`
+    - `return-of-the-apocalypse-class-death-knight`: e.g. `[45] He Slaughtered His Family, But Now Protects Them! | Manhwa Recap`
+    - `return-of-the-mount-hua-sect`: e.g. `[45] He Died, But Awoke! — Return of the Mount Hua Sect | Manhwa Recap`
+    - `the-dark-mages-return-to-enlistment`: e.g. `[45] He Saved Another World, But Earth Drafted Him! | Manhwa Recap`
+    - `the-extras-academy-survival-guide-6465`: e.g. `[45] He Wanted To Graduate, But Must Stop Bad Endings! | Manhwa Recap`
+    - `the-former-supreme`: e.g. `[45] Lost His Qi, But Still A God! — The Former Supreme | Manhwa Recap`
+    - `the-indomitable-martial-king`: e.g. `[45] Slain, But He Wakes! — The Indomitable Martial King | Manhwa Recap`
+    - `too-many-heroes-for-the-demon-lord-9702`: e.g. `[45] He Followed Every Rule, But Heroes Mocked Him! | Manhwa Recap`
+    - `what-a-bountiful-harvest-demon-lord`: e.g. `[45] He Is The Final Boss, But He Farms Potatoes! | Manhwa Recap`
+- **Model prompt hardening:**
+  - In `series_hooks.prompt`: added explicit anti-scratchpad instruction (`- Output NO scratchpad, chain-of-thought, or character counting steps.`) preventing token exhaust on strict character budgets.
+  - In `server.py`: enhanced skip rules in `_run_seo_batch` to require `>= 3` candidates to consider a series done, and ignore artifact directories like `series`.
+- **Verification:**
+  - `review_ui/test_seo_batch_setup.py`: 17/17 passed.

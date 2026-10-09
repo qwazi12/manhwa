@@ -2603,13 +2603,19 @@ def _run_seo_batch():
         results = []
         _ev("seo_batch", "Starting batch SEO setup for all series", "info")
         for series_id, pdir in _all_series_with_chapters():          # existing project dirs
+            if not series_id or series_id in ("series", "unknown", "test", "tmp"):
+                continue
             pack = sp.load(_i.PROJECTS, series_id) or _series_pack(pdir) or {}
             lock = (pack or {}).get("title_lock") or {}
             # --- SKIP RULES (idempotency) ---
             if lock.get("approved_by_user"):
                 results.append({"series": series_id, "action": "skipped: hook already locked"})
                 continue
-            if (pack or {}).get("playlist_id") and (lock.get("hook_candidates") or (pack or {}).get("hook_candidates")):
+            has_cands = (
+                len((lock.get("hook_candidates") or {}).get("candidates", [])) >= 3
+                or len(((pack or {}).get("hook_candidates") or {}).get("candidates", [])) >= 3
+            )
+            if (pack or {}).get("playlist_id") and has_cands:
                 results.append({"series": series_id, "action": "skipped: already set up, awaiting owner pick"})
                 continue
             # --- RESEARCH (cached: only if none / older than 7 days) ---
@@ -2629,9 +2635,14 @@ def _run_seo_batch():
                 pack["hook_candidates"] = cands
                 sp.save(_i.PROJECTS, pack)   # OWNER_KEYS survive — 43c1439 fix
                 cand_titles = [c["example_title"] for c in cands.get("candidates", [])]
-                results.append({"series": series_id, "action": "hooks ready — awaiting owner pick",
-                                "candidates": cand_titles})
-                _ev("seo_batch", f"{series_id}: 3 hook candidates ready", "ok")
+                if cand_titles:
+                    results.append({"series": series_id, "action": "hooks ready — awaiting owner pick",
+                                    "candidates": cand_titles})
+                    _ev("seo_batch", f"{series_id}: 3 hook candidates ready", "ok")
+                else:
+                    results.append({"series": series_id, "action": "error: hooks",
+                                    "error": cands.get("error", "no candidates returned")})
+                    _ev("seo_batch", f"{series_id}: hook generation returned 0 candidates", "warn")
             except Exception as e:
                 results.append({"series": series_id, "action": "error: hooks", "error": str(e)[:200]})
                 _ev("seo_batch", f"{series_id}: hook generation failed — {e}", "warn")

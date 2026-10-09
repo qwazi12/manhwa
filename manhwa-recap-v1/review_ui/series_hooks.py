@@ -72,6 +72,7 @@ Rules:
 - Never vague filler verbs like "shocks", "stuns", "shakes" + a place ("His Class Change Shocks Murim" was rejected).
 - Prefer mechanics 1–3 (strongest precedent) unless the premise is a misconception, where 5 fits best.
 - Do not name the series in the hook (it is already in the title).
+- Output NO scratchpad, chain-of-thought, or character counting steps.
 
 Return ONLY JSON: [{{"hook": "...", "mechanic": 1-5, "source_index": [0, ...], "why": "one sentence"}}]"""
 
