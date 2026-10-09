@@ -2251,12 +2251,14 @@ def _series_locked(pdir):
     return pack, (lock if lock.get("approved_by_user") and lock.get("series_hook") else None)
 
 
-def _build_chapter_package(pdir, name, api_key=None, competitor=True):
+def _build_chapter_package(pdir, name, api_key=None, competitor=True, lock_override=None, save=True):
     """Stages 1-3 for one chapter export -> {title, description, tags, hashtags,
     problems, ...}, saved to seo_chapter.json. Raises ValueError when the
     series has no locked hook yet (Phase D comes first)."""
     import chapter_seo as _cseo
     pack, lock = _series_locked(pdir)
+    if lock_override:
+        lock = lock_override
     if not lock:
         raise ValueError("this series has no title hook yet — pick one in Library → the series → 🏷 Title hook")
     sid, series_raw, n, meta = _series_ident(pdir)
@@ -2284,9 +2286,10 @@ def _build_chapter_package(pdir, name, api_key=None, competitor=True):
     pkg["problems"] = _cseo.validate(pkg, series, n)
     if competitor:
         pkg["competitor_check"] = _competitor_check(series, n)              # Stage 3
-    rec = _seo_chapter_rec(pdir)
-    rec.setdefault("exports", {})[name] = {**pkg, "built_at": time.time(), "status": "awaiting_approval"}
-    _seo_chapter_save(pdir, rec)
+    if save:
+        rec = _seo_chapter_rec(pdir)
+        rec.setdefault("exports", {})[name] = {**pkg, "built_at": time.time(), "status": "awaiting_approval"}
+        _seo_chapter_save(pdir, rec)
     return pkg
 
 
@@ -2305,6 +2308,47 @@ def _apply_chapter_package(pdir, name, pkg):
 
 class HookGenIn(BaseModel):
     project: str
+
+
+class SeoPreviewIn(BaseModel):
+    project: str
+    name: str = ""
+    hooks: list[str] = []              # empty: the locked hook, else the series' candidates
+
+
+@app.post("/api/series/seo/preview")
+def api_series_seo_preview(body: SeoPreviewIn):
+    """What spec 10 WOULD publish for this video, per hook — nothing is
+    locked, applied or changed on the video (owner, 2026-10-08: 'run it on
+    Regressed Mercenary ch.96 — it's queued, I want to see the results').
+    Costs: the teaser call (cached by script) + one YouTube search."""
+    import gemini_tts as _gt
+    pdir = project_dir_for(body.project)
+    name = os.path.basename(body.name or "") or (latest_export(body.project)[0] or "")
+    pack, lock = _series_locked(pdir)
+    hooks = [h for h in body.hooks if h.strip()] or ([lock["series_hook"]] if lock else
+                                                      [c["hook"] for c in (pack.get("hook_candidates") or {}).get("candidates") or []
+                                                       if not c.get("problems")])
+    if not hooks:
+        raise HTTPException(409, "no hook to preview — suggest hooks for the series first")
+    key = _gt.env_any_case("GEMINI_API_KEY")
+    import series_hooks as _sh
+    sid, series_raw, n, _m = _series_ident(pdir)
+    series = pack.get("series_name_en") or series_raw
+    out = []
+    for i, h in enumerate(hooks[:3]):
+        try:
+            lk = _sh.lock(series, h)
+        except ValueError as e:
+            out.append({"hook": h, "error": str(e)})
+            continue
+        pkg = _build_chapter_package(pdir, name, key, competitor=(i == 0), lock_override=lk, save=False)
+        out.append({"hook": h, **pkg})
+    cur = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
+    return {"project": os.path.basename(pdir.rstrip("/")), "name": name, "previews": out,
+            "current": {k: cur.get(k) for k in ("title", "description", "tags")},
+            "chapter_title": _seo_chapter_rec(pdir).get("chapter_title"),
+            "hook_beat": _seo_chapter_rec(pdir).get("hook_beat")}
 
 
 class HookLockIn(BaseModel):

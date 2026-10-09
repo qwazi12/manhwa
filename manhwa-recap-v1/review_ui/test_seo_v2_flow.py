@@ -106,3 +106,25 @@ def test_upload_post_sends_playlist_and_first_comment(monkeypatch):
     import inspect
     src = inspect.getsource(up)
     assert '"youtube_playlist_id"' in src and '"youtube_first_comment"' in src
+
+
+def test_preview_changes_nothing_on_the_video(tmp_path, monkeypatch):
+    import ingest as ing
+    import server as srv
+    import series_research as sr
+    import gemini_tts
+    ing.PROJECTS = str(tmp_path)
+    d = _ch(str(tmp_path), 96)
+    before = open(os.path.join(d, "publish.json")).read()
+    monkeypatch.setattr(srv, "_chapter_page_title", lambda url, timeout=15: "")
+    monkeypatch.setattr(gemini_tts, "env_any_case", lambda k: "k")
+    monkeypatch.setattr(sr, "_post", lambda body, key, _u=None: {"candidates": [{"content": {"parts": [{"text": json.dumps(
+        {"dramatic_beat": "b", "tease": "He walks into the trap on purpose.", "new_entities": []})}]}}]})
+    r = srv.api_series_seo_preview(srv.SeoPreviewIn(project=f"{SLUG}_96", name="f96.mp4",
+                                                    hooks=["He Thought Murim Was Just a Game", "Psycho Killer Reborn in Murim"]))
+    assert [p["title"] for p in r["previews"]] == [
+        "[96] He Thought Murim Was Just a Game — Murim Psychopath | Manhwa Recap",
+        "[96] Psycho Killer Reborn in Murim — Murim Psychopath | Manhwa Recap"]
+    assert all(p["problems"] == [] for p in r["previews"])
+    assert open(os.path.join(d, "publish.json")).read() == before          # untouched
+    assert r["current"]["title"] == "old 96"
