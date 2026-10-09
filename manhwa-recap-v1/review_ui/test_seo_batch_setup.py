@@ -153,7 +153,7 @@ def test_owner_keys_and_batch_setup():
             sr.research_series_seo = fake_research
             try:
                 # First run
-                resp = server.api_seo_batch_setup()
+                resp = server.api_seo_batch_setup(background=False)
                 check("batch_setup returns ok", resp.get("ok") is True)
                 results = {r["series"]: r for r in resp.get("results", [])}
                 check("locked series was skipped", "skipped: hook already locked" in results.get("locked-series", {}).get("action", ""))
@@ -169,7 +169,7 @@ def test_owner_keys_and_batch_setup():
                 m_pack["playlist_id"] = "PL1234567890"
                 sp.save(tmp, m_pack)
 
-                resp2 = server.api_seo_batch_setup()
+                resp2 = server.api_seo_batch_setup(background=False)
                 results2 = {r["series"]: r for r in resp2.get("results", [])}
                 check("idempotency: locked series still skipped", "skipped: hook already locked" in results2.get("locked-series", {}).get("action", ""))
                 check("idempotency: murim skipped (playlist set + awaiting owner pick)", "awaiting owner pick" in results2.get("murim-psychopath", {}).get("action", ""))

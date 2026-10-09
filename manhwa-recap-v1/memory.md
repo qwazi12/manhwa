@@ -9506,3 +9506,11 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
     - The series name re-spelled is never an alternate title.
     - Packages rebuild the series record from cache.
   - Live preview of Regressed Mercenary ch.96 shown to the owner; no hook locked; ch.96 untouched.
+
+### 2026-10-08 21:59 ET — Background batch SEO execution & status tracking
+- **Background batch runner in `review_ui/server.py`:**
+  - Added non-blocking execution (`background=True` default) so `/api/seo/batch_setup` returns immediately without hitting client or edge gateway timeouts (502/504).
+  - Added thread safety via `_seo_batch_lock` and state tracking (`_seo_batch_state`).
+  - Added `GET /api/seo/batch_setup/status` to query execution status and results.
+- **Verification:**
+  - `test_seo_batch_setup.py`: 17/17 passed with synchronous test execution (`background=False`).

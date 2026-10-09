@@ -2582,50 +2582,82 @@ def _bible(series_id, pdir=None):
         return None
 
 
-@app.post("/api/seo/batch_setup")
-def api_seo_batch_setup():
-    """Spec-10 Phase B+D for EVERY series that has chapters, with skip rules."""
-    import series_research as sr
-    import series_hooks as sh
-    import series_pack as sp
-    import gemini_tts as _gt
-    import ingest as _i
-    key = _gt.env_any_case("GEMINI_API_KEY")
-    results = []
-    for series_id, pdir in _all_series_with_chapters():          # existing project dirs
-        pack = sp.load(_i.PROJECTS, series_id) or _series_pack(pdir) or {}
-        lock = (pack or {}).get("title_lock") or {}
-        # --- SKIP RULES (idempotency) ---
-        if lock.get("approved_by_user"):
-            results.append({"series": series_id, "action": "skipped: hook already locked"})
-            continue
-        if (pack or {}).get("playlist_id") and (lock.get("hook_candidates") or (pack or {}).get("hook_candidates")):
-            results.append({"series": series_id, "action": "skipped: already set up, awaiting owner pick"})
-            continue
-        # --- RESEARCH (cached: only if none / older than 7 days) ---
-        r = (pack or {}).get("seo_research") or {}
-        if not r or (time.time() - r.get("at", 0)) > 7 * 86400:
-            try:
-                r = sr.research_series_seo(series_id, pack, api_key=key)      # the two prompts from §1
-                pack["seo_research"] = r
-            except Exception as e:
-                results.append({"series": series_id, "action": "error: research", "error": str(e)[:200]})
-                _ev("seo_batch", f"{series_id}: research failed — {e}", "warn")
+import threading
+_seo_batch_lock = threading.Lock()
+_seo_batch_state = {"running": False, "results": [], "at": 0}
+
+
+def _run_seo_batch():
+    if not _seo_batch_lock.acquire(blocking=False):
+        return
+    _seo_batch_state["running"] = True
+    _seo_batch_state["results"] = []
+    _seo_batch_state["at"] = time.time()
+    try:
+        import series_research as sr
+        import series_hooks as sh
+        import series_pack as sp
+        import gemini_tts as _gt
+        import ingest as _i
+        key = _gt.env_any_case("GEMINI_API_KEY")
+        results = []
+        _ev("seo_batch", "Starting batch SEO setup for all series", "info")
+        for series_id, pdir in _all_series_with_chapters():          # existing project dirs
+            pack = sp.load(_i.PROJECTS, series_id) or _series_pack(pdir) or {}
+            lock = (pack or {}).get("title_lock") or {}
+            # --- SKIP RULES (idempotency) ---
+            if lock.get("approved_by_user"):
+                results.append({"series": series_id, "action": "skipped: hook already locked"})
                 continue
-        # --- HOOK CANDIDATES (generate; NEVER lock) ---
-        try:
-            series_name = pack.get("series_name_en") or pack.get("title_en") or series_id
-            cands = sh.generate(series_name, pack, _bible(series_id, pdir), r, key)
-            pack["hook_candidates"] = cands
-            sp.save(_i.PROJECTS, pack)   # OWNER_KEYS survive — 43c1439 fix
-            cand_titles = [c["example_title"] for c in cands.get("candidates", [])]
-            results.append({"series": series_id, "action": "hooks ready — awaiting owner pick",
-                            "candidates": cand_titles})
-            _ev("seo_batch", f"{series_id}: 3 hook candidates ready", "ok")
-        except Exception as e:
-            results.append({"series": series_id, "action": "error: hooks", "error": str(e)[:200]})
-            _ev("seo_batch", f"{series_id}: hook generation failed — {e}", "warn")
-    return {"ok": True, "results": results}
+            if (pack or {}).get("playlist_id") and (lock.get("hook_candidates") or (pack or {}).get("hook_candidates")):
+                results.append({"series": series_id, "action": "skipped: already set up, awaiting owner pick"})
+                continue
+            # --- RESEARCH (cached: only if none / older than 7 days) ---
+            r = (pack or {}).get("seo_research") or {}
+            if not r or (time.time() - r.get("at", 0)) > 7 * 86400:
+                try:
+                    r = sr.research_series_seo(series_id, pack, api_key=key)      # the two prompts from §1
+                    pack["seo_research"] = r
+                except Exception as e:
+                    results.append({"series": series_id, "action": "error: research", "error": str(e)[:200]})
+                    _ev("seo_batch", f"{series_id}: research failed — {e}", "warn")
+                    continue
+            # --- HOOK CANDIDATES (generate; NEVER lock) ---
+            try:
+                series_name = pack.get("series_name_en") or pack.get("title_en") or series_id
+                cands = sh.generate(series_name, pack, _bible(series_id, pdir), r, key)
+                pack["hook_candidates"] = cands
+                sp.save(_i.PROJECTS, pack)   # OWNER_KEYS survive — 43c1439 fix
+                cand_titles = [c["example_title"] for c in cands.get("candidates", [])]
+                results.append({"series": series_id, "action": "hooks ready — awaiting owner pick",
+                                "candidates": cand_titles})
+                _ev("seo_batch", f"{series_id}: 3 hook candidates ready", "ok")
+            except Exception as e:
+                results.append({"series": series_id, "action": "error: hooks", "error": str(e)[:200]})
+                _ev("seo_batch", f"{series_id}: hook generation failed — {e}", "warn")
+        _seo_batch_state["results"] = results
+        _ev("seo_batch", f"Batch SEO setup finished: {len(results)} series processed", "ok")
+    finally:
+        _seo_batch_state["running"] = False
+        _seo_batch_lock.release()
+
+
+@app.post("/api/seo/batch_setup")
+def api_seo_batch_setup(background: bool = True):
+    """Spec-10 Phase B+D for EVERY series that has chapters, with skip rules."""
+    if background:
+        if _seo_batch_state.get("running"):
+            return {"ok": True, "status": "already running", "results": _seo_batch_state.get("results", [])}
+        threading.Thread(target=_run_seo_batch, daemon=True).start()
+        return {"ok": True, "status": "started in background"}
+    _run_seo_batch()
+    return {"ok": True, "results": _seo_batch_state.get("results", [])}
+
+
+@app.get("/api/seo/batch_setup/status")
+def api_seo_batch_setup_status():
+    """Check the status and results of the background batch SEO run."""
+    return {"ok": True, **_seo_batch_state}
 
 
 # ====================================================================
