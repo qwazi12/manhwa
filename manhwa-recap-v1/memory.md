@@ -9495,3 +9495,14 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
 - **Tests & Verification:**
   - Added `review_ui/test_seo_batch_setup.py` (17/17 tests passing): validates prompts, `research_series_seo` two-call flow, Murim oracle structure, `OWNER_KEYS` persistence, batch endpoint execution, and batch idempotency.
   - Verified `test_chapter_seo.py` (5/5 passing), `test_seo_research.py` (16/16 passing), `test_series_research.py` (30/30 passing), `test_series_defaults.py` (2/2 passing), and `test_seo_v2_flow.py`.
+- **2026-10-08 (later) — Owner: "where my thumbnails? … do the thumbnail the SEO doc was saying but leave what we had."**
+  - Nothing had been removed. Every video kept its thumbnail and options; live check: Fog Land 39 and Regressed Mercenary 96 both had cover-badge chosen plus 4 options.
+  - I had misread "no need to thumbnails" as "skip §4.5".
+  - Added spec 10 §4.5 as an EXTRA option, `chapter-card`: big "CH. N", the MC's face panel, ≤4 words from the script (`thumbnail_text`). The default and recommended designs are unchanged. The script step runs before thumbnail options for every chapter. (80379f3)
+  - Earlier the same evening:
+    - Read-only preview `/api/series/seo/preview` (2c30e71).
+    - Hook suggestions fixed (8k budget, list parsing, visible errors).
+    - Playlist link only from a real PL… id (series defaults had stored the name).
+    - The series name re-spelled is never an alternate title.
+    - Packages rebuild the series record from cache.
+  - Live preview of Regressed Mercenary ch.96 shown to the owner; no hook locked; ch.96 untouched.
