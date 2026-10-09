@@ -66,6 +66,24 @@ Rules:
 Return ONLY JSON: [{{"hook": "...", "mechanic": 1-5, "source_index": [0, ...], "why": "one sentence"}}]"""
 
 
+def _loads(text):
+    """A JSON list or object from a model reply (fences and chatter tolerated)."""
+    import re
+    t = re.sub(r"^```(?:json)?|```$", "", (text or "").strip(), flags=re.M).strip()
+    try:
+        return json.loads(t)
+    except ValueError:
+        pass
+    for a, b in (("[", "]"), ("{", "}")):
+        i, j = t.find(a), t.rfind(b)
+        if i >= 0 and j > i:
+            try:
+                return json.loads(t[i:j + 1])
+            except ValueError:
+                continue
+    return []
+
+
 def generate(series, pack, bible, web, api_key, _post=None):
     """3 validated candidates [{hook, mechanic, mechanic_name, provenance, why, chars, problems}]."""
     import series_research as sr
@@ -77,12 +95,18 @@ def generate(series, pack, bible, web, api_key, _post=None):
     post = _post or (lambda body: sr._post(body, api_key))
     resp = post({"contents": [{"parts": [{"text": prompt(series, long_budget if long_budget >= cs.HOOK_MIN_BUDGET
                                                          else budget, srcs)}]}],
-                 "generationConfig": {"temperature": 0.7, "maxOutputTokens": 2048,
+                 # 8192: a thinking model spends part of the budget before it
+                 # writes; at 2048 the live call on 2026-10-08 returned nothing
+                 "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192,
                                       "responseMimeType": "application/json"}})
+    raw = ""
     try:
-        rows = json.loads(sr._text(resp))
+        raw = sr._text(resp) or ""
+        rows = _loads(raw)
     except Exception:
         rows = []
+    if isinstance(rows, dict):                 # {"candidates": [...]} or {"hooks": [...]}
+        rows = next((v for v in rows.values() if isinstance(v, list)), [])
     out = []
     for r in rows if isinstance(rows, list) else []:
         h = " ".join(str(r.get("hook") or "").split()).strip(" \"'")
@@ -96,7 +120,11 @@ def generate(series, pack, bible, web, api_key, _post=None):
                     "variant": cs.title_variant(series, h),
                     "example_title": cs.build_title(45, {"series_hook": h}, series),
                     "problems": cs.hook_problems(h, series)})
-    return {"at": time.time(), "candidates": out[:3], "sources": srcs}
+    res = {"at": time.time(), "candidates": out[:3], "sources": srcs}
+    if not out:
+        fin = ((resp or {}).get("candidates") or [{}])[0].get("finishReason")
+        res["error"] = f"the model returned no usable hooks (finish: {fin}); reply started: {raw[:200]!r}"
+    return res
 
 
 def lock(series, hook, mechanic=None, provenance=None):
