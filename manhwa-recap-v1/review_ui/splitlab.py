@@ -290,6 +290,9 @@ def _save_panel(img, path, blur):
 #     / "I'D PASS THROUGH" / "HERE?"). Consecutive thin text-only crops are
 #     merged back into one card, so one thought is one unit downstream.
 REFINE_TALL_PX = int(os.environ.get("SPLIT_REFINE_TALL_PX", 1200))
+# Continuous vertical action fallback (e.g. battle splash art, explosions,
+# lightning) that lack monochrome gutters.
+MOMENT_FALLBACK_PX = int(os.environ.get("SPLIT_MOMENT_FALLBACK_PX", 3800))
 GUTTER_EDGE_FRAC = 0.06      # both outer 6% of the width must be blank
 GUTTER_MIN_ROWS = 12         # a real gutter is at least this tall
 ART_ROW_FRAC = 0.55          # a row is ARTWORK when >=55% of it is not blank
@@ -477,7 +480,7 @@ def refine_crops(crops, ask="default", on_progress=None, budget=None):
         run = []
         if c is not None:
             merged.append(c)
-    # 2. split tall crops at confirmed gutters
+    # 2. split tall crops at confirmed gutters or continuous vertical action
     out = []
     for c in merged:
         if c.height < REFINE_TALL_PX:
@@ -485,38 +488,61 @@ def refine_crops(crops, ask="default", on_progress=None, budget=None):
             continue
         g = np.array(c.convert("L"))
         bands = candidate_gutters(g)
-        if not bands:
+        cuts_applied = False
+        if bands:
+            st["candidates"] += len(bands)
+            ys = [cut_row(g, b) for b in bands]
+            if ask is None:
+                st["no_vision"] += 1
+            elif st["tall_checked"] >= budget:
+                st["capped"] += 1
+            else:
+                st["tall_checked"] += 1
+                try:
+                    keep = confirm_cuts(c, ys, ask)
+                except Exception as e:
+                    try:
+                        import usage as _u
+                        if isinstance(e, _u.UsageCapExceeded):
+                            raise
+                    except ImportError:
+                        pass
+                    st["vision_errors"] += 1
+                    keep = []
+                if keep:
+                    cuts = [0] + keep + [c.height]
+                    parts = [(a, b) for a, b in zip(cuts, cuts[1:]) if b - a >= MIN_PANEL_PX]
+                    st["cuts"] += max(0, len(parts) - 1)
+                    cuts_applied = True
+                    for a, b in parts:
+                        sub = c.crop((0, a, c.width, b))
+                        if sub.height >= MOMENT_FALLBACK_PX:
+                            sub_g = np.array(sub.convert("L"))
+                            import split_panels
+                            sub_bg = split_panels._estimate_background_color(sub_g)
+                            mslices = split_panels._moment_slices(sub_g, sub_bg)
+                            if len(mslices) > 1:
+                                st["cuts"] += len(mslices) - 1
+                                for sa, sb in mslices:
+                                    out.append(sub.crop((0, sa, sub.width, sb)))
+                                continue
+                        out.append(sub)
+                    if on_progress and keep:
+                        on_progress(f"split a {c.height}px crop into {len(parts)} panels")
+
+        if not cuts_applied:
+            if c.height >= MOMENT_FALLBACK_PX:
+                import split_panels
+                bg = split_panels._estimate_background_color(g)
+                mslices = split_panels._moment_slices(g, bg)
+                if len(mslices) > 1:
+                    st["cuts"] += len(mslices) - 1
+                    for a, b in mslices:
+                        out.append(c.crop((0, a, c.width, b)))
+                    if on_progress:
+                        on_progress(f"moment-sliced a {c.height}px continuous action crop into {len(mslices)} panels")
+                    continue
             out.append(c)
-            continue
-        st["candidates"] += len(bands)
-        ys = [cut_row(g, b) for b in bands]
-        if ask is None:
-            st["no_vision"] += 1
-            out.append(c)
-            continue
-        if st["tall_checked"] >= budget:
-            st["capped"] += 1
-            out.append(c)
-            continue
-        st["tall_checked"] += 1
-        try:
-            keep = confirm_cuts(c, ys, ask)
-        except Exception as e:
-            try:
-                import usage as _u
-                if isinstance(e, _u.UsageCapExceeded):
-                    raise
-            except ImportError:
-                pass
-            st["vision_errors"] += 1
-            keep = []
-        cuts = [0] + keep + [c.height]
-        parts = [(a, b) for a, b in zip(cuts, cuts[1:]) if b - a >= MIN_PANEL_PX]
-        st["cuts"] += max(0, len(parts) - 1)
-        for a, b in parts:
-            out.append(c.crop((0, a, c.width, b)))
-        if on_progress and keep:
-            on_progress(f"split a {c.height}px crop into {len(parts)} panels")
     return out, st
 
 

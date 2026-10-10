@@ -9689,3 +9689,33 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - test_providers.py: 33/33 tests passed.
   - test_scrapper_capabilities.py: 10/10 tests passed.
   - Next.js Web App (npm run build): 11/11 pages compiled and statically generated with 0 errors.
+
+## Session 35 — Tall Action Strip Moment Slicing & Missing Panel Resolution (2026-10-10)
+
+- **Context & Diagnostics:**
+  - User reported missing images when comparing *A Regressor’s Tale of Cultivation* Chapter 33 on MGeko (https://www.mgeko.cc/reader/en/a-regressors-tale-of-cultivation-chapter-33-eng-li/) against the Chapter Board (https://manhwa.nodepilot.dev/chapter/a-regressors-tale-of-cultivation_33), providing screenshots of Segment 0 and the missing red lightning explosion panel (Korean SFX 콰-앙).
+  - Root Cause Analysis:
+    1. Scraping downloaded all 15 raw pages (0.jpg through 14.jpg, 202,913 total vertical pixels).
+    2. The red lightning explosion was present in 0.jpg between Y=0 and Y=1992 of page001_panel_003.
+    3. splitlab.py (background-registration splitter) candidate_gutters only looked for flat white (>238) or flat black (<18) margins.
+    4. Continuous action scenes, dark fiery skies, lightning, and full-bleed combat lack monochrome gutters. Without candidate gutters, splitlab.py had no fallback for tall strips, leaving page001_panel_003 as a giant monolithic 800x7,366px strip swallowing 4 distinct action moments. In total, 26 panels across chapter 33 were over 2,500px tall (including 9,757px and 9,090px).
+    5. The UI thumbnail generator scaled 800x7366 to 200x1842 and cropped the top in the card view, showing only the bottom warrior, completely obscuring the explosion from the storyboard and assigning the whole strip to one 12s segment.
+
+- **Actions Taken:**
+  1. **Continuous Action Moment Slicing in splitlab.py:**
+     - Added MOMENT_FALLBACK_PX (default 3800px, overridable via SPLIT_MOMENT_FALLBACK_PX).
+     - When candidate gutter detection finds no monochrome gutters or vision confirms no cuts on tall action crops, automatically applies split_panels._moment_slices to slice along speech bubble boundaries and ink-density valleys into ~1,500-2,000px cinematic panels.
+     - Also checks if any post-cut sub-crop remains >= MOMENT_FALLBACK_PX and slices it accordingly.
+     - Accurately splits page001_panel_003 into 4 distinct panels:
+       - Panel 1 (0..1992px): The red lightning explosion with SFX 콰-앙 (the user's exact missing panel).
+       - Panel 2 (1992..3568px): The general overlooking the battlefield from the fortress.
+       - Panel 3 (3568..5647px): Martial artist diving with swords.
+       - Panel 4 (5647..7366px): Close-range Jiangshi melee.
+
+- **Verification Evidence:**
+  - Visual verification: Rendered scratch/p3_slice0_red_explosion.jpg (800x1992) and confirmed byte-level visual match with the user's uploaded screenshot.
+  - Regression Suite:
+    - test_splitlab.py: 14/14 passed.
+    - test_prod_splitter.py: 14/14 passed (murim_ch43 count = 99 crops, cleanly within 89 +/- 15% gate).
+    - test_cut_refine.py: 20/20 passed.
+    - test_pipeline_strip.py: 19/19 passed.
