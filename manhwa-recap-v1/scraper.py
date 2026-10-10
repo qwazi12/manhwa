@@ -236,28 +236,37 @@ def _auto_failover(url: str, output_dir: str, primary_err: Exception):
         import providers as _prov
         import urllib.parse as _up
 
-        data = _wl.load(_ui)
+        # Try loading watchlist from all potential locations (PROJECTS volume or review_ui)
+        wl_root = _ui
+        try:
+            import ingest as _ing
+            wl_root = _ing.PROJECTS
+        except Exception:
+            pass
+        data = _wl.load(wl_root)
+        if not data.get("series"):
+            data = _wl.load(_ui)
+
+        # Extract slug candidates
+        slug = url.split("/comics/")[-1].split("/")[0] if "/comics/" in url else None
+        if not slug and "/manga/" in url:
+            slug = url.split("/manga/")[-1].split("/")[0]
+        if not slug and "webtoons.com" in url:
+            slug = url.split("/en/")[-1].split("/")[1] if "/en/" in url else None
+        clean_slug = re.sub(r'-[a-f0-9]{8}$', '', slug) if slug else None
+
         owner, _ = _wl.find_by_mirror(data, url)
-        if not owner:
-            slug = url.split("/comics/")[-1].split("/")[0] if "/comics/" in url else None
-            if not slug and "/manga/" in url:
-                slug = url.split("/manga/")[-1].split("/")[0]
-            if not slug and "webtoons.com" in url:
-                slug = url.split("/en/")[-1].split("/")[1] if "/en/" in url else None
-            if slug:
-                clean_slug = re.sub(r'-[a-f0-9]{8}$', '', slug)
-                owner = _wl.find(data, clean_slug) or _wl.find(data, slug)
+        if not owner and clean_slug:
+            owner = _wl.find(data, clean_slug) or _wl.find(data, slug)
 
-        if not owner:
-            print(f"[!] Auto-failover: no matching series found in watchlist for {url}")
-            return None
-
-        mirrors = owner.get("mirrors", [])
-        primary_host = _up.urlparse(url).netloc.lower()
-        secondary_mirrors = [
-            m for m in mirrors
-            if _up.urlparse(m["series_url"]).netloc.lower() != primary_host
-        ]
+        secondary_mirrors = []
+        if owner:
+            mirrors = owner.get("mirrors", [])
+            primary_host = _up.urlparse(url).netloc.lower()
+            secondary_mirrors = [
+                m for m in mirrors
+                if _up.urlparse(m["series_url"]).netloc.lower() != primary_host
+            ]
 
         # 1. Try registered secondary mirrors in watchlist
         for m in secondary_mirrors:
@@ -273,10 +282,10 @@ def _auto_failover(url: str, output_dir: str, primary_err: Exception):
             except Exception as e:
                 print(f"[!] Failover mirror '{m.get('label')}' failed: {e}")
 
-        # 2. Dynamic Mangayomi / MGeko fallback if not already tried
-        if not any('mgeko.cc' in m.get('series_url', '') for m in secondary_mirrors):
-            sid = owner.get("id") or clean_slug
-            mgeko_series_url = f"https://www.mgeko.cc/manga/{sid}/"
+        # 2. Dynamic Mangayomi / MGeko fallback
+        search_slug = (owner.get("id") if owner else None) or clean_slug or slug
+        if search_slug:
+            mgeko_series_url = f"https://www.mgeko.cc/manga/{search_slug}/"
             try:
                 prov = _prov.by_name("mangayomi")
                 mgeko_ch_url = prov.chapter_url(mgeko_series_url, cid)
@@ -286,11 +295,11 @@ def _auto_failover(url: str, output_dir: str, primary_err: Exception):
                     if paths and len(paths) >= 2:
                         LAST_FAILOVER_SOURCE = mgeko_ch_url
                         print(f"[✓] Auto-Failover Guard SUCCESS: Downloaded {len(paths)} panels from {mgeko_ch_url}")
-                        try:
-                            _wl.add_mirror(_ui, owner["id"], mgeko_series_url)
-                            print(f"[*] Auto-attached {mgeko_series_url} to series '{owner['title']}' in watchlist")
-                        except Exception:
-                            pass
+                        if owner:
+                            try:
+                                _wl.add_mirror(wl_root, owner["id"], mgeko_series_url)
+                            except Exception:
+                                pass
                         return paths
             except Exception as e:
                 print(f"[!] Dynamic MGeko fallback attempt failed: {e}")
