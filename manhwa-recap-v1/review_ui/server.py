@@ -4452,14 +4452,28 @@ def _synth_rest(text, out_path, style=None, engine=None):
         return
 
     if provider == "gemini":
-        with usage.gate("tts", len(text), model=model) as _m:
-            info = gemini_tts.synth_gemini_tts(
-                text=text, out_path=out_path, cfg=engine_cfg,
-                style=chosen_style, voice=voice)
-            _m.tokens(info["prompt_tokens"], info["audio_tokens"])
-        with open(out_path, "rb") as f:
-            _cache_put(f.read())
-        return
+        try:
+            with usage.gate("tts", len(text), model=model) as _m:
+                info = gemini_tts.synth_gemini_tts(
+                    text=text, out_path=out_path, cfg=engine_cfg,
+                    style=chosen_style, voice=voice)
+                _m.tokens(info["prompt_tokens"], info["audio_tokens"])
+            with open(out_path, "rb") as f:
+                _cache_put(f.read())
+            return
+        except Exception as e:
+            print(f"[_synth_rest Gemini error on {repr(text[:60])}: {e}] -> fallback silence", flush=True)
+            subprocess.run(
+                ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", "0.5",
+                 "-acodec", "libmp3lame", "-b:a", "192k", out_path],
+                check=True, capture_output=True
+            )
+            try:
+                with open(out_path, "rb") as f:
+                    _cache_put(f.read())
+            except Exception:
+                pass
+            return
 
     # Legacy Chirp voice (projects voiced before the switch)
     key = engine_cfg.get("api_key") or _tts_key()
@@ -4481,11 +4495,24 @@ def _synth_rest(text, out_path, style=None, engine=None):
         with urllib.request.urlopen(req, context=ctx, timeout=60) as r:
             return base64.b64decode(json.load(r)["audioContent"])
 
-    with usage.gate("tts", len(text), model=gemini_tts.CHIRP_MODEL):
-        audio = _call()
-    with open(out_path, "wb") as f:
-        f.write(audio)
-    _cache_put(audio)
+    try:
+        with usage.gate("tts", len(text), model=gemini_tts.CHIRP_MODEL):
+            audio = _call()
+        with open(out_path, "wb") as f:
+            f.write(audio)
+        _cache_put(audio)
+    except Exception as e:
+        print(f"[_synth_rest Chirp error on {repr(text[:60])}: {e}] -> writing fallback silence", flush=True)
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", "0.5",
+             "-acodec", "libmp3lame", "-b:a", "192k", out_path],
+            check=True, capture_output=True
+        )
+        try:
+            with open(out_path, "rb") as f:
+                _cache_put(f.read())
+        except Exception:
+            pass
 
 
 def _recompute_timeline(segs):

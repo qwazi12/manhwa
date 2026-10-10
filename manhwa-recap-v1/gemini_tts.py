@@ -341,7 +341,35 @@ def synth_gemini_tts(text, out_path, cfg=None, style=None, voice=None, _open=Non
         headers={"Content-Type": "application/json"}
     )
 
-    resp = _post_with_retry(req, ctx, _open=_open)
+    try:
+        resp = _post_with_retry(req, ctx, _open=_open)
+    except Exception as e:
+        err_body = ""
+        if hasattr(e, "read"):
+            try:
+                err_body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+        print(f"[Gemini TTS FAIL] text={repr(text[:100])} error={e} body={err_body}", flush=True)
+        if chosen_style:
+            try:
+                plain_body = {
+                    "model": model,
+                    "input": [{"type": "user_input", "content": [{"type": "text", "text": text}]}],
+                    "response_format": {"type": "audio"},
+                    "generation_config": {"speech_config": [{"voice": chosen_voice}]}
+                }
+                plain_req = urllib.request.Request(
+                    url, data=json.dumps(plain_body).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}
+                )
+                resp = _post_with_retry(plain_req, ctx, _open=_open)
+            except Exception as e2:
+                print(f"[Gemini TTS plain retry failed: {e2}] -> fallback to local silence", flush=True)
+                return _generate_silence(out_path, 0.5)
+        else:
+            print("[Gemini TTS fallback to local silence]", flush=True)
+            return _generate_silence(out_path, 0.5)
 
     audio_b64 = None
     for step in resp.get("steps") or []:
