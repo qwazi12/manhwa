@@ -96,3 +96,4 @@ docs/audit/thumbnail_refs/ref_*.jpg
 *.db.gz
 manhwa-recap-v1/review_ui/data/
 data/
+manhwa-recap-v1/review_ui/_watchlist.json

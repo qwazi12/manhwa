@@ -6413,6 +6413,18 @@ def api_watchlist_refresh_all():
     return {"checked": done, "failed": failed}
 
 
+@app.post("/api/watchlist/auto_mirrors")
+def api_watchlist_auto_mirrors(series_id: Optional[str] = None):
+    """Automatically discover and attach secondary mirrors for series from
+    MangaDex, MGeko, and Mangayomi catalogs."""
+    import watchlist as _wl
+    if series_id:
+        attached = _wl.discover_and_attach_mirrors(_wl_root(), series_id)
+        return {"series_id": series_id, "attached": attached, "watchlist": _wl_view()}
+    res = _wl.sync_all_secondary_mirrors(_wl_root())
+    return {"synced": res, "watchlist": _wl_view()}
+
+
 @app.get("/api/watchlist/cover/{series_id}")
 def api_watchlist_cover(series_id: str):
     """A series' cover, fetched once from its own site (with that site as
@@ -9970,51 +9982,9 @@ import db as _db
 import backup as _backup_mod
 import control as _control_mod
 import queue_manager as _qm
-import studio_runner as _studio_runner
 import space as _space_mod
 import cleanup as _clean_mod
 import undo as _undo_mod
-
-
-class StudioRunIn(BaseModel):
-    project_id: str
-    stage: str
-    auto: bool = False
-    until: str = "match"
-
-
-class StudioStopIn(BaseModel):
-    project_id: str
-
-
-@app.get("/api/studio/projects")
-def api_studio_projects():
-    return _studio_runner.list_projects()
-
-
-@app.get("/api/studio/projects/{project_id}")
-def api_studio_project(project_id: str):
-    p = _studio_runner.get_project(project_id)
-    if not p:
-        raise HTTPException(404, "Project not found")
-    return p
-
-
-@app.post("/api/studio/run")
-def api_studio_run(body: StudioRunIn):
-    try:
-        job_id = _studio_runner.run_stage(body.project_id, body.stage, auto=body.auto, until=body.until)
-        return {"ok": True, "job_id": job_id, "project_id": body.project_id, "stage": body.stage}
-    except Exception as exc:
-        raise HTTPException(400, str(exc))
-
-
-@app.post("/api/studio/stop")
-def api_studio_stop(body: StudioStopIn):
-    _studio_runner.stop_project(body.project_id)
-    return {"ok": True, "stopped": body.project_id}
-
-
 
 
 # --- Process Control & Zombie Prevention ---

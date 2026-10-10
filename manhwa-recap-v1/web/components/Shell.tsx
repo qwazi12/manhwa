@@ -43,7 +43,6 @@ function Frame({ children }: { children: ReactNode }) {
   const needN = h?.need?.filter((n) => n.kind !== "demand").length || 0;
   const items: [string, string, string, number | null, boolean][] = [
     ["/", "Home", "Paste a link · what needs you", needN, needN > 0],
-    ["/studio", "LongForm Studio", "7-stage pipeline & video cuts", null, false],
     [last ? `/chapter/${last.id}` : "/library?view=chapters", "Board", last ? last.title : "Open a chapter to check it", null, false],
     ["/library", "Library", "Series and chapters", h?.n_series ?? null, false],
     ["/queue", "Posting schedule", h?.queue?.schedule_on ? `Next post ${h.queue.next_post || "—"}` : "Review, scheduled, posted",

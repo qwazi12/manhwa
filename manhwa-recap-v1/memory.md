@@ -9659,3 +9659,33 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - Next.js Web App Build (npm run build): 12/12 static pages generated with 0 errors (/studio at 5.85 kB).
   - Database Initialization: Verified SQLite schema creation and automatic sync of 1 project from disk.
   - Backup & Restore CLI: Verified dry-run table comparison between current database and snapshot.
+
+## Session 34 — Native Studio Harmonization, Auto-Failover Guard & Tale of Cultivation Ch. 33 Ingest (2026-10-10)
+
+- **Context & Diagnostics:**
+  - Diagnosed why *A Regressor’s Tale of Cultivation* Chapter 33 failed on Asura Scans at 19:57 UTC: Asura placed Chapter 33 behind a paid coin/premium paywall (Title: A Regressor's Tale of Cultivation Chapter 33 - Premium | Asura Scans), serving 0 comic panels to public scrapers.
+  - Mangayomi did not activate because the series had only a single mirror registered (Asura) and scraper.py did not possess cross-source auto-failover logic.
+  - Reverted foreign 'LongForm Studio' import (StudioPanel.tsx, /studio page, studio_runner.py) to preserve Manhwa's native aesthetic, design tokens, and bespoke workflow.
+
+- **Actions Taken:**
+  1. **Harmonized Native UI & Reverted Alien Components:**
+     - Removed manhwa-recap-v1/web/app/studio/ and manhwa-recap-v1/web/components/StudioPanel.tsx.
+     - Removed /studio navigation link from Shell.tsx; kept all 10 architectural backend improvements (SQLite DB, online backups, process control, restart resume, atomic exports, pacing throttle, undo stack, disk hygiene) integrated natively into existing pages.
+  2. **Implemented Auto-Failover Guard in scraper.py:**
+     - Wrapped chapter scraping with _auto_failover(url, output_dir, primary_err).
+     - When primary URL fails (HTTP 403/404, Cloudflare block, paywalled 'Premium' with 0 images, or < MIN_PLAUSIBLE_PAGES), automatically detects series and iterates through registered secondary mirrors (e.g. MGeko, MangaDex, MangaRead).
+     - Dynamically falls over, downloads chapter images, sets LAST_FAILOVER_SOURCE, and logs failover provenance without halting or failing the pipeline.
+  3. **Added Secondary Mirrors to Watchlist (Current & Future Series):**
+     - Upgraded mangayomi.py to support mgeko.cc and other aggregator domains natively in FMHY_SOURCES.
+     - Added discover_and_attach_mirrors() and sync_all_secondary_mirrors() to watchlist.py.
+     - Connected auto-discovery to add_series and api_watchlist_quick so any series added in the future automatically receives secondary mirrors.
+     - Executed secondary mirror sync across all 15 watchlist series (all series now have 2-3 active mirrors).
+     - Added /api/watchlist/auto_mirrors endpoint to server.py.
+  4. **Tale of Cultivation Chapter 33 Ingest Ready & Verified:**
+     - Tested scraper.download_chapter with failing Asura URL: Auto-Failover Guard kicked in, switched to MGeko mirror, and downloaded all chapter panels cleanly with 100% success.
+
+- **Verification:**
+  - test_scraper.py: 15/15 tests passed.
+  - test_providers.py: 33/33 tests passed.
+  - test_scrapper_capabilities.py: 10/10 tests passed.
+  - Next.js Web App (npm run build): 11/11 pages compiled and statically generated with 0 errors.

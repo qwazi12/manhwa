@@ -110,13 +110,11 @@ def scrape_warning(image_urls):
     return " ".join(parts)
 
 
-def download_chapter(url: str, output_dir: str):
-    """
-    Fetches the chapter HTML from the URL, extracts all panel image links in reading
-    order, cleans the output directory, downloads the images sequentially, and names
-    them 001.webp, 002.webp, etc.
-    """
-    # Make sure output_dir exists and is clean
+LAST_FAILOVER_SOURCE = None
+
+
+def _download_single_url(url: str, output_dir: str):
+    """Fetches chapter HTML, extracts panels, and downloads them."""
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
@@ -211,3 +209,111 @@ def download_chapter(url: str, output_dir: str):
 
     print(f"[*] Successfully downloaded {len(downloaded_paths)} images to {output_dir}")
     return downloaded_paths
+
+
+def _auto_failover(url: str, output_dir: str, primary_err: Exception):
+    """Auto-Failover Guard: When the primary chapter URL fails (HTTP error,
+    Cloudflare block, or paywalled 'Premium' with 0 images), automatically
+    fall back to registered secondary mirrors (e.g. MGeko, MangaDex, MangaRead)
+    to retrieve the chapter panels.
+    """
+    global LAST_FAILOVER_SOURCE
+    print(f"[!] Primary URL failed ({primary_err}). Initiating Auto-Failover Guard for: {url}")
+
+    # Extract chapter number
+    m = re.search(r'(?:chapter|ch|episode|episode_no=|ep)[/-]?(\d+(?:\.\d+)?)', url, re.I)
+    cid = m.group(1) if m else None
+    if not cid:
+        print("[!] Auto-failover: could not extract chapter number from URL")
+        return None
+
+    try:
+        import sys as _sys, os as _os
+        _ui = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "review_ui")
+        if _ui not in _sys.path:
+            _sys.path.insert(0, _ui)
+        import watchlist as _wl
+        import providers as _prov
+        import urllib.parse as _up
+
+        data = _wl.load(_ui)
+        owner, _ = _wl.find_by_mirror(data, url)
+        if not owner:
+            slug = url.split("/comics/")[-1].split("/")[0] if "/comics/" in url else None
+            if not slug and "/manga/" in url:
+                slug = url.split("/manga/")[-1].split("/")[0]
+            if not slug and "webtoons.com" in url:
+                slug = url.split("/en/")[-1].split("/")[1] if "/en/" in url else None
+            if slug:
+                clean_slug = re.sub(r'-[a-f0-9]{8}$', '', slug)
+                owner = _wl.find(data, clean_slug) or _wl.find(data, slug)
+
+        if not owner:
+            print(f"[!] Auto-failover: no matching series found in watchlist for {url}")
+            return None
+
+        mirrors = owner.get("mirrors", [])
+        primary_host = _up.urlparse(url).netloc.lower()
+        secondary_mirrors = [
+            m for m in mirrors
+            if _up.urlparse(m["series_url"]).netloc.lower() != primary_host
+        ]
+
+        # 1. Try registered secondary mirrors in watchlist
+        for m in secondary_mirrors:
+            try:
+                prov = _prov.for_url(m["series_url"])
+                mirror_ch_url = prov.chapter_url(m["series_url"], cid)
+                print(f"[*] Auto-failover attempting mirror '{m.get('label', m['source'])}': {mirror_ch_url}")
+                paths = _download_single_url(mirror_ch_url, output_dir)
+                if paths and len(paths) >= 2:
+                    LAST_FAILOVER_SOURCE = mirror_ch_url
+                    print(f"[✓] Auto-Failover Guard SUCCESS: Downloaded {len(paths)} panels from {mirror_ch_url}")
+                    return paths
+            except Exception as e:
+                print(f"[!] Failover mirror '{m.get('label')}' failed: {e}")
+
+        # 2. Dynamic Mangayomi / MGeko fallback if not already tried
+        if not any('mgeko.cc' in m.get('series_url', '') for m in secondary_mirrors):
+            sid = owner.get("id") or clean_slug
+            mgeko_series_url = f"https://www.mgeko.cc/manga/{sid}/"
+            try:
+                prov = _prov.by_name("mangayomi")
+                mgeko_ch_url = prov.chapter_url(mgeko_series_url, cid)
+                if mgeko_ch_url:
+                    print(f"[*] Auto-failover trying dynamic MGeko mirror: {mgeko_ch_url}")
+                    paths = _download_single_url(mgeko_ch_url, output_dir)
+                    if paths and len(paths) >= 2:
+                        LAST_FAILOVER_SOURCE = mgeko_ch_url
+                        print(f"[✓] Auto-Failover Guard SUCCESS: Downloaded {len(paths)} panels from {mgeko_ch_url}")
+                        try:
+                            _wl.add_mirror(_ui, owner["id"], mgeko_series_url)
+                            print(f"[*] Auto-attached {mgeko_series_url} to series '{owner['title']}' in watchlist")
+                        except Exception:
+                            pass
+                        return paths
+            except Exception as e:
+                print(f"[!] Dynamic MGeko fallback attempt failed: {e}")
+
+    except Exception as exc:
+        print(f"[!] Auto-failover exception: {exc}")
+
+    return None
+
+
+def download_chapter(url: str, output_dir: str):
+    """
+    Fetches chapter images, with automatic failover to registered secondary
+    mirrors if the primary source fails or is paywalled.
+    """
+    global LAST_FAILOVER_SOURCE, LAST_WARNING
+    LAST_FAILOVER_SOURCE = None
+    # Ensure test inspection contract: scrape_warning(image_urls) / LAST_WARNING
+
+    try:
+        return _download_single_url(url, output_dir)
+    except Exception as primary_err:
+        fallback = _auto_failover(url, output_dir, primary_err)
+        if fallback:
+            return fallback
+        raise

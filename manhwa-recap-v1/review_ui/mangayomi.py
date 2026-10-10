@@ -31,6 +31,24 @@ MANGAYOMI_INDEX_URL = 'https://raw.githubusercontent.com/kodjodevf/mangayomi-ext
 # FMHY Curated Top Sources for Manhwa & Webtoons
 FMHY_SOURCES = [
     {
+        'id': 'mgeko',
+        'name': 'MangaGeko',
+        'url': 'https://www.mgeko.cc',
+        'domains': ['mgeko.cc', 'mgeko.com'],
+        'type': 'aggregator',
+        'note': 'Fast, zero-Cloudflare aggregator with huge manhwa archive.',
+        'priority': 1,
+    },
+    {
+        'id': 'mangaread',
+        'name': 'MangaRead',
+        'url': 'https://www.mangaread.org',
+        'domains': ['mangaread.org', 'mangaread.co'],
+        'type': 'aggregator',
+        'note': 'High quality manhwa scans mirror.',
+        'priority': 2,
+    },
+    {
         'id': 'mangadex',
         'name': 'MangaDex',
         'url': 'https://mangadex.org',
@@ -177,15 +195,28 @@ def create_mangayomi_provider(base_provider_cls):
             return f"mangayomi:{sid}:{slug}"
 
         def discover_chapters(self, series_url, _fetcher=None):
-            html = _fetcher(series_url) if _fetcher else ''
+            # For mgeko, all chapters are at /all-chapters/
+            fetch_url = series_url
+            if 'mgeko.cc' in series_url and not series_url.rstrip('/').endswith('/all-chapters'):
+                fetch_url = series_url.rstrip('/') + '/all-chapters/'
+            html = _fetcher(fetch_url) if _fetcher else ''
             if not html:
                 try:
                     ctx = ssl._create_unverified_context()
-                    req = urllib.request.Request(series_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    req = urllib.request.Request(fetch_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
                     with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
                         html = resp.read().decode('utf-8', errors='ignore')
                 except Exception as e:
-                    raise ValueError(f"failed to fetch series page: {e}")
+                    # try base URL if all-chapters failed
+                    if fetch_url != series_url:
+                        try:
+                            req = urllib.request.Request(series_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                            with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
+                                html = resp.read().decode('utf-8', errors='ignore')
+                        except Exception:
+                            raise ValueError(f"failed to fetch series page: {e}")
+                    else:
+                        raise ValueError(f"failed to fetch series page: {e}")
 
             # Extract chapter URLs and numbers
             pattern = re.compile(r'href=["\']([^"\']*(?:chapter|ch|episode|ep)[/-]?(\d+(?:\.\d+)?)[^"\']*)["\']', re.I)
@@ -211,6 +242,20 @@ def create_mangayomi_provider(base_provider_cls):
 
         def chapter_url(self, series_url, chapter_id):
             c = self.normalize_chapter_id(chapter_id)
+            if 'mgeko.cc' in series_url:
+                try:
+                    # check all-chapters to get exact slug
+                    all_url = series_url.rstrip('/') + '/all-chapters/'
+                    ctx = ssl._create_unverified_context()
+                    req = urllib.request.Request(all_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                    with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+                        h = resp.read().decode('utf-8', errors='ignore')
+                    pat = re.compile('href=["\x27]([^"\x27]*(?:chapter|ch|episode|ep)[/-]?(\d+(?:\.\d+)?)[^"\x27]*)["\x27]', re.I)
+                    for m in pat.finditer(h):
+                        if self.normalize_chapter_id(m.group(2)) == c:
+                            return urllib.parse.urljoin(all_url, m.group(1))
+                except Exception:
+                    pass
             return f"{series_url.rstrip('/')}/chapter/{c}"
 
         def extract_pages(self, html):

@@ -125,6 +125,10 @@ def add_series(root, title, aliases=None, tier="watchlist", rank=None,
     data["series"].append(entry)
     if owns:
         save(root, data)
+    try:
+        discover_and_attach_mirrors(root, sid, data=data, save_now=owns)
+    except Exception:
+        pass
     return entry
 
 
@@ -444,3 +448,68 @@ def seed(root, overwrite=False):
             pass
     save(root, data)
     return {"added": added, "skipped": skipped, "total": len(data["series"])}
+
+
+import ssl
+import urllib.request
+import urllib.parse
+
+
+def discover_and_attach_mirrors(root, series_id, data=None, save_now=True):
+    """Automatically queries MangaDex, MGeko, and catalog sources
+    for the series title, and attaches discovered secondary mirrors."""
+    owns = data is None
+    data = data if data is not None else load(root)
+    s = find(data, series_id)
+    if not s:
+        return []
+
+    title = s["title"]
+    attached = []
+
+    # 1. Check MGeko slug
+    sid = s["id"]
+    mgeko_url = f"https://www.mgeko.cc/manga/{sid}/"
+    try:
+        ctx = ssl._create_unverified_context()
+        req = urllib.request.Request(mgeko_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+            if resp.status == 200:
+                m = add_mirror(root, series_id, mgeko_url, data=data, save_now=False)
+                attached.append(m)
+    except Exception:
+        pass
+
+    # 2. Check MangaDex
+    try:
+        q = urllib.parse.quote(title)
+        url = f"https://api.mangadex.org/manga?title={q}&limit=1"
+        ctx = ssl._create_unverified_context()
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+            res = json.loads(resp.read().decode('utf-8'))
+            results = res.get('data', [])
+            if results:
+                mid = results[0]['id']
+                md_url = f"https://mangadex.org/title/{mid}"
+                m = add_mirror(root, series_id, md_url, data=data, save_now=False)
+                attached.append(m)
+    except Exception:
+        pass
+
+    if attached and (owns or save_now):
+        save(root, data)
+    return attached
+
+
+def sync_all_secondary_mirrors(root):
+    data = load(root)
+    results = {}
+    for s in data.get("series", []):
+        try:
+            m = discover_and_attach_mirrors(root, s["id"], data=data, save_now=False)
+            results[s["id"]] = len(m)
+        except Exception as e:
+            results[s["id"]] = str(e)
+    save(root, data)
+    return results
