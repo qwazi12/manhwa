@@ -134,6 +134,21 @@ export default function PostingSchedule() {
           <select className="sm" value="" aria-label="Set privacy" onChange={(e) => e.target.value && bulk("edit", picked, { privacy: e.target.value }, `Privacy set to ${e.target.value}`)}>
             <option value="">🔒 Privacy…</option><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select>
           <button className="sm" onClick={() => setPick(picked)}>📺 Channels</button>
+          {picked.length >= 2 && (
+            <ConfirmButton className="sm" confirm={`Merge ${picked.length} selected videos into 1 long-form video? (Must be from the same series)`}
+              onConfirm={() => act(async () => {
+                try {
+                  const pids = picked.map((x: any) => x.project);
+                  const r = await api<{ ok: boolean; project: string }>("/api/ranges/build", { projects: pids });
+                  setSel([]); reload();
+                  toast(`Merged ${picked.length} videos into ${r.project}! Long-form video is stitching.`);
+                } catch (err: any) {
+                  toast(err?.message || "Failed to merge videos", true);
+                }
+              })}>
+              🎞️ Merge into Long-Form
+            </ConfirmButton>
+          )}
           <ConfirmButton className="sm" confirm={`Redo SEO for ${picked.length}? (a few cents each)`} onConfirm={() => bulk("seo", picked, {}, "Redoing SEO — titles update in a minute")}>✨ AI</ConfirmButton>
           {(tab === "ready" || tab === "errors") && <ConfirmButton className="sm" confirm={`Post ${picked.length} now?`} onConfirm={() => bulk("post_now", picked, {}, "Posting")}>🚀 Post now</ConfirmButton>}
           {(tab === "ready" || tab === "errors") && <ConfirmButton className="sm danger" confirm={`Take ${picked.length} off the schedule?`} onConfirm={() => bulk("remove", picked, {}, "Removed")}>🗑</ConfirmButton>}

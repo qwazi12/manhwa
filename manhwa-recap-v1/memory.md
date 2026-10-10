@@ -9719,3 +9719,41 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
     - test_prod_splitter.py: 14/14 passed (murim_ch43 count = 99 crops, cleanly within 89 +/- 15% gate).
     - test_cut_refine.py: 20/20 passed.
     - test_pipeline_strip.py: 19/19 passed.
+
+---
+
+## Session 37 — 2026-10-10: Sequential Posting Guard & Long-Form Video Merging
+
+- **User Directives:**
+  1. Confirm if the tall-strip moment-slicing fix applies to all future ingestions.
+  2. Implement a sequential posting guard ensuring chapters post in chronological order (e.g., Chapter 25 is never posted before Chapter 23 or 24).
+  3. Provide full freedom to select and merge multiple rendered chapter videos into 1 long-form video directly from the Home/Chapters table or the Posting Schedule.
+
+- **Actions Taken:**
+  1. **Future Ingestion Confirmation:**
+     - Verified that `splitlab.py` is the studio's primary production splitter called by `ingest.py` on every chapter ingest. All future ingestions automatically execute the continuous action moment-slicing (`MOMENT_FALLBACK_PX = 3800` via `split_panels._moment_slices`).
+  2. **Sequential Chapter Posting Guard:**
+     - In `manhwa-recap-v1/review_ui/publish_queue.py`:
+       - Implemented `has_unposted_earlier_chapter(item, items)` which checks if any earlier chapter of the same series is in status `("queued", "posting", "failed", "paused")`.
+       - Integrated into `decide()` and `planned()`: If Chapter 25 is queued or placed at the top of the queue, it is held until Chapters 23 and 24 are successfully posted.
+     - In `manhwa-recap-v1/review_ui/server.py`:
+       - Enhanced `studio_overview`: Queued items waiting for earlier chapters receive an explicit blocker status: `"Waiting for earlier chapter ({earlier_chapter}) to post first"`.
+     - In `manhwa-recap-v1/review_ui/test_posting_schedule.py`:
+       - Added regression test confirming Chapter 23 posts ahead of 24 and 25 even if 25 was queued first. All 25/25 tests pass.
+  3. **Multi-Chapter Long-Form Video Merging:**
+     - In `manhwa-recap-v1/review_ui/range_compile.py`:
+       - Updated `plan()` to accept `specific_chapters=None`.
+     - In `manhwa-recap-v1/review_ui/server.py`:
+       - Added `_latest_rendered_export(pdir)` helper: picks approved export first, or falls back to the latest valid `.mp4` in `exports/` so any rendered video can be merged immediately.
+       - Extended `RangeIn` model to accept `projects: list[str]`.
+       - Updated `_range_ctx()` to validate that all selected projects belong to the same series, extract the chapter range, and assemble the compilation plan.
+       - In `api_range_build()`: Stitches chapters via ffmpeg stream-copy (`-c copy`, lossless and takes seconds), creates chapter arc markers/timestamps, builds YouTube metadata, and initializes the new long-form project (`<series>_ch<start>-<end>`).
+     - In Frontend:
+       - `manhwa-recap-v1/web/components/AllChapters.tsx`: Added `🎞️ Merge into Long-Form ({sel.length})` button when 2+ chapters are selected.
+       - `manhwa-recap-v1/web/app/queue/page.tsx`: Added `🎞️ Merge into Long-Form` bulk action button in the Posting Schedule toolbar when 2+ items are selected.
+       - Next.js production build (`npm run build`) passed with zero errors.
+
+- **Verification Evidence:**
+  - `test_posting_schedule.py`: 25/25 passed.
+  - `test_range_merge.py`: passed (`/api/ranges/plan` and `/api/ranges/build` verified).
+  - Next.js frontend build: compiled cleanly in 917ms.

@@ -38,6 +38,19 @@ export default function AllChapters() {
             toast(`${r.added.length} added to the render queue — progress shows at the top` +
               (r.skipped.length ? ` · not added: ${r.skipped.map((x: any) => `${x.name} (${x.reason})`).join("; ")}` : ""), r.skipped.length > 0 && !r.added.length);
           })}>🎬 Render selected ({sel.length})</button>
+        <ConfirmButton className="sm" disabled={sel.length < 2}
+          confirm={`Merge ${sel.length} selected chapters into a single long-form video? (Must be from the same series)`}
+          onConfirm={() => act(async () => {
+            try {
+              const r = await api<{ ok: boolean; project: string }>("/api/ranges/build", { projects: sel });
+              setSel([]); reload();
+              toast(`Merged ${sel.length} chapters into ${r.project}! Long-form video is stitching.`);
+            } catch (err: any) {
+              toast(err?.message || "Failed to merge chapters", true);
+            }
+          })}>
+          🎞️ Merge into Long-Form ({sel.length})
+        </ConfirmButton>
         <ConfirmButton className="sm warn" disabled={!sel.length} confirm={`Archive ${sel.length} chapters?`}
           onConfirm={() => act(async () => {
             for (const id of sel) {

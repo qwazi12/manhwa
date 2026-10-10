@@ -2704,13 +2704,14 @@ def _series_ident(pdir):
     import ingest as _ing
     meta = _read_json(os.path.join(pdir, "project.json")) or {}
     slug = ""
-    try:
-        slug, _c = _ing.parse_series_chapter(meta.get("url") or "")
-        slug = _ing.clean_series_slug(slug)
-    except Exception:
-        slug = ""
+    if meta.get("url"):
+        try:
+            slug, _c = _ing.parse_series_chapter(meta.get("url"))
+            slug = _ing.clean_series_slug(slug)
+        except Exception:
+            slug = ""
     series = (meta.get("series") or "").strip()
-    sid = slug or re.sub(r"[^a-z0-9]+", "-", series.lower()).strip("-")
+    sid = meta.get("series_id") or slug or re.sub(r"[^a-z0-9]+", "-", series.lower()).strip("-")
     try:
         n = int(float(str(meta.get("chapter") or "").strip()))
     except ValueError:
@@ -2838,7 +2839,7 @@ def _approved_export(pdir):
     """A chapter's latest export that is approved and current, or None."""
     d = os.path.join(pdir, "exports")
     try:
-        names = sorted((n for n in os.listdir(d) if n.endswith(".mp4")),
+        names = sorted((n for n in os.listdir(d) if n.endswith(".mp4") and not n.endswith(".part.mp4")),
                        key=lambda n: -os.path.getmtime(os.path.join(d, n)))
     except OSError:
         return None
@@ -2849,22 +2850,77 @@ def _approved_export(pdir):
     return None
 
 
+def _latest_rendered_export(pdir):
+    """Latest valid export (approved preferred, or newest mp4 in exports)."""
+    appr = _approved_export(pdir)
+    if appr:
+        return appr
+    d = os.path.join(pdir, "exports")
+    try:
+        names = sorted((n for n in os.listdir(d) if n.endswith(".mp4") and not n.endswith(".part.mp4")),
+                       key=lambda n: -os.path.getmtime(os.path.join(d, n)))
+        return names[0] if names else None
+    except OSError:
+        return None
+
+
 class RangeIn(BaseModel):
-    project: str          # any chapter of the series
-    chapters_start: int
-    chapters_end: int
+    project: str = ""          # any chapter of the series
+    chapters_start: int = 0
+    chapters_end: int = 0
+    projects: list[str] | None = None
+    chapters: list[int] | None = None
 
 
 def _range_ctx(body):
     import ingest as _ing
     import range_compile as _rc
-    pdir = project_dir_for(body.project)
-    sid, series, _n, meta = _series_ident(pdir)
-    if not sid:
-        raise HTTPException(400, "that project has no series")
-    pack = _series_pack(pdir) or {}
-    pl = _rc.plan(_ing.PROJECTS, sid, int(body.chapters_start), int(body.chapters_end), _approved_export)
-    return pdir, sid, (pack.get("title_en") or series), pack, pl
+    projects = body.projects or []
+    if projects:
+        ch_list = []
+        series_ids = set()
+        primary_pdir = None
+        for p in projects:
+            pd = project_dir_for(p)
+            sid, sname, ch, meta = _series_ident(pd)
+            if not sid:
+                s_slug, s_ch = _pq.series_chapter(p)
+                sid = s_slug
+                ch = s_ch
+            if sid:
+                series_ids.add(sid)
+            if ch is not None:
+                ch_list.append((int(ch), pd, p))
+            if not primary_pdir:
+                primary_pdir = pd
+        if len(series_ids) > 1:
+            raise HTTPException(400, "All selected chapters must belong to the same series")
+        if not ch_list:
+            raise HTTPException(400, "Could not identify chapters for selected projects")
+        ch_list.sort(key=lambda x: x[0])
+        start = ch_list[0][0]
+        end = ch_list[-1][0]
+        sid, series, _n, _m = _series_ident(primary_pdir)
+        pack = _series_pack(primary_pdir) or {}
+        got, missing = [], []
+        for n, pd, _p in ch_list:
+            name = _latest_rendered_export(pd)
+            if name:
+                got.append((n, pd, name))
+            else:
+                missing.append(n)
+        pl = {"chapters": got, "missing": missing}
+        return primary_pdir, sid, (pack.get("title_en") or series), pack, pl, start, end
+    else:
+        pdir = project_dir_for(body.project)
+        sid, series, _n, meta = _series_ident(pdir)
+        if not sid:
+            raise HTTPException(400, "that project has no series")
+        pack = _series_pack(pdir) or {}
+        start = int(body.chapters_start)
+        end = int(body.chapters_end)
+        pl = _rc.plan(_ing.PROJECTS, sid, start, end, _latest_rendered_export)
+        return pdir, sid, (pack.get("title_en") or series), pack, pl, start, end
 
 
 @app.post("/api/ranges/plan")
@@ -2872,7 +2928,7 @@ def api_range_plan(body: RangeIn):
     """What a range would contain and be called — nothing is built."""
     import range_compile as _rc
     try:
-        _p, sid, series, pack, pl = _range_ctx(body)
+        _p, sid, series, pack, pl, start, end = _range_ctx(body)
     except ValueError as e:
         raise HTTPException(400, str(e))
     secs = 0.0
@@ -2882,8 +2938,8 @@ def api_range_plan(body: RangeIn):
         except Exception:
             pass
     genre = (pack.get("genre") or [""])[0]
-    t, dropped = _rc.title(series, body.chapters_start, body.chapters_end, secs, genre)
-    return {"series_id": sid, "chapters_start": int(body.chapters_start), "chapters_end": int(body.chapters_end),
+    t, dropped = _rc.title(series, start, end, secs, genre)
+    return {"series_id": sid, "chapters_start": start, "chapters_end": end,
             "chapters": [n for n, _c, _x in pl["chapters"]], "missing": pl["missing"],
             "title": t, "title_chars": len(t), "dropped": dropped, "seconds": round(secs, 1),
             "ready": not pl["missing"]}
@@ -2891,21 +2947,20 @@ def api_range_plan(body: RangeIn):
 
 @app.post("/api/ranges/build")
 def api_range_build(body: RangeIn):
-    """Stitch chapters start..end (each chapter's latest approved export, stream
-    copy — no model, no paid call) into a NEW range project, then prefill its
-    title (built from the two stored integers) and description. Refuses when
-    any chapter in the range has no approved export."""
+    """Stitch chapters start..end (each chapter's latest export, stream
+    copy — instant and lossless) into a NEW range project, then prefill its
+    title and description with timestamps. Refuses when
+    any chapter in the range has no rendered export."""
     import range_compile as _rc
     import ingest as _ing
     import threading
     try:
-        src, sid, series, pack, pl = _range_ctx(body)
+        src, sid, series, pack, pl, a, b = _range_ctx(body)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if pl["missing"]:
-        raise HTTPException(409, "no approved video yet for chapter(s) " +
+        raise HTTPException(409, "no rendered video yet for chapter(s) " +
                             ", ".join(str(n) for n in pl["missing"][:30]))
-    a, b = int(body.chapters_start), int(body.chapters_end)
     rdir, meta = _rc.write_project(_ing.PROJECTS, sid, series, a, b,
                                    url=_read_json(os.path.join(src, "project.json")).get("url") or "")
     name = f"final_range_{a}-{b}.mp4"
@@ -2927,7 +2982,7 @@ def api_range_build(body: RangeIn):
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "done", "at": time.time(), "export": name, "marks": marks}
             json.dump(m, open(os.path.join(rdir, "project.json"), "w"), indent=2)
-            _ev("publish", f"{series} chapters {a}-{b}: range video built — review it before it can post", "ok")
+            _ev("publish", f"{series} chapters {a}-{b}: range video built — ready in studio", "ok")
         except Exception as e:  # noqa
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "error", "at": time.time(), "error": str(e)[:300]}
@@ -9579,6 +9634,9 @@ def studio_overview():
                 b = _local_post_blockers(x["project"], x["name"])
             except Exception:
                 b = []
+            has_earlier, earlier_item = _pq.has_unposted_earlier_chapter(x, q["items"])
+            if has_earlier:
+                b.append(f"Waiting for earlier chapter ({earlier_item.get('project')}) to post first")
             if b:
                 blocked[x["id"]] = "; ".join(b)
     try:

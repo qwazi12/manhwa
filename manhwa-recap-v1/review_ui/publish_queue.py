@@ -49,6 +49,22 @@ def _find(d, item_id):
     return next((x for x in d["items"] if x["id"] == item_id), None)
 
 
+
+def has_unposted_earlier_chapter(item, items):
+    """Chapter Sequential Guard: returns (True, earlier_item) if an earlier chapter
+    of the same series exists in the queue and has not been posted yet."""
+    ser, ch = series_chapter(item.get("project"))
+    if not ser or ch is None:
+        return False, None
+    for other in items:
+        if other.get("id") == item.get("id"):
+            continue
+        o_ser, o_ch = series_chapter(other.get("project"))
+        if o_ser == ser and o_ch is not None and o_ch < ch:
+            if other.get("status") in ("queued", "posting", "failed", "paused"):
+                return True, other
+    return False, None
+
 def series_chapter(project):
     """('series-slug', 81.0) from a project id like 'series-slug_81' (versions
     like '_81-v2' count as 81); (None, None) when it isn't a chapter id."""
@@ -260,6 +276,10 @@ def decide(sched, d, now, targets_of):
     if not queued:
         return {"action": "skip", "slot": slot, "day": day, "why": "the queue is empty"}
     for x in queued:
+        # Chapter Sequential Guard: Chapter 25 cannot be posted before Chapter 23 or 24
+        blocked, earlier = has_unposted_earlier_chapter(x, d["items"])
+        if blocked:
+            continue
         tg = targets_of(x)
         if tg and all(used.get(t, 0) < cap for t in tg):
             return {"action": "post", "slot": slot, "day": day, "item": x,
@@ -330,6 +350,10 @@ def planned(sched, d, now, targets_of, days=21):
             if t in done or (add == 0 and t < since):
                 continue
             for x in remaining:
+                # Chapter Sequential Guard
+                blocked, _ = has_unposted_earlier_chapter(x, remaining)
+                if blocked:
+                    continue
                 tg = tg_cache[x["id"]]
                 if tg and all(used.get((dstr, c), 0) < cap for c in tg):
                     h, m = (int(v) for v in t.split(":"))

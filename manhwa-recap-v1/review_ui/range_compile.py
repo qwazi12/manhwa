@@ -52,14 +52,18 @@ def is_range(meta):
     return (meta or {}).get("kind") == KIND
 
 
-def plan(projects_root, series_id, start, end, approved_export):
+def plan(projects_root, series_id, start, end, approved_export, specific_chapters=None):
     """Which export each chapter contributes. approved_export(pdir) -> name or
     None. Returns {"chapters": [(n, pdir, name)], "missing": [n, ...]}."""
-    start, end = int(start), int(end)
-    if start < 1 or end < start:
-        raise ValueError("chapters_start must be >= 1 and <= chapters_end")
+    if specific_chapters:
+        ch_list = sorted(list(set(int(x) for x in specific_chapters)))
+    else:
+        start, end = int(start), int(end)
+        if start < 1 or end < start:
+            raise ValueError("chapters_start must be >= 1 and <= chapters_end")
+        ch_list = list(range(start, end + 1))
     got, missing = [], []
-    for n in range(start, end + 1):
+    for n in ch_list:
         pdir = os.path.join(projects_root, f"{series_id}_{n}")
         name = approved_export(pdir) if os.path.isdir(pdir) else None
         if name:

@@ -146,6 +146,22 @@ def main():
         rows = {x["id"]: x["status"] for x in c.get("/api/chapters").json()["chapters"]}
         check("the refused video shows as needing you (couldn't post) with the reason",
               rows["p3"]["key"] == "failed" and "title" in rows["p3"]["reason"])
+
+        # Sequential Chapter Posting Guard (e.g. Ch 25 cannot post before Ch 23)
+        posted.clear()
+        _proj(root, "solo-leveling_25", "sl25.mp4")
+        _proj(root, "solo-leveling_23", "sl23.mp4")
+        _proj(root, "solo-leveling_24", "sl24.mp4")
+        c.post("/api/studio/queue", json={"items": [
+            {"project": "solo-leveling_25", "name": "sl25.mp4"},
+            {"project": "solo-leveling_24", "name": "sl24.mp4"},
+            {"project": "solo-leveling_23", "name": "sl23.mp4"},
+        ]})
+        # Queue has 25 first, then 24, then 23.
+        # When 18:00 slot runs, 25 and 24 are held back; 23 MUST post first!
+        server._schedule_post_pass(at("12:05", day=8))
+        check("sequential guard: earlier chapter 23 posts first even if 25 was queued first",
+              posted == ["solo-leveling_23"])
     finally:
         ingest.PROJECTS, server.os_publish = saved
 
