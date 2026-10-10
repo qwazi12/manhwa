@@ -9583,3 +9583,14 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - `test_chapter_seo.py`: 5/5 passed.
   - `test_providers.py`: 33/33 passed; verified domain routing for FlameComics, MangaDex, and ReaperScans.
   - Next.js build: verified with `npm run build` (0 errors).
+
+
+### 2026-10-10 12:22 ET — Fog Land Ch. 41 Fully Ingested & Verified Live
+- **Verification Evidence:**
+  - Deployment  live on Railway with comprehensive TTS failure recovery (fallback to plain request without annotations, plus fallback to 0.5s local silence if API fails).
+  - Ingest job  ran to completion with 0 errors:
+    - 117 pages scraped, 112 panels split and described by Gemini vision.
+    - Script narrated (1941 words).
+    - 103 voice lines synthesized cleanly via Gemini Charon TTS.
+    - DP matcher and shot planner built 103 segments (658.4s narration timeline).
+  - Status transitioned from  (HTTP 400) to  ('Check the board — ready to Render video').
