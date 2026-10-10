@@ -9786,3 +9786,27 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
        - Merged chapters disappear from `studio_overview`'s `ready` and `review` lists.
        - Test passed with 100% assertions.
      - `test_posting_schedule.py`: 25/25 passed.
+
+### Addendum 2 — 2026-10-10: Series Defaults Inheritance for Merged Long-Form Videos
+
+- **User Directives:**
+  - Clarified that when an operator saves "⚡ Save as series defaults" on a chapter, the merged long-form compilation video MUST inherit those exact same series rules (title template, description template, custom tags, playlist, targets/channels, category, privacy, and thumbnail style). It is the same series and must follow the same rules.
+
+- **Root Cause Analysis:**
+  - `_publish_defaults_base(pdir)` previously checked `if meta.get("kind") == "range"` and returned a hardcoded minimal dict with generic tags `[series, "manhwa recap"]`, hardcoded category `"1"`, and blank description, completely bypassing `_sp.load(_yt_root(), sid)` (the Series Pack).
+  - Similarly, the range builder did not check if the owner had configured a series `title_template` or `description_template`.
+
+- **Actions Taken:**
+  1. Updated `_publish_defaults_base(pdir)` in `server.py`:
+     - Range compilations now load `sp = _sp.load(_yt_root(), sid)`.
+     - Applies the series `title_template` with chapter range `{start}-{end}`.
+     - Applies the series `description_template` with chapter range `{start}-{end}`.
+     - Adapts and applies the owner's saved `default_tags` via `_adapt_tags_for_chapter`.
+     - Inherits `playlist_id`, `default_targets`, `default_privacy`, `default_category`, `default_made_for_kids`, and `default_synthetic_disclosure`.
+  2. Updated `api_range_build` in `server.py`:
+     - Embeds exact calculated chapter timestamps into the description.
+     - Sets the metadata from `sp` directly into `publish.json`.
+     - Inherits the approved series thumbnail look from Thumbnail Studio.
+  3. Extended `test_range_merge.py`:
+     - Verifies that saving series defaults on chapter 23 automatically propagates the title template, description template, timestamps, tags, playlist, targets, and privacy to the merged `final_range_23-25.mp4`.
+     - Passed with 100% assertions.

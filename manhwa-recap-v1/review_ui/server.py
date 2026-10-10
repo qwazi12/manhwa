@@ -1119,14 +1119,47 @@ def _publish_defaults_base(pdir):
     chapter = str(meta.get("chapter") or "").strip()
     if meta.get("kind") == "range":
         import range_compile as _rc
-        try:
-            rtitle = _rc.title(series, meta["chapters_start"], meta["chapters_end"], 0)[0]
-        except Exception:
-            rtitle = f"{series} Chapter {chapter}"
-        return {"title": rtitle, "description": "", "tags": [t for t in [series, "manhwa recap"] if t],
-                "category_id": "1", "privacy": _studio.publish_defaults().get("privacy", "private"),
-                "targets": list(_studio.publish_defaults().get("targets") or []), "publish_at": "",
-                "playlist": series, "made_for_kids": False, "synthetic_disclosure": True, "thumbnail": None}
+        import series_pack as _sp
+        sid, _, _, _ = _series_ident(pdir)
+        sp = _sp.load(_yt_root(), sid) if sid else None
+        start = meta.get("chapters_start", 0)
+        end = meta.get("chapters_end", 0)
+        ch_label = f"{start}-{end}" if start and end else chapter
+
+        # Title: apply user's saved series title template or B3 standard
+        if sp and sp.get("title_template"):
+            rtitle = _apply_title_template(sp["title_template"], ch_label)
+        else:
+            try:
+                genre = (sp.get("genre") if sp else [""])[0] if sp else ""
+                rtitle = _rc.title(series, start, end, 0, genre)[0]
+            except Exception:
+                rtitle = f"{series} Chapter {ch_label}"
+
+        # Description: apply user's saved series description template
+        if sp and sp.get("description_template"):
+            rdesc = _apply_desc_template(sp["description_template"], ch_label)
+        else:
+            rdesc = f"Full recap of {series} chapters {ch_label}."
+
+        # Tags: apply user's saved series default tags + compilation keywords
+        base_tags = [t for t in [series, "manhwa recap", "recap"] if t]
+        if sp and sp.get("default_tags"):
+            base_tags = list(dict.fromkeys(base_tags + _adapt_tags_for_chapter(sp["default_tags"], series, ch_label)))
+
+        return {
+            "title": rtitle[:YT_TITLE_MAX],
+            "description": rdesc,
+            "tags": base_tags,
+            "category_id": (sp.get("default_category") if sp else None) or "24",
+            "privacy": (sp.get("default_privacy") if sp else None) or _studio.publish_defaults().get("privacy", "private"),
+            "targets": list((sp.get("default_targets") if sp else None) or _studio.publish_defaults().get("targets") or []),
+            "publish_at": "",
+            "playlist": (sp.get("playlist_id") if sp else None) or series,
+            "made_for_kids": bool((sp or {}).get("default_made_for_kids", False)),
+            "synthetic_disclosure": bool((sp or {}).get("default_synthetic_disclosure", True)),
+            "thumbnail": None
+        }
     # Spec 06 B1: hook first, from the chapter's own narration until the SEO
     # writer's hook replaces it. No narration -> no hook, and the validator says so.
     import chapter_title as _ct
@@ -2999,34 +3032,54 @@ def api_range_build(body: RangeIn):
         try:
             marks = _rc.stitch(pl["chapters"], os.path.join(rdir, "exports", name))
             secs = _rc._probe(os.path.join(rdir, "exports", name))
-            genre = (pack.get("genre") or [""])[0]
-            t, _d = _rc.title(series, a, b, secs, genre)
-            import description_blocks as _db
-            desc = _db.build(hook=f"Full recap of {series} chapters {a} to {b}", series=series,
-                             chapter=f"{a}-{b}", summary="", pack=pack, arcs=_rc.arcs(marks),
-                             footer=_studio.load().get("description_footer") or "",
-                             hashtags=["#manhwa", "#manhwarecap"], limit=YT_DESC_MAX)
 
-            # Rich YouTube Tags
-            tags = [
-                series,
-                f"{series} full recap",
-                f"{series} recap",
-                f"{series} chapter {a}-{b}",
-                f"{series} chapters {a}-{b}",
-                f"{series} chapter {a} to {b}",
-                "manhwa recap",
-                "manhwa recap 2026",
-                "best manhwa",
-                "full manhwa recap",
-                "manhwa explained",
-            ]
-            for n, _, _ in pl["chapters"]:
-                tags.append(f"{series} chapter {n}")
-            if genre:
-                tags.append(f"{genre} manhwa")
+            # Load the user's saved series defaults (Save as series defaults)
+            import series_pack as _sp
+            sp = _sp.load(_yt_root(), sid) or {}
 
-            # Inherit / copy thumbnail from constituent chapters or cover
+            # 1. Title: Apply series title template if owner saved one, or B3 title
+            if sp.get("title_template"):
+                t = _apply_title_template(sp["title_template"], f"{a}-{b}")
+            else:
+                genre = (sp.get("genre") or pack.get("genre") or [""])[0]
+                t, _d = _rc.title(series, a, b, secs, genre)
+
+            # 2. Description: Series template with chapter timestamps embedded
+            ts_lines = []
+            for ch_num, sec_mark in marks:
+                mins = int(sec_mark // 60)
+                s = int(sec_mark % 60)
+                hrs = mins // 60
+                m = mins % 60
+                time_str = f"{hrs}:{m:02d}:{s:02d}" if hrs > 0 else f"{m:02d}:{s:02d}"
+                ts_lines.append(f"{time_str} Chapter {ch_num}")
+            timestamps_block = "\n".join(ts_lines)
+
+            if sp.get("description_template"):
+                base_desc = _apply_desc_template(sp["description_template"], f"{a}-{b}")
+                desc = f"{base_desc}\n\nTimestamps:\n{timestamps_block}"
+            else:
+                import description_blocks as _db
+                desc = _db.build(hook=f"Full recap of {series} chapters {a} to {b}", series=series,
+                                 chapter=f"{a}-{b}", summary="", pack={**pack, **sp}, arcs=_rc.arcs(marks),
+                                 footer=sp.get("description_footer") or _studio.load().get("description_footer") or "",
+                                 hashtags=["#manhwa", "#manhwarecap"], limit=YT_DESC_MAX)
+
+            # 3. Tags: Apply user's saved series default tags
+            base_tags = [series, "manhwa recap", f"{series} full recap", f"{series} chapter {a}-{b}"]
+            if sp.get("default_tags"):
+                base_tags = list(dict.fromkeys(sp["default_tags"] + base_tags))
+            tags = _adapt_tags_for_chapter(base_tags, series, f"{a}-{b}")
+
+            # 4. Playlist, Targets, Privacy, Category from Series Defaults
+            playlist_id = sp.get("playlist_id") or series
+            targets = list(sp.get("default_targets") or _studio.publish_defaults().get("targets") or [])
+            privacy = sp.get("default_privacy") or _studio.publish_defaults().get("privacy", "private")
+            cat_id = sp.get("default_category") or "24"
+            kids = bool(sp.get("default_made_for_kids", False))
+            synth = bool(sp.get("default_synthetic_disclosure", True))
+
+            # 5. Thumbnail: Inherit approved thumbnail from constituent chapters or cover
             import thumbnail as _tb
             copied_thumb = False
             for n, cp, cname in pl["chapters"]:
@@ -3054,9 +3107,20 @@ def api_range_build(body: RangeIn):
                     if copied_thumb:
                         break
 
+            # Save complete publish record with all Series Defaults applied!
             store = load_publish(rdir)
-            store[name] = {**publish_defaults(rdir), "title": t, "description": desc,
-                           "tags": tags[:30], "playlist": series}
+            store[name] = {
+                **publish_defaults(rdir),
+                "title": t[:YT_TITLE_MAX],
+                "description": desc[:YT_DESC_MAX],
+                "tags": tags[:35],
+                "playlist": playlist_id,
+                "targets": targets,
+                "privacy": privacy,
+                "category_id": cat_id,
+                "made_for_kids": kids,
+                "synthetic_disclosure": synth,
+            }
             save_publish(rdir, store)
 
             # Run full publish preparation (Thumbnails options & SEO recommendations)
@@ -3068,7 +3132,7 @@ def api_range_build(body: RangeIn):
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "done", "at": time.time(), "export": name, "marks": marks}
             json.dump(m, open(os.path.join(rdir, "project.json"), "w"), indent=2)
-            _ev("publish", f"{series} chapters {a}-{b}: long-form compilation video built with full SEO & thumbnail — ready in studio", "ok")
+            _ev("publish", f"{series} chapters {a}-{b}: long-form compilation video built with series defaults applied — ready in studio", "ok")
         except Exception as e:
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "error", "at": time.time(), "error": str(e)[:300]}
