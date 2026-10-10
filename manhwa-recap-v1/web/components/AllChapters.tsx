@@ -38,6 +38,16 @@ export default function AllChapters() {
             toast(`${r.added.length} added to the render queue — progress shows at the top` +
               (r.skipped.length ? ` · not added: ${r.skipped.map((x: any) => `${x.name} (${x.reason})`).join("; ")}` : ""), r.skipped.length > 0 && !r.added.length);
           })}>🎬 Render selected ({sel.length})</button>
+        <ConfirmButton className="sm warn" disabled={!sel.length} confirm={`Archive ${sel.length} chapters?`}
+          onConfirm={() => act(async () => {
+            for (const id of sel) {
+              await api("/api/projects/archive", { id, action: "archive" });
+            }
+            setSel([]); reload();
+            toast(`Archived ${sel.length} chapter(s).`);
+          })}>
+          📦 Archive ({sel.length})
+        </ConfirmButton>
         <ConfirmButton className="sm danger" disabled={!sel.length} confirm={`Delete ${sel.length}? This can’t be undone`}
           onConfirm={() => act(async () => {
             const r = await api("/api/projects/delete", { ids: sel });
@@ -45,8 +55,11 @@ export default function AllChapters() {
             toast(`Deleted ${r.deleted.length}, freed ${r.freed_mb} MB` +
               (r.skipped.length ? ` · not deleted: ${r.skipped.map((x: any) => `${x.id} (${x.reason})`).join("; ")}` : ""), r.skipped.length > 0);
           })}>
-          🗑 Delete selected ({sel.length})
+          🗑 Delete ({sel.length})
         </ConfirmButton>
+        {sel.length > 0 && (
+          <button className="sm" onClick={() => setSel([])}>Clear ({sel.length})</button>
+        )}
         </span>
       </div>
       <div className="list">

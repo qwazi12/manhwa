@@ -283,6 +283,21 @@ def _wav_seconds(raw):
 def synth_gemini_tts(text, out_path, cfg=None, style=None, voice=None, _open=None):
     """Record one line. Returns {"seconds", "prompt_tokens", "audio_tokens"}
     so the caller can bill it at Google's audio-token rate."""
+    if not text or not text.strip():
+        silence_sec = 0.5
+        if out_path.endswith(".mp3"):
+            subprocess.run(
+                ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", str(silence_sec),
+                 "-acodec", "libmp3lame", "-b:a", "192k", out_path],
+                check=True, capture_output=True
+            )
+        else:
+            subprocess.run(
+                ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", str(silence_sec),
+                 out_path],
+                check=True, capture_output=True
+            )
+        return {"seconds": silence_sec, "prompt_tokens": 0, "audio_tokens": 0}
     cfg = cfg or get_tts_engine_config()
     api_key = cfg.get("api_key")
     if not api_key:

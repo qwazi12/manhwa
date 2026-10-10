@@ -331,12 +331,15 @@ class GenericProvider(Provider):
                          "paste a chapter URL directly")
 
 
+import mangayomi as _myomi
+
 ASURA = AsuraProvider()
 WEBTOON = WebtoonProvider()
+MANGAYOMI = _myomi.create_mangayomi_provider(Provider)
 GENERIC = GenericProvider()
 
-# Order matters: the generic provider matches everything, so it is last.
-REGISTRY = [WEBTOON, ASURA, GENERIC]
+# Order matters: specific providers match first, generic fallback is last.
+REGISTRY = [WEBTOON, ASURA, MANGAYOMI, GENERIC]
 BY_NAME = {p.name: p for p in REGISTRY}
 
 

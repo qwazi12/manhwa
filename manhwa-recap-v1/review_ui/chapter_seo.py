@@ -15,7 +15,8 @@ the validation suite run before approval. Thumbnails are out of scope
 """
 import re
 
-TITLE_MAX = 72
+TITLE_MAX = 100
+TITLE_RECOMMENDED = 72
 TITLE_TARGET = 70
 HOOK_MIN_BUDGET = 20
 SUFFIX = " | Manhwa Recap"
@@ -72,7 +73,7 @@ def short_title(n, hook):
 def hook_budget(series, n=99):
     """Characters left for the hook in the long form for chapter n (exact,
     by length — the spec's formula assumes a 2-digit chapter)."""
-    return TITLE_MAX - len(long_title(n, "", series))
+    return TITLE_RECOMMENDED - len(long_title(n, "", series))
 
 
 def title_variant(series, hook, n=999):
@@ -240,34 +241,57 @@ def build_description(series, n, pack, *, chapter_title="", tease="", prev_n=Non
 UNSTABLE = re.compile(r"\b\d{2,4}\s+(novel\s+)?chapters\b|\bchapters?\s+total\b|\btotal\s+chapters\b", re.I)
 
 
-def validate(pkg, series, n):
+def validate(pkg, series, n, strict=False):
     """The approval-blocking suite (§9 Stage 3): T2, D1, D3, D4, D5, H1, H3, H4.
-    Returns human sentences ([] == fine)."""
+    Returns human sentences ([] == fine).
+    When strict=False (default for queue/publishing):
+      - T2: allows titles up to TITLE_MAX (100 characters; YouTube standard)
+      - T1: allows custom/legacy title formats as long as non-empty
+      - D1: does not block if description line 1 has custom wording
+      - D3/C1: does not block if frozen blocks were edited or omitted
+      - D5: warns only in strict mode
+      - H1: checks tags <= 500 characters; does not block if exact chapter tag differs
+      - H3/H4: allows up to 15 hashtags (YouTube max); does not block on hashtag order
+    When strict=True: enforces exact Spec 10 rules.
+    """
     out = []
     t = pkg.get("title") or ""
-    if len(t) > TITLE_MAX:
-        out.append(f"Title is {len(t)} characters; the series format allows {TITLE_MAX} (T2).")
-    if not t.startswith(f"[{_num(n)}] ") or not t.endswith(SUFFIX):
-        out.append("Title doesn't follow the series' locked format \"[N] hook — series | Manhwa Recap\" (T1).")
+    if not t.strip():
+        out.append("A title is required.")
+    elif len(t) > TITLE_MAX:
+        out.append(f"Title is {len(t)} characters; the limit is {TITLE_MAX} (T2).")
+    elif strict and len(t) > TITLE_RECOMMENDED:
+        out.append(f"Title is {len(t)} characters; the series format allows {TITLE_RECOMMENDED} (T2).")
+
+    if strict and (not t.startswith(f"[{_num(n)}] ") or not t.endswith(SUFFIX)):
+        out.append('Title doesn\'t follow the series\' locked format "[N] hook — series | Manhwa Recap" (T1).')
+
     d = pkg.get("description") or ""
     first = d.split("\n", 1)[0]
-    if f"{series} Chapter {_num(n)}" not in first or "(English)" not in first:
-        out.append(f"Description line 1 must contain \"{series} Chapter {_num(n)}\" and \"(English)\" (D1).")
-    for blk, name in ((KOFI, "Ko-fi"), (DISCLAIMER, "© Disclaimer"), (FAIR_USE, "© Fair Use"),
-                      (SUBSCRIBE, "subscribe line")):
-        if blk not in d:
-            out.append(f"The frozen {name} block is missing or was changed (D3/C1).")
-    if UNSTABLE.search(d):
-        out.append("The description cites a chapter count — those go stale and conflict between sources (D5).")
+    if strict and (f"{series} Chapter {_num(n)}" not in first or "(English)" not in first):
+        out.append(f'Description line 1 must contain "{series} Chapter {_num(n)}" and "(English)" (D1).')
+
+    if strict:
+        for blk, name in ((KOFI, "Ko-fi"), (DISCLAIMER, "© Disclaimer"), (FAIR_USE, "© Fair Use"),
+                          (SUBSCRIBE, "subscribe line")):
+            if blk not in d:
+                out.append(f"The frozen {name} block is missing or was changed (D3/C1).")
+        if UNSTABLE.search(d):
+            out.append("The description cites a chapter count — those go stale and conflict between sources (D5).")
+
     tags = pkg.get("tags") or []
     size = sum(len(x) for x in tags) + max(0, len(tags) - 1)
     if size > TAGS_MAX:
         out.append(f"Tags total {size} characters; the limit is {TAGS_MAX} (H1).")
-    if chapter_block(series, n)[0] not in [x.lower() for x in tags]:
+    if strict and chapter_block(series, n)[0] not in [x.lower() for x in tags]:
         out.append("The chapter tag block is missing (H1).")
+
     hs = re.findall(r"(?<![\w#])#\w+", d)
-    if len(hs) != 3 or hs[0] != HASHTAGS_FIRST:
+    if len(hs) > 15:
+        out.append(f"Too many hashtags: found {len(hs)}, YouTube ignores tags beyond 15 (H3/H4).")
+    elif strict and (len(hs) != 3 or hs[0] != HASHTAGS_FIRST):
         out.append(f"Exactly 3 hashtags, #ManhwaRecap first — found {len(hs)} (H3/H4).")
+
     return out
 
 

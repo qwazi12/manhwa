@@ -9556,3 +9556,30 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   14. `too-many-heroes-for-the-demon-lord-9702`: 3 candidates ready (`He Followed Every Rule, But Now Breaks Them All!`, etc.).
   15. `what-a-bountiful-harvest-demon-lord`: 3 candidates ready (`He Became The Final Boss, But Only Plants Potatoes!`, etc.).
 - 0 errors across the entire studio. No hooks auto-locked. All awaiting owner pick in Library.
+
+
+### 2026-10-10 11:45 ET — SEO Limits Expanded, Fog Land Ch 41 Fixed, Mangayomi & FMHY Added, Bulk Studio Bar
+- **User requests:**
+  1. Soften Spec 10 SEO validation limits in `chapter_seo.py` that blocked posts with red errors (T1, T2, D1, D3/C1, H1, H3/H4) when titles exceeded 72 chars (e.g. Ch. 96 with 89 chars), description lines differed, or tags/hashtags varied.
+  2. Fix Fog Land Ch. 41 `HTTP Error 400: Bad Request` failure.
+  3. Integrate Mangayomi (`kodjodevf/mangayomi`, `mangayomi-extensions`) and FMHY (FreeMediaHeckYeah reading piracy guide) scrapers and mirrors.
+  4. Scrapper-style bulk action bar for chapter management on Home and All Chapters.
+- **Root causes & implementations:**
+  1. **SEO Validation Softening (`chapter_seo.py` & `server.py`):**
+     - Expanded `TITLE_MAX` from 72 to 100 characters (YouTube max title limit), keeping `TITLE_RECOMMENDED = 72`.
+     - Updated `validate(pkg, series, n, strict=False)` so non-strict mode (used by `validate_publish` and posting) never blocks on custom/legacy titles (T1), flexible description line 1 (D1), modified disclaimer/Ko-fi/Fair Use blocks (D3/C1), missing chapter tag block (H1), or hashtags <= 15 (H3/H4). Strict mode retained for explicit spec audits.
+     - Fixed `_propagate_series_defaults` in `server.py`: dynamically adapts chapter numbers in tags using regex `\b(chapter|ch)\s*\d+\b` -> `chapter {ch_n}` so applying defaults from Ch 39 doesn't inject `fog land chapter 39` into Ch 38.
+  2. **Fog Land Ch. 41 Fix (`gemini_tts.py` & `server.py`):**
+     - Root cause: `speech_text.speakable(text)` stripped punctuation-only/bracketed lines down to empty string `""`. Passing `{"text": ""}` to Google Gemini interactions API caused `HTTP Error 400: Bad Request`.
+     - Fix: Added local 0.5s silence generation using ffmpeg (`anullsrc=r=24000:cl=mono`) in `synth_gemini_tts` and `_synth_rest` whenever speakable text is empty or whitespace.
+  3. **Mangayomi & FMHY Integration (`mangayomi.py` & `providers.py`):**
+     - Created `review_ui/mangayomi.py`: provides `get_fmhy_sources()` catalog (MangaDex, ComicK, Asura, FlameComics, ReaperScans, Bato, MangaKakalot), `fetch_mangayomi_extensions()` cached from `kodjodevf/mangayomi-extensions`, and `create_mangayomi_provider()`.
+     - Registered `MANGAYOMI` in `providers.py:REGISTRY` before generic fallback.
+     - Exposed `GET /api/sources/fmhy` and `GET /api/sources/mangayomi` in `server.py`.
+  4. **Bulk Action Bar & Home Integration (`web/app/page.tsx` & `AllChapters.tsx`):**
+     - Enhanced `AllChapters.tsx` with `Archive selected` and `Clear` selection buttons alongside `Render selected` and `Delete selected`.
+     - Embedded `<AllChapters />` directly on the Home page (`web/app/page.tsx`) beneath "Needs you".
+- **Verification:**
+  - `test_chapter_seo.py`: 5/5 passed.
+  - `test_providers.py`: 33/33 passed; verified domain routing for FlameComics, MangaDex, and ReaperScans.
+  - Next.js build: verified with `npm run build` (0 errors).

@@ -63,13 +63,22 @@ def test_validation_catches_the_rule_breaks():
             "tags": cs.build_tags(S, 45, PACK)}
     assert cs.validate(good, S, 45) == []
     bad = dict(good, title="Murim Psychopath Chapter 45 — His Class Change Shocks Murim | Manhwa Recap")
-    assert any("T1" in p for p in cs.validate(bad, S, 45))
+    # Strict mode catches style & spec rule breaks
+    assert any("T1" in p for p in cs.validate(bad, S, 45, strict=True))
     walled = dict(good, description=good["description"] + " #a #b #c")
-    assert any("H3" in p for p in cs.validate(walled, S, 45))
+    assert any("H3" in p for p in cs.validate(walled, S, 45, strict=True))
     counted = dict(good, description=good["description"].replace("Full chapter", "234 novel chapters. Full chapter"))
-    assert any("D5" in p for p in cs.validate(counted, S, 45))
+    assert any("D5" in p for p in cs.validate(counted, S, 45, strict=True))
     edited = dict(good, description=good["description"].replace("promptly address", "address"))
-    assert any("D3" in p for p in cs.validate(edited, S, 45))
+    assert any("D3" in p for p in cs.validate(edited, S, 45, strict=True))
+
+    # Non-strict mode allows legacy/custom titles up to 100 chars, custom descriptions & up to 15 hashtags
+    assert cs.validate(bad, S, 45, strict=False) == []
+    assert cs.validate(walled, S, 45, strict=False) == []
+    assert cs.validate(edited, S, 45, strict=False) == []
+    # But hard errors still trigger in non-strict mode
+    assert any("T2" in p for p in cs.validate(dict(good, title="A" * 105), S, 45, strict=False))
+    assert any("H1" in p for p in cs.validate(dict(good, tags=["tag" * 50] * 10), S, 45, strict=False))
 
 
 def test_hook_rules_and_timecodes():

@@ -1029,6 +1029,31 @@ def _apply_desc_template(template: str, chapter: str) -> str:
     return template.replace("{chapter}", str(chapter).strip())
 
 
+def _adapt_tags_for_chapter(tags, series_name, ch_n):
+    if not tags:
+        return []
+    if ch_n is None:
+        return list(tags)
+    try:
+        f = float(ch_n)
+        c = str(int(f)) if f.is_integer() else str(f)
+    except Exception:
+        c = str(ch_n).strip()
+    adapted = []
+    ch_pattern = re.compile(r'(chapter|ch)\s*\d+', re.IGNORECASE)
+    for t in tags:
+        if ch_pattern.search(t):
+            adapted.append(ch_pattern.sub(f"chapter {c}", t))
+        else:
+            adapted.append(t)
+    if series_name:
+        s_low = series_name.lower().strip()
+        prim = f"{s_low} chapter {c}"
+        if prim not in [x.lower() for x in adapted]:
+            adapted.insert(0, prim)
+    return adapted
+
+
 def _propagate_series_defaults(sid, series, pack):
     import ingest as _i
     root = _i.PROJECTS
@@ -1061,7 +1086,7 @@ def _propagate_series_defaults(sid, series, pack):
                 if d_tmpl:
                     item["description"] = _apply_desc_template(d_tmpl, ch_n)
                 if tags:
-                    item["tags"] = list(tags)
+                    item["tags"] = _adapt_tags_for_chapter(tags, cseries, ch_n)
                 if playlist:
                     item["playlist"] = playlist
                 if privacy:
@@ -4412,6 +4437,19 @@ def _synth_rest(text, out_path, style=None, engine=None):
             os.replace(tmp, cached)
         except OSError:
             pass
+
+    if not text or not text.strip():
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", "0.5",
+             "-acodec", "libmp3lame", "-b:a", "192k", out_path],
+            check=True, capture_output=True
+        )
+        try:
+            with open(out_path, "rb") as f:
+                _cache_put(f.read())
+        except Exception:
+            pass
+        return
 
     if provider == "gemini":
         with usage.gate("tts", len(text), model=model) as _m:
@@ -8536,6 +8574,21 @@ def render_queue_list():
     if any(i["status"] == "waiting" for i in items):
         _rq_kick()
     return {"items": [_rq_view(i) for i in items]}
+
+
+@app.get("/api/sources/fmhy")
+def api_sources_fmhy():
+    """Curated FMHY sources and unblocked scanlator mirrors."""
+    import mangayomi as _myomi
+    return {"sources": _myomi.get_fmhy_sources()}
+
+
+@app.get("/api/sources/mangayomi")
+def api_sources_mangayomi(refresh: bool = False):
+    """Extension scrapers catalog from kodjodevf/mangayomi-extensions."""
+    import mangayomi as _myomi
+    exts = _myomi.fetch_mangayomi_extensions(refresh=refresh)
+    return {"count": len(exts), "extensions": exts[:100]}
 
 
 @app.post("/api/render-queue/add")
