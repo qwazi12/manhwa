@@ -2947,10 +2947,9 @@ def api_range_plan(body: RangeIn):
 
 @app.post("/api/ranges/build")
 def api_range_build(body: RangeIn):
-    """Stitch chapters start..end (each chapter's latest export, stream
-    copy — instant and lossless) into a NEW range project, then prefill its
-    title and description with timestamps. Refuses when
-    any chapter in the range has no rendered export."""
+    """Stitch chapters start..end into a NEW range project with complete SEO,
+    thumbnails, tags, and chapter markers. Automatically removes constituent
+    chapters from the posting schedule and marks them as merged."""
     import range_compile as _rc
     import ingest as _ing
     import threading
@@ -2961,36 +2960,123 @@ def api_range_build(body: RangeIn):
     if pl["missing"]:
         raise HTTPException(409, "no rendered video yet for chapter(s) " +
                             ", ".join(str(n) for n in pl["missing"][:30]))
+
     rdir, meta = _rc.write_project(_ing.PROJECTS, sid, series, a, b,
                                    url=_read_json(os.path.join(src, "project.json")).get("url") or "")
     name = f"final_range_{a}-{b}.mp4"
+    range_pid = os.path.basename(rdir)
+
+    # 1. Take constituent chapters off the posting schedule (queue)
+    target_exports = {(os.path.basename(cp.rstrip("/")), cname) for n, cp, cname in pl["chapters"]}
+    try:
+        q = _pq.load(_ing.PROJECTS)
+        for it in q.get("items", []):
+            if (it.get("project"), it.get("name")) in target_exports and it.get("status") in _pq.ACTIVE:
+                try:
+                    _pq.remove(_ing.PROJECTS, it["id"])
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 2. Mark constituent chapters in reviews.json as "merged"
+    for n, cp, cname in pl["chapters"]:
+        try:
+            r_path = os.path.join(cp, "reviews.json")
+            revs = _read_json(r_path) or {}
+            revs[cname] = {
+                **(revs.get(cname) or {}),
+                "status": "merged",
+                "merged_into": range_pid,
+                "merged_at": time.time()
+            }
+            with open(r_path, "w", encoding="utf-8") as rf:
+                json.dump(revs, rf, indent=2)
+        except Exception:
+            pass
 
     def run():
         try:
             marks = _rc.stitch(pl["chapters"], os.path.join(rdir, "exports", name))
             secs = _rc._probe(os.path.join(rdir, "exports", name))
-            t, _d = _rc.title(series, a, b, secs, (pack.get("genre") or [""])[0])
+            genre = (pack.get("genre") or [""])[0]
+            t, _d = _rc.title(series, a, b, secs, genre)
             import description_blocks as _db
             desc = _db.build(hook=f"Full recap of {series} chapters {a} to {b}", series=series,
                              chapter=f"{a}-{b}", summary="", pack=pack, arcs=_rc.arcs(marks),
                              footer=_studio.load().get("description_footer") or "",
                              hashtags=["#manhwa", "#manhwarecap"], limit=YT_DESC_MAX)
+
+            # Rich YouTube Tags
+            tags = [
+                series,
+                f"{series} full recap",
+                f"{series} recap",
+                f"{series} chapter {a}-{b}",
+                f"{series} chapters {a}-{b}",
+                f"{series} chapter {a} to {b}",
+                "manhwa recap",
+                "manhwa recap 2026",
+                "best manhwa",
+                "full manhwa recap",
+                "manhwa explained",
+            ]
+            for n, _, _ in pl["chapters"]:
+                tags.append(f"{series} chapter {n}")
+            if genre:
+                tags.append(f"{genre} manhwa")
+
+            # Inherit / copy thumbnail from constituent chapters or cover
+            import thumbnail as _tb
+            copied_thumb = False
+            for n, cp, cname in pl["chapters"]:
+                t_path = _tb.path_for(cp, cname)
+                if t_path and os.path.exists(t_path):
+                    try:
+                        with open(t_path, "rb") as tf:
+                            _tb.save(rdir, name, tf.read())
+                        copied_thumb = True
+                        break
+                    except Exception:
+                        pass
+            if not copied_thumb:
+                for n, cp, _ in pl["chapters"]:
+                    for c_file in ("cover.jpg", "cover.png", "cover.webp"):
+                        c_path = os.path.join(cp, c_file)
+                        if os.path.exists(c_path):
+                            try:
+                                with open(c_path, "rb") as tf:
+                                    _tb.save(rdir, name, tf.read())
+                                copied_thumb = True
+                                break
+                            except Exception:
+                                pass
+                    if copied_thumb:
+                        break
+
             store = load_publish(rdir)
             store[name] = {**publish_defaults(rdir), "title": t, "description": desc,
-                           "playlist": series}
+                           "tags": tags[:30], "playlist": series}
             save_publish(rdir, store)
+
+            # Run full publish preparation (Thumbnails options & SEO recommendations)
+            try:
+                _prepare_publish(rdir, name, do_seo=True)
+            except Exception:
+                pass
+
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "done", "at": time.time(), "export": name, "marks": marks}
             json.dump(m, open(os.path.join(rdir, "project.json"), "w"), indent=2)
-            _ev("publish", f"{series} chapters {a}-{b}: range video built — ready in studio", "ok")
-        except Exception as e:  # noqa
+            _ev("publish", f"{series} chapters {a}-{b}: long-form compilation video built with full SEO & thumbnail — ready in studio", "ok")
+        except Exception as e:
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "error", "at": time.time(), "error": str(e)[:300]}
             json.dump(m, open(os.path.join(rdir, "project.json"), "w"), indent=2)
             _ev("publish", f"{series} chapters {a}-{b}: range build failed — {str(e)[:160]}", "warn")
 
     threading.Thread(target=run, daemon=True).start()
-    return {"ok": True, "project": os.path.basename(rdir), "export": name,
+    return {"ok": True, "project": range_pid, "export": name,
             "chapters_start": a, "chapters_end": b}
 
 
@@ -9620,6 +9706,8 @@ def studio_overview():
         by_key[(e["project"], e["name"])] = row
         if done or (e["project"], e["name"]) in active:
             continue
+        if e["review_status"] == "merged":
+            continue
         if e["review_status"] == "approved" and not e["superseded"]:
             ready.append(row)
         else:
@@ -9648,7 +9736,7 @@ def studio_overview():
         if x["status"] in _pq.ACTIVE or (x["status"] == "failed" and time.time() - x["updated_at"] < 7 * 86400):
             r = dict(by_key.get((x["project"], x["name"])) or
                      {"project": x["project"], "name": x["name"], "label": x["name"], "missing": True})
-            r.update(qid=x["id"], qstatus=x["status"], qerror=x.get("error"), added_at=x["added_at"],
+            r.update(qid=x["id"], qstatus=x["status"], qerror=x.get("error"), added_at=x.get("added_at", 0),
                      planned=plan.get(x["id"]), blocked=blocked.get(x["id"]))
             queue_rows.append(r)
     return {"review": review, "ready": ready, "queue": queue_rows, "published": _studio_published(),

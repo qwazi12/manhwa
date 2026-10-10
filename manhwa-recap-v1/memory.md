@@ -9757,3 +9757,32 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   - `test_posting_schedule.py`: 25/25 passed.
   - `test_range_merge.py`: passed (`/api/ranges/plan` and `/api/ranges/build` verified).
   - Next.js frontend build: compiled cleanly in 917ms.
+
+### Addendum — 2026-10-10: Complete Long-Form Lifecycle: SEO, Tags, Thumbnails & Queue Cleanup
+
+- **User Directives:**
+  1. Ensure merged long-form videos receive the exact same full SEO pipeline (high-CTR compilation title, timestamped description, rich YouTube tags, thumbnail options from Thumbnail Studio / covers).
+  2. Ensure constituent chapter videos (e.g. Chapter 23, 24, 25) are cleanly removed from the posting schedule queue and taken out of "Ready to post" so they never double-post as individual chapters alongside the compilation.
+
+- **Actions Taken:**
+  1. **Automatic Queue & Ready-to-Post Cleanup:**
+     - In `manhwa-recap-v1/review_ui/server.py` (`api_range_build`):
+       - Iterates over all constituent chapters and immediately removes any active queued items from `publish_queue` via `_pq.remove`.
+       - Updates each constituent chapter's `reviews.json` with status `"merged"`, referencing `merged_into: <range_project_id>` and timestamp.
+       - In `studio_overview()`: Added check `if e["review_status"] == "merged": continue` to guarantee merged individual chapters never appear in "Ready to post" or "Needs review".
+     - In `manhwa-recap-v1/review_ui/chapter_status.py`:
+       - Added `"merged"` state to `STATUSES`, `gather()`, and `decide()` so individual chapters show a distinct muted `"Merged"` status pill and are excluded from "Needs you" actionable cards.
+  2. **Full End-to-End SEO, Metadata & Thumbnail Generation:**
+     - In `api_range_build`:
+       - Stitches video via ffmpeg stream-copy (`-c copy`) and computes chapter arc markers.
+       - Formats YouTube chapter timestamps in the description (e.g. `00:00 Chapter 23`, `14:35 Chapter 24`).
+       - Generates rich YouTube tags (`{series} full recap`, `{series} chapter {a}-{b}`, `manhwa recap`, `manhwa recap 2026`, etc.).
+       - Copies the best available approved thumbnail or series cover from constituent chapters to seed `_thumbs`.
+       - Invokes `_prepare_publish(rdir, name, do_seo=True)` to run Thumbnail Studio concept generation and AI SEO title/hook alternatives.
+  3. **Verification Evidence:**
+     - Extended `test_range_merge.py` with end-to-end assertions verifying:
+       - Active queue items for merged chapters are removed (`q1`, `q2` evicted; `other_1` retained).
+       - Reviews are updated to status `"merged"`.
+       - Merged chapters disappear from `studio_overview`'s `ready` and `review` lists.
+       - Test passed with 100% assertions.
+     - `test_posting_schedule.py`: 25/25 passed.

@@ -27,6 +27,7 @@ STATUSES = {
     "posting":     ("Posting",     "warn",  "Uploading; waiting for YouTube to confirm."),
     "posted":      ("Posted",      "ok",    "Live on the channel."),
     "archived":    ("Archived",    "muted", "Posted and put away; deleted later unless kept."),
+    "merged":      ("Merged",      "muted", "Combined into a longer-form recap video."),
 }
 ORDER = list(STATUSES)
 WAITING_INGEST = ("budget_paused", "interrupted", "paused", "pausing", "cancelled")
@@ -59,6 +60,11 @@ def decide(f):
         return view("to_review", note="the board was rebuilt after the last video")
     if f.get("archived"):
         return view("archived")
+    if f.get("merged") and not f.get("posted"):
+        v = view("merged")
+        if f.get("merged_into"):
+            v["note"] = f"Merged into {f.get('merged_into')}"
+        return v
     if f.get("posted"):
         return view("posted")
     if f.get("posting"):
@@ -120,6 +126,14 @@ def gather(pdir, ingest_rec=None, rendering=False, queue_rows=None, review_state
     f = {"has_board": os.path.exists(seg_path), "board_newer": board_newer(pdir),
          "has_video": bool(name), "video": name, "rendering": rendering,
          "archived": bool(archived)}
+    if name and review_state:
+        try:
+            _rv = review_state(pdir, name) or {}
+            if _rv.get("status") == "merged":
+                f["merged"] = True
+                f["merged_into"] = _rv.get("merged_into")
+        except Exception:
+            pass
     if ingest_rec:
         f["ingest_status"] = ingest_rec.get("status")
         f["ingest_stage"] = ingest_rec.get("stage")
