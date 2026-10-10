@@ -87,3 +87,12 @@ manhwa-recap-v1/eval/fixtures/*/descriptions.json
 docs/audit/thumbnail_refs/REF_competitor_grid.png
 docs/audit/thumbnail_refs/REF_before_after.png
 docs/audit/thumbnail_refs/ref_*.jpg
+
+# --- SQLite & Backups (Volume data, never commit) ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.db.gz
+manhwa-recap-v1/review_ui/data/
+data/

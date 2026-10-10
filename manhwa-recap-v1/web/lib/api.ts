@@ -59,3 +59,92 @@ export function useApi<T = any>(path: string | null, ms = 0) {
   }, [load, ms]);
   return { data, error, loading, reload: load, setData };
 }
+
+
+export interface ReleaseMomentum {
+  has_release_date: boolean;
+  release_date: string | null;
+  days_until_release: number | null;
+  status: string;
+  urgency: string;
+  is_pre_release: boolean;
+  is_post_release: boolean;
+  scheduled_after_release: boolean;
+  badge_text: string;
+  badge_variant: 'critical' | 'approaching' | 'upcoming' | 'missed' | 'neutral';
+  warning?: string | null;
+  priority_score: number;
+}
+
+export interface StudioProject {
+  id: number;
+  project_id: string;
+  series_slug: string;
+  chapter_number: number;
+  title: string;
+  target_minutes: number;
+  stage: string;
+  stage_status: 'idle' | 'running' | 'queued' | 'done' | 'error' | 'stopped' | 'paused';
+  stage_message?: string | null;
+  poster?: string | null;
+  momentum?: ReleaseMomentum | null;
+  has: {
+    scrape: boolean;
+    split: boolean;
+    describe: boolean;
+    narrate: boolean;
+    voice: boolean;
+    match: boolean;
+    render: boolean;
+  };
+  facts?: any;
+  research?: any;
+  render?: any;
+  queue_item_id?: number | null;
+  archive?: any;
+  cost_usd: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface UndoStep {
+  id: number;
+  label: string;
+  created_at: string | null;
+}
+
+export interface ScheduleConfig {
+  timezone: string;
+  start_hour: number;
+  end_hour: number;
+  interval_hours: number;
+  posts_per_day: number | null;
+  pipeline_overrides?: Record<string, any>;
+  account_overrides?: Record<string, any>;
+}
+
+export interface ScheduleInfo extends ScheduleConfig {
+  slots_per_day: number;
+  total_ready: number;
+  runway_days: number;
+  runway_label: string;
+  next_slots: string[];
+}
+
+export const studioApi = {
+  projects: () => api<StudioProject[]>("/api/studio/projects"),
+  project: (id: string) => api<StudioProject>("/api/studio/projects/" + encodeURIComponent(id)),
+  run: (projectId: string, stage: string, auto = false, until = "match") =>
+    api<{ ok: boolean; job_id: string }>("/api/studio/run", { project_id: projectId, stage, auto, until }),
+  stop: (projectId: string) =>
+    api<{ ok: boolean }>("/api/studio/stop", { project_id: projectId }),
+  jobs: () => api<any[]>("/api/control/jobs"),
+  stopJob: (id: string) => api<{ ok: boolean }>("/api/control/jobs/" + encodeURIComponent(id) + "/stop", {}),
+  schedule: () => api<ScheduleInfo>("/api/schedule"),
+  saveSchedule: (cfg: any) => api<{ ok: boolean; schedule: any }>("/api/schedule", cfg),
+  undoStack: (scope: string) => api<{ scope: string; stack: UndoStep[] }>("/api/undo/" + encodeURIComponent(scope) + "/stack"),
+  undo: (scope: string) => api<{ ok: boolean; undone: string; stack: UndoStep[] }>("/api/undo/" + encodeURIComponent(scope), {}),
+  space: () => api<any>("/api/space"),
+  backupStatus: () => api<any>("/api/backup/status"),
+  runBackup: () => api<any>("/api/backup/run", {}),
+};

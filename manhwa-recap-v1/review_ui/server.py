@@ -7614,6 +7614,31 @@ def storyboard_approve(body: ApproveIn):
             "n_ticked": len(ticked)}
 
 
+# --- Database Backups & Disaster Recovery (Scrapper Engine) ---
+import backup as _backup_mod
+
+@app.get("/api/backup/status")
+def api_backup_status():
+    return _backup_mod.get_backup_status()
+
+
+@app.post("/api/backup/run")
+def api_backup_run():
+    try:
+        return _backup_mod.create_backup(tag="manual", upload_to_drive=True)
+    except Exception as exc:
+        raise HTTPException(500, f"Backup failed: {exc}")
+
+
+@app.get("/api/backup/download/{filename}")
+def api_backup_download(filename: str):
+    safe_name = os.path.basename(filename)
+    fpath = _backup_mod.get_local_backups_dir() / safe_name
+    if not fpath.is_file():
+        raise HTTPException(404, "Backup file not found")
+    return FileResponse(str(fpath), media_type="application/gzip", filename=safe_name)
+
+
 # ---- E7: project backup (volume data is as precious as unpushed code) ---
 @app.get("/api/backup/{project_id}")
 def backup_project(project_id: str):
@@ -8135,7 +8160,8 @@ def _scheduler_pass():
     for name, fn in (("budget", _resume_budget_paused), ("archive", _archive_sweep),
                      ("posting", _schedule_post_pass), ("demand", _demand_pass),
                      ("new sources", _check_new_sources), ("publish prep", _publish_prep_pass),
-                     ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps()))):
+                     ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps())),
+                     ("backup", lambda: __import__("backup").maybe_run_nightly_backup())):
         try:
             fn()
         except Exception as e:  # noqa — one failing part must not stop the rest
@@ -8153,6 +8179,24 @@ def _scheduler_loop():
 
 @app.on_event("startup")
 def _start_background_work():
+    try:
+        import db as _db_mod
+        _db_mod.init_db()
+    except Exception as e:
+        print(f"[boot] db init failed: {e}", flush=True)
+
+    try:
+        import resume as _resume_mod
+        _resume_mod.recover_interrupted()
+    except Exception as e:
+        print(f"[boot] resumable recovery failed: {e}", flush=True)
+
+    try:
+        import cleanup as _cleanup_mod
+        _cleanup_mod.startup_cleanup()
+    except Exception as e:
+        print(f"[boot] startup cleanup failed: {e}", flush=True)
+
     # Env switch so a local/dev server never spends money by itself.
     if os.environ.get("AUTOPILOT_SCHEDULER", "1") == "0" or _SCHED["started"]:
         return
@@ -9917,6 +9961,122 @@ def project_archive_action(body: ArchiveIn):
         raise HTTPException(400, "action must be archive, unarchive or keep")
     _autopilot.audit("project_" + body.action, project=pid)
     return {"ok": True, "id": pid, "archive": _archive.view(pdir)}
+
+
+# -----------------------------------------------------------------
+# Scrapper-Grade Studio, Disaster Recovery, Control, and Ops Routes
+# -----------------------------------------------------------------
+import db as _db
+import backup as _backup_mod
+import control as _control_mod
+import queue_manager as _qm
+import studio_runner as _studio_runner
+import space as _space_mod
+import cleanup as _clean_mod
+import undo as _undo_mod
+
+
+class StudioRunIn(BaseModel):
+    project_id: str
+    stage: str
+    auto: bool = False
+    until: str = "match"
+
+
+class StudioStopIn(BaseModel):
+    project_id: str
+
+
+@app.get("/api/studio/projects")
+def api_studio_projects():
+    return _studio_runner.list_projects()
+
+
+@app.get("/api/studio/projects/{project_id}")
+def api_studio_project(project_id: str):
+    p = _studio_runner.get_project(project_id)
+    if not p:
+        raise HTTPException(404, "Project not found")
+    return p
+
+
+@app.post("/api/studio/run")
+def api_studio_run(body: StudioRunIn):
+    try:
+        job_id = _studio_runner.run_stage(body.project_id, body.stage, auto=body.auto, until=body.until)
+        return {"ok": True, "job_id": job_id, "project_id": body.project_id, "stage": body.stage}
+    except Exception as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/studio/stop")
+def api_studio_stop(body: StudioStopIn):
+    _studio_runner.stop_project(body.project_id)
+    return {"ok": True, "stopped": body.project_id}
+
+
+
+
+# --- Process Control & Zombie Prevention ---
+@app.get("/api/control/jobs")
+def api_control_jobs():
+    return _control_mod.list_jobs()
+
+
+@app.post("/api/control/jobs/{job_id}/stop")
+def api_control_stop(job_id: str):
+    try:
+        j = _control_mod.request_stop(job_id)
+        return {"ok": True, "job": j.public()}
+    except KeyError:
+        raise HTTPException(404, "Job not found")
+
+
+# --- Mathematical Pacing Engine & Runway Meter ---
+@app.get("/api/schedule")
+def api_get_schedule():
+    with _db.SessionLocal() as s:
+        return _qm.get_schedule_info(s)
+
+
+@app.post("/api/schedule")
+def api_post_schedule(body: dict):
+    with _db.SessionLocal() as s:
+        try:
+            saved = _qm.save_schedule(s, body)
+            return {"ok": True, "schedule": saved}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+
+# --- Universal Undo Stack ---
+@app.get("/api/undo/{scope}/stack")
+def api_undo_stack(scope: str):
+    with _db.SessionLocal() as s:
+        return {"scope": scope, "stack": _undo_mod.stack(s, scope)}
+
+
+@app.post("/api/undo/{scope}")
+def api_undo_pop(scope: str):
+    with _db.SessionLocal() as s:
+        try:
+            label = _undo_mod.undo(s, scope)
+            return {"ok": True, "undone": label, "stack": _undo_mod.stack(s, scope)}
+        except _undo_mod.NothingToUndo as exc:
+            raise HTTPException(400, str(exc))
+
+
+# --- Disk Quota & Volume Hygiene ---
+@app.get("/api/space")
+def api_space():
+    return _space_mod.get_disk_usage()
+
+
+@app.post("/api/space/cleanup")
+def api_space_cleanup():
+    with _db.SessionLocal() as s:
+        return _clean_mod.run_full_sweep(s)
+
 
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")
 

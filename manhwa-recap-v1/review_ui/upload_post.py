@@ -271,8 +271,16 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
     for t in targets:
         if ":" in t:
             p_user, net = t.split(":", 1)
-            platforms.add(net)
             user_profile = p_user
+            if net == "*":
+                accts = load_accounts(HERE)
+                matching = [a["network"] for a in accts.values() if a.get("profile_user") == p_user and a.get("active")]
+                if matching:
+                    platforms.update(matching)
+                else:
+                    platforms.update(["youtube", "tiktok", "instagram", "facebook"])
+            else:
+                platforms.add(net)
         else:
             platforms.add(t)
 
@@ -323,6 +331,19 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
         fields.append(("instagram_title", metadata.get("title") or "Manhwa Recap"))
         fields.append(("media_type", "REELS"))
         fields.append(("is_ai_generated", "true"))
+
+    if "facebook" in platforms:
+        fields.append(("facebook_title", metadata.get("title") or "Manhwa Recap"))
+        fields.append(("facebook_description", desc))
+
+    if "twitter" in platforms or "x" in platforms:
+        fields.append(("twitter_text", (metadata.get("title") or "")[:280]))
+
+    if "threads" in platforms:
+        fields.append(("threads_text", (metadata.get("title") or "")[:500]))
+
+    if "bluesky" in platforms:
+        fields.append(("bluesky_text", (metadata.get("title") or "")[:300]))
 
     files = []
     if on_step:

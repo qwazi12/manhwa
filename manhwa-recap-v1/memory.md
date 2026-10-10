@@ -9594,3 +9594,68 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
     - 103 voice lines synthesized cleanly via Gemini Charon TTS.
     - DP matcher and shot planner built 103 segments (658.4s narration timeline).
   - Status transitioned from  (HTTP 400) to  ('Check the board — ready to Render video').
+
+
+### 2026-10-10 16:00 ET — Full Scrapper Architectural Parity & LongForm Studio Integration
+- **User request:**
+  1. Implement all 10 architectural and functional capabilities where Scrapper outranked Manhwa:
+     - Data Layer & Schema (SQLite with SQLAlchemy ORM)
+     - Database Backups & Disaster Recovery (Online backup, gzip + SHA-256, 7-day local retention, 30-day offsite Drive, pre-migration snapshots, restore CLI)
+     - Process Lifecycle & Restart Recovery (Resumable jobs, startup recover_interrupted)
+     - Render Safety & File Preservation (Atomic swap directory .partial / render_new/)
+     - Process Control & Cancellation (Cooperative SIGTERM termination, StopButton)
+     - Scheduling & Pacing Engine (Mathematical pacing throttle 1-48/day, drift-free, content runway meter)
+     - Social Distribution Scope (Omni-channel multi-platform syndication with <profile>:* grouping)
+     - Audience Momentum & Release Intelligence (Drop momentum, release decay, MomentumBadge)
+     - State Reversibility (Undo stack, UndoButton)
+     - Disk Quota & Hygiene Sweeps (Storage monitoring, 4-day post-publication sweep, LRU cache eviction)
+  2. Bring Scrapper's LongForm Studio layout, functions, and action buttons into Manhwa without breaking or altering Manhwa's core creative intelligence.
+  3. Leave untouched: Computer Vision & Panel Extraction (panel-split/), Deep Story Analysis & Cast Bible (panel-describe/), Dynamic Programming Narration Alignment (matcher.py), and HyperFrames Web-to-Video Engine (render_segments.py).
+
+- **Implementation details:**
+  1. **Data Layer & Schema (db.py, models.py, ops_config.py):**
+     - SQLite with SQLAlchemy 2.0+ ORM using NullPool to eliminate connection pool deadlocks under concurrent load.
+     - Structured relational models: StudioProject, QueueItem, ResumableJob, UndoEntry, AppSetting, UsageEvent.
+     - Auto-migration and automatic bidirectional disk sync (sync_projects_from_disk) on startup.
+  2. **Database Backups & Disaster Recovery (backup.py, scripts/restore_db.py):**
+     - Lock-free online SQLite snapshots via sqlite3.Connection.backup with PRAGMA integrity_check validation.
+     - Compression (.db.gz), SHA-256 validation, 7-day local disk retention, 30-day Google Shared Drive sync.
+     - Automated pre-migration snapshots in init_db().
+     - Full CLI restore tool (scripts/restore_db.py) with dry-run table comparison, emergency pre-restore snapshot, and post-restore integrity check.
+     - REST endpoints: GET /api/backup/status, POST /api/backup/run, GET /api/backup/download/{filename}.
+  3. **Process Lifecycle & Restart Recovery (resume.py, server.py):**
+     - ResumableJob model tracking kind, params, checkpoint, attempts, and process UUID heartbeat.
+     - recover_interrupted() on server startup marks stale zombie jobs and interrupted StudioProject stages as stopped.
+  4. **Render Safety & File Preservation (studio_runner.py, server.py):**
+     - Renders stage atomically into .partial / render_new/ and only rename to live destination on 100% completion and verification. Failed or canceled renders never overwrite previously approved videos.
+  5. **Process Control & Cancellation (control.py, StopButton.tsx):**
+     - Thread-safe job tracking with cooperative Cancelled exception and child subprocess PID registration.
+     - StopButton.tsx with in-page two-tap confirmation (first tap arms, second tap within 4s terminates subprocesses via proc.kill()).
+  6. **Mathematical Pacing & Content Runway (queue_manager.py, PacingThrottle.tsx):**
+     - Mathematical slot distribution eliminating minute drift across daily posting windows.
+     - 1/day to 48/day pacing presets, pipeline overrides, and account overrides.
+     - Content runway meter (e.g. '34.4 days left') computed dynamically from ready queue items.
+  7. **Social Distribution Scope (upload_post.py):**
+     - Expanded target resolution supporting profile broadcast grouping (<profile>:*) expanding to all connected networks.
+     - Added multi-platform parameters for YouTube, TikTok, Instagram, Facebook, X/Twitter, Bluesky, and Threads.
+  8. **Audience Momentum & Release Intelligence (momentum.py, MomentumBadge.tsx):**
+     - Real-time chapter drop momentum metrics: Critical/Urgent (0-3d), Approaching/Prime (4-14d), Upcoming (>14d), Missed/Decaying (<0d).
+     - Automated operator warnings when video is scheduled after next chapter drop.
+  9. **State Reversibility & Undo Stack (undo.py, UndoButton.tsx):**
+     - Universal database row snapshotting before mutations, storing reverse payloads in UndoEntry.
+     - UndoButton.tsx dynamically displays specific action label (e.g. 'Undo: Rename item').
+  10. **Disk Quota & Hygiene Sweeps (space.py, cleanup.py):**
+      - Storage volume monitoring (get_disk_usage) and fail-safe threshold gating (check_disk_space at 90%).
+      - Automated cleanup_render_intermediates, cleanup_leftover_renders, and 4-day post-publication purge_expired sweep.
+  11. **LongForm Studio Frontend & Navigation (StudioPanel.tsx, Shell.tsx, /studio):**
+      - Built StudioPanel.tsx featuring the 7-Stage Recap Production Pipeline: 1. Scrape -> 2. Split Panels -> 3. Vision & Bible -> 4. Script -> 5. Voice (TTS) -> 6. DP Alignment -> 7. Render Video.
+      - Each stage supports 'Run' (isolated execution) and '↻ from here' (auto-chaining up to target stage), instant '■ Stop' (StopButton), and '↶ Undo' (UndoButton).
+      - Added /studio directly to the main sidebar navigation in Shell.tsx.
+      - Integrated disaster recovery snapshot banner with one-tap backup trigger.
+
+- **Verification evidence:**
+  - Automated Capability Suite (test_scrapper_capabilities.py): 10/10 tests passed (0.11s).
+  - Regression Suite (test_providers.py): 33/33 tests passed.
+  - Next.js Web App Build (npm run build): 12/12 static pages generated with 0 errors (/studio at 5.85 kB).
+  - Database Initialization: Verified SQLite schema creation and automatic sync of 1 project from disk.
+  - Backup & Restore CLI: Verified dry-run table comparison between current database and snapshot.

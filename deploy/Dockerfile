@@ -33,7 +33,7 @@ WORKDIR /app
 # fails the BUILD — the old deployment keeps serving — not every render.
 RUN pip install --no-cache-dir \
       "fastapi" "uvicorn[standard]" "python-multipart" "pydantic>=2" \
-      "google-genai>=1.0.0" "anthropic>=0.40" "numpy" "scipy" "Pillow" "certifi" \
+      "google-genai>=1.0.0" "anthropic>=0.40" "numpy" "scipy" "Pillow" "certifi" "sqlalchemy>=2.0" \
     && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir "ultralytics" \
     && python3 -c "import cv2, numpy; print('cv2', cv2.__version__)"
