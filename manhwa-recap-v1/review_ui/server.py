@@ -6414,7 +6414,7 @@ def api_watchlist_refresh_all():
 
 
 @app.post("/api/watchlist/auto_mirrors")
-def api_watchlist_auto_mirrors(series_id: Optional[str] = None):
+def api_watchlist_auto_mirrors(series_id: str | None = None):
     """Automatically discover and attach secondary mirrors for series from
     MangaDex, MGeko, and Mangayomi catalogs."""
     import watchlist as _wl
