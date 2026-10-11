@@ -1,0 +1,15 @@
+.git
+.env*
+venv/
+**/venv/
+manhwa-recap-v1/venv/
+manhwa-recap-v1/web/
+manhwa-recap-v1/hyperframes/
+node_modules/
+**/node_modules/
+__pycache__/
+**/*.pyc
+*.db*
+data/
+projects/
+**/projects/
