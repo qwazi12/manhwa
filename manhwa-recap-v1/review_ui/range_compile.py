@@ -14,6 +14,7 @@ already made (each chapter's latest APPROVED export), published as a NEW video
     treat it like any video, while chapter lists (Library, tracker) skip it.
 """
 import json
+import re
 import os
 import subprocess
 import time
@@ -125,6 +126,23 @@ def write_project(projects_root, series_id, series, start, end, url=""):
     return pdir, meta
 
 
+def has_range_format(t: str, a: int, b: int) -> bool:
+    """True if title contains range {a}-{b} in standard or abbreviated format:
+    'Chapter 38-41', 'Chapters 38-41', 'Ch. 38-41', 'Ch 38-41', '[38-41]', '(38-41)',
+    '[Ch. 38-41]', or '{a}-{b}' with optional spaces/dashes."""
+    if not t or not isinstance(a, int) or not isinstance(b, int):
+        return False
+    dash = r'\s*[-–—]\s*'
+    pat = re.compile(
+        rf'(?:\[\s*(?:(?:ch|ep|chapter|episode)\.?\s*)?{a}{dash}{b}\s*\])|'
+        rf'(?:\(\s*(?:(?:ch|ep|chapter|episode)\.?\s*)?{a}{dash}{b}\s*\))|'
+        rf'(?:(?:chapters?|ch|episodes?|ep)\.?\s*{a}{dash}{b})|'
+        rf'(?:\b{a}{dash}{b}\b)',
+        re.I
+    )
+    return bool(pat.search(t))
+
+
 def problems(t, meta):
     """Range-title rules (B3), as sentences."""
     out = []
@@ -133,6 +151,6 @@ def problems(t, meta):
     a, b = (meta or {}).get("chapters_start"), (meta or {}).get("chapters_end")
     if not (isinstance(a, int) and isinstance(b, int)):
         out.append("The range must be stored as two integers (chapters_start, chapters_end).")
-    elif f"Chapter {a}-{b}" not in (t or ""):
-        out.append(f"The title must say \"Chapter {a}-{b}\" — it is built from the stored range.")
+    elif not has_range_format(t, a, b):
+        out.append(f'The title must say "Chapter {a}-{b}" (or "Ch. {a}-{b}", "[{a}-{b}]") — it is built from the stored range.')
     return out

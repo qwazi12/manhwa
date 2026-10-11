@@ -280,6 +280,22 @@ def validate(pkg, series, n, strict=False):
             out.append("The description cites a chapter count — those go stale and conflict between sources (D5).")
 
     tags = pkg.get("tags") or []
+    if isinstance(tags, list):
+        trimmed = []
+        total_sz = 0
+        for t in tags:
+            t_str = str(t).strip()
+            if not t_str:
+                continue
+            add_c = len(t_str) + (1 if trimmed else 0)
+            if total_sz + add_c <= TAGS_MAX:
+                trimmed.append(t_str)
+                total_sz += add_c
+            else:
+                break
+        if len(trimmed) != len(tags):
+            pkg["tags"] = trimmed
+            tags = trimmed
     size = sum(len(x) for x in tags) + max(0, len(tags) - 1)
     if size > TAGS_MAX:
         out.append(f"Tags total {size} characters; the limit is {TAGS_MAX} (H1).")

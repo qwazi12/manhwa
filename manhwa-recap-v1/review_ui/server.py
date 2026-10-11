@@ -978,6 +978,25 @@ YT_PRIVACY = ("private", "unlisted", "public")
 YT_CATEGORIES = {"1": "Film & Animation", "24": "Entertainment", "31": "Anime/Animation"}
 
 
+def _trim_tags_to_limit(tags, limit=YT_TAGS_CHARS_MAX):
+    """Auto-trim tags so that sum(len(t)) + max(0, len(tags) - 1) <= limit."""
+    if not tags or not isinstance(tags, list):
+        return tags or []
+    res = []
+    total = 0
+    for t in tags:
+        t_str = str(t).strip()
+        if not t_str:
+            continue
+        add_cost = len(t_str) + (1 if res else 0)
+        if total + add_cost <= limit:
+            res.append(t_str)
+            total += add_cost
+        else:
+            break
+    return res
+
+
 def load_publish(pdir):
     try:
         with open(os.path.join(pdir, PUBLISH_NAME), encoding="utf-8") as f:
@@ -987,6 +1006,10 @@ def load_publish(pdir):
 
 
 def save_publish(pdir, data):
+    if isinstance(data, dict):
+        for k, item in data.items():
+            if isinstance(item, dict) and "tags" in item and isinstance(item["tags"], list):
+                item["tags"] = _trim_tags_to_limit(item["tags"], YT_TAGS_CHARS_MAX)
     tmp = os.path.join(pdir, PUBLISH_NAME + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1)
@@ -1051,7 +1074,7 @@ def _adapt_tags_for_chapter(tags, series_name, ch_n):
         prim = f"{s_low} chapter {c}"
         if prim not in [x.lower() for x in adapted]:
             adapted.insert(0, prim)
-    return adapted
+    return _trim_tags_to_limit(adapted, YT_TAGS_CHARS_MAX)
 
 
 def _propagate_series_defaults(sid, series, pack):
@@ -1294,6 +1317,18 @@ def validate_publish(md, pdir=None, name=None):
     if not isinstance(tags, list):
         out.append("Tags must be a list.")
     else:
+        trimmed = _trim_tags_to_limit(tags, YT_TAGS_CHARS_MAX)
+        if len(trimmed) != len(tags):
+            md["tags"] = trimmed
+            tags = trimmed
+            if pdir and name:
+                try:
+                    store = load_publish(pdir)
+                    if name in store and isinstance(store[name], dict):
+                        store[name]["tags"] = trimmed
+                        save_publish(pdir, store)
+                except Exception:
+                    pass
         total = sum(len(t) for t in tags) + max(0, len(tags) - 1)
         if total > YT_TAGS_CHARS_MAX:
             out.append(f"Tags total {total} characters; the limit is {YT_TAGS_CHARS_MAX}.")
@@ -8497,6 +8532,43 @@ def _heal_project_folders():
                 os.remove(bad_pack)
             except OSError:
                 pass
+
+    # Heal metadata, auto-trim tags to 500 chars, and heal range titles
+    for pid in list(os.listdir(root)):
+        pdir = os.path.join(root, pid)
+        if not os.path.isdir(pdir) or pid.startswith("_"):
+            continue
+        try:
+            pj_path = os.path.join(pdir, "project.json")
+            meta = {}
+            if os.path.exists(pj_path):
+                with open(pj_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+            store = load_publish(pdir)
+            changed = False
+            for k, item in store.items():
+                if not isinstance(item, dict):
+                    continue
+                tags = item.get("tags")
+                if isinstance(tags, list):
+                    trimmed = _trim_tags_to_limit(tags, YT_TAGS_CHARS_MAX)
+                    if len(trimmed) != len(tags):
+                        item["tags"] = trimmed
+                        changed = True
+                if meta.get("kind") == "range":
+                    a, b = meta.get("chapters_start"), meta.get("chapters_end")
+                    if isinstance(a, int) and isinstance(b, int):
+                        title = item.get("title") or ""
+                        import range_compile as _rc
+                        if not _rc.has_range_format(title, a, b):
+                            healed_t = re.sub(rf'\b(Chapter|Ch\.?)\s*{a}\b(?!\s*[-–—]\s*{b})', rf'\g<1> {a}-{b}', title, flags=re.I)
+                            if healed_t != title:
+                                item["title"] = healed_t[:YT_TITLE_MAX]
+                                changed = True
+            if changed:
+                save_publish(pdir, store)
+        except Exception as e:
+            print(f"[heal_metadata] Error on {pid}: {e}", flush=True)
 
 
 @app.on_event("startup")

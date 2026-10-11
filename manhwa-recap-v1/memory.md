@@ -9880,3 +9880,39 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
     `[✓] Auto-Failover Guard SUCCESS: Downloaded 15 panels from https://www.mgeko.cc/reader/en/a-regressors-tale-of-cultivation-chapter-33-eng-li/`
   - Simulated failure with new `/series/` domain structure:
     `[✓] Auto-Failover Guard SUCCESS: Downloaded 25 panels from secondary mirror.`
+
+## Session 37 — 2026-10-11: Range Title Abbreviations & Permanent Tag Auto-Trimming
+
+- **Context:**
+  User reported posting queue blocker warnings on multi-chapter range compilation cards:
+  1. Title range warnings: "The title must say 'Chapter X-Y' — it is built from the stored range" on cards using common abbreviations like `[38-41]`, `Ch. 361-362`, `[88-91]`, `[104-108]`, or single-chapter reference `Ch. 32` for 32-33.
+  2. Tag overflow warnings: "Tags total X characters; the limit is 500" on compilation cards where combined tags exceeded YouTube's 500-character ceiling.
+  3. Ordered posting guard: "Waiting for earlier chapter [the-regressed-mercenary-has-a-plan-7261_96] to post first" (verified as working story-order protection for Ch. 97).
+
+- **Actions Taken:**
+  1. **Range Title Validator Update (`range_compile.py`):**
+     - Added `has_range_format(t, a, b)` supporting case-insensitive range formats:
+       - Bracketed/parenthesized: `[38-41]`, `(38-41)`, `[Ch. 38-41]`, `[Ch.38-41]`
+       - Abbreviated prefixes: `Ch. 38-41`, `Ch.38-41`, `Ch 38-41`, `Chapters 38-41`
+       - En-dash/em-dash and space variants: `38 - 41`, `38–41`
+       - Preserved backward compatibility for classic `Chapter {a}-{b}`.
+  2. **Permanent Tag Auto-Trimming (`server.py` & `chapter_seo.py`):**
+     - Added `_trim_tags_to_limit(tags, limit=500)` to enforce YouTube's 500-character comma-separated ceiling.
+     - `validate_publish()`: Auto-trims tags permanently, updates memory and disk (`publish.json`), and clears the blocker.
+     - `save_publish()`: Enforces tag trimming on every publish metadata write.
+     - `_adapt_tags_for_chapter()`: Guarantees propagated tags never exceed 500 characters.
+     - `chapter_seo.py` (`validate`): Auto-trims tags before checking `size > TAGS_MAX`.
+  3. **Startup Metadata Self-Healing (`server.py`):**
+     - `_heal_project_folders()` scans projects on boot:
+       - Automatically trims oversized tags on disk.
+       - Heals range titles that only referenced start chapter (e.g. `Ch. 32` -> `Ch. 32-33`), clearing Card 1's blocker.
+
+- **Verification Evidence:**
+  - `test_range_validator_tags.py`: 100% passed for all screenshots titles:
+    - `[38-41]` (Fog Land): PASS (0 problems)
+    - `Ch. 361-362` (Fated Villain): PASS (0 problems)
+    - `[88-91]` (Death Knight): PASS (0 problems)
+    - `[104-108]` (Dark Mage): PASS (0 problems)
+    - `Chapter 181-183` (Mount Hua): PASS (0 problems)
+    - `Ch. 32-33` (Regressor): PASS (0 problems)
+  - Tag trimming test: 30 tags (800+ chars) cleanly trimmed to 479 chars (<= 500 chars).
