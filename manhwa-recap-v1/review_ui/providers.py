@@ -459,7 +459,7 @@ def canonical_key(series_key):
     gets a new key each time and chapters already made stop being recognised.
     Other sources' keys (e.g. 'webtoon:9299') are already stable."""
     k = (series_key or "").strip().rstrip("/")
-    m = re.match(r"(https?://[^/]*asura[^/]*/comics/)(.+?)(?:-[0-9a-f]{8})?$", k, re.I)
+    m = re.match(r"(https?://[^/]*asura[^/]*/(?:comics|series)/)(.+?)(?:-[0-9a-f]{8})?$", k, re.I)
     if m:
         return "asura:" + m.group(2).lower()
     return k

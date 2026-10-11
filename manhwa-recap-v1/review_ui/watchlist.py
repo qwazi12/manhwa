@@ -78,7 +78,18 @@ def slugify(title):
 
 # ------------------------------------------------------------- canonical
 def find(data, series_id):
-    return next((s for s in data["series"] if s["id"] == series_id), None)
+    if not series_id:
+        return None
+    hit = next((s for s in data["series"] if s["id"] == series_id), None)
+    if hit:
+        return hit
+    target = re.sub(r'[^a-z0-9]', '', series_id.lower())
+    if target:
+        for s in data["series"]:
+            sid = re.sub(r'[^a-z0-9]', '', s["id"].lower())
+            if sid == target:
+                return s
+    return None
 
 
 def find_by_mirror(data, url):

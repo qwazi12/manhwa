@@ -248,11 +248,26 @@ def _auto_failover(url: str, output_dir: str, primary_err: Exception):
             data = _wl.load(_ui)
 
         # Extract slug candidates
-        slug = url.split("/comics/")[-1].split("/")[0] if "/comics/" in url else None
-        if not slug and "/manga/" in url:
-            slug = url.split("/manga/")[-1].split("/")[0]
-        if not slug and "webtoons.com" in url:
-            slug = url.split("/en/")[-1].split("/")[1] if "/en/" in url else None
+        slug = None
+        try:
+            import ingest as _ing
+            parsed_series, parsed_cid = _ing.parse_series_chapter(url)
+            if parsed_series and parsed_series != "series":
+                slug = parsed_series
+            if not cid and parsed_cid:
+                cid = parsed_cid
+        except Exception:
+            pass
+
+        if not slug:
+            if "/comics/" in url:
+                slug = url.split("/comics/")[-1].split("/")[0]
+            elif "/series/" in url:
+                slug = url.split("/series/")[-1].split("/")[0]
+            elif "/manga/" in url:
+                slug = url.split("/manga/")[-1].split("/")[0]
+            elif "webtoons.com" in url:
+                slug = url.split("/en/")[-1].split("/")[1] if "/en/" in url else None
         clean_slug = re.sub(r'-[a-f0-9]{8}$', '', slug) if slug else None
 
         owner, _ = _wl.find_by_mirror(data, url)

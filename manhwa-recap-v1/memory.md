@@ -9851,3 +9851,32 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
     - Test 4 (Thumbnail constituent panel resolution for ranges): Passed.
   - `test_posting_schedule.py`: 25/25 passed.
   - `test_providers.py`: 33/33 passed.
+
+## Session 36 — 2026-10-11: Verification & Hardening of Ingestion Auto-Failover Guard
+
+- **Context:**
+  User asked whether the ingestion fallback mechanism is working — specifically, if Autopilot tries to ingest a new chapter and the link fails, whether it automatically falls back to secondary mirrors/backups.
+
+- **Audited & Verified:**
+  1. **Autopilot -> Ingest Queue -> Scraper Flow:**
+     - Autopilot picks the candidate chapter and enqueues the primary URL via `_enqueue_ingest()`.
+     - Background worker runs `ingest.run_ingest(url, pages)`, which calls `scraper.download_chapter(url, pages)`.
+     - In `scraper.py`, `download_chapter()` wraps `_download_single_url()` in a try-except. If any failure occurs (Cloudflare 403, 502, network failure, 0 images extracted, partial download failure), it catches the exception and immediately invokes `_auto_failover(url, output_dir, primary_err)`.
+  2. **Auto-Failover Mechanism:**
+     - `_auto_failover` extracts the target chapter number and resolves the series ownership in `_watchlist.json`.
+     - It filters all registered secondary mirrors whose domain differs from the primary host.
+     - It queries the secondary mirrors in order (e.g. MGeko, MangaDex, MangaRead), fetches panels, and validates downloaded images.
+     - If all registered mirrors fail, it attempts a dynamic MGeko mirror (`https://www.mgeko.cc/manga/<slug>/`) and auto-registers it to the watchlist.
+     - Sets `scraper.LAST_FAILOVER_SOURCE` and returns downloaded panels directly to the pipeline, allowing downstream stages (split, describe, narrate, voice, match, render) to continue seamlessly.
+  3. **Hardening & Fixes:**
+     - Enhanced series slug resolution in `scraper.py` using `ingest.parse_series_chapter()` and support for `/series/` paths (in addition to `/comics/` and `/manga/`).
+     - Enhanced `watchlist.find()` to support normalized alphanumeric matching (e.g. matching `a-regressors-...` with `a-regressor-s-...`).
+     - Updated `providers.canonical_key()` regex to match Asura URLs under both `/comics/` and `/series/`.
+
+- **Live Verification Evidence:**
+  - Simulated primary Asura failure (Cloudflare 403) on Chapter 33:
+    `[!] Primary URL failed (Cloudflare 403 Forbidden). Initiating Auto-Failover Guard for: https://asurascans.com/comics/a-regressors-tale-of-cultivation-3ec3b16f/chapter/33`
+    `[*] Auto-failover attempting mirror: https://www.mgeko.cc/reader/en/a-regressors-tale-of-cultivation-chapter-33-eng-li/`
+    `[✓] Auto-Failover Guard SUCCESS: Downloaded 15 panels from https://www.mgeko.cc/reader/en/a-regressors-tale-of-cultivation-chapter-33-eng-li/`
+  - Simulated failure with new `/series/` domain structure:
+    `[✓] Auto-Failover Guard SUCCESS: Downloaded 25 panels from secondary mirror.`
