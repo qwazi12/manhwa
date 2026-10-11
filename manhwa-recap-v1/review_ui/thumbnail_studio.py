@@ -275,7 +275,26 @@ def readable_ink(bg):
 def cover_file(pdir):
     """This chapter's copy of the series' real cover, or ""."""
     c = sorted(glob.glob(os.path.join(pdir, "pages", COVER_NAME + ".*")))
-    return c[0] if c else ""
+    if c:
+        return c[0]
+    try:
+        pj = os.path.join(pdir, "project.json")
+        if os.path.exists(pj):
+            with open(pj, encoding="utf-8") as f:
+                meta = json.load(f)
+            if meta.get("kind") == "range" and meta.get("series_id"):
+                sid = meta["series_id"]
+                a = meta.get("chapters_start", 1)
+                root = os.path.dirname(pdir)
+                for sib in (f"{sid}_{a}", f"{sid}_1"):
+                    sib_pdir = os.path.join(root, sib)
+                    if os.path.isdir(sib_pdir):
+                        sib_c = sorted(glob.glob(os.path.join(sib_pdir, "pages", COVER_NAME + ".*")))
+                        if sib_c:
+                            return sib_c[0]
+    except Exception:
+        pass
+    return ""
 
 
 def cover_candidates(pdir):
@@ -290,13 +309,48 @@ def cover_candidates(pdir):
                    glob.glob(os.path.join(pdir, "pages", "*.jpg")) +
                    glob.glob(os.path.join(pdir, "pages", "*.png"))
                    if COVER_NAME not in os.path.basename(p))
-    # A real cover always wins: page 1 of a chapter is a story page, not the
-    # series' canonical artwork, and using it made the anchor look arbitrary.
+    if not cover and not pages:
+        try:
+            pj = os.path.join(pdir, "project.json")
+            if os.path.exists(pj):
+                with open(pj, encoding="utf-8") as f:
+                    meta = json.load(f)
+                if meta.get("kind") == "range" and meta.get("series_id"):
+                    sid = meta["series_id"]
+                    a = meta.get("chapters_start", 1)
+                    root = os.path.dirname(pdir)
+                    ch_pdir = os.path.join(root, f"{sid}_{a}")
+                    if os.path.isdir(ch_pdir):
+                        return cover_candidates(ch_pdir)
+        except Exception:
+            pass
     return (cover + pages)[:3]
 
 
 def panel_paths(pdir):
-    return sorted(glob.glob(os.path.join(pdir, "crops", "*.png")))
+    paths = sorted(glob.glob(os.path.join(pdir, "crops", "*.png")))
+    if paths:
+        return paths
+    try:
+        pj = os.path.join(pdir, "project.json")
+        if os.path.exists(pj):
+            with open(pj, encoding="utf-8") as f:
+                meta = json.load(f)
+            if meta.get("kind") == "range" and meta.get("series_id"):
+                sid = meta["series_id"]
+                a = meta.get("chapters_start", 1)
+                b = meta.get("chapters_end", a)
+                root = os.path.dirname(pdir)
+                constituent = []
+                for n in range(int(a), int(b) + 1):
+                    ch_pdir = os.path.join(root, f"{sid}_{n}")
+                    if os.path.isdir(ch_pdir):
+                        constituent.extend(glob.glob(os.path.join(ch_pdir, "crops", "*.png")))
+                if constituent:
+                    return sorted(constituent)
+    except Exception:
+        pass
+    return []
 
 
 # ------------------------------------------------------- focal panel choice

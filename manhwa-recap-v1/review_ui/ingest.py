@@ -66,12 +66,44 @@ def parse_series_chapter(url):
     m3 = re.search(r"/([^/]+)/chapter/([^/]+)", url_clean)
     if m3:
         return m3.group(1), m3.group(2)
+    # 1. Check watchlist if the URL belongs to a known registered series mirror
+    try:
+        import watchlist as _wl
+        wl = _wl.load(os.path.join(PROJECTS, "_watchlist"))
+        owner, _m = _wl.find_by_mirror(wl, url)
+        if owner and owner.get("id"):
+            m_ch = re.search(r'(?:chapter|ch|episode|ep)[-_/]?(\d+(?:\.\d+)?)', url, re.I)
+            if m_ch:
+                return owner["id"], m_ch.group(1)
+    except Exception:
+        pass
+
     parts = [p for p in url_clean.split("/") if p]
-    if len(parts) >= 2:
-        if "." in parts[-2] or len(parts[-2]) < 2:
-            h = hashlib.md5(url.encode("utf-8")).hexdigest()[:8]
-            return "series", h
-        return parts[-2], parts[-1]
+    if parts:
+        last = parts[-1]
+        # 2. Check compound mirror slug: <series>[-_](chapter|ch|episode|ep)[-_]<num>...
+        m_compound = re.search(r'^(.*?)[-_](?:chapter|ch|episode|ep)[-_](\d+(?:\.\d+)?)(?:[-_].*)?$', last, re.I)
+        if m_compound:
+            return m_compound.group(1), m_compound.group(2)
+
+        # 3. Check if last is chapter number or ch-<num>
+        m_ch = re.search(r'^(?:chapter|ch|episode|ep)?[-_]?(\d+(?:\.\d+)?)$', last, re.I)
+        if m_ch and len(parts) >= 2:
+            pen = parts[-2]
+            if pen not in ("en", "es", "fr", "raw", "reader", "read", "manga", "comics"):
+                return pen, m_ch.group(1)
+            elif len(parts) >= 3:
+                return parts[-3], m_ch.group(1)
+
+        if len(parts) >= 2:
+            pen = parts[-2]
+            if pen in ("en", "es", "fr", "raw", "reader", "read") and len(parts) >= 3:
+                return parts[-3], parts[-1]
+            if "." in pen or len(pen) < 2:
+                h = hashlib.md5(url.encode("utf-8")).hexdigest()[:8]
+                return "series", h
+            return pen, parts[-1]
+
     h = hashlib.md5(url.encode("utf-8")).hexdigest()[:8]
     return "series", h
 

@@ -1075,6 +1075,7 @@ def _propagate_series_defaults(sid, series, pack):
             csid, cseries, ch_n, cmeta = _series_ident(pdir)
             if csid != sid:
                 continue
+            ch_label = str(cmeta.get("chapter") or (ch_n if ch_n is not None else "")).strip()
             store = load_publish(pdir)
             target_keys = list(store.keys())
             if DRAFT not in target_keys:
@@ -1082,11 +1083,24 @@ def _propagate_series_defaults(sid, series, pack):
             for k in target_keys:
                 item = dict(store.get(k) or {})
                 if t_tmpl:
-                    item["title"] = _apply_title_template(t_tmpl, ch_n)
+                    item["title"] = _apply_title_template(t_tmpl, ch_label)
                 if d_tmpl:
-                    item["description"] = _apply_desc_template(d_tmpl, ch_n)
+                    item["description"] = _apply_desc_template(d_tmpl, ch_label)
+                    if cmeta.get("kind") == "range":
+                        marks = (cmeta.get("build") or {}).get("marks")
+                        if marks:
+                            ts_lines = []
+                            for c_num, sec_mark in marks:
+                                mins = int(sec_mark // 60)
+                                s = int(sec_mark % 60)
+                                hrs = mins // 60
+                                m = mins % 60
+                                time_str = f"{hrs}:{m:02d}:{s:02d}" if hrs > 0 else f"{m:02d}:{s:02d}"
+                                ts_lines.append(f"{time_str} Chapter {c_num}")
+                            if ts_lines and "Timestamps:" not in item["description"]:
+                                item["description"] = item["description"].rstrip() + "\n\nTimestamps:\n" + "\n".join(ts_lines)
                 if tags:
-                    item["tags"] = _adapt_tags_for_chapter(tags, cseries, ch_n)
+                    item["tags"] = _adapt_tags_for_chapter(tags, cseries, ch_label)
                 if playlist:
                     item["playlist"] = playlist
                 if privacy:
@@ -1602,21 +1616,40 @@ def _ensure_project_cover(pdir):
         return have[0]
     try:
         import watchlist as _wl
-        meta = _read_json(os.path.join(pdir, "project.json"))
-        sx, _m = _wl.find_by_mirror(_wl.load(_wl_root()), meta.get("url") or "")
-        if not sx:
-            return ""
-        try:
-            api_watchlist_cover(sx["id"])               # fetches and caches it if needed
-        except HTTPException:
-            return ""
-        for ext in ("jpg", "png", "webp"):
-            src = os.path.join(_wl_root(), "_covers", f"{sx['id']}.{ext}")
-            if os.path.exists(src):
-                os.makedirs(os.path.join(pdir, "pages"), exist_ok=True)
-                dst = os.path.join(pdir, "pages", f"{tstudio.COVER_NAME}.{ext}")
-                _sh.copyfile(src, dst)
-                return dst
+        meta = _read_json(os.path.join(pdir, "project.json")) or {}
+        wl = _wl.load(_wl_root())
+        sx, _m = _wl.find_by_mirror(wl, meta.get("url") or "")
+        sid = meta.get("series_id") or _series_ident(pdir)[0]
+        if not sx and sid:
+            sx = _wl.find(wl, sid)
+        if not sx and meta.get("series"):
+            s_name = meta.get("series").lower().strip()
+            sx = next((s for s in wl.get("series", [])
+                       if s.get("title", "").lower().strip() == s_name or s.get("id") == sid), None)
+        if sx:
+            try:
+                api_watchlist_cover(sx["id"])               # fetches and caches it if needed
+            except Exception:
+                pass
+            for ext in ("jpg", "png", "webp"):
+                src = os.path.join(_wl_root(), "_covers", f"{sx['id']}.{ext}")
+                if os.path.exists(src):
+                    os.makedirs(os.path.join(pdir, "pages"), exist_ok=True)
+                    dst = os.path.join(pdir, "pages", f"{tstudio.COVER_NAME}.{ext}")
+                    _sh.copyfile(src, dst)
+                    return dst
+        # Check sibling chapters of the same series in PROJECTS
+        if sid:
+            p_root = os.path.dirname(pdir)
+            if os.path.isdir(p_root):
+                for sib in os.listdir(p_root):
+                    if sib != os.path.basename(pdir) and (sib.startswith(sid) or sid in sib):
+                        sib_cov = _g.glob(os.path.join(p_root, sib, "pages", tstudio.COVER_NAME + ".*"))
+                        if sib_cov:
+                            os.makedirs(os.path.join(pdir, "pages"), exist_ok=True)
+                            dst = os.path.join(pdir, "pages", f"{tstudio.COVER_NAME}{os.path.splitext(sib_cov[0])[1]}")
+                            _sh.copyfile(sib_cov[0], dst)
+                            return dst
     except Exception:
         return ""
     return ""
@@ -3079,33 +3112,56 @@ def api_range_build(body: RangeIn):
             kids = bool(sp.get("default_made_for_kids", False))
             synth = bool(sp.get("default_synthetic_disclosure", True))
 
-            # 5. Thumbnail: Inherit approved thumbnail from constituent chapters or cover
+            # 5. Thumbnail: Inherit series cover, populate local crops, and generate Thumbnail Studio concepts
             import thumbnail as _tb
+            import thumbnail_studio as _tstudio
+            import shutil as _sh
+            import glob as _glob
+            os.makedirs(os.path.join(rdir, "crops"), exist_ok=True)
+            _copied = 0
+            for n, cp, _ in pl["chapters"]:
+                for cr in _glob.glob(os.path.join(cp, "crops", "*.png")):
+                    dst_cr = os.path.join(rdir, "crops", f"ch{n}_{os.path.basename(cr)}")
+                    if not os.path.exists(dst_cr):
+                        try:
+                            _sh.copyfile(cr, dst_cr)
+                            _copied += 1
+                        except Exception:
+                            pass
+                    if _copied >= 30:
+                        break
+                if _copied >= 30:
+                    break
+
+            _ensure_project_cover(rdir)
             copied_thumb = False
-            for n, cp, cname in pl["chapters"]:
-                t_path = _tb.path_for(cp, cname)
-                if t_path and os.path.exists(t_path):
-                    try:
-                        with open(t_path, "rb") as tf:
-                            _tb.save(rdir, name, tf.read())
-                        copied_thumb = True
-                        break
-                    except Exception:
-                        pass
+            try:
+                api_thumbcopilot_generate(ThumbGenIn(project=range_pid, name=name))
+                cs = (_tstudio.get_concepts(rdir, name) or {}).get("concepts") or []
+                style = _tstudio.load_style(_yt_root(), _tstudio.series_key(meta))
+                target_comp = style.get("composition") if style.get("approved") else None
+                chosen_c = None
+                if target_comp:
+                    chosen_c = next((c for c in cs if c.get("composition") == target_comp), None)
+                if not chosen_c:
+                    chosen_c = next((c for c in cs if c.get("recommended")), cs[0] if cs else None)
+                if chosen_c:
+                    api_thumbcopilot_apply(ThumbApplyIn(project=range_pid, name=name, concept_id=chosen_c["id"]))
+                    copied_thumb = True
+            except Exception as e:
+                print(f"[range_build] thumbnail copilot note: {e}", flush=True)
+
             if not copied_thumb:
-                for n, cp, _ in pl["chapters"]:
-                    for c_file in ("cover.jpg", "cover.png", "cover.webp"):
-                        c_path = os.path.join(cp, c_file)
-                        if os.path.exists(c_path):
-                            try:
-                                with open(c_path, "rb") as tf:
-                                    _tb.save(rdir, name, tf.read())
-                                copied_thumb = True
-                                break
-                            except Exception:
-                                pass
-                    if copied_thumb:
-                        break
+                for n, cp, cname in pl["chapters"]:
+                    t_path = _tb.path_for(cp, cname)
+                    if t_path and os.path.exists(t_path):
+                        try:
+                            with open(t_path, "rb") as tf:
+                                _tb.save(rdir, name, tf.read())
+                            copied_thumb = True
+                            break
+                        except Exception:
+                            pass
 
             # Save complete publish record with all Series Defaults applied!
             store = load_publish(rdir)
@@ -8394,8 +8450,61 @@ def _scheduler_loop():
         time.sleep(_autopilot.TICK_SECONDS)
 
 
+def _heal_project_folders():
+    import ingest as _i
+    root = _i.PROJECTS
+    if not os.path.isdir(root):
+        return
+    for pid in list(os.listdir(root)):
+        old_dir = os.path.join(root, pid)
+        if not os.path.isdir(old_dir):
+            continue
+        if pid.startswith("en_") and ("-chapter-" in pid or "cultivation" in pid or "regressor" in pid):
+            pj = os.path.join(old_dir, "project.json")
+            if os.path.exists(pj):
+                try:
+                    data = json.load(open(pj))
+                    url = data.get("url") or ""
+                    s, c = _i.parse_series_chapter(url)
+                    if s and s != "en" and c:
+                        new_pid = f"{_i.clean_series_slug(s)}_{c}"
+                        new_dir = os.path.join(root, new_pid)
+                        if not os.path.exists(new_dir):
+                            os.rename(old_dir, new_dir)
+                            data["id"] = new_pid
+                            data["series"] = _i.to_title_case(_i.clean_series_slug(s))
+                            data["chapter"] = str(c)
+                            for k in ("crops", "audio", "descriptions"):
+                                if data.get(k) and old_dir in str(data[k]):
+                                    data[k] = str(data[k]).replace(old_dir, new_dir)
+                            with open(os.path.join(new_dir, "project.json"), "w", encoding="utf-8") as f:
+                                json.dump(data, f, indent=2)
+                            _ensure_project_cover(new_dir)
+                            print(f"[heal_project_folders] Migrated {pid} -> {new_pid}", flush=True)
+                except Exception as e:
+                    print(f"[heal_project_folders] Error healing {pid}: {e}", flush=True)
+
+    for bad_key in ("en", "En"):
+        bad_style = os.path.join(_yt_root(), "_thumbstyles", f"{bad_key}.json")
+        if os.path.exists(bad_style):
+            try:
+                os.remove(bad_style)
+            except OSError:
+                pass
+        bad_pack = os.path.join(_yt_root(), "_series_packs", f"{bad_key}.json")
+        if os.path.exists(bad_pack):
+            try:
+                os.remove(bad_pack)
+            except OSError:
+                pass
+
+
 @app.on_event("startup")
 def _start_background_work():
+    try:
+        _heal_project_folders()
+    except Exception as e:
+        print(f"[boot] project folder healing failed: {e}", flush=True)
     try:
         import db as _db_mod
         _db_mod.init_db()
@@ -9055,8 +9164,15 @@ def _chapter_rows():
         wl = _wl.load(_wl_root())
         for r in rows:
             sx, m = _wl.find_by_mirror(wl, r["url"]) if r.get("url") else (None, None)
-            r["series_id"] = sx["id"] if sx else None
-            r["cover"] = bool(sx and any(mm.get("cover") for mm in sx.get("mirrors") or []))
+            sid = (sx["id"] if sx else None) or _i.clean_series_slug(re.sub(r"[^a-z0-9]+", "-", (r.get("series") or "").lower()).strip("-"))
+            r["series_id"] = sid
+            has_cover = bool(sx and any(mm.get("cover") for mm in sx.get("mirrors") or []))
+            if not has_cover and sid:
+                for ext in ("jpg", "png", "webp"):
+                    if os.path.exists(os.path.join(_wl_root(), "_covers", f"{sid}.{ext}")):
+                        has_cover = True
+                        break
+            r["cover"] = has_cover
     except Exception:
         pass
     rows.sort(key=lambda r: -(r["updated"] or 0))

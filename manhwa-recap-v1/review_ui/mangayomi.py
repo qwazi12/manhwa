@@ -182,16 +182,21 @@ def create_mangayomi_provider(base_provider_cls):
             s = get_source_for_url(url)
             p = urllib.parse.urlparse(url)
             path = p.path.rstrip('/')
-            # Remove /chapter/\d+ or /episode-\d+
-            path = re.sub(r'/(?:chapter|ch|episode|ep)[/-]?\d+.*$', '', path, flags=re.I)
+            # Handle reader paths like /reader/en/<slug>-chapter-<num>-...
+            m_reader = re.match(r'^/reader/(?:[a-z]{2}(?:-[a-z]{2})?/)?(.*?)(?:[-_/](?:chapter|ch|episode|ep)[-_/]?\d+.*)?$', path, flags=re.I)
+            if m_reader:
+                slug = m_reader.group(1).rstrip('/')
+                return f"{p.scheme}://{p.netloc}/manga/{slug}"
+            # Remove /chapter/\d+ or /episode-\d+ or -chapter-\d+
+            path = re.sub(r'[-_/](?:chapter|ch|episode|ep)[-_/]?\d+.*$', '', path, flags=re.I)
             return f"{p.scheme}://{p.netloc}{path}"
 
         def series_key(self, url):
             s = get_source_for_url(url)
             sid = s['id'] if s else 'mirror'
-            p = urllib.parse.urlparse(url)
             norm = self.normalize_series_url(url)
-            slug = norm.split('/')[-1] or norm.split('/')[-2] if '/' in norm else 'series'
+            slug = norm.split('/')[-1] or (norm.split('/')[-2] if '/' in norm else 'series')
+            slug = re.sub(r'[-_/](?:chapter|ch|episode|ep)[-_/]?\d+.*$', '', slug, flags=re.I)
             return f"mangayomi:{sid}:{slug}"
 
         def discover_chapters(self, series_url, _fetcher=None):

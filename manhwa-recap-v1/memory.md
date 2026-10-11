@@ -9810,3 +9810,44 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
   3. Extended `test_range_merge.py`:
      - Verifies that saving series defaults on chapter 23 automatically propagates the title template, description template, timestamps, tags, playlist, targets, and privacy to the merged `final_range_23-25.mp4`.
      - Passed with 100% assertions.
+
+### Addendum 3 — 2026-10-11: Mirror Ingest Normalization & First-Class Merged Compilation Treatment
+
+- **User Directives:**
+  1. Fix the mirror ingestion issue where Chapter 33 scraped from mirror `mgeko.cc` was treated as a completely different series named `"En"` with chapter `"A Regressors Tale Of Cultivation Chapter 33 Eng Li"`, generating a disconnected `"Pick the title hook for En"` card and missing its thumbnail/cover.
+  2. Ensure the exact same logic for individual chapters applies to merged compilation videos: chapter naming, tracking in library and chapter lists, description templates with timestamps, tags, and especially THUMBNAILS (using the series visual DNA, palette, cover art, and badge `CH. {start}-{end}`).
+
+- **Root Cause Analysis:**
+  1. **Mirror URL Ingestion Fracture:**
+     - Reader/mirror sites like MGeko use paths like `/reader/en/<series-slug>-chapter-<num>-eng-li/`.
+     - In `mangayomi.py`, `MangayomiProvider.normalize_series_url` only stripped slashes before chapter (`/(?:chapter|ch)...`), so compound slugs with hyphens (`-chapter-33-eng-li`) were untouched. As a result, its series key became `mangayomi:mgeko:a-regressors-tale-of-cultivation-chapter-33-eng-li` instead of `mangayomi:mgeko:a-regressors-tale-of-cultivation`, failing the `watchlist.find_by_mirror` lookup.
+     - `ingest.py` (`parse_series_chapter`) fell back to `parts[-2]`, which was the language code `"en"`, creating series `"En"`, chapter `"A Regressors Tale Of Cultivation Chapter 33 Eng Li"`, and folder `en_a-regressors-tale-of-cultivation-chapter-33-eng-li`. It had no series pack, no cover art, and orphaned chapter 33 away from chapters 1-32.
+  2. **Merged Videos Thumbnail & Tracking Inequality:**
+     - In `thumbnail_studio.py`, `panel_paths()` and `cover_candidates()` only searched `pdir/crops/` and `pdir/pages/`. A merged range project (`kind == "range"`) only holds the concatenated video and had no crops, throwing `422: no usable panels found for this project` and getting skipped by `_rerender_chosen_thumbnails()`.
+     - In `server.py`, `_propagate_series_defaults()` attempted to substitute `ch_n` which was `None` for ranges (because `"23-25"` is not an int), resulting in `"None"` in title/description replacements.
+     - In `_chapter_rows()`, range projects had no mirror URL, so `r["series_id"]` was None and `r["cover"]` was False, preventing proper grouping and cover display in the UI.
+
+- **Actions Taken:**
+  1. **Fixed Mirror URL Normalization & Ingest Parser:**
+     - `mangayomi.py`: Updated `normalize_series_url()` and `series_key()` to handle `/reader/(en|raw)/<series>-chapter-<num>` paths and strip compound `-chapter-\d+` slugs so mirrors resolve to the canonical series key.
+     - `ingest.py`: Enhanced `parse_series_chapter()` to check the watchlist for registered mirror URLs, parse compound slugs (`<series>[-_](chapter|ch)[-_]<num>`), and prevent language codes (`en`, `es`, `raw`) from ever becoming a series name.
+     - Added `_heal_project_folders()` in `server.py` startup to migrate any bogus `en_*` projects on the Railway persistent volume (e.g. `en_a-regressors-tale-of-cultivation-chapter-33-eng-li` -> `a-regressors-tale-of-cultivation_33`), fixing `project.json` and cleaning up orphan `"En"` packs/styles.
+  2. **First-Class Merged Compilation Thumbnails & Tracking:**
+     - `thumbnail_studio.py`:
+       - `panel_paths()`: Added fallback for range compilations to gather candidate panels from constituent chapters (`{series_id}_{n}`).
+       - `cover_file()` & `cover_candidates()`: Added fallback to constituent chapters and series covers.
+     - `server.py`:
+       - `_ensure_project_cover()`: Now checks `series_id`, series title, and sibling projects in `PROJECTS` so range projects always receive the canonical series cover.
+       - `_propagate_series_defaults()`: Uses `ch_label = "23-25"` for range compilations so title/description templates substitute correctly, appends chapter timestamps, adapts tags, and rerenders thumbnails.
+       - `api_range_build()`: Copies top panels into `rdir/crops/`, runs `api_thumbcopilot_generate()` with the series visual DNA, draws badge `CH. {start}-{end}`, and applies the recommended thumbnail.
+       - `_chapter_rows()`: Resolves `series_id` and `cover` for range projects so they group under their parent series in All Chapters and Tracker.
+
+- **Verification Evidence:**
+  - `test_range_merge.py`: Passed with 100% assertions (`PASS range merge inherits 'Save as series defaults' perfectly!`).
+  - Unit test verification suite:
+    - Test 1 (Mirror URL parsing for Mgeko Ch.33): Passed -> `('a-regressors-tale-of-cultivation', '33')`.
+    - Test 2 (Mangayomi normalization & series key): Passed.
+    - Test 3 (Project folder self-healing migration): Passed.
+    - Test 4 (Thumbnail constituent panel resolution for ranges): Passed.
+  - `test_posting_schedule.py`: 25/25 passed.
+  - `test_providers.py`: 33/33 passed.
