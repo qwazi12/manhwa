@@ -10023,3 +10023,9 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
   - new `test_range_thumbnail.py` (2 pass);
   - `test_thumbnail_studio` 115/115, `test_thumbnail` 35/35, range tests pass.
 - **Known:** with the B3 title formula the hook overlay is "FULL 1H", taken from the title, which rounds up to at least 1H. Left as is.
+- **Live, after deploy 43cf8de (SUCCESS):**
+  - Regenerated and applied thumbnails for all 8 queued range videos via `/api/thumbcopilot/generate` + `/apply`. Choice rule: the series' approved composition, else the recommended one.
+  - Every one now shows its range: CH 32-33, 38-41, 361-362, 88-91, 181-183 (×2), 104-108, 115-117. Fog Land 38-41 previously had no thumbnail.
+  - None had posted. Posting reads the thumbnail file at send time, so the queued posts use the new ones.
+  - Weak pick to flag to the owner: Mount Hua 181-183 chose a panel with Korean SFX text and a side character.
+  - Two show the "FULL 1H" overlay taken from the B3 title.
