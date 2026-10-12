@@ -718,7 +718,12 @@ def run_now(root, deps, series_id, chapter, now=None, remake=False):
         if pid in deps["live_projects"]():
             raise ValueError(f"ch.{chapter} is already ingesting")
         if remake and os.path.isdir(os.path.join(root, pid)):
-            raise ValueError(f"ch.{chapter} still has its folder — open it instead of making it again")
+            if os.path.exists(os.path.join(root, pid, "project.json")):
+                raise ValueError(f"ch.{chapter} still has its folder — open it instead of making it again")
+            # a run that never finished left pages/crops but no project.json
+            # (Murim Psychopath ch.46, 2026-10-11): move it aside — kept, not
+            # deleted ("_" folders are ignored) — so the new run starts clean
+            os.replace(os.path.join(root, pid), os.path.join(root, f"_partial_{pid}_{int(now)}"))
         job = deps["enqueue"](url, st["settings"].get("engine", "gemini"))
         record_queued(root, key, series_id=series_id, chapter=chapter, project=pid,
                       job=job, source="autopilot", url=url)

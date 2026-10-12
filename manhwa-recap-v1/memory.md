@@ -10068,3 +10068,7 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
   - Correctly finds none for Stellar Swordmaster, Regressed Mercenary, Fated Villain and Too Many Heroes.
   - A real failover from a broken Mount Hua ch.183 link with NO saved backups downloaded 17 full pages from `mgeko …-mg1-chapter-183`.
   - Tests: `test_mgeko_lookup` 3 pass; watchlist 39/39, paste_add 22/22, release_calendar 16/16, scraper_sources 12/12, providers 33/33, tracker 35/35, `test_scraper` 15/15.
+- **Live, after deploy 0a7bf96:**
+  - `POST /api/watchlist/auto_mirrors` attached MGeko backups to Extras Academy, Mount Hua, Iron-Blooded Hound, Former Supreme and Dark Mage.
+  - The Murim ch.46 remake was refused: `murim-psychopath_46/` exists, but it's an unfinished leftover (pages, crops, audio, no `project.json`).
+  - **Follow-up fix:** remake refuses only when `project.json` exists. A leftover is moved aside to `_partial_<pid>_<ts>` (kept, ignored by listings). `test_autopilot` 55/55.

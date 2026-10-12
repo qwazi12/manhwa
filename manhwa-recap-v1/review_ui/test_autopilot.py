@@ -197,7 +197,14 @@ def main():
           r2["chapter"] == gone_ch and len(fake.queued) == n1 + 1)
     other = [e for e in done if e["chapter"] != gone_ch]
     if other:
+        # a leftover with no project.json is moved aside and the chapter made
+        os.makedirs(os.path.join(root, "alpha_" + other[0]["chapter"], "pages"), exist_ok=True)
+        r3 = ap.run_now(root, fake.deps(), "alpha", other[0]["chapter"], now=tomorrow, remake=True)
+        check("remake moves an unfinished leftover aside (kept) and makes the chapter",
+              r3["chapter"] == other[0]["chapter"] and not os.path.isdir(os.path.join(root, "alpha_" + other[0]["chapter"]))
+              and any(n.startswith("_partial_alpha_" + other[0]["chapter"]) for n in os.listdir(root)))
         os.makedirs(os.path.join(root, "alpha_" + other[0]["chapter"]), exist_ok=True)
+        open(os.path.join(root, "alpha_" + other[0]["chapter"], "project.json"), "w").write("{}")
         try:
             ap.run_now(root, fake.deps(), "alpha", other[0]["chapter"], now=tomorrow, remake=True)
             check("remake refuses a chapter whose folder still exists", False)
