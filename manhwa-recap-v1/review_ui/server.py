@@ -9037,6 +9037,7 @@ class AutopilotSettingsIn(BaseModel):
     enabled: bool | None = None
     per_day: int | None = None
     budget_usd: float | None = None
+    release_wait_hours: dict[str, float] | None = None   # {"asura": 24, "default": 2}
 
 
 @app.post("/api/autopilot/settings")

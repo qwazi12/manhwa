@@ -49,7 +49,7 @@ export default function JobsBar({ onChange }: { onChange?: () => void }) {
                 <button className="sm" onClick={() => act(async () => { await api("/api/jobs/resume", { job_id: j.id }); await reload(); onChange?.(); }, "Resumed")}>▶ Resume</button>)}
               {j.status === "in_queue" && <button className="sm ghost" aria-label="Take out of the queue" onClick={() => act(async () => { await api("/api/render-queue/remove", { id: j.id }); await reload(); }, "Taken out of the queue")}>✕</button>}
               {j.status === "error" && <button className="sm ghost" aria-label="Dismiss" onClick={() => hide(j.id)}>✕</button>}
-              {["running", "queued", "held", "paused", "pausing"].includes(j.status) && <ConfirmButton className="sm danger" confirm="Tap to stop" onConfirm={() => control(j.id, "stop")}>■</ConfirmButton>}
+              {["running", "queued", "held", "paused", "pausing"].includes(j.status) && <ConfirmButton className="sm danger" confirm="Stop this job? It halts after its current step." onConfirm={() => control(j.id, "stop")}>■</ConfirmButton>}
             </span>
           </div>
         );

@@ -51,7 +51,34 @@ from datetime import datetime, timezone
 
 STATE_NAME = "_autopilot.json"
 DEFAULTS = {"enabled": False, "per_day": 4, "engine": "gemini", "window": 3,
-            "paused_series": [], "budget_usd": 6.0}
+            "paused_series": [], "budget_usd": 6.0,
+            # owner, 2026-10-12: Asura keeps a new chapter behind its early-access
+            # paywall for ~12-24 h, so scraping it on release day hits a block
+            "release_wait_hours": {"asura": 24, "default": 2}}
+MAX_WAIT_HOURS = 72
+
+
+def release_wait_left(settings, mirror, chapter, now=None):
+    """Seconds this chapter must still wait after its source first listed it
+    (0 = go). Chapters seen before this rule existed never wait."""
+    now = time.time() if now is None else now
+    fs = (mirror or {}).get("first_seen") or {}
+    seen = fs.get(norm_chapter(chapter)) or fs.get(str(chapter))
+    if not seen:
+        return 0
+    waits = {**DEFAULTS["release_wait_hours"], **((settings or {}).get("release_wait_hours") or {})}
+    hours = float(waits.get((mirror or {}).get("source") or "", waits.get("default", 0)) or 0)
+    return max(0, int(seen + hours * 3600 - now))
+
+
+def _wait_reason(chapter, left, now):
+    try:
+        from zoneinfo import ZoneInfo
+        at = datetime.fromtimestamp(now + left, ZoneInfo("America/New_York")).strftime("%a %H:%M ET")
+    except Exception:
+        at = datetime.fromtimestamp(now + left, timezone.utc).strftime("%a %H:%M UTC")
+    return (f"ch.{chapter} just came out — waiting for its free release (early-access paywall); "
+            f"tries after {at} (~{left // 3600}h {left % 3600 // 60}m)")
 MAX_PER_DAY = 20
 MAX_BUDGET = 100.0          # $ a day autopilot may spend (owner: $6; site cap $10)
 FAIL_LIMIT = 2              # a chapter failing this often blocks its series
@@ -193,6 +220,17 @@ def update_settings(root, patch):
         if not 0 <= b <= MAX_BUDGET:
             raise ValueError(f"autopilot budget must be $0–{MAX_BUDGET:.0f} a day")
         clean["budget_usd"] = round(b, 2)
+    if patch.get("release_wait_hours") is not None:
+        w = patch["release_wait_hours"]
+        if not isinstance(w, dict):
+            raise ValueError("release wait must be {source: hours}")
+        clean_w = {}
+        for k, v in w.items():
+            h = float(v)
+            if not 0 <= h <= MAX_WAIT_HOURS:
+                raise ValueError(f"release wait must be 0–{MAX_WAIT_HOURS} hours")
+            clean_w[str(k)] = h
+        clean["release_wait_hours"] = {**DEFAULTS["release_wait_hours"], **clean_w}
     if patch.get("engine") is not None:
         if patch["engine"] != "gemini":
             raise ValueError("autopilot runs on Gemini only")
@@ -389,6 +427,8 @@ def candidates(st, series_view, canon, live_projects=(), now=None):
             row.update(state="cooldown", reason=f"ch.{c} failed once; retrying in ~{mins} min")
         elif e and e.get("project") in live_projects:
             row.update(state="running", reason=f"ch.{c} is ingesting")
+        elif release_wait_left(st["settings"], best, c, now):
+            row.update(state="waiting", reason=_wait_reason(c, release_wait_left(st["settings"], best, c, now), now))
         else:
             row["reason"] = f"next: ch.{c}" + (f" · {len(todo) - 1} more after it" if len(todo) > 1 else "")
         rows.append(row)
@@ -538,6 +578,8 @@ def priority_rows(st, series_view, canon, live_projects=(), now=None, running=No
             row.update(state="blocked", reason=f"failed {le['fails']}× — {le.get('error') or 'error'}")
         elif le and le.get("status") == "failed" and now - (le.get("failed_at") or 0) < FAIL_COOLDOWN:
             row.update(state="waiting", reason="failed once; tries again within the hour")
+        elif release_wait_left(st["settings"], best, ch, now):
+            row.update(state="waiting", reason=_wait_reason(ch, release_wait_left(st["settings"], best, ch, now), now))
         else:
             row["start"] = dict(cand, next=ch, priority=True)
         out.append(row)
@@ -732,6 +774,10 @@ def run_now(root, deps, series_id, chapter, now=None, remake=False):
         save(root, save_req)
     started = {"series": series["title"], "chapter": chapter, "job": job, "project": pid,
                "at": now, "requested": True}
+    left = release_wait_left(st["settings"], best, chapter, now)
+    if left:
+        started["warning"] = (f"ch.{chapter} came out less than {left // 3600 + 1}h ago — if the source still has it "
+                              "behind its early-access paywall, the download will fail; try again later")
     runtime["last_started"] = started
     audit("chapter_requested", **started)
     return started

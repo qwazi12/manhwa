@@ -1130,3 +1130,27 @@ Other details:
   - Before this fix it copied "[32-33] … Ch. 31" into Regressor ch.31.
   - `POST /api/publish/repair_titles` (dry run; `{"apply": true}` to write) puts each unposted chapter's own number back, fixes the series templates, and drops the old suffix.
 - The tag rewriting for series defaults had literal backspace characters where `\b` was meant, so it never matched. Fixed.
+
+## E22. Thumbnails, hooks, release wait, confirms (2026-10-12)
+**One look per series.**
+- A series' thumbnail look is filed under its tracker id, not the chapter's series text. That text varied: "the-extras-academy-survival-guide-6465" vs "the-extra-s-…", "fog-land" vs "fog-land-9299".
+- At startup, older looks are folded into one, keeping the approved, newest one.
+- When a video gets its thumbnail automatically, it uses the series' approved look. Without one, it uses the look most of the series' chapters already have.
+- **Use for series** redraws every unposted video of that series in that look, merged videos included.
+- `GET /api/thumbcopilot/consistency` lists, per series, the unposted videos that don't match.
+
+**Hook suggestions.**
+- The model is shown the hooks you've locked on other series, as the style to match.
+- It writes 5 hooks of 35–60 characters, with concrete stakes and ONE CAPS word. Vague formulas ("Slain, But Reborn!") are banned.
+- The 3 strongest are kept by a simple score: length, one power word, specific words, no filler.
+
+**Release wait (paywall).**
+- When the tracker checks a source, it records when each new chapter first appeared.
+- Autopilot and Scheduled-for-processing wait **24 h for Asura** and **2 h for other sites** from that moment. The chapter shows "waiting for its free release — tries after …".
+- Change the waits in Settings → Autopilot.
+- Make / Make again by hand still works at once, with a warning if the wait hasn't passed.
+
+**Confirms.**
+- Cheap or undoable actions are one tap: back to review, back in line, approve, untick segments, hook ideas, pause autopilot.
+- Spending, posting, deleting, stopping, merging, unmerging and locking a hook open a small dialog with **Cancel** and **Confirm**.
+- This replaces the old "tap again within 4.5 s" button that changed its own label.

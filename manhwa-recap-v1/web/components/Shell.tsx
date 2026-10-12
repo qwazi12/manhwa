@@ -70,8 +70,8 @@ function Frame({ children }: { children: ReactNode }) {
           {h && (
             <div className="spread">
               <span>Autopilot</span>
-              <ConfirmButton className={`sm ${h.autopilot.enabled ? "" : "danger"}`}
-                confirm={h.autopilot.enabled ? "Tap to pause" : "Tap to start"}
+              <ConfirmButton quick={h.autopilot.enabled} className={`sm ${h.autopilot.enabled ? "" : "danger"}`}
+                confirm={h.autopilot.enabled ? "Pause autopilot?" : "Start autopilot? It begins making chapters (and spending) within minutes."}
                 title={h.autopilot.enabled ? `Running: ${h.autopilot.per_day} chapters a day` : "Paused"}
                 onConfirm={() => act(async () => {
                   await api("/api/autopilot/settings", { enabled: !h.autopilot.enabled });

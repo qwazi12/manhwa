@@ -10188,3 +10188,14 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   - "Use for series" (`set_series_default`) redraws every unposted video of the series, merged ones too.
   - `GET /api/thumbcopilot/consistency`.
   - Tests: `test_series_look` (3).
+- **Items 5–6 deployed:** db45b14, SUCCESS; boot: "thumbnail looks unified for 4 series".
+- **Item 8 (release wait):**
+  - `watchlist.refresh_mirror` records `first_seen` per chapter (all 0 on the first record);
+  - `autopilot.release_wait_left` / `_wait_reason`; candidates and priority rows wait (Asura 24 h, default 2 h; `settings.release_wait_hours`, validated 0–72);
+  - `run_now` returns a warning shown as a toast;
+  - Settings has 2 inputs;
+  - `test_release_wait` (3); autopilot 55/55, priority 25/25, watchlist 39/39.
+- **Item 9 (confirms):**
+  - `ConfirmButton` now opens a dialog (Cancel/Confirm, Esc closes), or runs on one tap with `quick`.
+  - 9 actions marked quick, plus autopilot pause; "Tap to …" prompts rewritten.
+  - tsc clean, `next build` OK, mobile layout 39/39.

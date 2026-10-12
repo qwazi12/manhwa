@@ -82,7 +82,7 @@ function Jobs() {
                   <span className="small muted">{j.kind} · {j.status}{j.stage ? ` · ${j.stage}` : ""}{j.error ? ` · ${String(j.error).slice(0, 140)}` : ""} · {ago(j.ts)}{j.cost ? ` · ${money(j.cost)}` : ""}</span>
                 </div>
                 <div className="row">
-                  {k === "running" && <ConfirmButton className="sm danger" confirm="Tap to stop" onConfirm={() => act(async () => { await api("/api/jobs/control", { job_id: j.id, action: "stop" }); reload(); }, "Stopping")}>■ Stop</ConfirmButton>}
+                  {k === "running" && <ConfirmButton className="sm danger" confirm="Stop this job? It halts after its current step." onConfirm={() => act(async () => { await api("/api/jobs/control", { job_id: j.id, action: "stop" }); reload(); }, "Stopping")}>■ Stop</ConfirmButton>}
                   {k === "waiting" && <Busy className="sm" onClick={() => act(async () => { await api("/api/jobs/resume", { job_id: j.id }); reload(); }, "Resumed")}>▶ Resume</Busy>}
                   {(k === "today" || k === "earlier") && <ConfirmButton className="sm ghost" confirm="Delete the record?" onConfirm={() => act(async () => { await api("/api/jobs/delete", { job_ids: [j.id] }); reload(); }, "Record deleted")}>✕</ConfirmButton>}
                 </div>

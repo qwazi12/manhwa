@@ -72,32 +72,47 @@ export function Chips<T extends string>({ items, value, onChange }: { items: [T,
   );
 }
 
-/** Two taps for anything that spends money, posts, or deletes. No browser pop-ups. */
-export function ConfirmButton({ onConfirm, children, confirm, className = "", disabled, title }:
-  { onConfirm: () => Promise<any> | any; children: ReactNode; confirm: string; className?: string; disabled?: boolean; title?: string }) {
-  const [armed, setArmed] = useState(false);
+/** Owner, 2026-10-12: the old "tap, then tap again within 4.5 s" relabelled
+ *  the button and was easy to miss. Now: `quick` actions (cheap or undoable)
+ *  run on one tap; everything else opens a small dialog that says what will
+ *  happen, with Cancel and Confirm. No browser pop-ups. */
+export function ConfirmButton({ onConfirm, children, confirm, className = "", disabled, title, quick }:
+  { onConfirm: () => Promise<any> | any; children: ReactNode; confirm: string; className?: string; disabled?: boolean;
+    title?: string; quick?: boolean }) {
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const t = useRef<any>(null);
-  useEffect(() => () => clearTimeout(t.current), []);
+  const run = async () => {
+    setOpen(false);
+    setBusy(true);
+    try { await onConfirm(); } finally { setBusy(false); }
+  };
+  useEffect(() => {
+    if (!open) return;
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [open]);
   return (
-    <button
-      className={`${className} ${armed ? "armed" : ""}`}
-      disabled={disabled || busy}
-      title={title}
-      onClick={async () => {
-        if (!armed) {
-          setArmed(true);
-          t.current = setTimeout(() => setArmed(false), 4500);
-          return;
-        }
-        clearTimeout(t.current);
-        setArmed(false);
-        setBusy(true);
-        try { await onConfirm(); } finally { setBusy(false); }
-      }}
-    >
-      {busy ? "…" : armed ? confirm : children}
-    </button>
+    <>
+      <button className={className} disabled={disabled || busy} title={title}
+        onClick={() => (quick ? run() : setOpen(true))}>
+        {busy ? "…" : children}
+      </button>
+      {open && (
+        <div role="dialog" aria-modal="true" aria-label="Confirm" onClick={() => setOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,.55)",
+                   display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div className="card" onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 420, width: "100%", padding: 18, display: "grid", gap: 14 }}>
+            <div style={{ fontWeight: 600, lineHeight: 1.4 }}>{confirm}</div>
+            <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
+              <button className="sm ghost" onClick={() => setOpen(false)} autoFocus>Cancel</button>
+              <button className={`sm ${/danger/.test(className) ? "danger" : "primary"}`} onClick={run}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

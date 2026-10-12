@@ -32,7 +32,13 @@ function Autopilot({ d, reload }: any) {
   const ap = useApi<any>("/api/autopilot");
   const [perDay, setPerDay] = useState<number | "">("");
   const [budget, setBudget] = useState<number | "">("");
-  useEffect(() => { if (ap.data) { setPerDay(ap.data.settings.per_day); setBudget(ap.data.settings.budget_usd); } }, [ap.data]);
+  const [waitAsura, setWaitAsura] = useState<number | "">("");
+  const [waitOther, setWaitOther] = useState<number | "">("");
+  useEffect(() => { if (ap.data) {
+    setPerDay(ap.data.settings.per_day); setBudget(ap.data.settings.budget_usd);
+    const w = ap.data.settings.release_wait_hours || {};
+    setWaitAsura(w.asura ?? 24); setWaitOther(w.default ?? 2);
+  } }, [ap.data]);
   const on = d.autopilot.enabled;
   return (
     <Card title="Autopilot" right={<Pill tone={on ? "ok" : "warn"}>{on ? "● Running" : "⏸ Paused"}</Pill>}>
@@ -40,11 +46,13 @@ function Autopilot({ d, reload }: any) {
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <label className="field">Chapters a day<input id="ap-perday" type="number" min={0} max={20} value={perDay} onChange={(e) => setPerDay(e.target.value === "" ? "" : Number(e.target.value))} /></label>
         <label className="field">Daily budget ($)<input id="ap-budget" type="number" min={0} max={100} step={0.5} value={budget} onChange={(e) => setBudget(e.target.value === "" ? "" : Number(e.target.value))} /></label>
+        <label className="field" title="Asura keeps new chapters behind an early-access paywall for about a day">Wait after an Asura chapter drops (hours)<input id="ap-wait-asura" type="number" min={0} max={72} value={waitAsura} onChange={(e) => setWaitAsura(e.target.value === "" ? "" : Number(e.target.value))} /></label>
+        <label className="field">Wait for other sites (hours)<input id="ap-wait-other" type="number" min={0} max={72} value={waitOther} onChange={(e) => setWaitOther(e.target.value === "" ? "" : Number(e.target.value))} /></label>
       </div>
       <div className="row">
-        <Busy className="sm primary" onClick={() => act(async () => { await api("/api/autopilot/settings", { per_day: Number(perDay), budget_usd: Number(budget) }); reload(); ap.reload(); }, "Saved")}>Save</Busy>
+        <Busy className="sm primary" onClick={() => act(async () => { await api("/api/autopilot/settings", { per_day: Number(perDay), budget_usd: Number(budget), release_wait_hours: { asura: Number(waitAsura), default: Number(waitOther) } }); reload(); ap.reload(); }, "Saved")}>Save</Busy>
         <Busy className="sm ghost" title="re-read every series page now and run one autopilot check (free)" onClick={() => act(async () => { await api("/api/autopilot/check", {}); ap.reload(); }, "Checking — updates within a minute")}>↻ Check now</Busy>
-        <ConfirmButton className={`sm ${on ? "danger" : ""}`} confirm={on ? "Tap to pause" : "Tap to start"}
+        <ConfirmButton quick={on} className={`sm ${on ? "danger" : ""}`} confirm={on ? "Pause autopilot?" : "Start autopilot? It begins making chapters (and spending) within minutes."}
           onConfirm={() => act(async () => { await api("/api/autopilot/settings", { enabled: !on }); reload(); }, on ? "Paused" : "Running")}>
           {on ? "Pause autopilot" : "Start autopilot"}
         </ConfirmButton>

@@ -260,6 +260,17 @@ def refresh_mirror(root, series_id, series_key, _fetcher=None):
         return _pages[url]
     try:
         found = prov.discover_chapters(m["series_url"], _fetcher=_memo)
+        # when each chapter first appeared on this source (autopilot waits out
+        # Asura's early-access paywall from this moment; 2026-10-12). Chapters
+        # known before this was recorded count as long out (0).
+        fs = m.get("first_seen")
+        if fs is None:
+            fs = {str(c): 0 for c, _ in found}
+        else:
+            now_ = time.time()
+            for c, _ in found:
+                fs.setdefault(str(c), now_)
+        m["first_seen"] = fs
         m["chapters"] = [c for c, _ in found]
         m["chapter_count"] = len(found)
         m["latest"] = found[-1][0] if found else None

@@ -73,7 +73,7 @@ export default function Board({ id, onChange, sentBack, builtWith }:
         title={<div className="row small"><b>{mmss(sm.runtime)}</b><span className="muted">· {sm.in_video} of {sm.segments} segments in the video · {sm.panels} panels</span></div>}
         right={<div className="row">
           <Busy className="sm" onClick={() => run("/api/storyboard/set_included", { all: true, included: true }, "Every segment ticked")}>Tick all</Busy>
-          <ConfirmButton className="sm" confirm="Untick every segment?" onConfirm={() => run("/api/storyboard/set_included", { all: true, included: false }, "Every segment unticked")}>Tick none</ConfirmButton>
+          <ConfirmButton quick className="sm" confirm="Untick every segment?" onConfirm={() => run("/api/storyboard/set_included", { all: true, included: false }, "Every segment unticked")}>Tick none</ConfirmButton>
           <Busy className="sm" onClick={() => run("/api/storyboard/undo", {}, "Undone")} title="undo the last board change">↶ Undo</Busy>
         </div>}>
         <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", display: "grid", gap: 8 }}>

@@ -6,7 +6,7 @@ import { enc, when } from "@/lib/fmt";
 import PasteBox from "@/components/PasteBox";
 import AllChapters from "@/components/AllChapters";
 import ScheduleBoard from "@/components/ScheduleBoard";
-import { Busy, Card, Chips, ConfirmButton, Empty, PageHead, Pill, StatusPill, Tabs, useAct } from "@/components/ui";
+import { Busy, Card, Chips, ConfirmButton, Empty, PageHead, Pill, StatusPill, Tabs, useAct, useToast } from "@/components/ui";
 
 const TIERS: [string, string][] = [["greenlight", "Make now"], ["high_upside", "Next up"], ["watchlist", "Watching"]];
 const AP_STATE: Record<string, [string, string]> = {
@@ -144,6 +144,7 @@ function SeriesCard({ s, reload, prio, onPrio }: { s: any; reload: () => void; p
 function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; prio: any[]; onPrio: () => void }) {
   const src = useApi<any>(`/api/series/chapters?series_id=${enc(s.id)}`);
   const act = useAct();
+  const toast = useToast();
   const [tick, setTick] = useState<string[]>([]);
   const place = (ch: any) => prio.findIndex((r) => r.series_id === s.id && String(r.chapter) === String(ch));
   // added in story order (lowest chapter first), whatever order they were ticked
@@ -156,7 +157,8 @@ function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; 
   for (const r of s.chapters || []) made[String(r.chapter)] = r;
   // a chapter made before but whose folder is gone can be made again
   const remake = (ch: string) => act(async () => {
-    await api("/api/autopilot/run", { series_id: s.id, chapter: String(ch), remake: true }); reload();
+    const r = await api<any>("/api/autopilot/run", { series_id: s.id, chapter: String(ch), remake: true }); reload();
+    if (r?.warning) toast(r.warning, true);
   }, `Making ch.${ch} again`);
   const list: any[] = src.data?.chapters || [];
   return (
@@ -179,7 +181,7 @@ function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; 
                 <b>Ch.{c.ch}</b><span className="small muted">{c.date || ""}</span>
                 {place(c.ch) >= 0 ? <Pill tone="info">Scheduled #{place(c.ch) + 1}</Pill> : <StatusPill s={{ key: "found", label: "Not made", tone: "muted" }} />}</div>
               <div className="row">
-                <ConfirmButton className="sm" confirm="Make it? (~$0.50)" onConfirm={() => act(async () => { await api("/api/autopilot/run", { series_id: s.id, chapter: String(c.ch) }); reload(); }, `Making ch.${c.ch}`)}>Make</ConfirmButton>
+                <ConfirmButton className="sm" confirm="Make it? (~$0.50)" onConfirm={() => act(async () => { const r = await api<any>("/api/autopilot/run", { series_id: s.id, chapter: String(c.ch) }); reload(); if (r?.warning) toast(r.warning, true); }, `Making ch.${c.ch}`)}>Make</ConfirmButton>
                 <ConfirmButton className="sm ghost" confirm={`Plan from ch.${c.ch}?`} title="autopilot makes this chapter and every one after it, in order"
                   onConfirm={() => act(async () => { await api("/api/autopilot/backfill", { series_id: s.id, from_chapter: String(c.ch) }); reload(); }, `Planned from ch.${c.ch}`)}>Plan from here</ConfirmButton>
               </div>
@@ -304,7 +306,7 @@ function HookPanel({ s }: { s: any }) {
           </div>
         ) : <span className="small" style={{ color: "var(--yellow)" }}>No hook yet — this series’ chapters can’t get their final title until you pick one.</span>}
         <div className="row">
-          <ConfirmButton className="sm" confirm="Write 3 hook ideas from this series’ research? (about 1¢)"
+          <ConfirmButton quick className="sm" confirm="Write 3 hook ideas from this series’ research? (about 1¢)"
             onConfirm={() => act(async () => { await api("/api/series/hooks", { project: pid }); info.reload(); }, "3 ideas ready")}>✨ Suggest 3 hooks</ConfirmButton>
           <span className="small faint">Room for the hook: {x.hook_budget} characters ({x.series})</span>
         </div>

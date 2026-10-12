@@ -121,15 +121,15 @@ export default function PostingSchedule() {
       <div className="sp-row" style={{ padding: "4px 2px" }}>
         <label className="check small"><input type="checkbox" checked={rows.length > 0 && picked.length === rows.length}
           onChange={(e) => setSel(e.target.checked ? rows.map((r) => r.key) : [])} /> Select all {rows.length}</label>
-        {tab === "errors" && errorRows.length > 0 && <ConfirmButton className="sm" confirm={`Put all ${errorRows.length} failed video(s) back in line? Each takes the next free posting time.`} onConfirm={() => bulk("requeue", errorRows, {}, "Back in line — they take the next posting times")}>↩ Put all failed back in line</ConfirmButton>}
+        {tab === "errors" && errorRows.length > 0 && <ConfirmButton quick className="sm" confirm={`Put all ${errorRows.length} failed video(s) back in line? Each takes the next free posting time.`} onConfirm={() => bulk("requeue", errorRows, {}, "Back in line — they take the next posting times")}>↩ Put all failed back in line</ConfirmButton>}
       </div>
 
       {picked.length > 0 && (
         <div className="card sp-bulk">
           <b className="small">{picked.length} selected</b>
-          {tab === "review" && <ConfirmButton className="sm primary" confirm={`Approve ${picked.length}?`} onConfirm={() => bulk("approve", picked, {}, "Approved — they take the next posting times")}>✓ Approve</ConfirmButton>}
-          {(tab === "ready" || tab === "errors") && <ConfirmButton className="sm" confirm="Back to Needs review?" onConfirm={() => bulk("back", picked, {}, "Back in Needs review")}>↩ To review</ConfirmButton>}
-          {tab === "errors" && <ConfirmButton className="sm primary" confirm={`Put ${picked.length} back in line?`} onConfirm={() => bulk("requeue", picked, {}, "Back in line")}>↩ Back in line</ConfirmButton>}
+          {tab === "review" && <ConfirmButton quick className="sm primary" confirm={`Approve ${picked.length}?`} onConfirm={() => bulk("approve", picked, {}, "Approved — they take the next posting times")}>✓ Approve</ConfirmButton>}
+          {(tab === "ready" || tab === "errors") && <ConfirmButton quick className="sm" confirm="Back to Needs review?" onConfirm={() => bulk("back", picked, {}, "Back in Needs review")}>↩ To review</ConfirmButton>}
+          {tab === "errors" && <ConfirmButton quick className="sm primary" confirm={`Put ${picked.length} back in line?`} onConfirm={() => bulk("requeue", picked, {}, "Back in line")}>↩ Back in line</ConfirmButton>}
           <button className="sm" onClick={() => setEditing(picked)}>✏️ Mass edit</button>
           <select className="sm" value="" aria-label="Set privacy" onChange={(e) => e.target.value && bulk("edit", picked, { privacy: e.target.value }, `Privacy set to ${e.target.value}`)}>
             <option value="">🔒 Privacy…</option><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select>
@@ -251,15 +251,15 @@ function Card({ r, i, sched, chanName, stats, checked, onCheck, onChannels, relo
           : <button className="sm" style={{ borderStyle: "dashed", color: "var(--yellow)" }} onClick={onChannels}>⚠ No channel — choose</button>}
       </div>
       <div className="sp-actions">
-        {r.kind === "review" && <ConfirmButton className="sm primary" confirm="Approve and schedule?" onConfirm={() => bulk("approve", [r], {}, "Approved — it takes the next posting time")}>✓ Approve</ConfirmButton>}
+        {r.kind === "review" && <ConfirmButton quick className="sm primary" confirm="Approve and schedule?" onConfirm={() => bulk("approve", [r], {}, "Approved — it takes the next posting time")}>✓ Approve</ConfirmButton>}
         {r.kind === "ready" && i > 0 && <Busy className="sm" onClick={() => act(async () => { await api("/api/studio/queue/top", { id: r.qid }); reload(); }, "It posts next — Undo puts it back")}>⏫ Post next</Busy>}
-        {r.kind === "error" && <ConfirmButton className="sm primary" confirm="Put it back in line? It takes the next free posting time." onConfirm={() => bulk("requeue", [r], {}, "Back in line")}>↩ Back in line</ConfirmButton>}
+        {r.kind === "error" && <ConfirmButton quick className="sm primary" confirm="Put it back in line? It takes the next free posting time." onConfirm={() => bulk("requeue", [r], {}, "Back in line")}>↩ Back in line</ConfirmButton>}
         {(r.kind === "ready" || r.kind === "error") && <ConfirmButton className="sm" confirm={`Post now (${r.privacy})?`} disabled={r.missing} onConfirm={() => bulk("post_now", [r], {}, "Posting")}>🚀 Post now</ConfirmButton>}
         {r.kind !== "posted" && <ConfirmButton className="sm" confirm="Redo the title, description and tags? (a few cents)" onConfirm={() => bulk("seo", [r], {}, "Redoing SEO — updates in a minute")}>✨ AI</ConfirmButton>}
         {r.kind !== "posted" && <Link className="btn sm" href={href}>✎ Edit</Link>}
         {r.kind === "posted" ? (r.posts || []).map((x: any) => x.url && <a key={x.account_id} className="btn sm" href={x.url} target="_blank" rel="noreferrer">▶ YouTube{stats[x.video_id] ? ` · ${stats[x.video_id].views.toLocaleString()} views` : ""}</a>)
           : <Link className="btn sm" href={href}>▶ Watch</Link>}
-        {(r.kind === "ready" || r.kind === "error") && <ConfirmButton className="sm" confirm="Back to Needs review?" onConfirm={() => bulk("back", [r], {}, "Back in Needs review")}>👁 To review</ConfirmButton>}
+        {(r.kind === "ready" || r.kind === "error") && <ConfirmButton quick className="sm" confirm="Back to Needs review?" onConfirm={() => bulk("back", [r], {}, "Back in Needs review")}>👁 To review</ConfirmButton>}
         {(r.kind === "ready" || r.kind === "error") && <ConfirmButton className="sm danger" confirm="Take it off the schedule?" onConfirm={() => bulk("remove", [r], {}, "Removed")}>🗑</ConfirmButton>}
       </div>
     </div>
