@@ -6,9 +6,9 @@ already made (each chapter's latest APPROVED export), published as a NEW video
 
   * The range is stored as TWO INTEGERS, chapters_start and chapters_end; the
     title is built from them each time, never parsed from a title string.
-  * Title: "Full {DURATION}H | {Series} Chapter {start}-{end} | Manhwa Recap |
-    {Genre} | Best Manhwa {Year}", <= 100 characters, checked every time.
-    Overflow: drop "| Best Manhwa {Year}" first, then "| {Genre}".
+  * Title (2026-10-12): "[a-b] {Series} Chapters a-b | Flamingo Recap", or
+    "[a-b] {hook} — {Series} | Flamingo Recap" once the series has a locked
+    hook; <= 100 characters.
   * The range lives in its own project folder ("<series>_ch<start>-<end>",
     project.json kind="range"), so review, the posting schedule and publishing
     treat it like any video, while chapter lists (Library, tracker) skip it.
@@ -28,20 +28,19 @@ def duration_label(seconds):
     return max(1, int(round((seconds or 0) / 3600.0)))
 
 
-def title(series, start, end, seconds, genre="", year=None, limit=LIMIT):
-    """The B3 title from the two integers. Returns (title, dropped_parts)."""
+def title(series, start, end, seconds=0, genre="", year=None, limit=LIMIT):
+    """Default merged-video title, from the two integers (owner, 2026-10-12):
+    "[a-b] {Series} Chapters a-b | Flamingo Recap" — no "Full 1H", no
+    "| Manhwa Recap | Best Manhwa {Year}" tail. A series with a locked hook
+    gets "[a-b] {hook} — {Series} | Flamingo Recap" from chapter_seo instead.
+    Returns (title, dropped_parts). seconds/genre/year are kept for callers."""
     start, end = int(start), int(end)
-    year = year or time.gmtime().tm_year
-    parts = [f"Full {duration_label(seconds)}H", f"{series} Chapter {start}-{end}", "Manhwa Recap"]
-    tail = ([f"{genre}"] if genre else []) + [f"Best Manhwa {year}"]
+    t = f"[{start}-{end}] {series} Chapters {start}-{end} | Flamingo Recap"
     dropped = []
-    while True:
-        t = " | ".join(parts + tail)
-        if len(t) <= limit or not tail:
-            break
-        dropped.append(tail.pop())        # "Best Manhwa {Year}" first, then "{Genre}"
     if len(t) > limit:
-        raise ValueError(f"range title is {len(t)} characters even without genre/year — shorten the series name")
+        t, dropped = f"[{start}-{end}] {series} Chapters {start}-{end}", ["| Flamingo Recap"]
+    if len(t) > limit:
+        t, dropped = f"[{start}-{end}] {series}"[:limit], dropped + [f"Chapters {start}-{end}"]
     return t, dropped
 
 

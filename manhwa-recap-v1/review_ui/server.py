@@ -1023,9 +1023,9 @@ def _make_title_template(title: str, chapter: str) -> str:
     ch = str(chapter).strip()
     if not ch or not title:
         return title or ""
-    m = re.search(r"\b(Chapter|Ch\.?|Episode|Ep\.?|Part|Pt\.?|#)\s*" + re.escape(ch) + r"\b", title, re.IGNORECASE)
+    m = re.search(r"\b(Chapters?|Ch\.?|Episode|Ep\.?|Part|Pt\.?|#)\s*" + re.escape(ch) + r"\b", title, re.IGNORECASE)
     if m:
-        prefix = m.group(1)
+        prefix = "Chapter" if m.group(1).lower() == "chapters" else m.group(1)
         return title[:m.start()] + prefix + " {chapter}" + title[m.end():]
     m = re.search(r"\b" + re.escape(ch) + r"\b", title)
     if m:
@@ -1043,7 +1043,8 @@ def _make_desc_template(desc: str, chapter: str) -> str:
     ch = str(chapter).strip()
     if not ch or not desc:
         return desc or ""
-    return re.sub(r"\b(Chapter|Ch\.?|Episode|Ep\.?|Part|Pt\.?|#)\s*" + re.escape(ch) + r"\b", r"\1 {chapter}", desc, flags=re.IGNORECASE)
+    out = re.sub(r"\bChapters\s*" + re.escape(ch) + r"\b", "Chapter {chapter}", desc, flags=re.IGNORECASE)
+    return re.sub(r"\b(Chapter|Ch\.?|Episode|Ep\.?|Part|Pt\.?|#)\s*" + re.escape(ch) + r"\b", r"\1 {chapter}", out, flags=re.IGNORECASE)
 
 
 def _apply_desc_template(template: str, chapter: str) -> str:
@@ -1063,7 +1064,8 @@ def _adapt_tags_for_chapter(tags, series_name, ch_n):
     except Exception:
         c = str(ch_n).strip()
     adapted = []
-    ch_pattern = re.compile(r'(chapter|ch)\s*\d+', re.IGNORECASE)
+    # was written with literal backspace characters, so it never matched (2026-10-12)
+    ch_pattern = re.compile(r'\b(chapters?|ch)\s*\d+(?:\s*-\s*\d+)?\b', re.IGNORECASE)
     for t in tags:
         if ch_pattern.search(t):
             adapted.append(ch_pattern.sub(f"chapter {c}", t))
@@ -1074,6 +1076,8 @@ def _adapt_tags_for_chapter(tags, series_name, ch_n):
         prim = f"{s_low} chapter {c}"
         if prim not in [x.lower() for x in adapted]:
             adapted.insert(0, prim)
+    seen = set()
+    adapted = [t for t in adapted if not (t.lower() in seen or seen.add(t.lower()))]
     return _trim_tags_to_limit(adapted, YT_TAGS_CHARS_MAX)
 
 
@@ -1423,6 +1427,12 @@ def api_publish_series_defaults(body: SeriesDefaultsIn):
     sid, series, chapter_n, meta = _series_ident(pdir)
     if not sid:
         raise HTTPException(400, "project has no series")
+    # 2026-10-12 leak: on a merged video chapter_n is None, the template kept
+    # "[32-33]" literally and every chapter got it. Use the real label.
+    if meta.get("kind") == "range":
+        chapter_n = f"{meta.get('chapters_start')}-{meta.get('chapters_end')}"
+    elif chapter_n is None:
+        chapter_n = str(meta.get("chapter") or "").strip()
     import series_pack as _sp
     import thumbnail_studio as tstudio
     root = _yt_root()
@@ -2401,16 +2411,34 @@ def _build_chapter_package(pdir, name, api_key=None, competitor=True, lock_overr
     if not lock:
         raise ValueError("this series has no title hook yet — pick one in Library → the series → 🏷 Title hook")
     sid, series_raw, n, meta = _series_ident(pdir)
-    if n is None:
+    timecodes = []
+    if meta.get("kind") == "range":
+        # a merged video gets the same package (owner, 2026-10-12): its number
+        # is "a-b", timestamps come from the merge, the tease from chapter a
+        a_, b_ = int(meta["chapters_start"]), int(meta["chapters_end"])
+        n, first = f"{a_}-{b_}", a_
+        def _tc(sec):
+            sec = int(sec)
+            return (f"{sec // 3600}:{sec % 3600 // 60:02d}:{sec % 60:02d}" if sec >= 3600
+                    else f"{sec // 60}:{sec % 60:02d}")
+        timecodes = _cseo.valid_timecodes([{"t": _tc(t_), "label": f"Chapter {int(k)}"}
+                                           for k, t_ in (meta.get("build") or {}).get("marks") or []])
+    elif n is None:
         raise ValueError("this video has no chapter number")
+    else:
+        first = n
     series = pack.get("series_name_en") or series_raw
     rec = _seo_chapter_rec(pdir)
     if "chapter_title" not in rec:                                   # Stage 1 (once)
-        rec["chapter_title"] = _chapter_page_title(meta.get("url") or "")
+        rec["chapter_title"] = "" if meta.get("kind") == "range" else _chapter_page_title(meta.get("url") or "")
         rec["chapter_title_provenance"] = meta.get("url") or ""
         _seo_chapter_save(pdir, rec)
-    beat = _chapter_tease(pdir, api_key) if api_key else (rec.get("hook_beat") or {})   # Stage 2
-    prev_dir = _chapter_project(sid, n - 1)
+    if meta.get("kind") == "range":
+        first_dir = _chapter_project(sid, first)
+        beat = (_seo_chapter_rec(first_dir).get("hook_beat") or {}) if first_dir else {}
+    else:
+        beat = _chapter_tease(pdir, api_key) if api_key else (rec.get("hook_beat") or {})   # Stage 2
+    prev_dir = _chapter_project(sid, first - 1)
     pl = pack.get("playlist_id") or ""
     # only a real playlist id (live 2026-10-08: series defaults had stored the
     # playlist NAME there, which made "list=The Regressed Mercenary …")
@@ -2419,12 +2447,12 @@ def _build_chapter_package(pdir, name, api_key=None, competitor=True, lock_overr
     pl_link = f"https://www.youtube.com/playlist?list={pl}" if pl else ""
     prev_link = _published_video_url(prev_dir)
     desc = _cseo.build_description(series, n, pack, chapter_title=rec.get("chapter_title") or "",
-                                   tease=beat.get("tease") or "", prev_n=n - 1, prev_link=prev_link,
-                                   playlist_link=pl_link, timecodes=[], music_credit=_music_credit_for(pdir))
+                                   tease=beat.get("tease") or "", prev_n=first - 1, prev_link=prev_link,
+                                   playlist_link=pl_link, timecodes=timecodes, music_credit=_music_credit_for(pdir))
     pkg = {"title": _cseo.build_title(n, lock, series), "description": desc,
            "tags": _cseo.build_tags(series, n, pack), "hashtags": _cseo.hashtags(series),
            "first_comment": " | ".join(x for x in ([f"Start from Chapter 1: {pl_link}"] if pl_link else [])
-                                       + ([f"Chapter {n - 1}: {prev_link}"] if prev_link else [])),
+                                       + ([f"Chapter {first - 1}: {prev_link}"] if prev_link else [])),
            "playlist_id": pl}
     pkg["problems"] = _cseo.validate(pkg, series, n)
     if competitor:
@@ -2982,9 +3010,22 @@ def _range_ctx(body):
         ch_list = []
         series_ids = set()
         primary_pdir = None
+        spans = {}                     # a merged video joining a new merge (2026-10-12)
         for p in projects:
             pd = project_dir_for(p)
             sid, sname, ch, meta = _series_ident(pd)
+            if meta.get("kind") == "range":
+                try:
+                    a_, b_ = int(meta["chapters_start"]), int(meta["chapters_end"])
+                except (KeyError, TypeError, ValueError):
+                    raise HTTPException(400, f"{p} is a merged video without a chapter range")
+                if (meta.get("build") or {}).get("status") != "done":
+                    raise HTTPException(409, f"{p} is still being built — wait for it to finish")
+                sid = meta.get("series_id") or sid
+                series_ids.add(sid)
+                spans[a_] = b_
+                ch_list.append((a_, pd, p))
+                continue
             if not sid:
                 s_slug, s_ch = _pq.series_chapter(p)
                 sid = s_slug
@@ -2993,15 +3034,26 @@ def _range_ctx(body):
                 series_ids.add(sid)
             if ch is not None:
                 ch_list.append((int(ch), pd, p))
-            if not primary_pdir:
+            if not primary_pdir or _read_json(os.path.join(primary_pdir, "project.json")).get("kind") == "range":
                 primary_pdir = pd
+        if not primary_pdir and ch_list:
+            primary_pdir = ch_list[0][1]
         if len(series_ids) > 1:
             raise HTTPException(400, "All selected chapters must belong to the same series")
         if not ch_list:
             raise HTTPException(400, "Could not identify chapters for selected projects")
         ch_list.sort(key=lambda x: x[0])
+        covered = []
+        for n_, _pd, _p in ch_list:
+            covered += list(range(n_, spans.get(n_, n_) + 1))
+        if len(covered) != len(set(covered)):
+            raise HTTPException(400, "those overlap — a chapter is already inside the merged video you picked")
         start = ch_list[0][0]
-        end = ch_list[-1][0]
+        end = max(covered)
+        gaps = sorted(set(range(start, end + 1)) - set(covered))
+        if gaps:
+            raise HTTPException(400, "a merged video must be one unbroken run of chapters — missing ch." +
+                                ", ".join(str(g) for g in gaps[:10]))
         sid, series, _n, _m = _series_ident(primary_pdir)
         pack = _series_pack(primary_pdir) or {}
         got, missing = [], []
@@ -3011,7 +3063,7 @@ def _range_ctx(body):
                 got.append((n, pd, name))
             else:
                 missing.append(n)
-        pl = {"chapters": got, "missing": missing}
+        pl = {"chapters": got, "missing": missing, "spans": spans}
         return primary_pdir, sid, (pack.get("title_en") or series), pack, pl, start, end
     else:
         pdir = project_dir_for(body.project)
@@ -3068,6 +3120,14 @@ def api_range_build(body: RangeIn):
     name = f"final_range_{a}-{b}.mp4"
     range_pid = os.path.basename(rdir)
 
+    # What each piece looked like before the merge, so Unmerge can put it
+    # back exactly (owner, 2026-10-12: "can i merge and unmerge chapters?")
+    before = []
+    for n, cp, cname in pl["chapters"]:
+        before.append({"project": os.path.basename(cp.rstrip("/")), "name": cname,
+                       "review": (_read_json(os.path.join(cp, "reviews.json")) or {}).get(cname),
+                       "queue_ids": []})
+
     # 1. Take constituent chapters off the posting schedule (queue)
     target_exports = {(os.path.basename(cp.rstrip("/")), cname) for n, cp, cname in pl["chapters"]}
     try:
@@ -3076,10 +3136,17 @@ def api_range_build(body: RangeIn):
             if (it.get("project"), it.get("name")) in target_exports and it.get("status") in _pq.ACTIVE:
                 try:
                     _pq.remove(_ing.PROJECTS, it["id"])
+                    for b_ in before:
+                        if (b_["project"], b_["name"]) == (it.get("project"), it.get("name")):
+                            b_["queue_ids"].append(it["id"])
                 except Exception:
                     pass
     except Exception:
         pass
+    m0 = _read_json(os.path.join(rdir, "project.json")) or {}
+    m0["merged_from"] = before
+    with open(os.path.join(rdir, "project.json"), "w", encoding="utf-8") as mf:
+        json.dump(m0, mf, indent=2)
 
     # 2. Mark constituent chapters in reviews.json as "merged"
     for n, cp, cname in pl["chapters"]:
@@ -3101,6 +3168,15 @@ def api_range_build(body: RangeIn):
         try:
             marks = _rc.stitch(pl["chapters"], os.path.join(rdir, "exports", name))
             secs = _rc._probe(os.path.join(rdir, "exports", name))
+            # a merged video inside this one: its own chapter markers, shifted
+            spans_ = pl.get("spans") or {}
+            if spans_:
+                full = []
+                for (n_, t_), (_n2, cp_, _c) in zip(marks, pl["chapters"]):
+                    inner = ((_read_json(os.path.join(cp_, "project.json")) or {}).get("build") or {}).get("marks") \
+                        if n_ in spans_ else None
+                    full += [(int(k), t_ + float(v)) for k, v in inner] if inner else [(n_, t_)]
+                marks = full
 
             # Load the user's saved series defaults (Save as series defaults)
             import series_pack as _sp
@@ -3141,7 +3217,7 @@ def api_range_build(body: RangeIn):
             tags = _adapt_tags_for_chapter(base_tags, series, f"{a}-{b}")
 
             # 4. Playlist, Targets, Privacy, Category from Series Defaults
-            playlist_id = sp.get("playlist_id") or series
+            playlist_id = sp.get("playlist_id") or ""   # never the series NAME (live 2026-10-12)
             targets = list(sp.get("default_targets") or _studio.publish_defaults().get("targets") or [])
             privacy = sp.get("default_privacy") or _studio.publish_defaults().get("privacy", "private")
             cat_id = sp.get("default_category") or "24"
@@ -3241,6 +3317,157 @@ def api_ranges(project: str = ""):
             out.append({k: m.get(k) for k in ("id", "series", "series_id", "chapters_start",
                                               "chapters_end", "build", "created_at")})
     return {"ranges": sorted(out, key=lambda r: (r["series_id"] or "", r["chapters_start"] or 0))}
+
+
+class RepairTitlesIn(BaseModel):
+    apply: bool = False
+
+
+_RANGE_BRACKET = re.compile(r"\[\s*\d+\s*-\s*\d+\s*\]")
+_RANGE_WORDS = re.compile(r"\bchapters?\s+\d+\s*-\s*\d+\b", re.I)
+
+
+def _fix_range_template(t):
+    """A series template saved from a merged video kept "[32-33]" literally."""
+    if not t or not (_RANGE_BRACKET.search(t) or _RANGE_WORDS.search(t)):
+        return t
+    t2 = _RANGE_BRACKET.sub("[{chapter}]", t, count=1)
+    t2 = _RANGE_WORDS.sub("Chapter {chapter}", t2)
+    if t2.count("{chapter}") > 1:
+        t2 = re.sub(r"\s*Ch\.\s*\{chapter\}\s*$", "", t2)
+    return t2
+
+
+@app.post("/api/publish/repair_titles")
+def api_publish_repair_titles(body: RepairTitlesIn):
+    """2026-10-12 repair, dry run unless apply=true. Unposted videos only.
+      * a chapter carrying a merged video's numbers ("[32-33] … Ch. 31",
+        "Chapter 32-33", tags "chapter 104-108") gets its own number back,
+        and the series templates that caused it are fixed;
+      * chapter titles drop the old " | Manhwa Recap" ending (owner's choice)."""
+    import ingest as _i
+    import series_pack as _sp
+    yt = _yt_root()
+    changes, packs = [], {}
+    for pid in sorted(os.listdir(_i.PROJECTS)):
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(pdir):
+            continue
+        sid, series, n, meta = _series_ident(pdir)
+        if meta.get("kind") == "range" or not sid:
+            continue
+        if sid not in packs:
+            pk = _sp.load(yt, sid) or {}
+            fixed = {k: _fix_range_template(pk.get(k)) for k in ("title_template", "description_template")}
+            fixed = {k: v for k, v in fixed.items() if v and v != pk.get(k)}
+            for k, v in fixed.items():
+                changes.append({"series": sid, "field": k, "before": pk.get(k), "after": v})
+            if fixed and body.apply:
+                _sp.update_fields(yt, sid, **fixed)
+            packs[sid] = True
+        label = str(meta.get("chapter") or (n if n is not None else "")).strip()
+        if not label:
+            continue
+        went = set(_read_json(os.path.join(pdir, UPLOADS_NAME)) or {}) | \
+            set(_read_json(os.path.join(pdir, "publishes.json")) or {})
+        store = load_publish(pdir)
+        dirty = False
+        for name, md in list(store.items()):
+            if not isinstance(md, dict) or name in went:
+                continue
+            new = dict(md)
+            t = new.get("title") or ""
+            if _RANGE_BRACKET.search(t) or _RANGE_WORDS.search(t):
+                t = _RANGE_BRACKET.sub(f"[{label}]", t, count=1)
+                t = _RANGE_WORDS.sub(f"Chapter {label}", t)
+                if f"[{label}]" in t:
+                    t = re.sub(r"\s*Ch\.\s*" + re.escape(label) + r"\s*$", "", t)
+            if new.get("seo_v2") and t.endswith(" | Manhwa Recap"):
+                t = t[: -len(" | Manhwa Recap")]
+            new["title"] = t
+            d = new.get("description") or ""
+            if _RANGE_WORDS.search(d):
+                new["description"] = _RANGE_WORDS.sub(f"Chapter {label}", d)
+            tags = new.get("tags") or []
+            if isinstance(tags, list) and any(re.search(r"\d+\s*-\s*\d+", str(x)) for x in tags):
+                new["tags"] = _adapt_tags_for_chapter(tags, series, label)
+            for k in ("title", "description", "tags"):
+                if new.get(k) != md.get(k):
+                    changes.append({"project": pid, "name": name, "field": k,
+                                    "before": md.get(k) if k != "description" else (md.get(k) or "")[:160],
+                                    "after": new.get(k) if k != "description" else (new.get(k) or "")[:160]})
+                    dirty = True
+            store[name] = new
+        if dirty and body.apply:
+            save_publish(pdir, store)
+    if body.apply and changes:
+        _ev("publish", f"repaired {len(changes)} title/description/tag field(s) (merged-video numbers, old suffix)", "ok")
+    return {"applied": body.apply, "changes": changes}
+
+
+class UnmergeIn(BaseModel):
+    project: str
+
+
+@app.post("/api/ranges/unmerge")
+def api_range_unmerge(body: UnmergeIn):
+    """Undo a merge (owner, 2026-10-12): every piece goes back to how it was —
+    its review status and its place on the posting schedule — and the merged
+    video is moved aside (kept, never deleted). A merged video that was
+    already posted is refused: the chapters would go out a second time."""
+    import ingest as _ing
+    rdir = project_dir_for(body.project)
+    pid = os.path.basename(rdir.rstrip("/"))
+    meta = _read_json(os.path.join(rdir, "project.json")) or {}
+    if meta.get("kind") != "range":
+        raise HTTPException(400, "that isn't a merged video")
+    if (meta.get("build") or {}).get("status") not in ("done", "error"):
+        raise HTTPException(409, "it's still being built — wait for it to finish")
+    if (_read_json(os.path.join(rdir, UPLOADS_NAME)) or {}) or (_read_json(os.path.join(rdir, "publishes.json")) or {}):
+        raise HTTPException(409, "this merged video was already posted — unmerging would post its chapters again")
+    q = _pq.load(_ing.PROJECTS)
+    mine = [it for it in q.get("items", []) if it.get("project") == pid]
+    if any(it.get("status") == "posting" for it in mine):
+        raise HTTPException(409, "it's being posted right now — stop that first")
+    for it in mine:
+        if it.get("status") in ("queued", "failed"):
+            _pq.remove(_ing.PROJECTS, it["id"])
+    pieces = meta.get("merged_from")
+    if pieces is None:
+        # merged before 2026-10-12: rebuild the record from the files
+        pieces = []
+        at = float(meta.get("created_at") or 0)
+        for n in range(int(meta.get("chapters_start") or 0), int(meta.get("chapters_end") or -1) + 1):
+            cp = os.path.join(_ing.PROJECTS, f"{meta.get('series_id')}_{n}")
+            for cname, rv in ((_read_json(os.path.join(cp, "reviews.json")) or {}).items()):
+                if isinstance(rv, dict) and rv.get("merged_into") == pid:
+                    prev = {k: v for k, v in rv.items() if k not in ("status", "merged_into", "merged_at")}
+                    ids = [it["id"] for it in q.get("items", [])
+                           if (it.get("project"), it.get("name")) == (os.path.basename(cp), cname)
+                           and it.get("status") == "removed" and abs(float(it.get("updated_at") or 0) - at) < 600]
+                    pieces.append({"project": os.path.basename(cp), "name": cname,
+                                   "review": prev or None, "queue_ids": ids})
+    restored = []
+    for pc in pieces:
+        cp = os.path.join(_ing.PROJECTS, pc["project"])
+        if not os.path.isdir(cp):
+            continue
+        r_path = os.path.join(cp, "reviews.json")
+        revs = _read_json(r_path) or {}
+        if pc.get("review"):
+            revs[pc["name"]] = pc["review"]
+        else:
+            revs.pop(pc["name"], None)
+        with open(r_path, "w", encoding="utf-8") as rf:
+            json.dump(revs, rf, indent=2)
+        for qid in pc.get("queue_ids") or []:
+            _pq.requeue(_ing.PROJECTS, qid)
+        restored.append(pc["project"])
+    aside = os.path.join(_ing.PROJECTS, f"_unmerged_{pid}_{int(time.time())}")
+    os.replace(rdir, aside)
+    _ev("publish", f"unmerged {meta.get('series')} {meta.get('chapters_start')}-{meta.get('chapters_end')}: "
+                   f"{len(restored)} piece(s) back as they were; the merged video was kept aside", "ok")
+    return {"ok": True, "restored": restored, "kept_as": os.path.basename(aside)}
 
 
 @app.post("/api/seo/apply")

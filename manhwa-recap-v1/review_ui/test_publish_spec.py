@@ -187,7 +187,7 @@ def test_range_is_stored_as_two_integers(tmp_path):
             "status": "approved", "cut_signature": srv.cut_signature(pdir=str(d))}}))
     plan = srv.api_range_plan(srv.RangeIn(project=f"{sid}_1", chapters_start=1, chapters_end=3))
     assert plan["missing"] == [] and plan["chapters"] == [1, 2, 3]
-    assert len(plan["title"]) <= 100 and "Chapter 1-3" in plan["title"]
+    assert len(plan["title"]) <= 100 and "Chapters 1-3" in plan["title"] and plan["title"].startswith("[1-3] ")
     r = srv.api_range_build(srv.RangeIn(project=f"{sid}_1", chapters_start=1, chapters_end=3))
     rdir = tmp_path / r["project"]
     for _ in range(100):
@@ -215,6 +215,10 @@ def test_range_is_stored_as_two_integers(tmp_path):
         assert im.size == (1280, 720)
         px = im.getpixel((640, 360))
         assert sum(abs(a - b) for a, b in zip(px, want[n])) < 40, (n, px)
-    # overflow: genre/year are dropped (year first) to stay under 100
-    long_t, dropped = rc.title("The Return Of The Disaster-Class Hero", 1, 120, 9 * 3600, "Action Fantasy", 2026)
-    assert len(long_t) <= 100 and dropped and dropped[0].startswith("Best Manhwa")
+    # 2026-10-12 format: "[a-b] Series Chapters a-b | Flamingo Recap" — no "Full 1H", no year tail
+    t3, _d = rc.title("The Return Of The Disaster-Class Hero", 1, 120, 9 * 3600, "Action Fantasy", 2026)
+    assert t3 == "[1-120] The Return Of The Disaster-Class Hero Chapters 1-120 | Flamingo Recap"
+    long_t, dropped = rc.title("X" * 70, 1, 120)
+    assert len(long_t) <= 100 and dropped == ["| Flamingo Recap"]
+    huge, dropped = rc.title("X" * 95, 1, 120)
+    assert len(huge) <= 100 and huge.startswith("[1-120] ")

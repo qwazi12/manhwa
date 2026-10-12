@@ -19,7 +19,8 @@ TITLE_MAX = 100
 TITLE_RECOMMENDED = 72
 TITLE_TARGET = 70
 HOOK_MIN_BUDGET = 20
-SUFFIX = " | Manhwa Recap"
+SUFFIX = ""                      # owner, 2026-10-12: chapter titles drop " | Manhwa Recap"
+RANGE_SUFFIX = " | Flamingo Recap"  # owner, 2026-10-12: merged videos end with the channel name
 DASH = " — "
 TAGS_MAX = 500
 HASHTAGS_FIRST = "#ManhwaRecap"
@@ -50,9 +51,25 @@ EVERGREEN = ["manhwa recap", "manga recap", "manhwa chapter recap", "manhwa expl
 BLACKLIST = re.compile(r"\b(shocks?|shocked|stuns?|stunned|shakes?)\b", re.I)
 
 
+def is_range(n):
+    """'32-33' — a merged video's chapters (2026-10-12)."""
+    return isinstance(n, str) and bool(re.fullmatch(r"\s*\d+(\.\d+)?\s*-\s*\d+(\.\d+)?\s*", n))
+
+
+def range_parts(n):
+    a, b = [x.strip() for x in str(n).split("-", 1)]
+    return _num(a), _num(b)
+
+
 def _num(n):
+    if is_range(n):
+        return "%s-%s" % range_parts(n)
     f = float(n)
     return str(int(f)) if f.is_integer() else str(f)
+
+
+def _suffix(n):
+    return RANGE_SUFFIX if is_range(n) else SUFFIX
 
 
 def hashtag_for(name):
@@ -63,11 +80,11 @@ def hashtag_for(name):
 
 # ------------------------------------------------------------------ title
 def long_title(n, hook, series):
-    return f"[{_num(n)}] {hook}{DASH}{series}{SUFFIX}"
+    return f"[{_num(n)}] {hook}{DASH}{series}{_suffix(n)}"
 
 
 def short_title(n, hook):
-    return f"[{_num(n)}] {hook}{SUFFIX}"
+    return f"[{_num(n)}] {hook}{_suffix(n)}"
 
 
 def hook_budget(series, n=99):
@@ -88,12 +105,26 @@ def build_title(n, title_lock, series):
     hook = (title_lock or {}).get("series_hook") or ""
     variant = (title_lock or {}).get("variant") or title_variant(series, hook)
     t = long_title(n, hook, series) if variant == "long" else short_title(n, hook)
+    if len(t) > TITLE_MAX and is_range(n):
+        # too long: the channel suffix goes first, then the series name
+        for cand in (f"[{_num(n)}] {hook}{DASH}{series}", short_title(n, hook), f"[{_num(n)}] {hook}"):
+            t = cand
+            if len(t) <= TITLE_MAX:
+                break
+    elif len(t) > TITLE_MAX:
+        t = short_title(n, hook)
     return t
 
 
 # ------------------------------------------------------------------ tags
 def chapter_block(series, n):
     s, c = (series or "").lower(), _num(n)
+    if is_range(n):
+        # a merged video answers searches for every chapter in it
+        a, b = range_parts(n)
+        each = [f"{s} chapter {k}" for k in range(int(float(a)), int(float(b)) + 1)]
+        return [f"{s} chapter {c}", f"{s} chapters {a} to {b}"] + each + \
+            [f"{s} full recap", f"{s} recap english"]
     return [f"{s} chapter {c}", f"{s} ch {c}", f"{s} {c}", f"{s} chapter {c} english",
             f"{s} new chapter", f"{s} latest chapter"]
 
@@ -183,13 +214,14 @@ def timecode_block(tcs):
 def line1(series, n, chapter_title, tease):
     """D1: exact phrase + (English) + chapter title + non-spoiler tease + channel."""
     c = _num(n)
-    head = f"{series} Chapter {c} recap (English)"
+    word = "Chapters" if is_range(n) else "Chapter"
+    head = f"{series} {word} {c} recap (English)"
     if chapter_title:
         head += f" — \"{chapter_title}\"!"
     else:
         head += "!"
     tease = " ".join((tease or "").split())
-    return " ".join(x for x in (head, tease, f"Full chapter {c} recap on {CHANNEL}!") if x)
+    return " ".join(x for x in (head, tease, f"Full {word.lower()} {c} recap on {CHANNEL}!") if x)
 
 
 def line2(prev_n, prev_link, playlist_link):
@@ -263,13 +295,14 @@ def validate(pkg, series, n, strict=False):
     elif strict and len(t) > TITLE_RECOMMENDED:
         out.append(f"Title is {len(t)} characters; the series format allows {TITLE_RECOMMENDED} (T2).")
 
-    if strict and (not t.startswith(f"[{_num(n)}] ") or not t.endswith(SUFFIX)):
-        out.append('Title doesn\'t follow the series\' locked format "[N] hook — series | Manhwa Recap" (T1).')
+    if strict and (not t.startswith(f"[{_num(n)}] ") or not t.endswith(_suffix(n))):
+        out.append('Title doesn\'t follow the series\' locked format "[N] hook — series" (T1).')
 
     d = pkg.get("description") or ""
     first = d.split("\n", 1)[0]
-    if strict and (f"{series} Chapter {_num(n)}" not in first or "(English)" not in first):
-        out.append(f'Description line 1 must contain "{series} Chapter {_num(n)}" and "(English)" (D1).')
+    word = "Chapters" if is_range(n) else "Chapter"
+    if strict and (f"{series} {word} {_num(n)}" not in first or "(English)" not in first):
+        out.append(f'Description line 1 must contain "{series} {word} {_num(n)}" and "(English)" (D1).')
 
     if strict:
         for blk, name in ((KOFI, "Ko-fi"), (DISCLAIMER, "© Disclaimer"), (FAIR_USE, "© Fair Use"),

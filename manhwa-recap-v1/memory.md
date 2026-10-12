@@ -10159,3 +10159,15 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - (c) The Asura wait: 24 h, or 12 h?
 
 **Status:** awaiting approval; nothing implemented yet.
+- **2026-10-12 — Owner APPROVED the Session 39 plan.** Answers:
+  - (a) merged titles end with "| Flamingo Recap";
+  - (b) chapter titles DROP "| Manhwa Recap";
+  - (c) Asura wait 24 h.
+- Implementing in order 1→9.
+- **Session 39 items 1–4 implemented and tested:**
+  - unmerge + add-to-merge (`_range_ctx` spans/contiguity; `merged_from` record; `/api/ranges/unmerge`; schedule button);
+  - merged videos get the spec-10 package (`chapter_seo` ranges, `RANGE_SUFFIX` " | Flamingo Recap", chapter `SUFFIX` "");
+  - range default title "[a-b] Series Chapters a-b | Flamingo Recap"; range playlist never the series name;
+  - leak fixed at the source (label for ranges; "Chapters?" in templates; tag regex had literal \x08 backspaces → fixed; deduped tags);
+  - `/api/publish/repair_titles` (dry run).
+- **Tests:** new `test_merge_unmerge` (5), `test_chapter_seo` (merged titles/tags), updated publish_spec / seo_v2 / chapter_seo for the new suffixes; the full review_ui suite passes, `test_scraper` 15/15, tsc clean.

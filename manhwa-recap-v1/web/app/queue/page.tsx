@@ -134,6 +134,18 @@ export default function PostingSchedule() {
           <select className="sm" value="" aria-label="Set privacy" onChange={(e) => e.target.value && bulk("edit", picked, { privacy: e.target.value }, `Privacy set to ${e.target.value}`)}>
             <option value="">🔒 Privacy…</option><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select>
           <button className="sm" onClick={() => setPick(picked)}>📺 Channels</button>
+          {picked.length > 0 && picked.every((x: any) => /_ch\d+-\d+$/.test(x.project || "")) && (
+            <ConfirmButton className="sm" confirm={`Unmerge ${picked.length}? The chapters go back as they were; the merged video is kept aside`}
+              onConfirm={() => act(async () => {
+                let n = 0;
+                for (const x of picked) {
+                  try { await api("/api/ranges/unmerge", { project: x.project }); n++; }
+                  catch (err: any) { toast(`${x.project}: ${err?.message || "could not unmerge"}`, true); }
+                }
+                setSel([]); reload();
+                if (n) toast(`Unmerged ${n} — the chapters are back as they were`);
+              })}>↩ Unmerge</ConfirmButton>
+          )}
           {picked.length >= 2 && (
             <ConfirmButton className="sm" confirm={`Merge ${picked.length} selected videos into 1 long-form video? (Must be from the same series)`}
               onConfirm={() => act(async () => {

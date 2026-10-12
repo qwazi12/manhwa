@@ -1108,3 +1108,25 @@ Other details:
   - These have no automatic backup.
   - Paste a backup link on the series in the Tracker to add one.
 - `POST /api/watchlist/auto_mirrors` looks up backups for every series. Adding a series by link does it for that series.
+
+## E21. Merged videos: merge, add to a merge, unmerge, full SEO (2026-10-12)
+- **Merge:** tick chapters (All chapters, or the Posting schedule) → 🎞️ Merge.
+- **Add to a merge:** tick a merged video plus the chapter(s) right next to it, or two merged videos that touch, and merge again.
+  - You get one merged video covering the whole span; its chapter markers are kept.
+  - The pieces must be one unbroken run. A gap ("missing ch.X") or an overlap is refused with a message.
+- **Unmerge:** on the Posting schedule, tick a merged video → ↩ Unmerge.
+  - Each piece goes back exactly as it was before the merge (review status and place on the schedule).
+  - The merged video is moved aside (`_unmerged_…`), kept, not deleted.
+  - A merged video that was already posted can't be unmerged (its chapters would go out twice).
+  - Merges made before 2026-10-12 are restored from the files (best effort).
+- **SEO for merged videos:** once the series has a locked hook, a merged video gets the same package as a chapter:
+  - title: "[a-b] {hook} — {Series} | Flamingo Recap"; if over 100 characters, the suffix goes first, then the series name;
+  - tags: "{series} chapter a-b", "{series} chapters a to b", plus one tag per chapter;
+  - description line 1: "{Series} Chapters a-b recap (English)", with the chapter timestamps;
+  - the real playlist id and the first comment.
+- **Without a locked hook:** the default title is "[a-b] {Series} Chapters a-b | Flamingo Recap". No more "Full 1H | … | Manhwa Recap | Best Manhwa {Year}".
+- **Chapter titles** (owner, 2026-10-12) are now "[N] {hook} — {Series}", without the " | Manhwa Recap" ending.
+- **"Save as series defaults" on a merged video** now saves a pattern ("[{chapter}] …"), never the literal "32-33".
+  - Before this fix it copied "[32-33] … Ch. 31" into Regressor ch.31.
+  - `POST /api/publish/repair_titles` (dry run; `{"apply": true}` to write) puts each unposted chapter's own number back, fixes the series templates, and drops the old suffix.
+- The tag rewriting for series defaults had literal backspace characters where `\b` was meant, so it never matched. Fixed.

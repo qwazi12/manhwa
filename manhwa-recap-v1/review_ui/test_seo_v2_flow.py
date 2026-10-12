@@ -56,7 +56,7 @@ def test_hook_pick_lock_package_validate_and_post_fields(tmp_path, monkeypatch):
     assert c["His Class Change Shocks Murim"]["problems"]              # §5 blacklist
     assert not c["He Thought Murim Was Just a Game"]["problems"]
     assert c["He Thought Murim Was Just a Game"]["example_title"] == \
-        "[45] He Thought Murim Was Just a Game — Murim Psychopath | Manhwa Recap"
+        "[45] He Thought Murim Was Just a Game — Murim Psychopath"
     # the tease call (Stage 2) — stubbed model answer
     monkeypatch.setattr(sr, "_post", lambda body, key, _u=None: {"candidates": [{"content": {"parts": [{"text": json.dumps(
         {"dramatic_beat": "the sect turns on him", "tease": "His logout failed — and now every kill makes him stronger.",
@@ -66,7 +66,7 @@ def test_hook_pick_lock_package_validate_and_post_fields(tmp_path, monkeypatch):
     p44 = json.load(open(os.path.join(d44, "publish.json")))["f44.mp4"]
     assert p44["title"] == "old 44"                                    # posted: untouched
     md = json.load(open(os.path.join(d45, "publish.json")))["f45.mp4"]
-    assert md["title"] == "[45] He Thought Murim Was Just a Game — Murim Psychopath | Manhwa Recap"
+    assert md["title"] == "[45] He Thought Murim Was Just a Game — Murim Psychopath"
     first, second = md["description"].split("\n")[:2]
     assert first.startswith('Murim Psychopath Chapter 45 recap (English) — "Intensifying by the Minute"!')
     assert second == "Watch Chapter 44 here: https://www.youtube.com/watch?v=prevvideo44"
@@ -99,7 +99,7 @@ def test_hook_pick_lock_package_validate_and_post_fields(tmp_path, monkeypatch):
     monkeypatch.setattr(srv, "api_thumbcopilot_generate", lambda b: None)
     srv._prepare_publish(d47, "f47.mp4")
     m47 = {**srv.publish_defaults(d47), **json.load(open(os.path.join(d47, "publish.json")))["f47.mp4"]}
-    assert m47["title"] == "[47] He Thought Murim Was Just a Game — Murim Psychopath | Manhwa Recap"
+    assert m47["title"] == "[47] He Thought Murim Was Just a Game — Murim Psychopath"
     pack = sp.load(str(tmp_path), SLUG)
     assert pack["title_lock"]["approved_by_user"] and pack["playlist_id"] == "PLabcdefghij123"
 
@@ -126,8 +126,8 @@ def test_preview_changes_nothing_on_the_video(tmp_path, monkeypatch):
     r = srv.api_series_seo_preview(srv.SeoPreviewIn(project=f"{SLUG}_96", name="f96.mp4",
                                                     hooks=["He Thought Murim Was Just a Game", "Psycho Killer Reborn in Murim"]))
     assert [p["title"] for p in r["previews"]] == [
-        "[96] He Thought Murim Was Just a Game — Murim Psychopath | Manhwa Recap",
-        "[96] Psycho Killer Reborn in Murim — Murim Psychopath | Manhwa Recap"]
+        "[96] He Thought Murim Was Just a Game — Murim Psychopath",
+        "[96] Psycho Killer Reborn in Murim — Murim Psychopath"]
     assert all(p["problems"] == [] for p in r["previews"])
     assert open(os.path.join(d, "publish.json")).read() == before          # untouched
     assert r["current"]["title"] == "old 96"

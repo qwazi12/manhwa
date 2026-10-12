@@ -19,13 +19,14 @@ LOCK = {"series_hook": "He Thought Murim Was Just a Game"}
 
 def test_title_matches_the_worked_example():
     t = cs.build_title(45, LOCK, S)
-    assert t == "[45] He Thought Murim Was Just a Game — Murim Psychopath | Manhwa Recap"
-    assert len(t) == 71 and cs.hook_budget(S, 45) == 33          # spec: hook <= 33 for this series
+    # owner, 2026-10-12: chapter titles no longer end with " | Manhwa Recap"
+    assert t == "[45] He Thought Murim Was Just a Game — Murim Psychopath"
+    assert len(t) == 56 and cs.hook_budget(S, 45) == 48
     assert cs.build_title(46, LOCK, S).replace("[46]", "[45]") == t   # T6: only the number changes
     # long series name -> short fallback, suffix never cut
     long_s = "The Return Of The Disaster-Class Hero Who Was Betrayed By Everyone"
     t2 = cs.build_title(1125, {"series_hook": "He Thought Murim Was Just a Game"}, long_s)
-    assert t2 == "[1125] He Thought Murim Was Just a Game | Manhwa Recap" and len(t2) <= 72
+    assert t2 == "[1125] He Thought Murim Was Just a Game" and len(t2) <= 72
 
 
 def test_description_lines_frozen_blocks_and_hashtags():
@@ -62,7 +63,7 @@ def test_validation_catches_the_rule_breaks():
     good = {"title": cs.build_title(45, LOCK, S), "description": cs.build_description(S, 45, PACK),
             "tags": cs.build_tags(S, 45, PACK)}
     assert cs.validate(good, S, 45) == []
-    bad = dict(good, title="Murim Psychopath Chapter 45 — His Class Change Shocks Murim | Manhwa Recap")
+    bad = dict(good, title="Murim Psychopath Chapter 45 — His Class Change Shocks Murim")
     # Strict mode catches style & spec rule breaks
     assert any("T1" in p for p in cs.validate(bad, S, 45, strict=True))
     walled = dict(good, description=good["description"] + " #a #b #c")
@@ -94,3 +95,17 @@ def test_hook_rules_and_timecodes():
     assert cs.valid_timecodes([dict(ok[0], t="0:05")] + ok[1:], 600) == []  # not from 0:00
     assert cs.valid_timecodes(ok[:2] + [{"t": "4:15", "label": "x"}], 600) == []   # < 10 s
     assert cs.valid_timecodes(ok[:2] + [{"t": "8:40", "label": "Part 3"}], 600) == []
+
+
+def test_merged_video_titles_tags_and_line1():
+    lock = {"series_hook": "Disposable Hound Returns For VENGEANCE", "variant": "long"}
+    t = cs.build_title("181-183", lock, "Revenge of the Iron-Blooded Sword Hound")
+    assert t == "[181-183] Disposable Hound Returns For VENGEANCE — Revenge of the Iron-Blooded Sword Hound"
+    short = cs.build_title("32-33", {"series_hook": "Infinite Regressor", "variant": "long"}, "A Regressors Tale Of Cultivation")
+    assert short == "[32-33] Infinite Regressor — A Regressors Tale Of Cultivation | Flamingo Recap"
+    tags = cs.build_tags("Hound", "181-183", {})
+    assert tags[:5] == ["hound chapter 181-183", "hound chapters 181 to 183", "hound chapter 181",
+                        "hound chapter 182", "hound chapter 183"]
+    assert cs.line1("Hound", "181-183", "", "").startswith("Hound Chapters 181-183 recap (English)!")
+    assert cs.validate({"title": short, "description": cs.build_description("Hound", "32-33", {}), "tags": tags},
+                       "Hound", "32-33") == []
