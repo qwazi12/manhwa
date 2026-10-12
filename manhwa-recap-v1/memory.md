@@ -10072,3 +10072,8 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
   - `POST /api/watchlist/auto_mirrors` attached MGeko backups to Extras Academy, Mount Hua, Iron-Blooded Hound, Former Supreme and Dark Mage.
   - The Murim ch.46 remake was refused: `murim-psychopath_46/` exists, but it's an unfinished leftover (pages, crops, audio, no `project.json`).
   - **Follow-up fix:** remake refuses only when `project.json` exists. A leftover is moved aside to `_partial_<pid>_<ts>` (kept, ignored by listings). `test_autopilot` 55/55.
+- **Live, after deploy f76c5e6 (SUCCESS):**
+  - Murim Psychopath ch.46 remake started: job `59df90bf5306`.
+  - Asura served 19/19 pages; the job reached `split`.
+  - The leftover folder was moved aside to `_partial_murim-psychopath_46_<ts>`.
+  - **This entry is committed locally and NOT pushed while the job runs** (a push restarts the server). Push it after the job finishes.
