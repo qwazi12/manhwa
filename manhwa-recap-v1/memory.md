@@ -10041,3 +10041,8 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
   - `face_boxes._suspect` re-checks, once, an old record with a narrow text block over 6% of the image.
   - `thumbnail_studio.MARK_MAX_AREA = 0.06`: a bigger "mark" is never inpainted.
   - New `test_face_box_format.py` (4 pass); thumbnail suites 115/115, 35/35, spec + range 20 pass.
+- **Live, after deploy 1e8edd2 (SUCCESS):**
+  - Four saved covers were swapped: Dark Mage 105, 107 and range 104-108, and Extras 115. Regenerating re-checked them automatically (`fmt: 2`); the new boxes are correct (logo = wide bottom band, watermark top-left, face on the MC).
+  - Re-applied each video's chosen design: cover-badge for 104-108, 115-117, 105 and 107; cover-center for 115.
+  - Visually checked: no blurred band, logo trimmed, crop centred on the MC's face, range badges "CH 104-108" / "CH 115-117".
+  - All 8 range videos were on "Cover art + chapter number", set after my earlier apply (owner's choice), and that choice was kept.
