@@ -273,7 +273,10 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
             p_user, net = t.split(":", 1)
             user_profile = p_user
             if net == "*":
-                accts = load_accounts(HERE)
+                # the accounts store lives in the projects root (server._os_root);
+                # HERE was undefined, so any "<profile>:*" target crashed posting
+                import ingest as _ing
+                accts = load_accounts(_ing.PROJECTS)
                 matching = [a["network"] for a in accts.values() if a.get("profile_user") == p_user and a.get("active")]
                 if matching:
                     platforms.update(matching)

@@ -134,9 +134,13 @@ def main():
         try:
             gemini_tts.synth_gemini_tts("x", out + "2.mp3",
                                         cfg=gemini_tts.engine_for_project(new), _open=opener_400)
-        except urllib.error.HTTPError:
-            pass
-        check("a 400 is not retried", calls["n"] == 1)
+        except RuntimeError as e:          # 2026-10-11: a refused line fails loudly, never silence
+            refused = "refused" in str(e)
+        else:
+            refused = False
+        check("a refused line raises instead of writing silence", refused and not os.path.exists(out + "2.mp3"))
+        # one styled try + one plain try without the style; a 400 is never retried as-is
+        check("a 400 is not retried", calls["n"] <= 2)
         gemini_tts.time.sleep = orig_sleep
 
         # ---- server._synth_rest: chirp cache key, gemini atomic cache + metering

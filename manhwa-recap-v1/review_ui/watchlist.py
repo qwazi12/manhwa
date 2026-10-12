@@ -136,10 +136,9 @@ def add_series(root, title, aliases=None, tier="watchlist", rank=None,
     data["series"].append(entry)
     if owns:
         save(root, data)
-    try:
-        discover_and_attach_mirrors(root, sid, data=data, save_now=owns)
-    except Exception:
-        pass
+    # No mirror discovery here: the series has no source of its own yet, and a
+    # discovered mirror must never become its first/preferred source
+    # (2026-10-11 audit). Discovery runs once the owner's source is attached.
     return entry
 
 
@@ -474,6 +473,11 @@ def discover_and_attach_mirrors(root, series_id, data=None, save_now=True):
     s = find(data, series_id)
     if not s:
         return []
+    if os.environ.get("MIRROR_DISCOVERY", "1") == "0":
+        return []                      # off (tests, or the owner switched it off)
+    if not s.get("mirrors"):
+        return []                      # only BACKUPS for a series that has its own source
+    preferred = s.get("preferred_mirror") or s["mirrors"][0]["series_key"]
 
     title = s["title"]
     attached = []
@@ -508,6 +512,10 @@ def discover_and_attach_mirrors(root, series_id, data=None, save_now=True):
     except Exception:
         pass
 
+    for m in attached:
+        if isinstance(m, dict):
+            m["discovered"] = True     # a backup found automatically, shown as such
+    s["preferred_mirror"] = preferred  # discovery never changes the preferred source
     if attached and (owns or save_now):
         save(root, data)
     return attached

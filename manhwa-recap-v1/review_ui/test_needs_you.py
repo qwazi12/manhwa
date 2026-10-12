@@ -36,6 +36,12 @@ def test_needs_you_is_grouped_by_series_in_chapter_order(tmp_path, monkeypatch):
     ing.PROJECTS = str(tmp_path)
     mk = lambda pid, ser, ch: {"id": pid, "title": f"{ser} ch.{ch}", "series": ser, "chapter": ch,
                                 "status": cs.view("video_ready"), "url": ""}
+    import json, os
+    for pid, ser, ch in (("hound_93", "Hound", "93"), ("mount_181", "Mount Hua", "181"), ("hound_81", "Hound", "81"),
+                         ("hound_100", "Hound", "100"), ("mount_180", "Mount Hua", "180")):
+        os.makedirs(tmp_path / pid)   # real chapters always have project.json (the hook item needs the series id)
+        (tmp_path / pid / "project.json").write_text(json.dumps({"series": ser, "chapter": ch}))
+    monkeypatch.setattr(srv, "_yt_root", lambda: str(tmp_path / "_yt"))
     monkeypatch.setattr(srv, "_chapter_rows", lambda: [
         mk("hound_93", "Hound", "93"), mk("mount_181", "Mount Hua", "181"), mk("hound_81", "Hound", "81"),
         mk("hound_100", "Hound", "100"), mk("mount_180", "Mount Hua", "180")])

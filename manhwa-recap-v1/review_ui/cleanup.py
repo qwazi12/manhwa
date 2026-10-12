@@ -87,7 +87,10 @@ def prune_lru_cache(cache_dir: pathlib.Path, max_bytes: int, target_ratio: float
 
 def cleanup_leftover_renders(max_age_seconds: int = 3600) -> dict:
     """Delete abandoned render_new/ directories older than max_age_seconds."""
-    from . import ingest
+    try:
+        from . import ingest
+    except (ImportError, ValueError):
+        import ingest
     projects_dir = pathlib.Path(ingest.PROJECTS)
     if not projects_dir.exists():
         return {"folders_removed": 0}
@@ -112,7 +115,10 @@ def purge_expired(s: Session, retention_days: int | None = None) -> dict:
     days = retention_days or settings.cleanup_retention_days
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
 
-    from . import ingest
+    try:
+        from . import ingest
+    except (ImportError, ValueError):
+        import ingest
     projects_dir = pathlib.Path(ingest.PROJECTS)
 
     published = s.query(QueueItem).filter(
@@ -129,19 +135,20 @@ def purge_expired(s: Session, retention_days: int | None = None) -> dict:
         p_dir = projects_dir / q.project_id
         if not p_dir.is_dir():
             continue
-        # Clean intermediate raw crop slices and cache
+        # 2026-10-11 audit: this deleted every posted chapter's crops, which
+        # thumbnails, re-renders and range videos still need. It now only
+        # REPORTS what could be freed; deleting is the owner's call (Library).
         crops_dir = p_dir / "crops"
         if crops_dir.exists():
             for f in crops_dir.glob("*.png"):
                 try:
-                    sz = f.stat().st_size
-                    f.unlink(missing_ok=True)
-                    freed_bytes += sz
+                    freed_bytes += f.stat().st_size
                 except Exception:
                     pass
             cleaned += 1
 
-    return {"projects_swept": cleaned, "freed_mb": round(freed_bytes / (1024 * 1024), 2)}
+    return {"projects_reviewed": cleaned, "could_free_mb": round(freed_bytes / (1024 * 1024), 2),
+            "deleted": False}
 
 
 def startup_cleanup() -> dict:
@@ -150,7 +157,10 @@ def startup_cleanup() -> dict:
 
 
 def run_full_sweep(s: Session | None = None) -> dict:
-    from .space import get_disk_usage
+    try:
+        from .space import get_disk_usage
+    except (ImportError, ValueError):
+        from space import get_disk_usage
     res = {}
     if s:
         res["retention"] = purge_expired(s)

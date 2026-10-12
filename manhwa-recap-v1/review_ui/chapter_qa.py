@@ -92,6 +92,27 @@ def check(projects_root, pid, expected_pid=None, cache=None):
     if missing:
         issues.append(f"{missing} picture file(s) missing")
     in_video = [s for s in segs if s.get("user_included")]
+    # 2026-10-11 audit: a voice failure used to be replaced by 0.5 s of
+    # silence — a line with words but a ~0.5 s clip is narration that's missing
+    silent = 0
+    for sg in in_video:
+        for b in sg.get("beats") or []:
+            f = os.path.join(pdir, b.get("file") or "")
+            if not b.get("file") or not re.search(r"[A-Za-z]{3}", b.get("text") or ""):
+                continue
+            try:
+                if os.path.getsize(f) > 20000:
+                    continue
+                d = float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                                   "-of", "csv=p=0", f], text=True, timeout=10).strip() or 0)
+            except Exception:
+                continue
+            if d <= 0.6:
+                silent += 1
+    if silent:
+        bad = True
+        issues.append(f"{silent} narration line(s) are silent (a voice error was covered with silence) — "
+                      "re-voice those lines before posting")
     series, n = _chapter_num(pid)
     for sub in ("pages", "crops"):
         mine = cache.setdefault((pid, sub), fingerprints(pdir, sub))

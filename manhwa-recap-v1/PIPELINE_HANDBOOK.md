@@ -1012,3 +1012,62 @@ manhwa.nodepilot.dev now opens the new studio. The old board and the per-video r
   - its newest video's length matches its storyboard.
 - 2026-10-06: 33 chapters, 0 problems. The "segment clips missing" warnings are normal clean-up after export.
 
+- 2026-10-11: QA also flags **silent narration**: a line with words whose audio is about 0.5 s of silence. That's a voice error the old code hid. Re-voice those lines before posting.
+
+## E20. Audit of Oct 8–11 changes: what broke, how it works now (2026-10-11)
+
+Several sessions changed the studio between Oct 8 and Oct 11. This audit found the breaks and dead ends below and fixed them. Details are in `memory.md` (Session 38).
+
+### Deploys
+- `.dockerignore` excluded `manhwa-recap-v1/hyperframes/`. The Dockerfile runs `npm ci` there, so **every deploy after 19:18 Oct 11 failed** and the live server kept old code.
+- Fix: only `node_modules/` and `projects/` are excluded. **Never exclude a folder the Dockerfile builds from.**
+
+### Voice failures fail loudly
+- Before: when the voice service refused a line, the studio wrote 0.5 s of silence, cached it and carried on. The video then had missing narration and no error.
+- Now the line fails with "voice service refused the line …", so the step errors and can be re-run.
+- Empty text still becomes a short silence on purpose.
+- On startup, silent clips cached by the old behaviour are deleted from `_ttscache`, so they get re-voiced.
+
+### Series record (`_series_packs/<id>.json`): how saves work
+- A save **merges**. Owner fields already on disk are kept when the copy being saved lacks them:
+  - title lock and hook candidates;
+  - playlist and templates;
+  - series defaults (tags, privacy, targets, category, made-for-kids, synthetic disclosure);
+  - music credit and aliases.
+- Saves are serialised by a lock.
+- Code that changes one field uses `series_pack.update_fields(...)`, not a load → modify → save of the whole record.
+- Why: suggesting hooks saved a stale copy and erased **The Regressed Mercenary Has a Plan**'s locked hook. That hook needs re-locking once.
+
+### Backup sources (mirror discovery)
+- Adding a series no longer searches other sites itself.
+- After a pasted link is attached and checked, the background follow-up looks for **backup** sources.
+- The pasted link stays the preferred source, and discovered mirrors are marked `discovered`.
+- To switch it off, set `MIRROR_DISCOVERY=0` (the tests do).
+- A job resumed after a restart with no chapter link gets the link from its `project.json`. Without one, the job errors with a clear message instead of scraping an empty URL.
+
+### What the DB layer is, and what it isn't
+`db.py`, `models.py`, `queue_manager.py`, `undo.py`, `control.py`, `space.py`, `cleanup.py`, `backup.py`, `momentum.py`, `resume.py`, `ops_config.py` form a separate SQLite layer. It **is not** the live system.
+
+The live system is the JSON stores:
+- `_post_queue.json` and the Posting schedule;
+- per-project `publish.json` and `uploads.json`;
+- the in-memory `JOBS`/`INGEST` with their persisted records;
+- the Board's own undo.
+
+The routes `/api/schedule`, `/api/undo/*`, `/api/control/jobs` and `/api/space/cleanup` read and write the SQLite copy only. The current pages don't use them. Wire one into a page only after connecting it to the JSON stores above.
+
+Fixes made so it can't break boot:
+- A chapter like "181-183" no longer crashes `init_db`.
+- Imports work in the flat layout.
+- `purge_expired` only **reports** what could be freed. It never deletes crops.
+
+### Smaller fixes
+- `upload_post` account lookup no longer uses an undefined name.
+- `GET` series bible no longer calls a missing function.
+- Changing a title through SEO Apply drops the stale spec-10 marker, so your own title isn't checked against the hook formula.
+- The web client lost `studioApi.projects/run/stop` (calls to `/api/studio/*`, which never existed).
+
+### Tests updated to the intended behaviour
+- Tags over 500 characters are **trimmed**, not refused.
+- Spec 10 frozen-block edits (D3) are flagged only by the strict check, not at posting. This follows the owner's "more flexible instead of rigid" request.
+- Series defaults adapt the chapter tag to each chapter.

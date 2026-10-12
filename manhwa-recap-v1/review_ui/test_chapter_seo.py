@@ -78,7 +78,10 @@ def test_validation_catches_the_rule_breaks():
     assert cs.validate(edited, S, 45, strict=False) == []
     # But hard errors still trigger in non-strict mode
     assert any("T2" in p for p in cs.validate(dict(good, title="A" * 105), S, 45, strict=False))
-    assert any("H1" in p for p in cs.validate(dict(good, tags=["tag" * 50] * 10), S, 45, strict=False))
+    # Over-long tags are trimmed to fit (H1 <= 500), not refused
+    over = dict(good, tags=["tag" * 50] * 10)
+    assert cs.validate(over, S, 45, strict=False) == []
+    assert sum(len(x) for x in over["tags"]) + len(over["tags"]) - 1 <= cs.TAGS_MAX
 
 
 def test_hook_rules_and_timecodes():

@@ -280,24 +280,23 @@ def _wav_seconds(raw):
         return None
 
 
+def _generate_silence(out_path, seconds=0.5):
+    """A short silent clip for a line with nothing speakable (punctuation or
+    brackets only). Sending empty text to the voice API is a 400 (Fog Land
+    ch.41, 2026-10-09). Only for EMPTY lines — never a stand-in for a failed
+    call, which would publish a video with missing narration."""
+    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", str(seconds)]
+    if out_path.endswith(".mp3"):
+        cmd += ["-acodec", "libmp3lame", "-b:a", "192k"]
+    subprocess.run(cmd + [out_path], check=True, capture_output=True)
+    return {"seconds": seconds, "prompt_tokens": 0, "audio_tokens": 0, "silent": True}
+
+
 def synth_gemini_tts(text, out_path, cfg=None, style=None, voice=None, _open=None):
     """Record one line. Returns {"seconds", "prompt_tokens", "audio_tokens"}
     so the caller can bill it at Google's audio-token rate."""
     if not text or not text.strip():
-        silence_sec = 0.5
-        if out_path.endswith(".mp3"):
-            subprocess.run(
-                ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", str(silence_sec),
-                 "-acodec", "libmp3lame", "-b:a", "192k", out_path],
-                check=True, capture_output=True
-            )
-        else:
-            subprocess.run(
-                ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", str(silence_sec),
-                 out_path],
-                check=True, capture_output=True
-            )
-        return {"seconds": silence_sec, "prompt_tokens": 0, "audio_tokens": 0}
+        return _generate_silence(out_path, 0.5)
     cfg = cfg or get_tts_engine_config()
     api_key = cfg.get("api_key")
     if not api_key:
@@ -365,11 +364,12 @@ def synth_gemini_tts(text, out_path, cfg=None, style=None, voice=None, _open=Non
                 )
                 resp = _post_with_retry(plain_req, ctx, _open=_open)
             except Exception as e2:
-                print(f"[Gemini TTS plain retry failed: {e2}] -> fallback to local silence", flush=True)
-                return _generate_silence(out_path, 0.5)
+                # fail loudly with the service's own reason (rule: no silent
+                # degradation) — the job stops and can be resumed
+                raise RuntimeError(f"voice service refused the line ({e}; without style: {e2}) "
+                                   f"{err_body[:300]}") from e2
         else:
-            print("[Gemini TTS fallback to local silence]", flush=True)
-            return _generate_silence(out_path, 0.5)
+            raise RuntimeError(f"voice service refused the line ({e}) {err_body[:300]}") from e
 
     audio_b64 = None
     for step in resp.get("steps") or []:

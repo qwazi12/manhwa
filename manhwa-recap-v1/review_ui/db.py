@@ -81,6 +81,12 @@ def _migrate() -> None:
             conn.execute(text('UPDATE queue_items SET "position" = id WHERE "position" IS NULL'))
 
 
+def _chapter_float(ch) -> float:
+    import re as _re
+    m = _re.search(r"\d+(?:\.\d+)?", str(ch or ""))
+    return float(m.group(0)) if m else 0.0
+
+
 def sync_projects_from_disk() -> int:
     """Bi-directional compatibility: discover existing disk projects and sync into SQLite."""
     try:
@@ -133,7 +139,8 @@ def sync_projects_from_disk() -> int:
                 sp = StudioProject(
                     project_id=pid,
                     series_slug=str(data.get("series") or ""),
-                    chapter_number=float(data.get("chapter") or 1.0),
+                    # ranges are "181-183" (2026-10-11: float() of that crashed init_db at boot)
+                    chapter_number=_chapter_float(data.get("chapter")),
                     title=str(data.get("title") or pid),
                     stage=stage,
                     stage_status="done" if render_info else "idle",

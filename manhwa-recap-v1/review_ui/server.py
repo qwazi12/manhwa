@@ -2039,8 +2039,8 @@ def api_get_series_bible(project: str = "", series: str = ""):
     pdir = project_dir_for(project) if project else active_project_dir()
     series_id = series
     if not series_id and pdir and os.path.isdir(pdir):
-        meta = load_meta(pdir)
-        series_id = meta.get("series") or os.path.basename(pdir).split("_")[0]
+        meta = _read_json(os.path.join(pdir, "project.json")) or {}      # load_meta didn't exist
+        series_id = _series_ident(pdir)[0] or meta.get("series") or os.path.basename(pdir).split("_")[0]
     bible = series_bible.load_series_bible(series_id, pdir=pdir)
     return {"ok": bool(bible), "series_id": series_id, "bible": bible}
 
@@ -2557,8 +2557,9 @@ def api_series_hooks(body: HookGenIn):
     except ValueError as e:
         raise HTTPException(409, str(e))
     import series_pack as _sp
-    pack["hook_candidates"] = res
-    _sp.save(_yt_root(), pack)
+    # only this field, on the record as it is NOW (a hook may have been locked
+    # while the model was writing)
+    _sp.update_fields(_yt_root(), pack.get("series_id") or sid, hook_candidates=res)
     _ev("publish", f"{series}: 3 title-hook ideas ready — pick one in Library", "ok")
     return res
 
@@ -3268,6 +3269,7 @@ def api_seo_apply(body: SeoApplyIn):
     field = (body.field or "").strip()
 
     if field == "title":
+        md.pop("seo_v2", None)          # a free-form title is no longer the spec-10 package
         val = body.value or ""
         if not val:
             rec_titles = [t["text"] for t in rec.get("titles", []) if t.get("recommended")]
@@ -4758,18 +4760,11 @@ def _synth_rest(text, out_path, style=None, engine=None):
                 _cache_put(f.read())
             return
         except Exception as e:
-            print(f"[_synth_rest Gemini error on {repr(text[:60])}: {e}] -> fallback silence", flush=True)
-            subprocess.run(
-                ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", "0.5",
-                 "-acodec", "libmp3lame", "-b:a", "192k", out_path],
-                check=True, capture_output=True
-            )
-            try:
-                with open(out_path, "rb") as f:
-                    _cache_put(f.read())
-            except Exception:
-                pass
-            return
+            # 2026-10-11 audit: this used to write 0.5 s of silence AND cache it
+            # under the line's text — a spend-limit pause or an outage left that
+            # line silent in every later render. Fail loudly; nothing is cached.
+            print(f"[_synth_rest Gemini error on {repr(text[:60])}: {str(e)[:300]}]", flush=True)
+            raise
 
     # Legacy Chirp voice (projects voiced before the switch)
     key = engine_cfg.get("api_key") or _tts_key()
@@ -4798,17 +4793,8 @@ def _synth_rest(text, out_path, style=None, engine=None):
             f.write(audio)
         _cache_put(audio)
     except Exception as e:
-        print(f"[_synth_rest Chirp error on {repr(text[:60])}: {e}] -> writing fallback silence", flush=True)
-        subprocess.run(
-            ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", "0.5",
-             "-acodec", "libmp3lame", "-b:a", "192k", out_path],
-            check=True, capture_output=True
-        )
-        try:
-            with open(out_path, "rb") as f:
-                _cache_put(f.read())
-        except Exception:
-            pass
+        print(f"[_synth_rest Chirp error on {repr(text[:60])}: {str(e)[:300]}]", flush=True)
+        raise
 
 
 def _recompute_timeline(segs):
@@ -6546,6 +6532,14 @@ def _quick_followup(series_id, series_key):
             else f"could not read it: {m.get('error')}"), "ok" if m.get("status") == "ok" else "warn")
     except Exception as e:  # noqa
         _ev("tracker", f"{series_id}: source check failed: {e}", "error")
+    # 2026-10-11 audit: backup sources are looked up AFTER the pasted link is
+    # attached, so the pasted link stays the first (preferred) source
+    try:
+        found = _wl.discover_and_attach_mirrors(_wl_root(), series_id) or []
+        if found:
+            _ev("tracker", f"{series_id}: {len(found)} backup source(s) found", "ok")
+    except Exception as e:  # noqa
+        _ev("tracker", f"{series_id}: backup-source lookup failed: {str(e)[:160]}", "warn")
     try:
         s = _research._series(series_id)
         if s and _research.needs_research(s):
@@ -8218,8 +8212,23 @@ def _resume_interrupted():
         if _line_count() >= LINE_MAX:
             _hold(jid, "waiting its turn after a server restart; it starts by itself")
             continue
+        url = rec.get("url") or ""
+        if not url:
+            # 2026-10-11 audit: a record without its link was re-queued with an
+            # empty url ("unknown url type: ''"). Recover it from the project;
+            # if there's none, say so instead of scraping nothing.
+            pid_ = (rec.get("project") or {}).get("id") if isinstance(rec.get("project"), dict) else rec.get("project")
+            if pid_:
+                url = (_read_json(os.path.join(_ingest_mod.PROJECTS, str(pid_), "project.json")) or {}).get("url") or ""
+            if not url:
+                rec.update(status="error", error="can't resume after the restart: the job has no chapter link")
+                INGEST[jid] = rec
+                _persist_ingest(jid)
+                print(f"[boot] {jid}: not resumed — no chapter link on record", flush=True)
+                continue
+            rec["url"] = url
         ctl = "pause" if rec.get("control") == "pause" else "run"
-        _enqueue_ingest(rec.get("url", ""), False, rec.get("engine", "gemini"),
+        _enqueue_ingest(url, False, rec.get("engine", "gemini"),
                         rec.get("variant", ""), rec.get("direct_speech"), job_id=jid,
                         control=ctl, why=f"resumed after a server restart ({rec['resumes']} of {RESUME_MAX})")
         _autopilot.set_status_for_job(_ingest_mod.PROJECTS, jid, "queued")
@@ -8571,8 +8580,38 @@ def _heal_project_folders():
             print(f"[heal_metadata] Error on {pid}: {e}", flush=True)
 
 
+def _purge_silent_tts_cache():
+    """2026-10-11 audit: voice failures used to cache 0.5 s of silence under a
+    line's text, so that line stayed silent in every later render. Remove
+    clips that short from the voice cache (a real line is longer); the line is
+    simply voiced again next time it's needed."""
+    n = 0
+    try:
+        for f in os.listdir(_TTS_CACHE_DIR):
+            p = os.path.join(_TTS_CACHE_DIR, f)
+            if not f.endswith(".mp3") or os.path.getsize(p) > 20000:
+                continue
+            try:
+                d = float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                                   "-of", "csv=p=0", p], text=True, timeout=10).strip() or 0)
+            except Exception:
+                continue
+            if d <= 0.6:
+                os.remove(p)
+                n += 1
+    except OSError:
+        pass
+    if n:
+        print(f"[boot] removed {n} silent clip(s) from the voice cache", flush=True)
+    return n
+
+
 @app.on_event("startup")
 def _start_background_work():
+    try:
+        _purge_silent_tts_cache()
+    except Exception as e:
+        print(f"[boot] voice cache sweep failed: {e}", flush=True)
     try:
         _heal_project_folders()
     except Exception as e:

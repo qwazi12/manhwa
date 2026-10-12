@@ -131,13 +131,10 @@ export interface ScheduleInfo extends ScheduleConfig {
   next_slots: string[];
 }
 
+// 2026-10-11 audit: projects/run/stop helpers removed — /api/studio/* never
+// existed on the server. The routes below belong to the SQLite layer, which is
+// NOT the live queue/schedule/undo (see PIPELINE_HANDBOOK "What the DB layer is").
 export const studioApi = {
-  projects: () => api<StudioProject[]>("/api/studio/projects"),
-  project: (id: string) => api<StudioProject>("/api/studio/projects/" + encodeURIComponent(id)),
-  run: (projectId: string, stage: string, auto = false, until = "match") =>
-    api<{ ok: boolean; job_id: string }>("/api/studio/run", { project_id: projectId, stage, auto, until }),
-  stop: (projectId: string) =>
-    api<{ ok: boolean }>("/api/studio/stop", { project_id: projectId }),
   jobs: () => api<any[]>("/api/control/jobs"),
   stopJob: (id: string) => api<{ ok: boolean }>("/api/control/jobs/" + encodeURIComponent(id) + "/stop", {}),
   schedule: () => api<ScheduleInfo>("/api/schedule"),

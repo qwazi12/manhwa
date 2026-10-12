@@ -75,8 +75,11 @@ def main():
               srv.validate_publish({**ok, "title": "x" * 101}) != []))
     r.append(("an over-long description is a problem",
               srv.validate_publish({**ok, "description": "x" * 5001}) != []))
-    r.append(("too many tag characters is a problem",
-              srv.validate_publish({**ok, "tags": ["x" * 100] * 8}) != []))
+    # tags over the limit are trimmed to fit (other session, Oct 2026), not refused
+    _md = {**ok, "tags": ["x" * 100] * 8}
+    r.append(("too many tag characters are trimmed to fit the limit",
+              srv.validate_publish(_md) == [] and
+              sum(len(t) for t in _md["tags"]) + len(_md["tags"]) - 1 <= srv.YT_TAGS_CHARS_MAX))
     r.append(("an unknown privacy value is a problem",
               srv.validate_publish({**ok, "privacy": "semi-public"}) != []))
     r.append(("an unknown category is a problem",

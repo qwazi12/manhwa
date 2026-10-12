@@ -299,8 +299,10 @@ def plan_schedule(s: Session, now: datetime.datetime) -> int:
     if not ready:
         return 0
 
-    from . import momentum
-
+    try:
+        from . import momentum
+    except (ImportError, ValueError):
+        import momentum
     # Sort ready items with pre-release / freshness momentum priority
     def _order_key(it: QueueItem) -> tuple:
         rel = momentum.extract_release_date(it, session=s)

@@ -9955,3 +9955,42 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
 - (g) Discovery only after a primary source, never first/preferred, off in tests (`MIRROR_DISCOVERY=0`).
 - (h) Update tests to the intended behaviour; remove the dead api.ts helpers.
 - (i) Full suite, web build, push when no job runs, verify live (deploy SUCCESS, boot log clean), handbook.
+
+**Session 38: implementation (same day).** Plan steps (a)–(h) are done in the working tree:
+- `.dockerignore` keeps `hyperframes/`.
+- Voice:
+  - `gemini_tts._generate_silence` added, for empty text only.
+  - Refusals raise `RuntimeError("voice service refused the line …")`.
+  - `_synth_rest` re-raises and caches nothing.
+  - On startup `_purge_silent_tts_cache()` deletes ≤20 KB / ≤0.6 s clips.
+  - `chapter_qa` flags silent narration as `bad`.
+- Undefined names:
+  - `HERE` → `ingest.PROJECTS` in `upload_post`.
+  - `load_meta` → `project.json` read in `api_get_series_bible`.
+- DB layer:
+  - `db._chapter_float` handles "181-183".
+  - The cleanup, resume and queue_manager imports have absolute fallbacks.
+  - `purge_expired` is report-only.
+- Resume:
+  - A job with an empty url recovers it from `project.json`, or errors with the reason.
+  - `scraper.download_chapter` refuses an empty url.
+- Series pack:
+  - Saves merge OWNER_KEYS from disk under a lock.
+  - `update_fields()` is used by `api_series_hooks`.
+  - SEO Apply on a title pops `seo_v2`.
+- Mirror discovery:
+  - It's gone from `add_series`.
+  - `discover_and_attach_mirrors` needs an existing mirror, keeps the preferred one, and marks additions `discovered`.
+  - It runs in `_quick_followup` after the pasted link is checked.
+  - `MIRROR_DISCOVERY=0` turns it off.
+- Tests updated to the intended behaviour: `test_gemini_tts_config`, `test_publish_prep`, `test_chapter_seo`, `test_seo_v2_flow`, `test_series_defaults`. `test_needs_you` now gives its fixtures a `project.json`, because the hook item needs a series id.
+- `web/lib/api.ts`: dead `studioApi.projects/project/run/stop` removed.
+- Handbook: new section E20, plus a QA note on silent narration.
+
+**Verified locally:**
+- Every `review_ui` test file passes: script suites N/N, pytest files with no failures (`MIRROR_DISCOVERY=0`).
+- pyflakes shows one undefined name: `align.py:100`, inside an `if False` branch, left alone.
+- `npx tsc --noEmit` is clean.
+- The live deploy and boot log still need checking after the push; see the next entry.
+
+**Owner action:** re-lock The Regressed Mercenary Has a Plan's title hook. The race erased it on 2026-10-09.

@@ -72,9 +72,12 @@ def test_hook_pick_lock_package_validate_and_post_fields(tmp_path, monkeypatch):
     assert second == "Watch Chapter 44 here: https://www.youtube.com/watch?v=prevvideo44"
     assert md["tags"][0] == "murim psychopath chapter 45" and md["seo_v2"]
     assert srv.validate_publish(md, d45, "f45.mp4") == []
-    # an edited frozen block is caught before posting (D3)
+    # an edited frozen block: the strict spec check flags it (D3), but posting is
+    # no longer blocked by it (owner, 2026-10-11: "be more flexible instead of rigid")
+    import chapter_seo as _cs
     bad = dict(md, description=md["description"].replace("promptly address", "address"))
-    assert any("D3" in p for p in srv.validate_publish(bad, d45, "f45.mp4"))
+    assert any("D3" in p for p in _cs.validate(bad, "Murim Psychopath", 45, strict=True))
+    assert not any("D3" in p for p in srv.validate_publish(bad, d45, "f45.mp4"))
     # playlist: owner pastes the link; packages pick it up; Upload-Post gets it + the comment
     srv.api_series_playlist(srv.PlaylistIn(project=f"{SLUG}_45", playlist="https://www.youtube.com/playlist?list=PLabcdefghij123"))
     md = json.load(open(os.path.join(d45, "publish.json")))["f45.mp4"]

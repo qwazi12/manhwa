@@ -41,14 +41,43 @@ def load(root, series_id):
         return None
 
 
-def save(root, pack):
+import threading as _threading
+_SAVE_LOCK = _threading.Lock()
+
+
+def save(root, pack, drop=()):
+    """Write the series record. Owner-set fields already on disk are KEPT when
+    this copy doesn't carry them: a save that started before the owner locked
+    a hook (a 30-60 s hook-suggestion call) used to write its stale copy back
+    and erase the lock (Regressed Mercenary, 2026-10-08). `drop` names owner
+    keys the caller is deliberately removing."""
     p = _path(root, pack.get("series_id"))
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(pack, f, indent=1, ensure_ascii=False)
-    os.replace(tmp, p)
-    return pack
+    with _SAVE_LOCK:
+        try:
+            with open(p, encoding="utf-8") as f:
+                disk = json.load(f)
+        except (OSError, ValueError):
+            disk = {}
+        out = dict(pack)
+        for k in OWNER_KEYS:
+            if k in drop:
+                out.pop(k, None)
+            elif out.get(k) in (None, "", [], {}) and disk.get(k) not in (None, "", [], {}):
+                out[k] = disk[k]
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(out, f, indent=1, ensure_ascii=False)
+        os.replace(tmp, p)
+    pack.update(out)
+    return out
+
+
+def update_fields(root, series_id, **fields):
+    """Set only these fields on the record as it is on disk right now."""
+    cur = load(root, series_id) or {"series_id": series_id}
+    cur.update(fields)
+    return save(root, cur)
 
 
 def merge_aliases(title_en, *groups):

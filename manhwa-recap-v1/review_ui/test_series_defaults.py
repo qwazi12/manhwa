@@ -31,7 +31,9 @@ def test_save_as_series_defaults_no_longer_500s_and_applies_to_the_series(tmp_pa
     p31 = json.loads((tmp_path / f"{slug}_31" / "publish.json").read_text())["final_31.mp4"]
     assert p31["title"] == f"He Returns - {S} Chapter 31 Manhwa Recap"
     assert p31["description"] == "Chapter 31 recap"
-    assert p31["tags"] == ["rtoc"] and p31["playlist"] == "PL-rtoc" and p31["privacy"] == "private"
+    # the series tags carry over, with the chapter tag adapted to ch.31
+    assert "rtoc" in p31["tags"] and not any("32" in t for t in p31["tags"])
+    assert p31["playlist"] == "PL-rtoc" and p31["privacy"] == "private"
 
 
 def test_a_new_chapter_keeps_the_series_title_with_its_own_number(tmp_path, monkeypatch):

@@ -4,7 +4,9 @@ venv/
 **/venv/
 manhwa-recap-v1/venv/
 manhwa-recap-v1/web/
-manhwa-recap-v1/hyperframes/
+# hyperframes/ is the render engine — the Dockerfile runs `npm ci` in it, so it
+# must be in the build context (2026-10-11: excluding it failed every deploy).
+# Its node_modules stay out (rebuilt from the lockfile in the image).
 node_modules/
 **/node_modules/
 __pycache__/

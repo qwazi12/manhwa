@@ -332,6 +332,9 @@ def download_chapter(url: str, output_dir: str):
     """
     global LAST_FAILOVER_SOURCE, LAST_WARNING
     LAST_FAILOVER_SOURCE = None
+    if not (url or "").strip():
+        # never "fail over" from nothing (2026-10-11: resumed jobs with no link)
+        raise ValueError("no chapter link to download")
     # Ensure test inspection contract: scrape_warning(image_urls) / LAST_WARNING
 
     try:
