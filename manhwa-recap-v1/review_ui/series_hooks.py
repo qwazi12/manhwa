@@ -11,6 +11,7 @@ One metered model call (series_research._post → usage.gate). Nothing is
 locked without the owner's choice.
 """
 import json
+import re
 import time
 
 import chapter_seo as cs
@@ -54,27 +55,58 @@ def sources(pack, bible, web):
     return out
 
 
-def prompt(series, budget, srcs):
+HOOK_MIN, HOOK_MAX = 35, 60          # owner, 2026-10-12: short formulas read weak
+POWER = re.compile(r"\b[A-Z]{3,}\b")
+WEAK = re.compile(r"(?i)^(he|she|they)\s+(was|is|rose|rises|died|lost)\b.{0,18}$|\b(rises again|but rose|reborn!?$|"
+                  r"returns!?$|awakens!?$)")
+
+
+def prompt(series, budget, srcs, examples=()):
     mech = "\n".join(f"{k}. {v}" for k, v in MECHANICS.items())
     src = "\n".join(f"[{i}] ({s['kind']}) {s['text']}  <{s['url']}>" for i, s in enumerate(srcs))
+    ex = "\n".join(f"- {e}" for e in examples) or "- (none yet)"
+    hi = min(HOOK_MAX, budget)
     return f"""You write the ONE title hook a YouTube manhwa-recap channel will use for EVERY chapter of the series "{series}".
-Each video title will be: [chapter number] HOOK — {series} | Manhwa Recap
+Each video title will be: [chapter number] HOOK — {series}
 
-Write exactly 3 candidate hooks, each using a DIFFERENT mechanic from this list (these patterns have verified 1M+ view precedents in the niche):
+Hooks the channel owner already chose for OTHER series (match this voice: specific, high stakes, one CAPS power word):
+{ex}
+
+Write exactly 5 candidate hooks, using at least 3 DIFFERENT mechanics from this list (verified 1M+ view precedents in the niche):
 {mech}
 
 SOURCES (series-level only; every clause of a hook must come from one of these — invent nothing):
 {src}
 
 Rules:
-- At most {budget} characters each (count carefully). Title Case, punctuation allowed.
+- {HOOK_MIN} to {hi} characters each (count carefully). Title Case, punctuation allowed.
+- Concrete, not generic: name WHO he is (a role or status: "Disowned Noble", "Genius DOCTOR", "Clan Assassin"),
+  WHAT is at stake or the twist, and a vivid detail. "He Was Struck, But Rose!" or "Slain, But Reborn!" are TOO VAGUE.
+- Exactly ONE word in ALL CAPS for emphasis (e.g. VENGEANCE, OP, REGRESSION), the rest Title Case.
 - Series-level: the premise of the whole series, never a single chapter's event; no chapter numbers.
 - Never vague filler verbs like "shocks", "stuns", "shakes" + a place ("His Class Change Shocks Murim" was rejected).
-- Prefer mechanics 1–3 (strongest precedent) unless the premise is a misconception, where 5 fits best.
 - Do not name the series in the hook (it is already in the title).
 - Output NO scratchpad, chain-of-thought, or character counting steps.
 
 Return ONLY JSON: [{{"hook": "...", "mechanic": 1-5, "source_index": [0, ...], "why": "one sentence"}}]"""
+
+
+def score(hook):
+    """Rank candidates (higher is better): length in the 35-60 sweet spot,
+    exactly one CAPS power word, concrete words, no vague formula."""
+    h = hook or ""
+    s = 0.0
+    n = len(h)
+    s += 3 if HOOK_MIN <= n <= HOOK_MAX else (1 if 25 <= n < HOOK_MIN else -2)
+    caps = POWER.findall(h)
+    s += 2 if len(caps) == 1 else (0.5 if len(caps) == 2 else 0)
+    words = re.findall(r"[A-Za-z']+", h)
+    s += min(2.0, 0.25 * len([w for w in words if len(w) >= 6]))       # specific nouns/verbs
+    if re.search(r"\d", h):
+        s += 0.5                                                          # concrete numbers
+    if WEAK.search(h):
+        s -= 3
+    return round(s, 2)
 
 
 def _loads(text):
@@ -95,7 +127,7 @@ def _loads(text):
     return []
 
 
-def generate(series, pack, bible, web, api_key, _post=None):
+def generate(series, pack, bible, web, api_key, _post=None, examples=()):
     """3 validated candidates [{hook, mechanic, mechanic_name, provenance, why, chars, problems}]."""
     import series_research as sr
     budget = max(cs.hook_budget(series, 999), cs.TITLE_MAX - len(cs.short_title(999, "")))
@@ -105,7 +137,7 @@ def generate(series, pack, bible, web, api_key, _post=None):
         raise ValueError("no series-level source to build a hook from — run the series research first")
     post = _post or (lambda body: sr._post(body, api_key))
     resp = post({"contents": [{"parts": [{"text": prompt(series, long_budget if long_budget >= cs.HOOK_MIN_BUDGET
-                                                         else budget, srcs)}]}],
+                                                         else budget, srcs, examples)}]}],
                  # 8192: a thinking model spends part of the budget before it
                  # writes; at 2048 the live call on 2026-10-08 returned nothing
                  "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192,
@@ -130,7 +162,9 @@ def generate(series, pack, bible, web, api_key, _post=None):
                     "why": str(r.get("why") or "")[:200], "chars": len(h),
                     "variant": cs.title_variant(series, h),
                     "example_title": cs.build_title(45, {"series_hook": h}, series),
-                    "problems": cs.hook_problems(h, series)})
+                    "problems": cs.hook_problems(h, series), "score": score(h)})
+    # 5 written, the 3 strongest kept (rule-breakers last)
+    out.sort(key=lambda c: (bool(c["problems"]), -c["score"]))
     res = {"at": time.time(), "candidates": out[:3], "sources": srcs}
     if not out:
         fin = ((resp or {}).get("candidates") or [{}])[0].get("finishReason")

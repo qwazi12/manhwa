@@ -131,3 +131,21 @@ def test_preview_changes_nothing_on_the_video(tmp_path, monkeypatch):
     assert all(p["problems"] == [] for p in r["previews"])
     assert open(os.path.join(d, "publish.json")).read() == before          # untouched
     assert r["current"]["title"] == "old 96"
+
+
+def test_hook_ranking_prefers_specific_hooks_and_uses_owner_examples():
+    import series_hooks as sh
+    assert sh.score("Disposable Hound Returns For VENGEANCE") > sh.score("He Was Struck, But Rose!")
+    assert sh.score("A Genius DOCTOR Uses An OP SYSTEM To Survive Prison") > sh.score("Slain, But Reborn!")
+    p = sh.prompt("Hound", 60, [{"kind": "premise", "text": "x", "url": "u"}], ["Disposable Hound Returns For VENGEANCE"])
+    assert "Disposable Hound Returns For VENGEANCE" in p and "5 candidate hooks" in p and "| Manhwa Recap" not in p
+    sent = {}
+    reply = [{"hook": h, "mechanic": 1} for h in ("Slain, But Reborn!", "Clan Assassin Reborn As An Infant To Avenge His DEATH",
+                                                  "He Was Struck, But Rose!", "Executed As A Hound, He Returns For VENGEANCE",
+                                                  "Treated As A Disposable Dog, He Hunts The CLAN")]
+    import json as _j
+    post = lambda body: (sent.setdefault("b", body), {"candidates": [{"content": {"parts": [{"text": _j.dumps(reply)}]}}]})[1]
+    res = sh.generate("Hound", {}, {"world_setting": {"premise": "a hound returns"}}, None, "k", _post=post,
+                      examples=["Disposable Hound Returns For VENGEANCE"])
+    kept = [c["hook"] for c in res["candidates"]]
+    assert len(kept) == 3 and "Slain, But Reborn!" not in kept and "He Was Struck, But Rose!" not in kept

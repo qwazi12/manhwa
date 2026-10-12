@@ -10171,3 +10171,20 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   - leak fixed at the source (label for ranges; "Chapters?" in templates; tag regex had literal \x08 backspaces → fixed; deduped tags);
   - `/api/publish/repair_titles` (dry run).
 - **Tests:** new `test_merge_unmerge` (5), `test_chapter_seo` (merged titles/tags), updated publish_spec / seo_v2 / chapter_seo for the new suffixes; the full review_ui suite passes, `test_scraper` 15/15, tsc clean.
+- **Items 1–4 deployed:** 9f334cc, SUCCESS; the server took ~2 min to start.
+  - Live dry run of `/api/publish/repair_titles`: 43 changes.
+    - Regressor's title/description templates and ch.31–33 titles/descriptions/tags get their own numbers back;
+    - "| Manhwa Recap" is dropped on unposted titles across 10 series.
+  - A dry-run bug (3 drafts with no title would get '') is fixed before applying.
+  - **NOT applied yet:** the list goes to the owner first.
+- **Item 6 (hooks):**
+  - `series_hooks.prompt` takes the owner's locked hooks (all series) as style examples, asks for 5 hooks of 35–60 characters with concrete stakes and ONE CAPS word, and bans vague formulas.
+  - `score()` ranks them; the best 3 are kept.
+  - Owner's locks score 3.5–5.75; old weak suggestions −1.5 to −4.75. Test added.
+- **Item 5 (thumbnails):**
+  - `thumbnail_studio.CANON` → the tracker series id (server `_canon_series`, by source link), so one look per series.
+  - `adopt_legacy_styles` folds name-keyed looks at boot (the approved, newest one wins).
+  - `_series_look`: auto-pick uses the series' approved look, else the precedent of its chapters (Murim 46 fix).
+  - "Use for series" (`set_series_default`) redraws every unposted video of the series, merged ones too.
+  - `GET /api/thumbcopilot/consistency`.
+  - Tests: `test_series_look` (3).

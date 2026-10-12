@@ -1978,6 +1978,10 @@ def api_thumbcopilot_apply(body: ThumbApplyIn):
     if body.set_series_default:
         tstudio.approve_style(_yt_root(), key, style,
                               composition=c.get("composition"))
+        # "Use for series" means every unposted video of the series, merged ones too
+        threading.Thread(target=_apply_look_to_series,
+                         args=(key, c.get("composition"), (os.path.basename(pdir.rstrip("/")), name)),
+                         daemon=True).start()
 
     all_recs = tstudio.load_concepts(pdir)
     if name in all_recs:
@@ -1992,6 +1996,75 @@ def api_thumbcopilot_apply(body: ThumbApplyIn):
     out = _thumb_state(pdir, name)
     out["applied"] = saved
     return out
+
+
+def _series_exports(key):
+    """[(pid, pdir, export, posted)] for every video of the series with this look key."""
+    import ingest as _i
+    import thumbnail_studio as tstudio
+    out = []
+    for pid in sorted(os.listdir(_i.PROJECTS)):
+        d = os.path.join(_i.PROJECTS, pid)
+        m = _read_json(os.path.join(d, "project.json")) if not pid.startswith("_") else None
+        if not m or tstudio.series_key(m) != key:
+            continue
+        went = set(_read_json(os.path.join(d, UPLOADS_NAME)) or {}) | set(_read_json(os.path.join(d, "publishes.json")) or {})
+        try:
+            names = [n for n in os.listdir(os.path.join(d, "exports")) if n.endswith(".mp4") and not n.endswith(".part.mp4")]
+        except OSError:
+            names = []
+        out += [(pid, d, n, n in went) for n in names]
+    return out
+
+
+def _apply_look_to_series(key, composition, skip=None):
+    """Redraw every UNPOSTED video of the series in this composition."""
+    import thumbnail_studio as tstudio
+    done = failed = 0
+    for pid, d, name, posted in _series_exports(key):
+        if posted or (pid, name) == skip:
+            continue
+        try:
+            cs = (tstudio.get_concepts(d, name) or {}).get("concepts") or []
+            if not any(c.get("composition") == composition for c in cs):
+                api_thumbcopilot_generate(ThumbGenIn(project=pid, name=name))
+                cs = (tstudio.get_concepts(d, name) or {}).get("concepts") or []
+            c = next((c for c in cs if c.get("composition") == composition), None)
+            if c:
+                api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=c["id"]))
+                done += 1
+        except Exception as e:  # noqa — one video failing must not stop the rest
+            failed += 1
+            print(f"[series look] {pid}/{name}: {e}", flush=True)
+    _ev("publish", f"{key}: series look ({composition}) applied to {done} unposted video(s)"
+                   + (f", {failed} failed" if failed else ""), "ok" if not failed else "warn")
+
+
+@app.get("/api/thumbcopilot/consistency")
+def api_thumbcopilot_consistency():
+    """Per series: its look and the unposted videos whose thumbnail differs."""
+    import ingest as _i
+    import thumbnail_studio as tstudio
+    keys = set()
+    for pid in os.listdir(_i.PROJECTS):
+        m = _read_json(os.path.join(_i.PROJECTS, pid, "project.json")) if not pid.startswith("_") else None
+        if m:
+            keys.add(tstudio.series_key(m))
+    out = []
+    for key in sorted(keys):
+        st = tstudio.load_style(_yt_root(), key) or {}
+        look = st.get("composition") if st.get("approved") else None
+        off = []
+        for pid, d, name, posted in _series_exports(key):
+            if posted:
+                continue
+            ch = ((tstudio.load_concepts(d) or {}).get(name) or {}).get("chosen") or {}
+            if not ch:
+                off.append({"project": pid, "name": name, "has": None})
+            elif look and ch.get("composition") != look:
+                off.append({"project": pid, "name": name, "has": ch.get("composition")})
+        out.append({"series": key, "look": look, "approved": bool(st.get("approved")), "off": off})
+    return {"series": out}
 
 
 @app.post("/api/thumbcopilot/style/approve")
@@ -2580,8 +2653,18 @@ def api_series_hooks(body: HookGenIn):
         raise HTTPException(409, "today's spend limit is used up — " + str(e)[:120])
     except Exception:
         web = None
+    # the owner's own locked hooks on other series are the style to match (2026-10-12)
+    examples = []
     try:
-        res = _sh.generate(series, pack, bible, web, _gt.env_any_case("GEMINI_API_KEY"))
+        import glob as _glob
+        for f in sorted(_glob.glob(os.path.join(_yt_root(), "_series_packs", "*.json"))):
+            lk = (_read_json(f) or {}).get("title_lock") or {}
+            if lk.get("approved_by_user") and lk.get("series_hook") and os.path.basename(f)[:-5] != sid:
+                examples.append(lk["series_hook"])
+    except Exception:
+        pass
+    try:
+        res = _sh.generate(series, pack, bible, web, _gt.env_any_case("GEMINI_API_KEY"), examples=examples[:12])
     except ValueError as e:
         raise HTTPException(409, str(e))
     import series_pack as _sp
@@ -3384,7 +3467,8 @@ def api_publish_repair_titles(body: RepairTitlesIn):
                     t = re.sub(r"\s*Ch\.\s*" + re.escape(label) + r"\s*$", "", t)
             if new.get("seo_v2") and t.endswith(" | Manhwa Recap"):
                 t = t[: -len(" | Manhwa Recap")]
-            new["title"] = t
+            if md.get("title") is not None or t:
+                new["title"] = t                  # never invent an empty title on a draft
             d = new.get("description") or ""
             if _RANGE_WORDS.search(d):
                 new["description"] = _RANGE_WORDS.sub(f"Chapter {label}", d)
@@ -4344,7 +4428,10 @@ def _prepare_publish(pdir, name, do_seo=True):
                 api_thumbcopilot_generate(ThumbGenIn(project=pid, name=name))
             if not _tb.path_for(pdir, name):
                 cs = (tstudio.get_concepts(pdir, name) or {}).get("concepts") or []
-                best = next((c for c in cs if c.get("recommended")), cs[0] if cs else None)
+                # the series' look first (2026-10-12: Murim 45 cover-badge, 46 panel-hero)
+                look = _series_look(pdir)
+                best = (next((c for c in cs if look and c.get("composition") == look), None)
+                        or next((c for c in cs if c.get("recommended")), cs[0] if cs else None))
                 if best:
                     api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=best["id"]))
                     filled.append("thumbnail")
@@ -8827,8 +8914,72 @@ def _purge_silent_tts_cache():
     return n
 
 
+_CANON_CACHE = {"at": 0, "data": None}
+
+
+def _canon_series(meta):
+    """The tracker's series id for a chapter/merged video (by its source link),
+    so every chapter of a series shares ONE thumbnail look (2026-10-12)."""
+    import watchlist as _wl
+    if time.time() - _CANON_CACHE["at"] > 60 or _CANON_CACHE["data"] is None:
+        _CANON_CACHE.update(at=time.time(), data=_wl.load(_wl_root()))
+    data = _CANON_CACHE["data"]
+    url = (meta or {}).get("url") or ""
+    s_, _m = _wl.find_by_mirror(data, url) if url else (None, None)
+    if not s_ and (meta or {}).get("series_id"):
+        s_ = _wl.find(data, meta["series_id"])
+    return s_["id"] if s_ else None
+
+
+def _adopt_thumbnail_looks():
+    """Startup: fold every series' name-keyed looks into its one canonical look."""
+    import ingest as _i
+    import thumbnail_studio as tstudio
+    pairs = []
+    for pid in os.listdir(_i.PROJECTS):
+        pj = os.path.join(_i.PROJECTS, pid, "project.json")
+        if pid.startswith("_") or not os.path.exists(pj):
+            continue
+        meta = _read_json(pj) or {}
+        pairs.append((tstudio.legacy_series_key(meta), tstudio.series_key(meta)))
+    got = tstudio.adopt_legacy_styles(_yt_root(), pairs)
+    if got:
+        print(f"[boot] thumbnail looks unified for {len(got)} series", flush=True)
+
+
+def _series_look(pdir):
+    """The composition this series uses: its approved look, else the one most
+    of its chapters already use (so a new chapter matches the last ones)."""
+    import ingest as _i
+    import thumbnail_studio as tstudio
+    meta = _read_json(os.path.join(pdir, "project.json")) or {}
+    key = tstudio.series_key(meta)
+    st = tstudio.load_style(_yt_root(), key) or {}
+    if st.get("approved") and st.get("composition"):
+        return st["composition"]
+    counts = {}
+    for pid in os.listdir(_i.PROJECTS):
+        d = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or d.rstrip("/") == pdir.rstrip("/") or not os.path.isdir(d):
+            continue
+        m = _read_json(os.path.join(d, "project.json")) or {}
+        if not m or tstudio.series_key(m) != key:
+            continue
+        for r in (tstudio.load_concepts(d) or {}).values():
+            c = (r.get("chosen") or {}).get("composition") if isinstance(r, dict) else None
+            if c:
+                counts[c] = counts.get(c, 0) + 1
+    return max(counts, key=counts.get) if counts else None
+
+
 @app.on_event("startup")
 def _start_background_work():
+    try:
+        import thumbnail_studio as _ts_boot
+        _ts_boot.CANON = _canon_series        # one thumbnail look per tracker series
+        _adopt_thumbnail_looks()
+    except Exception as e:
+        print(f"[boot] thumbnail look unification failed: {e}", flush=True)
     try:
         _purge_silent_tts_cache()
     except Exception as e:

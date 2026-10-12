@@ -803,12 +803,59 @@ def _read(path, default=None):
 
 
 # =========================================================== STYLE PACK
-def series_key(meta):
-    """Stable per-SERIES id. Chapters of one manhwa must collide on purpose —
-    that collision is what makes the style carry forward."""
+# Set by the server: meta -> the tracker's series id (or None). The look used
+# to be filed under the chapter's series TEXT, which differs between chapters
+# and sources ("the-extras-academy-survival-guide-6465" vs "the-extra-s-…"),
+# so one series had 2-3 looks (2026-10-12).
+CANON = None
+
+
+def legacy_series_key(meta):
     s = (meta or {}).get("series") or ""
     k = re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
     return k or "unknown-series"
+
+
+def series_key(meta):
+    """Stable per-SERIES id. Chapters of one manhwa must collide on purpose —
+    that collision is what makes the style carry forward."""
+    if CANON:
+        try:
+            k = CANON(meta)
+        except Exception:
+            k = None
+        if k:
+            return k
+    return legacy_series_key(meta)
+
+
+def adopt_legacy_styles(root, pairs):
+    """Fold looks filed under old name-keys into the series' canonical key:
+    an approved look beats a draft, the most recently approved one wins, and
+    an approved canonical look that is newer is never replaced. Old files are
+    left in place. Returns {canonical: legacy key adopted}."""
+    by = {}
+    for old, new in pairs:
+        if old and new and old != new:
+            by.setdefault(new, set()).add(old)
+    adopted = {}
+    for new, olds in by.items():
+        cur = load_style(root, new) or {}
+        best_key, best = None, None
+        for o in sorted(olds):
+            p = load_style(root, o) or {}
+            if p.get("approved") and (best is None or (p.get("approved_at") or 0) > (best.get("approved_at") or 0)):
+                best_key, best = o, p
+        if best and (not cur.get("approved") or (best.get("approved_at") or 0) > (cur.get("approved_at") or 0)):
+            save_style(root, new, dict(best, adopted_from=best_key))
+            adopted[new] = best_key
+        elif not cur and olds:
+            o = sorted(olds)[0]
+            p = load_style(root, o)
+            if p:
+                save_style(root, new, dict(p, adopted_from=o))
+                adopted[new] = o
+    return adopted
 
 
 def _styles_dir(root):
