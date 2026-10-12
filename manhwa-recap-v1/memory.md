@@ -10078,3 +10078,84 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
   - The leftover folder was moved aside to `_partial_murim-psychopath_46_<ts>`.
   - **This entry is committed locally and NOT pushed while the job runs** (a push restarts the server). Push it after the job finishes.
 - Murim ch.46 job `59df90bf5306` finished: scrape, split, describe, narrate, voice and match are done. Status "Check the board", waiting for the owner's review and Render. Pushed after the job ended (no active jobs).
+
+## Session 39 — 2026-10-12 — Merged videos, thumbnails, hooks, titles, paywall wait: PLAN (awaiting owner approval)
+
+**Owner asked:**
+- Can chapters be merged and unmerged, and can a chapter be added to an existing merged group?
+- Why don't SEO and everything else apply to merged videos?
+- The double-tap confirms are annoying.
+- Thumbnails are inconsistent.
+- Suggested hooks are weak.
+- Range titles like "Full 1H | … | Manhwa Recap | Best Manhwa 2026" are repetitive.
+- Autopilot should wait 12–24 h after a chapter drops (Asura paywall).
+
+Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole plan was presented for approval.
+
+**Findings (verified on live data):**
+- **M1 — no unmerge.** Merge marks chapters "merged" in `reviews.json` and removes their queue items; nothing reverses it.
+- **M2 — a merged video can't join a new merge.** `_range_ctx` gets chapter=None for a range project ("104-108" doesn't parse), so selecting a range plus a new chapter silently drops the range.
+- **M3 — chapter SEO skipped for merged videos.** The spec-10 path needs an int chapter, so ranges fall to the old path:
+  - Dark Mage 104-108 tags all say "chapter 104";
+  - its playlist = the series NAME, not an id, so it's never added to a playlist;
+  - no first comment;
+  - title not from the locked hook.
+- **M4 — leak.** "Save as series defaults" on Regressor 32-33 pushed "[32-33]" and "Chapter 32-33" into ch.31's title and description.
+- **T1 — one series, several thumbnail styles.** Style packs are keyed by the `series` text, which varies by chapter and source: "the-extras-academy-survival-guide-6465" vs "the-extra-s-academy-survival-guide", "fog-land" vs "fog-land-9299", "the-dark-mage-s-…" vs "the-dark-mages-…".
+  - Ranges mostly don't use the series style (`used_series_style` False on 7 of 9).
+  - Murim 45 is cover-badge while 46 is panel-hero with text.
+  - Regressed Mercenary 96-99 has two exports with different looks.
+- **H1 — weak hook suggestions.** Model suggestions are generic and short ("He Was Struck, But Rose!", "Slain, But Reborn!", "Archmage To Fighter"). The owner's own locks are specific, with stakes and one CAPS power word ("Disposable Hound Returns For VENGEANCE", "A Genius DOCTOR Uses An OP SYSTEM To Survive Prison"). The prompt ignores those examples and pushes short formula mechanics.
+- **R1 — range title formula** is "Full {H}H | {Series} Chapter a-b | Manhwa Recap | {Genre} | Best Manhwa {Year}". It's repetitive, "Full 1H" rounds up, and it ignores the series hook.
+- **P1 — no release wait.** Autopilot makes a chapter as soon as the source lists it; Asura's early-access paywall then blocks the scrape, and the fallback tries mirrors that don't have the chapter yet.
+- **C1 — confirm UX.** 48 two-tap `ConfirmButton`s: the button relabels itself for 4.5 s; used on cheap and undoable actions too.
+
+**Plan (in order; each item is tested, logged, pushed only when no job is running, and verified live):**
+1. **Unmerge.** `POST /api/ranges/unmerge`:
+   - restores each chapter's review status from before the merge (saved at merge time from now on; older merges fall back to "ready");
+   - puts the chapters back in their original queue slots where known, otherwise back in line in chapter order;
+   - moves the merged video aside (kept, not deleted) and logs it in Activity;
+   - adds an Unmerge button on the merged video's page.
+2. **Add to an existing merge.**
+   - Selecting a merged video plus chapters next to it (or two adjacent merged videos) rebuilds one merged video covering the whole span.
+   - The old one is kept aside, so it can be unmerged back.
+   - A gap in the span is refused with a plain message.
+3. **Merged videos get the full chapter treatment.** The chapter-SEO package runs for "a-b":
+   - title from the locked hook (see 6);
+   - a tag block per chapter, trimmed to 500;
+   - frozen description plus chapter timestamps;
+   - the real playlist id and the first comment;
+   - same checks before posting.
+4. **Fix the leak.**
+   - "Save as series defaults" saves a pattern from a merged video ({chapter} placeholders), never literal "32-33".
+   - Repair chapters already hit: scan every chapter's `publish.json` for a range number that isn't its own and rebuild those fields from the series defaults. Dry-run list first, then apply.
+5. **Thumbnails consistent per series.**
+   - One canonical style key per series: the watchlist series id, with aliases mapped. Duplicate packs are merged, keeping the approved one.
+   - Merged videos always use the series style.
+   - "Use for series" applies the look to every unposted chapter of that series and its merged videos.
+   - A per-series consistency check flags chapters whose design differs from the series look.
+6. **Stronger hook suggestions.**
+   - The prompt gets the owner's locked hooks as style examples and allows ~35–60 characters.
+   - It asks for concrete stakes (who, what's at stake, a twist) and at most one CAPS power word.
+   - Vague one-liners are banned.
+   - 5 candidates are generated and the 3 best kept, ranked by a simple score (specificity, length, power word, no filler).
+   - Same single metered call as now.
+7. **Merged-video titles.**
+   - Default: "[a-b] {HOOK} — {Series}" (owner example: "[32-33] His Infinite REGRESSION Became A Cruel Joke to the Heavens - A Regressors Tale Of Cultivation").
+   - No "Full 1H", no "| Manhwa Recap | Best Manhwa {Year}" tail.
+   - A single optional suffix is added only if it fits under 100 characters; which suffix is the owner's choice.
+   - The chapter title keeps "[N] hook — series | Manhwa Recap" unless the owner wants the same suffix change there.
+8. **Release wait (paywall).**
+   - Autopilot records when it first sees each new chapter and won't make it until a per-source wait has passed: Asura 24 h; others 2 h; both editable in Settings.
+   - A scrape that hits a paywall (Premium / 0 pages within the wait window) is marked "waiting for free release — retry at HH:MM", not failed and not failed over.
+   - "Make" by hand still works immediately, with a warning if the wait hasn't passed.
+9. **Simpler confirms.**
+   - Single tap for cheap or undoable actions (Use, privacy, Back in line, Open, Plan).
+   - Money, public posting or deleting gets one small dialog showing what happens, the cost and Cancel/Confirm, instead of the button relabelling itself.
+
+**Open questions for the owner:**
+- (a) The suffix for merged titles: none / "| Manhwa Recap" / "| Full Recap".
+- (b) Whether chapter titles drop "| Manhwa Recap" too.
+- (c) The Asura wait: 24 h, or 12 h?
+
+**Status:** awaiting approval; nothing implemented yet.
