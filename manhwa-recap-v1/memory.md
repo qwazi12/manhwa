@@ -9994,3 +9994,16 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
 - The live deploy and boot log still need checking after the push; see the next entry.
 
 **Owner action:** re-lock The Regressed Mercenary Has a Plan's title hook. The race erased it on 2026-10-09.
+
+**Session 38 — live verification (2026-10-11 20:37 EDT):**
+- Railway deploy `18284572` of 8974bae: **SUCCESS**, the first good deploy since 19:18.
+- `/health` returns 200.
+- The boot log is clean:
+  - no "db init failed";
+  - no "startup cleanup failed";
+  - no empty-URL scrapes.
+- The boot log shows:
+  - "removed 1 silent clip(s) from the voice cache";
+  - 4 stale ingest records (e7deae78a155, ea244d5ffbb8, 97b762094d26, 684b271aa3b2) "not resumed — no chapter link on record". They are now errors instead of empty scrapes.
+- `/api/qa/chapters`: 54 chapters, 21 ok, 32 warn, 1 bad, and 0 with silent narration.
+- **Open:** `a-regressors-tale-of-cultivation_33` has its 86 storyboard pictures pointing at a folder `en_a-regressors-tale-of-cultivation-chapter-33-eng-li` that doesn't exist. Probably a mirror ingest that wrote another project id, which the other session's URL normalisation then renamed. It needs a re-ingest of ch.33, the owner's call.
