@@ -10029,3 +10029,15 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
   - None had posted. Posting reads the thumbnail file at send time, so the queued posts use the new ones.
   - Weak pick to flag to the owner: Mount Hua 181-183 chose a panel with Korean SFX text and a side character.
   - Two show the "FULL 1H" overlay taken from the B3 title.
+
+### 2026-10-11 — Blurred band / bad crop on cover thumbnails (owner screenshots: Dark Mage 104-108, Extras 115-117)
+- **Root cause (verified by drawing the stored boxes on the cover):**
+  - Dark Mage's `_cover` face_boxes record was axis-swapped. The model answered [ymin, xmin, ymax, xmax], but `face_boxes.prompt` asked for [x0, y0, x1, y1].
+  - The logo box [0.575, 0.034, 0.947, 0.949] read as x-first became a 37%×92% strip over the hand and magic area. `title_band_from_blocks` treated it as a narrow "mark" and inpainted it, which made the blurred band. The real logo stayed in.
+  - The face box landed on the cat.
+  - Other covers sampled (Extras, Regressor, Mount Hua, Fated Villain) were stored correctly, so the model's answer order was inconsistent.
+- **Fix:**
+  - The prompt now asks for `box_2d` / `bubbles_2d` / `text_blocks_2d` as [ymin, xmin, ymax, xmax] 0–1000. `face_boxes._box_from` / `_boxes_2d` convert them; old `box` keys are read as before. New records carry `fmt: 2`.
+  - `face_boxes._suspect` re-checks, once, an old record with a narrow text block over 6% of the image.
+  - `thumbnail_studio.MARK_MAX_AREA = 0.06`: a bigger "mark" is never inpainted.
+  - New `test_face_box_format.py` (4 pass); thumbnail suites 115/115, 35/35, spec + range 20 pass.

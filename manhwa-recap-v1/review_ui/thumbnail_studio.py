@@ -1301,6 +1301,7 @@ TITLE_BAND_MAX = 0.45       # the cover's own logo never takes more than this
 
 
 WIDE_BLOCK = 0.5            # a text block this wide is a band (logo); narrower is a mark
+MARK_MAX_AREA = 0.06        # a mark (watermark, credit tag) is small; larger is never inpainted
 
 
 def title_band_from_blocks(blocks):
@@ -1324,12 +1325,15 @@ def title_band_from_blocks(blocks):
         except Exception:
             continue
         if x1 - x0 < WIDE_BLOCK:
-            marks.append([x0, y0, x1, y1])
+            if (x1 - x0) * (y1 - y0) <= MARK_MAX_AREA:
+                marks.append([x0, y0, x1, y1])
+            # a bigger "mark" is a wrong box, not a watermark: inpainting it
+            # smeared a third of the Dark Mage cover (2026-10-11) — leave the art
         elif y0 >= 1 - TITLE_BAND_MAX:
             bottom = max(bottom, min(TITLE_BAND_MAX, 1 - y0 + 0.01))
         elif y1 <= 0.34:
             top = max(top, min(0.34, y1 + 0.01))
-        else:
+        elif (x1 - x0) * (y1 - y0) <= MARK_MAX_AREA:
             marks.append([x0, y0, x1, y1])
     if bottom < COVER_TRIM_BOTTOM:
         bottom = COVER_TRIM_BOTTOM

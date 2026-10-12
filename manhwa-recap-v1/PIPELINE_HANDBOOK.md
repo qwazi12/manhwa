@@ -1077,3 +1077,14 @@ Fixes made so it can't break boot:
 - The badge shows the range: **"CH 32-33"**, or "CH. 32-33" on the chapter card.
 - Before this fix, the thumbnail designer found no panels for a merged video. The build then copied the first chapter's thumbnail, so every merged video said "CH 32" or similar.
 - That copy is gone. If no design can be made, Activity says so and you pick one in 🖼 Thumbnails.
+
+### Blurred band on a cover thumbnail: face-check boxes in the wrong order (2026-10-11)
+- **What you saw:** on The Dark Mage's Return to Enlistment 104-108, the cover designs had a blurred vertical band over the right side, and the title logo was cut off at the bottom.
+- **Why:**
+  - The face check asks the vision model where the faces, speech bubbles and logos are. For this one cover it answered in its own [top, left, bottom, right] order, not the [left, top, right, bottom] the prompt asked for.
+  - Read the wrong way, the logo's box became a tall strip over the art. The studio erased that strip as if it were a watermark, which left the blur, and kept the real logo.
+  - The face box landed on the cat, which threw off the crop.
+- **Fix:**
+  - The face check now asks for boxes in the model's native order (`box_2d`, [ymin, xmin, ymax, xmax], 0–1000) and converts them, so the order can't be misread.
+  - Older saved answers that look swapped are re-checked once, automatically, the next time that video's thumbnails are made.
+  - Only small marks (≤6% of the cover: watermarks, credit tags) are ever erased. A bigger box is left alone, so a wrong box can't smear the art again.

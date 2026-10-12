@@ -88,12 +88,12 @@ Main character: {mc or "the protagonist in the cast list"}
 
 Return ONLY a JSON array with one object per image, in order:
 {{"i": <image number>,
-  "faces": [{{"box": [x0, y0, x1, y1], "name": "<cast name or ''>", "is_mc": true|false}}],
-  "bubbles": [[x0, y0, x1, y1]],
-  "text_blocks": [[x0, y0, x1, y1]],
+  "faces": [{{"box_2d": [ymin, xmin, ymax, xmax], "name": "<cast name or ''>", "is_mc": true|false}}],
+  "bubbles_2d": [[ymin, xmin, ymax, xmax]],
+  "text_blocks_2d": [[ymin, xmin, ymax, xmax]],
   "bubble_coverage": <0..1, fraction of the image covered by speech bubbles, captions or sound-effect text boxes>,
   "watermark": true|false}}
-Rules: coordinates are fractions of the image width/height (0..1), x0<x1, y0<y1.
+Rules: every box is [ymin, xmin, ymax, xmax] as integers 0..1000 (y = down from the top, x = across from the left).
 text_blocks: title logos, series-name lettering, credits or site text that is NOT a speech bubble.
 A face box covers the face only (forehead to chin, ear to ear), not hair or body.
 Include every clearly visible face, largest first. is_mc only when the face matches the main character's look.
@@ -116,12 +116,49 @@ def _clean_box(b):
     return [round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4)]
 
 
+def _box_from(rec, key_2d, key_old):
+    """2026-10-11: the prompt asked for [x0, y0, x1, y1] fractions and the
+    model sometimes answered in its native [ymin, xmin, ymax, xmax] order
+    (Dark Mage cover: the logo box landed on the art, which was then blurred
+    out). Boxes are now asked for as box_2d, 0..1000, and converted here;
+    an old-style answer is still read the old way."""
+    b = (rec or {}).get(key_2d)
+    if isinstance(b, (list, tuple)) and len(b) >= 4:
+        try:
+            y0, x0, y1, x1 = (float(v) / 1000.0 for v in b[:4])
+        except (TypeError, ValueError):
+            return None
+        return _clean_box([x0, y0, x1, y1])
+    return _clean_box((rec or {}).get(key_old) or [])
+
+
+def _suspect(rec):
+    """An old-format answer that looks axis-swapped: a 'text block' that is
+    narrow yet covers over 6% of the image (a logo read as y-first lands as a
+    tall strip over the art). Re-checked once with the box_2d prompt; new
+    answers carry fmt=2 and are never re-run for this."""
+    if not rec or rec.get("fmt") == 2:
+        return False
+    for b in rec.get("text_blocks") or []:
+        w, h = b[2] - b[0], b[3] - b[1]
+        if w < 0.5 and w * h > 0.06:
+            return True
+    return False
+
+
+def _boxes_2d(r, key_2d, key_old):
+    if r.get(key_2d) is not None:
+        return [b for b in (_box_from({"b": x}, "b", "-") for x in r.get(key_2d) or []) if b]
+    return [b for b in (_clean_box(x) for x in r.get(key_old) or []) if b]
+
+
 def detect(pdir, panels, bible=None, api_key=None, _post=None, batch=BATCH):
     """panels: [(panel_id, file_path)]. Returns {panel_id: record}; analyses
     only panels not already cached. Raises usage.UsageCapExceeded from the gate."""
     import series_research as sr
     data = load(pdir)
-    todo = [(pid, f) for pid, f in panels if (data.get(pid) or {}).get("key") != _key(f)]
+    todo = [(pid, f) for pid, f in panels
+            if (data.get(pid) or {}).get("key") != _key(f) or _suspect(data.get(pid))]
     leads = [c for c in (bible or {}).get("characters") or []
              if "protagonist" in str(c.get("role") or "").lower()]
     mc = (leads or (bible or {}).get("characters") or [{}])[0].get("name") if (bible or {}).get("characters") else ""
@@ -147,14 +184,14 @@ def detect(pdir, panels, bible=None, api_key=None, _post=None, batch=BATCH):
             r = by.get(n) or {}
             faces = []
             for fc in r.get("faces") or []:
-                b = _clean_box((fc or {}).get("box") or [])
+                b = _box_from(fc, "box_2d", "box")
                 if b:
                     faces.append({"box": b, "name": str(fc.get("name") or "")[:60], "is_mc": bool(fc.get("is_mc"))})
             faces.sort(key=lambda x: -((x["box"][2] - x["box"][0]) * (x["box"][3] - x["box"][1])))
             data[pid] = {"key": _key(f), "faces": faces,
-                         "bubbles": [b for b in (_clean_box(x) for x in r.get("bubbles") or []) if b],
-                         "text_blocks": [b for b in (_clean_box(x) for x in r.get("text_blocks") or []) if b],
+                         "bubbles": _boxes_2d(r, "bubbles_2d", "bubbles"),
+                         "text_blocks": _boxes_2d(r, "text_blocks_2d", "text_blocks"),
                          "bubble_coverage": max(0.0, min(1.0, float(r.get("bubble_coverage") or 0))),
-                         "watermark": bool(r.get("watermark")), "analysed": bool(r)}
+                         "watermark": bool(r.get("watermark")), "analysed": bool(r), "fmt": 2}
         _save(pdir, data)
     return {pid: data.get(pid) for pid, _f in panels}
