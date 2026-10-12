@@ -580,6 +580,20 @@ def panel_score(feat):
     return round(sum(PANEL_WEIGHTS[k] * feat[k] for k in PANEL_WEIGHTS), 2)
 
 
+def _range_chapter_dirs(pdir):
+    """[(n, chapter dir)] for a merged (range) project, [] otherwise."""
+    meta = _read(os.path.join(pdir, "project.json"), {}) or {}
+    if meta.get("kind") != "range" or not meta.get("series_id"):
+        return []
+    try:
+        a, b = int(meta.get("chapters_start")), int(meta.get("chapters_end"))
+    except (TypeError, ValueError):
+        return []
+    root = os.path.dirname(pdir.rstrip(os.sep))
+    return [(n, os.path.join(root, "%s_%d" % (meta["series_id"], n))) for n in range(a, b + 1)
+            if os.path.isdir(os.path.join(root, "%s_%d" % (meta["series_id"], n)))]
+
+
 def rank_panels_report(pdir, limit=8, exclude=(), bible=None, faces=None):
     """Face-first ranking (spec 07 §5). Returns (panels, report).
 
@@ -590,6 +604,32 @@ def rank_panels_report(pdir, limit=8, exclude=(), bible=None, faces=None):
     when every panel fails the face rules, the best panels with ANY face are
     returned with report["relaxed"] True so a chapter still gets a thumbnail."""
     import face_boxes as _fbm
+    parts = _range_chapter_dirs(pdir)
+    if parts and not os.path.exists(os.path.join(pdir, "descriptions.json")):
+        # A merged video has no panels of its own (2026-10-11: every range fell
+        # back to its first chapter's thumbnail, "CH 32" on a 32-33 video).
+        # Rank each chapter's panels with that chapter's own descriptions and
+        # face boxes; ids are prefixed so two chapters' p001 never collide.
+        rows, report = [], {"panels": 0, "face_data": False, "rejects": {}, "kept": 0,
+                            "relaxed": False, "lookalike_bits": LOOKALIKE_BITS, "survived": 0,
+                            "chapters": [n for n, _d in parts]}
+        for n, cdir in parts:
+            pre = "ch%s:" % n
+            sub_ex = [e[len(pre):] for e in (exclude or ()) if str(e).startswith(pre)]
+            kept, rep = rank_panels_report(cdir, limit, exclude=sub_ex, bible=bible)
+            for r in kept:
+                rows.append(dict(r, panel_id=pre + str(r["panel_id"])))
+            report["panels"] += rep.get("panels") or 0
+            report["face_data"] = report["face_data"] or bool(rep.get("face_data"))
+            report["relaxed"] = report["relaxed"] or bool(rep.get("relaxed"))
+            report["survived"] += rep.get("survived") or rep.get("kept") or 0
+            for k, v in (rep.get("rejects") or {}).items():
+                report["rejects"][k] = report["rejects"].get(k, 0) + v
+        excl = set(exclude or ())
+        rows.sort(key=lambda x: (x["panel_id"] in excl, -((x.get("score") or {}).get("total") or 0)))
+        kept = _dedupe(rows, limit, report)
+        report["kept"] = len(kept)
+        return kept, report
     faces = faces if faces is not None else _fbm.load(pdir)
     descs = _read(os.path.join(pdir, "descriptions.json"), []) or []
     if isinstance(descs, dict):

@@ -3188,16 +3188,10 @@ def api_range_build(body: RangeIn):
                 print(f"[range_build] thumbnail copilot note: {e}", flush=True)
 
             if not copied_thumb:
-                for n, cp, cname in pl["chapters"]:
-                    t_path = _tb.path_for(cp, cname)
-                    if t_path and os.path.exists(t_path):
-                        try:
-                            with open(t_path, "rb") as tf:
-                                _tb.save(rdir, name, tf.read())
-                            copied_thumb = True
-                            break
-                        except Exception:
-                            pass
+                # 2026-10-11: never copy one chapter's thumbnail — it carries
+                # that chapter's number ("CH 32" on a 32-33 video). Say so instead.
+                _ev("publish", f"{series} chapters {a}-{b}: no thumbnail could be made automatically — "
+                               "open it in 🖼 Thumbnails and pick one", "warn")
 
             # Save complete publish record with all Series Defaults applied!
             store = load_publish(rdir)

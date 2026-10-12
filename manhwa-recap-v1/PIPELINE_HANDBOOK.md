@@ -1071,3 +1071,9 @@ Fixes made so it can't break boot:
 - Tags over 500 characters are **trimmed**, not refused.
 - Spec 10 frozen-block edits (D3) are flagged only by the strict check, not at posting. This follows the owner's "more flexible instead of rigid" request.
 - Series defaults adapt the chapter tag to each chapter.
+
+### Merged videos get their own thumbnail (2026-10-11)
+- A merged video (chapters a–b) has no panels of its own. Its thumbnail designs are built from the **panels of the chapters inside it**, each ranked with that chapter's descriptions and face check. Panel ids are tagged `ch31:p004` and so on.
+- The badge shows the range: **"CH 32-33"**, or "CH. 32-33" on the chapter card.
+- Before this fix, the thumbnail designer found no panels for a merged video. The build then copied the first chapter's thumbnail, so every merged video said "CH 32" or similar.
+- That copy is gone. If no design can be made, Activity says so and you pick one in 🖼 Thumbnails.

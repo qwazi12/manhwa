@@ -10007,3 +10007,19 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
   - 4 stale ingest records (e7deae78a155, ea244d5ffbb8, 97b762094d26, 684b271aa3b2) "not resumed — no chapter link on record". They are now errors instead of empty scrapes.
 - `/api/qa/chapters`: 54 chapters, 21 ok, 32 warn, 1 bad, and 0 with silent narration.
 - **Open:** `a-regressors-tale-of-cultivation_33` has its 86 storyboard pictures pointing at a folder `en_a-regressors-tale-of-cultivation-chapter-33-eng-li` that doesn't exist. Probably a mirror ingest that wrote another project id, which the other session's URL normalisation then renamed. It needs a re-ingest of ch.33, the owner's call.
+
+### 2026-10-11 — Merged videos: thumbnail shows the range
+- **Owner:** "ensure that when chapters are merged the thumbnail is adjusted to reflect it".
+- **Found:** all 8 live range projects had thumbnails showing only the FIRST chapter (e.g. "CH 32" on ch32-33, "CH 104" on ch104-108); Fog Land 38-41 had none.
+- **Root cause:**
+  - `rank_panels_report` reads the project's own `descriptions.json` and face boxes; a range has neither, so the thumbnail generator returned 422 "no usable panels".
+  - `api_range_build` then fell back to copying the first chapter's thumbnail.
+- **Fix:**
+  - `thumbnail_studio._range_chapter_dirs` and a range branch in `rank_panels_report` rank each constituent chapter's panels (ids prefixed `ch<n>:`, absolute files) and merge them.
+  - Concepts already carry `chapter = "a-b"`, so the badge reads "CH a-b".
+  - The copy-a-chapter fallback is replaced by a warning in Activity.
+- **Verified locally:**
+  - a synthetic 2-chapter range renders all 5 designs with "CH 1-2" / "CH. 1-2";
+  - new `test_range_thumbnail.py` (2 pass);
+  - `test_thumbnail_studio` 115/115, `test_thumbnail` 35/35, range tests pass.
+- **Known:** with the B3 title formula the hook overlay is "FULL 1H", taken from the title, which rounds up to at least 1H. Left as is.
