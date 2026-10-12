@@ -9916,3 +9916,42 @@ Studied `scrapper/frontend/app/QueuePanel.tsx` (SocialPilot): header with counts
     - `Chapter 181-183` (Mount Hua): PASS (0 problems)
     - `Ch. 32-33` (Regressor): PASS (0 problems)
   - Tag trimming test: 30 tags (800+ chars) cleanly trimmed to 479 chars (<= 500 chars).
+
+## Session 38 — 2026-10-11: Deep audit ("breaks, unfinished routes, future connections") — PLAN
+Owner: "catch up and read memory.md … a lot of updates and breaks … routes not finished or not done with the future connections in mind … do a deep dive, log the plan, implement fixes, update the handbook."
+
+**How the audit was done:**
+- pyflakes over all Python, looking for undefined names.
+- Every route the web app calls cross-checked against the server's routes.
+- All 91 test suites run.
+- Live: `/health`, Railway deploy list, runtime log errors, build log of the failed deploys.
+
+**Findings (all verified):**
+1. **DEPLOYS BROKEN since 19:18 today.** c828202's `.dockerignore` excludes `manhwa-recap-v1/hyperframes/`, so the Dockerfile's `cd manhwa-recap-v1/hyperframes && npm ci` fails. 4 FAILED deploys. Live runs an older build; GitHub ≠ deployed (P3 violation).
+2. **Voice step:**
+   - `gemini_tts.py` calls `_generate_silence`, which doesn't exist, so the Fog Land ch.41 "fix" raises NameError on any refused line.
+   - It also wrote 0.5 s of silence on ANY failure. `server._synth_rest` did the same and CACHED the silence under the line's text, so a spend-limit pause or outage would leave that line silent in every later render.
+3. **`upload_post.py:276` uses undefined `HERE`.** Any "<profile>:*" target crashes posting.
+4. **`server.py:2042` uses undefined `load_meta`.** GET /api/series_bible without `series` gives a 500.
+5. **New DB layer (db/models/queue_manager/undo/control/space/cleanup) is disconnected and broken:**
+   - Live boot: "db init failed: could not convert string to float: '181-183'" (range chapters).
+   - "startup cleanup failed: attempted relative import" (`from . import ingest` in a flat app).
+   - `/api/schedule`, `/api/undo/*`, `/api/control/jobs` are a SECOND schedule/undo/job system nothing real uses.
+   - The UI components (UndoButton, StopButton, PacingThrottle, MomentumBadge) are mounted nowhere.
+   - `cleanup.purge_expired` (reachable via POST /api/space/cleanup) would delete every posted chapter's crops after 4 days. Thumbnails, re-renders and ranges need them.
+6. **Scraper called with an EMPTY url at boot.** `_resume_interrupted` re-queues job records that have no `url` ("unknown url type: ''", then a failover attempt on nothing).
+7. **Hook-lock race (found 2026-10-09, still open).** `/api/series/hooks` saves the whole series record from before its 30–60 s model call, erasing a hook locked meanwhile. This happened to Regressed Mercenary. The old SEO path also leaves `seo_v2` set after rewriting the title.
+8. **Mirror auto-discovery** attaches mirrors (network calls) when a series is added by name, before its own source, so a mirror becomes the first/preferred source. It also runs during tests. 6 watchlist / paste-add / release-calendar checks fail.
+9. **Tests out of date with intended changes** (SEO checks relaxed on purpose, tags auto-trimmed): 4 pytest + 1 script check. Locally SQLAlchemy was missing, so 49 suites failed at import (the server image has it).
+10. **Dead web helpers:** `lib/api.ts` still points at removed `/api/studio/projects|run|stop`.
+
+**Plan, in order:**
+- (a) Fix `.dockerignore` so deploys work again.
+- (b) Voice: real silence only for empty lines; loud errors otherwise; nothing cached on failure; purge silent clips from `_ttscache`; chapter QA flags silent narration.
+- (c) Fix `HERE` and `load_meta`.
+- (d) DB layer: imports that work in the flat layout; range chapters parse; purge_expired never deletes crops (report only); the parallel routes say plainly they are not the live system.
+- (e) Resume: a job with no url gets it from its project, else is marked failed with the reason; the scraper refuses an empty url up front.
+- (f) Series-record writes are field-level (re-read, set only own fields) to end the race; the old SEO path clears `seo_v2`.
+- (g) Discovery only after a primary source, never first/preferred, off in tests (`MIRROR_DISCOVERY=0`).
+- (h) Update tests to the intended behaviour; remove the dead api.ts helpers.
+- (i) Full suite, web build, push when no job runs, verify live (deploy SUCCESS, boot log clean), handbook.
