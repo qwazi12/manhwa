@@ -10199,3 +10199,8 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   - `ConfirmButton` now opens a dialog (Cancel/Confirm, Esc closes), or runs on one tap with `quick`.
   - 9 actions marked quick, plus autopilot pause; "Tap to …" prompts rewritten.
   - tsc clean, `next build` OK, mobile layout 39/39.
+- **Items 8–9 deployed:** 9c719f2, SUCCESS. Live autopilot shows `release_wait_hours` {asura: 24, default: 2}.
+- **Session 39 status:** all 9 items are live.
+- **Pending owner decisions:**
+  - apply `/api/publish/repair_titles` (43 changes, dry run shown);
+  - pick "Use for series" looks for the 7 series without an approved look (Murim, Mount Hua, Dark Mage, Former Supreme, Indomitable Martial King, Too Many Heroes, Bountiful Harvest).
