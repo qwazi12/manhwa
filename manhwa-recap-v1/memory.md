@@ -10077,3 +10077,4 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
   - Asura served 19/19 pages; the job reached `split`.
   - The leftover folder was moved aside to `_partial_murim-psychopath_46_<ts>`.
   - **This entry is committed locally and NOT pushed while the job runs** (a push restarts the server). Push it after the job finishes.
+- Murim ch.46 job `59df90bf5306` finished: scrape, split, describe, narrate, voice and match are done. Status "Check the board", waiting for the owner's review and Render. Pushed after the job ended (no active jobs).
