@@ -278,9 +278,11 @@ def _auto_failover(url: str, output_dir: str, primary_err: Exception):
         if owner:
             mirrors = owner.get("mirrors", [])
             primary_host = _up.urlparse(url).netloc.lower()
+            # MangaDex pages are a JavaScript app the scraper can't read, so a
+            # MangaDex "backup" only ever failed (2026-10-11 audit) — skip it
             secondary_mirrors = [
                 m for m in mirrors
-                if _up.urlparse(m["series_url"]).netloc.lower() != primary_host
+                if _up.urlparse(m["series_url"]).netloc.lower() not in (primary_host, "mangadex.org")
             ]
 
         # 1. Try registered secondary mirrors in watchlist
@@ -297,10 +299,18 @@ def _auto_failover(url: str, output_dir: str, primary_err: Exception):
             except Exception as e:
                 print(f"[!] Failover mirror '{m.get('label')}' failed: {e}")
 
-        # 2. Dynamic Mangayomi / MGeko fallback
-        search_slug = (owner.get("id") if owner else None) or clean_slug or slug
-        if search_slug:
-            mgeko_series_url = f"https://www.mgeko.cc/manga/{search_slug}/"
+        # 2. MGeko, found by title (MGeko names series its own way:
+        # "the-extras-academy-...", "...-mount-hua-sect-mg1"), never guessed
+        tried = {m["series_url"].rstrip("/") for m in secondary_mirrors}
+        mgeko_series_url = None
+        try:
+            import mangayomi as _my
+            mgeko_series_url = _my.find_mgeko_series(
+                (owner or {}).get("title") or (clean_slug or slug or "").replace("-", " "),
+                [x for x in ((owner or {}).get("id"), clean_slug, slug) if x])
+        except Exception as e:
+            print(f"[!] MGeko lookup failed: {e}")
+        if mgeko_series_url and mgeko_series_url.rstrip("/") not in tried:
             try:
                 prov = _prov.by_name("mangayomi")
                 mgeko_ch_url = prov.chapter_url(mgeko_series_url, cid)

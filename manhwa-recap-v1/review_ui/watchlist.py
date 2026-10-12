@@ -466,8 +466,8 @@ import urllib.parse
 
 
 def discover_and_attach_mirrors(root, series_id, data=None, save_now=True):
-    """Automatically queries MangaDex, MGeko, and catalog sources
-    for the series title, and attaches discovered secondary mirrors."""
+    """Looks the series up on MGeko by title and attaches it as a BACKUP
+    source (never the preferred one)."""
     owns = data is None
     data = data if data is not None else load(root)
     s = find(data, series_id)
@@ -482,35 +482,20 @@ def discover_and_attach_mirrors(root, series_id, data=None, save_now=True):
     title = s["title"]
     attached = []
 
-    # 1. Check MGeko slug
-    sid = s["id"]
-    mgeko_url = f"https://www.mgeko.cc/manga/{sid}/"
-    try:
-        ctx = ssl._create_unverified_context()
-        req = urllib.request.Request(mgeko_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
-            if resp.status == 200:
-                m = add_mirror(root, series_id, mgeko_url, data=data, save_now=False)
-                attached.append(m)
-    except Exception:
-        pass
-
-    # 2. Check MangaDex
-    try:
-        q = urllib.parse.quote(title)
-        url = f"https://api.mangadex.org/manga?title={q}&limit=1"
-        ctx = ssl._create_unverified_context()
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
-            res = json.loads(resp.read().decode('utf-8'))
-            results = res.get('data', [])
-            if results:
-                mid = results[0]['id']
-                md_url = f"https://mangadex.org/title/{mid}"
-                m = add_mirror(root, series_id, md_url, data=data, save_now=False)
-                attached.append(m)
-    except Exception:
-        pass
+    # MGeko by title (strict match; see mangayomi.find_mgeko_series). MangaDex
+    # is no longer attached: its pages are a JavaScript app the scraper cannot
+    # read, so every MangaDex backup sat at "error" (2026-10-11 audit).
+    import mangayomi as _my
+    hosts = {urllib.parse.urlparse(m.get("series_url") or "").netloc.lower() for m in s["mirrors"]}
+    if "www.mgeko.cc" not in hosts and "mgeko.cc" not in hosts:
+        try:
+            known = [s["id"]] + [re.sub(r"-[a-f0-9]{8}$", "", (m.get("series_url") or "").rstrip("/").split("/")[-1])
+                             for m in s["mirrors"]]
+            mg = _my.find_mgeko_series(title, known)
+            if mg:
+                attached.append(add_mirror(root, series_id, mg, data=data, save_now=False))
+        except Exception:
+            pass
 
     for m in attached:
         if isinstance(m, dict):

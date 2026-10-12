@@ -273,3 +273,64 @@ def create_mangayomi_provider(base_provider_cls):
             return True, f"{len(pages)} pages extracted"
 
     return MangayomiProvider()
+
+
+# ------------------------------------------------------------- MGeko lookup
+# 2026-10-11 audit: the fallback guessed one MGeko address from the series id
+# ("the-extra-s-academy-survival-guide"), but MGeko names series its own way
+# ("the-extras-academy-survival-guide", "return-of-the-mount-hua-sect-mg1",
+# "o5dr-the-former-supreme"), so 9 of 15 series had no working backup.
+MGEKO = "https://www.mgeko.cc"
+_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+
+def title_slug(title: str) -> str:
+    """'The Extra's Academy' -> 'the-extras-academy' (apostrophes dropped)."""
+    t = re.sub(r"[’'`]", "", (title or "").lower())
+    return re.sub(r"[^a-z0-9]+", "-", t).strip("-")
+
+
+def _same_series(slug: str, want: str) -> bool:
+    """MGeko slugs carry a short random tag before or after the title
+    ('-mg1', '-gjkuy', 'o5dr-'); anything else is a different series."""
+    if not want:
+        return False
+    if slug == want:
+        return True
+    tag = r"[a-z0-9]{1,6}"
+    return bool(re.fullmatch(re.escape(want) + "-" + tag, slug) or re.fullmatch(tag + "-" + re.escape(want), slug))
+
+
+def _get(url: str, timeout=15) -> str:
+    ctx = ssl._create_unverified_context()
+    with urllib.request.urlopen(urllib.request.Request(url, headers=_UA), context=ctx, timeout=timeout) as r:
+        return r.read().decode("utf-8", errors="ignore")
+
+
+def find_mgeko_series(title: str, slugs=(), _get_fn=None) -> Optional[str]:
+    """The MGeko series URL for this series, or None. Tries the known slugs
+    (and their apostrophe variants), then MGeko's search with a strict title
+    match — a near-miss is never taken (wrong series = wrong chapter)."""
+    get = _get_fn or _get
+    want = title_slug(title)
+    cands = []
+    for s in list(slugs or ()) + [want]:
+        s = (s or "").strip("/").lower()
+        for v in (s, s.replace("-s-", "s-")):
+            if v and v not in cands:
+                cands.append(v)
+    for c in cands:
+        try:
+            h = get(f"{MGEKO}/manga/{c}/all-chapters/")
+        except Exception:
+            continue
+        if re.search(r"chapter-\d", h):
+            return f"{MGEKO}/manga/{c}"
+    try:
+        h = get(f"{MGEKO}/search/?search={urllib.parse.quote(title or want)}")
+    except Exception:
+        return None
+    for s in dict.fromkeys(re.findall(r"/manga/([a-z0-9-]+)/", h)):
+        if _same_series(s, want):
+            return f"{MGEKO}/manga/{s}"
+    return None

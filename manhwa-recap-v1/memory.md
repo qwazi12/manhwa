@@ -10046,3 +10046,25 @@ Owner: "catch up and read memory.md … a lot of updates and breaks … routes n
   - Re-applied each video's chosen design: cover-badge for 104-108, 115-117, 105 and 107; cover-center for 115.
   - Visually checked: no blurred band, logo trimmed, crop centred on the MC's face, range badges "CH 104-108" / "CH 115-117".
   - All 8 range videos were on "Cover art + chapter number", set after my earlier apply (owner's choice), and that choice was kept.
+
+### 2026-10-11 — "Make again" for removed chapters; source fallback that works
+- **Owner:** Murim Psychopath ch.46 shows "Made · folder removed" with no way to make it again; "ensure that the fallback for any manhwa actually works".
+- **Make again:**
+  - `autopilot.run_now(..., remake=True)` lets a made chapter be queued again only if its folder is gone (refused otherwise); budget and site cap unchanged.
+  - `AutopilotRunIn.remake`; Library `ChapterRow` shows **Make again** on gone rows.
+  - Tests: `test_autopilot` 54/54 (3 new), priority 25/25, `npx tsc` clean.
+- **Fallback audit (live watchlist, 15 series):**
+  - Every MangaDex backup was status=error: the mangayomi provider scrapes HTML, and MangaDex is a JS app.
+  - 9 series had no working backup.
+  - The dynamic MGeko fallback guessed `mgeko.cc/manga/<series id>`, which misses MGeko's own slugs ("the-extras-academy…", "return-of-the-mount-hua-sect-mg1", "o5dr-the-former-supreme", "…-sword-hound-gjkuy").
+  - Discovery attached MangaDex search result #1 blindly.
+  - Each attempt `rmtree`s the page dir, so no page mixing (verified).
+- **Fix:**
+  - `mangayomi.find_mgeko_series(title, slugs)`: known slugs, apostrophe variants, then MGeko search with a strict same-title match (one short tag allowed).
+  - The scraper failover uses it (and skips MangaDex mirrors).
+  - `watchlist.discover_and_attach_mirrors` uses it and no longer attaches MangaDex.
+- **Verified locally against the real sites:**
+  - Lookup finds Extras, Mount Hua (-mg1), Hound (-gjkuy), Former Supreme (o5dr-), Dark Mage, Regressor, Murim, Fog Land.
+  - Correctly finds none for Stellar Swordmaster, Regressed Mercenary, Fated Villain and Too Many Heroes.
+  - A real failover from a broken Mount Hua ch.183 link with NO saved backups downloaded 17 full pages from `mgeko …-mg1-chapter-183`.
+  - Tests: `test_mgeko_lookup` 3 pass; watchlist 39/39, paste_add 22/22, release_calendar 16/16, scraper_sources 12/12, providers 33/33, tracker 35/35, `test_scraper` 15/15.

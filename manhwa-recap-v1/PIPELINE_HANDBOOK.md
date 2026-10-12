@@ -1088,3 +1088,23 @@ Fixes made so it can't break boot:
   - The face check now asks for boxes in the model's native order (`box_2d`, [ymin, xmin, ymax, xmax], 0–1000) and converts them, so the order can't be misread.
   - Older saved answers that look swapped are re-checked once, automatically, the next time that video's thumbnails are made.
   - Only small marks (≤6% of the cover: watermarks, credit tags) are ever erased. A bigger box is left alone, so a wrong box can't smear the art again.
+
+### Making a chapter again after its folder was removed (2026-10-11)
+- In Library → a series → Chapters, a chapter marked **"Made · folder removed"** now has a **Make again** button (~$0.50).
+- It goes through autopilot like **Make**: budget and spend cap apply, and it joins the line.
+- It's offered only when the folder is really gone. If the chapter still has its folder, open it instead.
+
+### Source fallback: how it finds a backup (2026-10-11)
+When the main site fails for a chapter (error, block, or no pages), the scraper tries, in order:
+1. The series' **saved backup sources** on other sites, skipping MangaDex.
+2. **MGeko, found by title.** It tries the series' known slugs, then the same with the apostrophe fixed ("the-extra-s-…" → "the-extras-…"), then MGeko's search.
+   - A search result is used only if it's the same title, give or take a short tag MGeko adds ("-mg1", "-gjkuy", "o5dr-"). A different series is never taken.
+   - On success it's saved as a backup for next time.
+
+Other details:
+- Each attempt starts with an empty page folder, so two sources' pages never mix.
+- **MangaDex isn't used.** Its pages are a JavaScript app the scraper can't read, so every MangaDex backup sat at "error". Older MangaDex entries are left in place but skipped.
+- **Series with no MGeko copy under the same title** (checked 2026-10-11): The Stellar Swordmaster, The Regressed Mercenary Has a Plan (on MGeko as "…Mercenary's Machinations"), I Am the Fated Villain, Too Many Heroes for the Demon Lord.
+  - These have no automatic backup.
+  - Paste a backup link on the series in the Tracker to add one.
+- `POST /api/watchlist/auto_mirrors` looks up backups for every series. Adding a series by link does it for that series.

@@ -6699,8 +6699,8 @@ def api_watchlist_refresh_all():
 
 @app.post("/api/watchlist/auto_mirrors")
 def api_watchlist_auto_mirrors(series_id: str | None = None):
-    """Automatically discover and attach secondary mirrors for series from
-    MangaDex, MGeko, and Mangayomi catalogs."""
+    """Find and attach BACKUP sources (MGeko, by title with a strict match)
+    for one series or all of them. MangaDex is not used: it can't be scraped."""
     import watchlist as _wl
     if series_id:
         attached = _wl.discover_and_attach_mirrors(_wl_root(), series_id)
@@ -8787,6 +8787,7 @@ def autopilot_priority(body: PriorityIn):
 class AutopilotRunIn(BaseModel):
     series_id: str
     chapter: str
+    remake: bool = False      # a made chapter whose folder was removed
 
 
 @app.post("/api/autopilot/run")
@@ -8795,7 +8796,8 @@ def autopilot_run_now(body: AutopilotRunIn):
     chapter limit, never the budget or the site cap)."""
     try:
         return {"ok": True, **_autopilot.run_now(_ingest_mod.PROJECTS, _ap_deps(),
-                                                 body.series_id, body.chapter)}
+                                                 body.series_id, body.chapter,
+                                                 remake=body.remake)}
     except ValueError as e:
         raise HTTPException(409, str(e))
 

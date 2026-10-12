@@ -671,7 +671,7 @@ def tick(root, deps, now=None):
     return started
 
 
-def run_now(root, deps, series_id, chapter, now=None):
+def run_now(root, deps, series_id, chapter, now=None, remake=False):
     """Owner asks for ONE specific chapter now ("make ch.44 of Murim now").
 
     Goes through autopilot's own path — same pipeline, Flex tier, ledger
@@ -679,7 +679,11 @@ def run_now(root, deps, series_id, chapter, now=None):
     one-at-a-time line. Skips the daily chapter LIMIT (it is an explicit
     request) but never the money: autopilot's budget and the site cap still
     apply. Any chapter the source lists may be asked for, inside or outside
-    the start window; one already made or already ingesting is refused."""
+    the start window; one already made or already ingesting is refused.
+
+    remake=True (owner, 2026-10-11: "Made · folder removed" had no button):
+    a chapter that was made but whose folder is gone may be made again. One
+    whose folder still exists is refused — open it instead."""
     now = time.time() if now is None else now
     chapter = norm_chapter(chapter)
     with _lock:
@@ -698,8 +702,9 @@ def run_now(root, deps, series_id, chapter, now=None):
                              f"(latest there is ch.{best.get('latest')})")
         key = ledger_key(deps["canon"](best["series_key"]), chapter)
         e = st["ledger"].get(key)
-        if chapter in {norm_chapter(c) for c in series.get("ingested") or []} or \
-                (e and e.get("status") in MADE):
+        already = chapter in {norm_chapter(c) for c in series.get("ingested") or []} or \
+            (e and e.get("status") in MADE)
+        if already and not remake:
             raise ValueError(f"ch.{chapter} is already made or in the line")
         spent, cap = deps["spend"]()
         ap_spent, est = deps.get("ap_spend", lambda: 0.0)(), estimate(st["ledger"])
@@ -712,6 +717,8 @@ def run_now(root, deps, series_id, chapter, now=None):
         pid = deps["project_id"](url)
         if pid in deps["live_projects"]():
             raise ValueError(f"ch.{chapter} is already ingesting")
+        if remake and os.path.isdir(os.path.join(root, pid)):
+            raise ValueError(f"ch.{chapter} still has its folder — open it instead of making it again")
         job = deps["enqueue"](url, st["settings"].get("engine", "gemini"))
         record_queued(root, key, series_id=series_id, chapter=chapter, project=pid,
                       job=job, source="autopilot", url=url)

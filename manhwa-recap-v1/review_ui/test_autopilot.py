@@ -184,6 +184,25 @@ def main():
     except ValueError as ex:
         check("make-now still respects autopilot's $ budget", "budget" in str(ex))
     fake.ap_spent = 0.0
+    # make again: a made chapter whose folder was removed (owner, 2026-10-11)
+    gone_ch = done[0]["chapter"]
+    try:
+        ap.run_now(root, fake.deps(), "alpha", gone_ch, now=tomorrow)
+        check("a made chapter is refused without remake", False)
+    except ValueError as ex:
+        check("a made chapter is refused without remake", "already" in str(ex))
+    n1 = len(fake.queued)
+    r2 = ap.run_now(root, fake.deps(), "alpha", gone_ch, now=tomorrow, remake=True)
+    check("remake queues a made chapter whose folder is gone",
+          r2["chapter"] == gone_ch and len(fake.queued) == n1 + 1)
+    other = [e for e in done if e["chapter"] != gone_ch]
+    if other:
+        os.makedirs(os.path.join(root, "alpha_" + other[0]["chapter"]), exist_ok=True)
+        try:
+            ap.run_now(root, fake.deps(), "alpha", other[0]["chapter"], now=tomorrow, remake=True)
+            check("remake refuses a chapter whose folder still exists", False)
+        except ValueError as ex:
+            check("remake refuses a chapter whose folder still exists", "still has its folder" in str(ex))
     ap.update_settings(root, {"per_day": 4})
 
     # archive

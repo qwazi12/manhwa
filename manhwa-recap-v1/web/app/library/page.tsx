@@ -154,6 +154,10 @@ function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; 
   }, `Scheduled ${tick.length} for processing`);
   const made: Record<string, any> = {};
   for (const r of s.chapters || []) made[String(r.chapter)] = r;
+  // a chapter made before but whose folder is gone can be made again
+  const remake = (ch: string) => act(async () => {
+    await api("/api/autopilot/run", { series_id: s.id, chapter: String(ch), remake: true }); reload();
+  }, `Making ch.${ch} again`);
   const list: any[] = src.data?.chapters || [];
   return (
     <div style={{ borderTop: "1px solid var(--border)" }}>
@@ -163,11 +167,11 @@ function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; 
       </div>
       <div className="list" style={{ maxHeight: 420, overflowY: "auto" }}>
         {(s.chapters || []).filter((r: any) => !list.some((c) => String(c.ch) === String(r.chapter))).map((r: any) => (
-          <ChapterRow key={r.id || `gone-${r.chapter}`} label={`Ch.${r.chapter}`} row={r} />
+          <ChapterRow key={r.id || `gone-${r.chapter}`} label={`Ch.${r.chapter}`} row={r} remake={remake} />
         ))}
         {list.map((c) => {
           const r = made[String(c.ch)];
-          return r ? <ChapterRow key={c.ch} label={`Ch.${c.ch}`} date={c.date} row={r} /> : (
+          return r ? <ChapterRow key={c.ch} label={`Ch.${c.ch}`} date={c.date} row={r} remake={remake} /> : (
             <div className="it" key={c.ch}>
               <div className="row">
                 {place(c.ch) < 0 && <input type="checkbox" aria-label={`Tick ch.${c.ch}`} checked={tick.includes(String(c.ch))}
@@ -188,12 +192,18 @@ function ChapterList({ s, reload, prio, onPrio }: { s: any; reload: () => void; 
   );
 }
 
-function ChapterRow({ label, row, date }: { label: string; row: any; date?: string }) {
+function ChapterRow({ label, row, date, remake }: { label: string; row: any; date?: string; remake?: (ch: string) => void }) {
   return (
     <div className="it">
       <div className="row"><b>{label}</b>{date && <span className="small muted">{date}</span>}<StatusPill s={row.status} />{row.auto && <span className="small faint">autopilot</span>}
         {row.gone && <span className="small faint">{row.status?.reason}</span>}</div>
-      {row.gone ? (row.posted_url ? <a className="btn sm" href={row.posted_url} target="_blank" rel="noreferrer">▶ YouTube</a> : null)
+      {row.gone ? (
+        <div className="row">
+          {row.posted_url && <a className="btn sm" href={row.posted_url} target="_blank" rel="noreferrer">▶ YouTube</a>}
+          {remake && <ConfirmButton className="sm" confirm={`Make ch.${row.chapter} again? (~$0.50)`}
+            title="its folder was removed — this makes the chapter again from the source"
+            onConfirm={() => remake(String(row.chapter))}>Make again</ConfirmButton>}
+        </div>)
         : <Link className="btn sm" href={`/chapter/${row.id}`}>Open →</Link>}
     </div>
   );
