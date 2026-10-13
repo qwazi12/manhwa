@@ -10225,3 +10225,11 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   - `_run_render_job` waits on `_FINALIZE_LOCK` (heartbeat, stoppable) and runs bound; a second edit merges into a still-queued clip job.
   - The render-queue worker binds instead of `activate_project`; `/api/activate` no longer refuses mid-render.
   - **Tests:** new `test_render_bound` (render stays on A while B is opened; B's edits wait, then render on B); `test_render_lock` rewritten to the new rule. Full review_ui suite passes, tsc + `next build` OK.
+- **2026-10-13 — Owner said "proceed":**
+  - `/api/publish/repair_titles` applied live: 39 changes. A re-check finds 0 left.
+    - Regressor ch.33 and the drafts now read "[33]His Infinite REGRESSION…"; the Hound titles lost "| Manhwa Recap".
+    - Regressor ch.31's posted export (published Oct 7, before the leak) was skipped by design. Its YouTube title was never affected; only the local record still shows "[32-33]… Ch. 31".
+  - Series looks locked via `/api/thumbcopilot/style/approve`, using each series' existing design (already consistent, so no redraw):
+    - cover-badge: Murim, Mount Hua, Dark Mage, Former Supreme, Bountiful Harvest;
+    - cover-center: Too Many Heroes.
+  - Consistency check: every series approved, 0 videos off. Indomitable Martial King has no videos yet.
