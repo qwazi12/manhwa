@@ -4,7 +4,8 @@ import { useState } from "react";
 import { api, useApi } from "@/lib/api";
 import { ConfirmButton, useAct } from "./ui";
 
-type Job = { id: string; kind: string; name: string; project?: string; status: string; stage?: string; pct?: number | null; msg?: string; elapsed?: number | null };
+type Job = { id: string; kind: string; name: string; project?: string; status: string; stage?: string; pct?: number | null; msg?: string; elapsed?: number | null;
+  can_pause?: boolean; can_stop?: boolean };
 const NEEDS_RESUME = ["budget_paused", "interrupted", "paused", "pausing", "cancelled"];
 
 const mins = (s?: number | null) => (s == null ? "" : s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
@@ -43,13 +44,13 @@ export default function JobsBar({ onChange }: { onChange?: () => void }) {
             <span className="jl"><span aria-hidden>{icon(j)}</span> <b>{label}</b></span>
             <span className="muted jm">{word(j)}</span>
             <span className="row" style={{ gap: 4 }}>
-              {j.status === "running" && <button className="sm ghost" aria-label="Pause" onClick={() => control(j.id, "pause")}>⏸</button>}
+              {j.status === "running" && j.can_pause !== false && <button className="sm ghost" aria-label="Pause" onClick={() => control(j.id, "pause")}>⏸</button>}
               {(j.status === "paused" || j.status === "pausing") && <button className="sm" onClick={() => control(j.id, "resume")}>▶ Resume</button>}
               {["budget_paused", "interrupted", "cancelled"].includes(j.status) && (
                 <button className="sm" onClick={() => act(async () => { await api("/api/jobs/resume", { job_id: j.id }); await reload(); onChange?.(); }, "Resumed")}>▶ Resume</button>)}
               {j.status === "in_queue" && <button className="sm ghost" aria-label="Take out of the queue" onClick={() => act(async () => { await api("/api/render-queue/remove", { id: j.id }); await reload(); }, "Taken out of the queue")}>✕</button>}
               {j.status === "error" && <button className="sm ghost" aria-label="Dismiss" onClick={() => hide(j.id)}>✕</button>}
-              {["running", "queued", "held", "paused", "pausing"].includes(j.status) && <ConfirmButton className="sm danger" confirm="Stop this job? It halts after its current step." onConfirm={() => control(j.id, "stop")}>■</ConfirmButton>}
+              {["running", "queued", "held", "paused", "pausing"].includes(j.status) && j.can_stop !== false && <ConfirmButton className="sm danger" confirm="Stop this job? A render stops after the clip it's on (made clips are kept); nothing is exported." onConfirm={() => control(j.id, "stop")}>■</ConfirmButton>}
             </span>
           </div>
         );

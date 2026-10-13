@@ -10204,3 +10204,17 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - **Pending owner decisions:**
   - apply `/api/publish/repair_titles` (43 changes, dry run shown);
   - pick "Use for series" looks for the 7 series without an approved look (Murim, Mount Hua, Dark Mage, Former Supreme, Indomitable Martial King, Too Many Heroes, Bountiful Harvest).
+
+### 2026-10-13 — ⏸ / ▶ / ■ on a render did nothing (owner)
+- **Root cause:** `_do_run_finalize_job` (Approve → render + export, the render the owner uses) called `_render_clips(missing, started, finished)` WITHOUT `control=`.
+  - The pause/stop flag was set but never read: the job kept rendering, showed "pausing", and Resume had nothing to resume.
+  - Only the older per-clip render job (`_run_render_job`) passed the gate.
+- **Fix:**
+  - The gate is passed to `_render_clips` and checked once more before the export.
+  - `JobCancelled` gives status "cancelled" (not "error") with an Activity note; re-voicing raises `JobCancelled` on stop.
+  - The jobs bar now only shows ⏸ / ■ on jobs that honour them (`can_pause` / `can_stop`). Validate, lab, Claude-test and promote showed controls that did nothing.
+  - New `test_render_controls` (stop halts and skips the export; pause holds, resume finishes). job_control 51/51, render_queue 15/15, tsc clean.
+- **Honest gap:** the Session 38 audit checked that routes exist and the web calls match them. It did not check that each worker honours its control flag. That's how this slipped through.
+- **Not done (needs owner OK):** editing another chapter while one renders.
+  - Renders read the global "active project" (`active_project_dir()` ×54, plus the `AUDIO_DIR` / `DESCRIPTIONS` globals and render_segments module globals), so switching is blocked mid-render.
+  - Proposal: bind the render thread and its clip workers to their chapter (thread-local project), so the active chapter can change freely. Edits to the other chapter are allowed; only re-rendering ITS clips waits for the running render.

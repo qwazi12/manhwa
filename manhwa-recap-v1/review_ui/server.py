@@ -5565,7 +5565,11 @@ def _do_run_finalize_job(job_id):
         # N clips at a time; each is gated against the timeline as it is
         # when its turn comes, and nothing is written back (358-lab-claude
         # seg 66: the old loop re-saved a stale copy after every clip).
-        _render_clips(missing, started, finished)
+        # 2026-10-13: this job never passed its pause/stop gate, so ⏸ / ■ / ▶ on
+        # an Approve → render did nothing and it kept going ("pausing" forever)
+        gate = lambda: _control_gate(JOBS, job_id, _persist_job)
+        _render_clips(missing, started, finished, control=gate)
+        gate()                                  # last chance before the export
         j["stage"] = "export"
         j["current_seg"] = None
         _persist_job(job_id)
@@ -5581,6 +5585,11 @@ def _do_run_finalize_job(job_id):
                       + (f", loudness {_ld['before']} → {_ld['target']:g} LUFS" if _ld.get("applied") else
                          f", loudness unchanged: {_ld.get('why')}" if _ld else "") + ")", "ok")
         threading.Thread(target=_after_export, args=(pdir, res.get("output")), daemon=True).start()
+    except JobCancelled as e:
+        j["status"] = "cancelled"
+        j["error"] = str(e)
+        j["ended"] = time.time()
+        _ev("render", f"{_fname}: render stopped by you — the clips already made are kept", "warn")
     except HTTPException as e:
         j["status"] = "error"
         j["error"] = str(e.detail)
@@ -5711,7 +5720,7 @@ def _revoice_if_outdated(pdir, j, job_id):
 
         def one(b):
             if j.get("control") == "stop":
-                raise RuntimeError("stopped by you while re-voicing")
+                raise JobCancelled("stopped by you while re-voicing")
             _synth_rest(b["text"], os.path.join(side, f"beat_{b['index']:03d}.mp3"), engine=eng)
             j["done"] = j.get("done", 0) + 1
 
@@ -10210,14 +10219,21 @@ def jobs_active(failed: int = 0):
             out.append({"id": jid, "kind": "autopilot" if x.get("source") == "autopilot" else "ingest",
                         "name": _pretty(url, x.get("variant", "")), "status": x.get("status"),
                         "stage": x.get("stage"), "pct": x.get("pct"), "msg": x.get("msg"),
-                        "elapsed": round(time.time() - (x.get("ts") or time.time()))})
+                        "elapsed": round(time.time() - (x.get("ts") or time.time())),
+                        "can_pause": True, "can_stop": True})
     for jid, x in list(JOBS.items()):
         if x.get("status") in _LIVE:
+            # 2026-10-13: show only the buttons a job really honours — ⏸/■ on a
+            # job that never checks them looked broken
+            pausable = (x.get("type") in ("finalize", "publish") or "seg_indices" in x
+                        or x.get("kind") == "split")
             out.append({"id": jid, "kind": x.get("type") or x.get("kind") or "render",
                         "name": _pretty(x.get("project") or "") if x.get("project") else (x.get("type") or "job"),
                         "status": x.get("status"), "stage": x.get("stage"),
                         "pct": round(100 * x.get("done", 0) / x["total"]) if x.get("total") else None,
-                        "msg": x.get("note") or "", "elapsed": round(time.time() - (x.get("ts") or time.time()))})
+                        "msg": x.get("note") or "", "elapsed": round(time.time() - (x.get("ts") or time.time())),
+                        "can_pause": pausable,
+                        "can_stop": pausable or x.get("type") in ("phonefix", "research")})
     # ?failed=1 (new studio): a render that failed in the last 2 hours stays
     # on the bar, so a failure that happens in a second is still seen
     # (owner, 2026-10-05). The classic bar doesn't ask, so it is unchanged.
