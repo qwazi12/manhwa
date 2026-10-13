@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 from fastapi import FastAPI, HTTPException, Request
@@ -122,7 +123,36 @@ async def gzip_text(request: Request, call_next):
 _ACTIVE_CACHE = {"key": None, "value": ""}
 
 
+# 2026-10-13 (owner: "when rendering why cant i make adjustments to another
+# chapter"): a render is BOUND to its own chapter. The render thread and its
+# clip workers see that chapter as "active" no matter which chapter the owner
+# opens meanwhile, so opening/editing another chapter is safe mid-render.
+_BOUND = threading.local()
+
+
+class _bind_project:
+    def __init__(self, pdir):
+        self.pdir = pdir
+
+    def __enter__(self):
+        self.prev = getattr(_BOUND, "pdir", None)
+        _BOUND.pdir = self.pdir
+        return self.pdir
+
+    def __exit__(self, *exc):
+        _BOUND.pdir = self.prev
+        return False
+
+
+def _bound_call(pdir, fn, *a, **k):
+    with _bind_project(pdir):
+        return fn(*a, **k)
+
+
 def get_active_project_id():
+    b = getattr(_BOUND, "pdir", None)
+    if b:
+        return os.path.basename(b.rstrip("/"))
     path = os.path.join(WORK, "active_project.txt")
     try:
         st = os.stat(path)
@@ -143,6 +173,9 @@ def get_active_project_id():
 
 
 def active_project_dir():
+    b = getattr(_BOUND, "pdir", None)
+    if b:
+        return b
     pid = get_active_project_id()
     if pid:
         import ingest
@@ -4731,7 +4764,7 @@ def render_missing(force: bool = False):
     for i in missing:
         env = os.environ.copy()
         env["HF_WORKSPACE"] = pdir
-        env["HF_AUDIO_DIR"] = AUDIO_DIR
+        env["HF_AUDIO_DIR"] = _audio_dir()
         env["HF_PANELS_DIR"] = os.path.join(pdir, "crops")
         r = subprocess.run(
             [sys.executable, os.path.join(HF, "render_segments.py"),
@@ -4764,6 +4797,17 @@ DESCRIPTIONS = os.environ.get(
     os.path.join(RECAP, "..", "panel-describe", "descriptions_ch2.json"))
 
 
+def _audio_dir():
+    """The chapter in use's audio folder (bound render, else the open chapter)."""
+    d = os.path.join(active_project_dir(), "audio")
+    return d if os.path.isdir(d) else AUDIO_DIR
+
+
+def _descriptions_path():
+    d = os.path.join(active_project_dir(), "descriptions.json")
+    return d if os.path.exists(d) else DESCRIPTIONS
+
+
 def init_active_project():
     global AUDIO_DIR, DESCRIPTIONS
     pid = get_active_project_id()
@@ -4789,7 +4833,7 @@ sys.path.insert(0, HF)
 
 def _load_descriptions():
     try:
-        with open(DESCRIPTIONS, encoding="utf-8") as f:
+        with open(_descriptions_path(), encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return []
@@ -4855,7 +4899,7 @@ def _rerender(seg, workdir=None):
     rs.CLIPS = os.path.join(rs.WORK, "clips")
     rs.ASSETS = os.path.join(rs.WORK, "assets")
     rs.ensure_project()
-    rs.render_segment(seg, AUDIO_DIR, workdir=workdir)
+    rs.render_segment(seg, _audio_dir(), workdir=workdir)
     with _EPOCH_LOCK:          # read-modify-write of one shared json
         _stamp_epoch(seg["seg_index"])
     # thumbnail may be stale after a panel swap / re-crop — the filename is
@@ -5124,7 +5168,7 @@ def _recompute_timeline(segs):
             # keep each beat's offset inside the segment, shifted with it;
             # first-beat lead-in is preserved via its original offset
             b["start"] = round(b["start"] + delta, 3) if prev_end is None else round(prev_end + gap, 3)
-            a = os.path.join(AUDIO_DIR, b.get("file") or f"beat_{b['index']:03d}.mp3")
+            a = os.path.join(_audio_dir(), b.get("file") or f"beat_{b['index']:03d}.mp3")
             dur = rs.ffprobe_dur(a) if os.path.exists(a) else round(b["end"] + delta - b["start"], 3)
             b["end"] = round(b["start"] + dur, 3)
             prev_end = b["end"]
@@ -5168,7 +5212,7 @@ def edit_narration(seg_index: int, body: NarrationIn):
             b.pop("file", None)
             try:
                 _synth_rest(b["text"],
-                            os.path.join(AUDIO_DIR, f"beat_{b['index']:03d}.mp3"))
+                            os.path.join(_audio_dir(), f"beat_{b['index']:03d}.mp3"))
             except Exception as e:
                 raise HTTPException(500, f"TTS failed: {e}")
     _recompute_timeline(segs)          # new audio length ripples downstream
@@ -5290,7 +5334,7 @@ def undo():
 
 @app.get("/audio/{beat_index}")
 def audio(beat_index: int):
-    path = os.path.join(AUDIO_DIR, f"beat_{beat_index:03d}.mp3")
+    path = os.path.join(_audio_dir(), f"beat_{beat_index:03d}.mp3")
     if not os.path.exists(path):
         raise HTTPException(404, "audio not found")
     return FileResponse(path, media_type="audio/mpeg")
@@ -5333,7 +5377,7 @@ def build_preview_html(segs):
         meta.append({"start": round(tcur, 3), "dur": dur,
                      "even": i % 2 == 0, "text": s["beats"][0]["text"] if s["beats"] else ""})
         for b in s["beats"]:
-            a = os.path.join(AUDIO_DIR, f"beat_{b['index']:03d}.mp3")
+            a = os.path.join(_audio_dir(), f"beat_{b['index']:03d}.mp3")
             if os.path.exists(a):
                 import render_segments as rs
                 audios.append({"id": f"a{b['index']}", "idx": b["index"],
@@ -5475,7 +5519,8 @@ def _render_clips(seg_indices, on_start, on_done, control=None):
     import concurrent.futures as cf
     n = _clip_parallel()
     pending, running, error = list(seg_indices), {}, None
-    work = os.path.join(active_project_dir(), ".render_work")
+    bound = active_project_dir()                 # pool threads render THIS chapter
+    work = os.path.join(bound, ".render_work")
     with cf.ThreadPoolExecutor(max_workers=n) as ex:
         while pending or running:
             while pending and len(running) < n and error is None:
@@ -5495,7 +5540,7 @@ def _render_clips(seg_indices, on_start, on_done, control=None):
                     continue
                 on_start(si)
                 wd = os.path.join(work, f"seg_{si:03d}") if n > 1 else None
-                running[ex.submit(_rerender, seg, wd)] = si
+                running[ex.submit(_bound_call, bound, _rerender, seg, wd)] = si
             if not running:
                 break
             done, _ = cf.wait(running, return_when=cf.FIRST_COMPLETED)
@@ -5514,8 +5559,12 @@ _FINALIZE_LOCK = threading.Lock()
 
 def _run_finalize_job(job_id):
     """The APPROVE chain (user contract): render every ticked-but-missing
-    clip, then export the final narrated MP4 — one job, visible progress."""
-    with _FINALIZE_LOCK:
+    clip, then export the final narrated MP4 — one job, visible progress.
+    Bound to its own chapter, so the owner can open and edit others meanwhile."""
+    import ingest as _ing
+    pid = JOBS[job_id].get("project")
+    pdir = os.path.join(_ing.PROJECTS, pid) if pid else active_project_dir()
+    with _FINALIZE_LOCK, _bind_project(pdir):
         _do_run_finalize_job(job_id)
 
 
@@ -5752,6 +5801,31 @@ def _revoice_if_outdated(pdir, j, job_id):
 
 
 def _run_render_job(job_id, seg_indices):
+    import ingest as _ing
+    j = JOBS[job_id]
+    pdir = os.path.join(_ing.PROJECTS, j["project"]) if j.get("project") else active_project_dir()
+    # one render at a time: an edit's clip re-render waits for another
+    # chapter's render, alive (heartbeat) and stoppable while it waits
+    while not _FINALIZE_LOCK.acquire(timeout=15):
+        j["heartbeat"] = time.time()
+        j["note"] = "waits for the other chapter's render to finish"
+        if j.get("control") == "stop" or j.get("status") == "cancelled":
+            j.update(status="cancelled", error=j.get("error") or "stopped before it started")
+            return
+    try:
+        if j.get("control") == "stop" or j.get("status") == "cancelled":
+            j.update(status="cancelled", error=j.get("error") or "stopped before it started")
+            return
+        j["note"] = ""
+        seg_indices = list(j.get("seg_indices") or seg_indices)
+        j["total"] = len(seg_indices)
+        with _bind_project(pdir):
+            _run_render_job_bound(job_id, seg_indices)
+    finally:
+        _FINALIZE_LOCK.release()
+
+
+def _run_render_job_bound(job_id, seg_indices):
     JOBS[job_id]["status"] = "running"
     try:
         # Refuse up front with every timing fault, not mid-batch with one.
@@ -5794,6 +5868,11 @@ def _active_render_for_project(project):
 def _start_render(seg_indices):
     project = os.path.basename(active_project_dir().rstrip("/"))
     existing = _active_render_for_project(project)
+    if existing and JOBS[existing].get("status") == "queued" and "seg_indices" in JOBS[existing]:
+        ex = JOBS[existing]                      # still waiting: add these clips to it
+        ex["seg_indices"] = sorted(set(ex["seg_indices"]) | set(seg_indices))
+        ex["total"] = len(ex["seg_indices"])
+        return existing
     if existing:
         raise HTTPException(
             409, f"a render is already running for {project} (job {existing}). "
@@ -7114,11 +7193,8 @@ def activate_project(body: ActivateIn):
     """Point the studio at an ingested project: load its segments + audio."""
     global AUDIO_DIR, DESCRIPTIONS
     import ingest
-    busy = _render_lock(body.id)
-    if busy:
-        raise HTTPException(409, f"{_pretty(busy)} is rendering. Only one chapter can be open for "
-                                 f"rendering or editing at a time — try again when it finishes "
-                                 f"(usually a few minutes).")
+    # 2026-10-13: renders are bound to their own chapter, so opening another
+    # chapter mid-render no longer mixes chapters — no refusal here any more
     proj = os.path.join(ingest.PROJECTS, body.id)
     seg = os.path.join(proj, "segments.json")
     if not os.path.exists(seg):
@@ -9422,8 +9498,9 @@ def _rq_worker():
             continue
         name = _pretty(it["project"])
         try:
-            activate_project(ActivateIn(id=it["project"]))
-            r = storyboard_approve(ApproveIn(approved=True, keep_voice=it.get("keep_voice", True), force_start=True))
+            # bound, not activated: the owner's open chapter stays theirs (2026-10-13)
+            with _bind_project(os.path.join(root, it["project"])):
+                r = storyboard_approve(ApproveIn(approved=True, keep_voice=it.get("keep_voice", True), force_start=True))
             job = r.get("job")
             if not job:
                 raise RuntimeError(r.get("note") or "nothing to render")

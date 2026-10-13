@@ -1,6 +1,7 @@
-"""While a chapter renders, no other chapter can become the open one: a render
-reads the open chapter's timeline clip by clip, so switching mid-render would
-mix two chapters (2026-10-05). Temp projects root, fake job records, no network."""
+"""While a chapter renders, the owner can open and edit any other chapter
+(2026-10-13). Until then a render read the OPEN chapter, so switching was
+refused (2026-10-05); renders are now bound to their own chapter
+(test_render_bound.py proves the render stays on it). Temp root, no network."""
 import json
 import os
 import sys
@@ -35,21 +36,17 @@ def main():
         check("nothing rendering -> a chapter opens", c.post("/api/activate", json={"id": "series-a_1"}).status_code == 200)
         server.JOBS["rl1"] = {"type": "finalize", "status": "running", "project": "series-a_1"}
         r = c.post("/api/activate", json={"id": "series-b_2"})
-        check("another chapter can't be opened while one renders (409 with the reason)",
-              r.status_code == 409 and "rendering" in r.json().get("detail", ""))
-        check("the rendering chapter stays open", server.get_active_project_id() == "series-a_1")
-        check("re-opening the rendering chapter itself is fine",
-              c.post("/api/activate", json={"id": "series-a_1"}).status_code == 200)
+        check("another chapter opens while one renders", r.status_code == 200)
+        check("...and becomes the open chapter", server.get_active_project_id() == "series-b_2")
         b = server.board_view("series-b_2")
-        check("its board still shows, marked view-only",
-              b.get("locked") and b.get("active") is False and server.get_active_project_id() == "series-a_1")
+        check("its board is editable (not view-only)", not b.get("locked") and b.get("active") is True)
+        check("re-opening the rendering chapter is fine",
+              c.post("/api/activate", json={"id": "series-a_1"}).status_code == 200)
         server.JOBS["rl1"]["status"] = "error"
         server.JOBS["rl2"] = {"status": "running", "project": "series-a_1", "seg_indices": [1]}
-        check("a clip-only render locks too", c.post("/api/activate", json={"id": "series-b_2"}).status_code == 409)
+        check("a clip-only render doesn't block opening either",
+              c.post("/api/activate", json={"id": "series-b_2"}).status_code == 200)
         server.JOBS["rl2"]["status"] = "done"
-        check("render finished -> other chapters open again",
-              c.post("/api/activate", json={"id": "series-b_2"}).status_code == 200
-              and not server.board_view("series-b_2").get("locked"))
     finally:
         ingest.PROJECTS, server.WORK = saved
         server._ACTIVE_CACHE["key"] = None

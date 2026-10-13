@@ -1154,3 +1154,12 @@ Other details:
 - Cheap or undoable actions are one tap: back to review, back in line, approve, untick segments, hook ideas, pause autopilot.
 - Spending, posting, deleting, stopping, merging, unmerging and locking a hook open a small dialog with **Cancel** and **Confirm**.
 - This replaces the old "tap again within 4.5 s" button that changed its own label.
+
+## E23. Edit another chapter while one renders (2026-10-13)
+- A render is **bound to its own chapter**: the render, its clip workers and its export always see that chapter, whatever chapter you open meanwhile.
+  - `server._bind_project` is a thread-local override honoured by `active_project_dir()` / `get_active_project_id()`.
+  - The audio and descriptions paths follow the chapter in use (`_audio_dir()`, `_descriptions_path()`).
+- **You can open and edit any other chapter** mid-render; boards are no longer "View only".
+- **One render at a time still holds.** An edit's clip re-render on the other chapter waits for the running render, shown as "waits for the other chapter's render to finish". More edits join the same waiting job.
+- **The render queue no longer switches your open chapter** when it starts the next render; it binds to that chapter instead.
+- **⏸ / ▶ / ■ work on Approve → render** (2026-10-13 fix). The jobs bar only shows the buttons a job really honours.

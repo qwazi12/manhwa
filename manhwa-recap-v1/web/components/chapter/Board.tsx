@@ -50,7 +50,7 @@ export default function Board({ id, onChange, sentBack, builtWith }:
   if (error) return <div className="banner bad">{error}</div>;
   if (!b) return <Empty>Loading the board…</Empty>;
   const run = async (path: string, body: any, ok?: string) => {
-    // edits act on the open chapter; while another chapter renders this board is view-only
+    // edits act on the open chapter (renders are bound to their own chapter, so this is never locked by one)
     if (b.locked) return act(async () => { throw new Error(`View only: ${b.locked}`); });
     await act(async () => { await api(path, body); await reload(); setStamp(Date.now()); onChange?.(); }, ok);
   };

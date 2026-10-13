@@ -10218,3 +10218,10 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - **Not done (needs owner OK):** editing another chapter while one renders.
   - Renders read the global "active project" (`active_project_dir()` ×54, plus the `AUDIO_DIR` / `DESCRIPTIONS` globals and render_segments module globals), so switching is blocked mid-render.
   - Proposal: bind the render thread and its clip workers to their chapter (thread-local project), so the active chapter can change freely. Edits to the other chapter are allowed; only re-rendering ITS clips waits for the running render.
+- **2026-10-13 — Owner approved "edit another chapter while one renders". Implemented:**
+  - `_BOUND` thread-local + `_bind_project` / `_bound_call`; `active_project_dir()` and `get_active_project_id()` honour it.
+  - `_audio_dir()` / `_descriptions_path()` replace the `AUDIO_DIR` / `DESCRIPTIONS` globals in the render, export and voice paths.
+  - `_render_clips` pool workers inherit the binding; `_run_finalize_job` binds to `j["project"]`.
+  - `_run_render_job` waits on `_FINALIZE_LOCK` (heartbeat, stoppable) and runs bound; a second edit merges into a still-queued clip job.
+  - The render-queue worker binds instead of `activate_project`; `/api/activate` no longer refuses mid-render.
+  - **Tests:** new `test_render_bound` (render stays on A while B is opened; B's edits wait, then render on B); `test_render_lock` rewritten to the new rule. Full review_ui suite passes, tsc + `next build` OK.

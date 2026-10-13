@@ -212,7 +212,7 @@ function Renders() {
         right={done.length > 0 && <Busy className="sm ghost" onClick={() => act(async () => { await api("/api/render-queue/clear", {}); reload(); }, "Cleared")}>Clear finished</Busy>}>
         <div className="list">{done.length === 0 ? <Empty>None yet.</Empty> : done.map((i) => row(i))}</div>
       </Card>
-      <p className="small muted">Chapters render one at a time, in order, each in its own voice — free. While one renders, other boards are view-only.</p>
+      <p className="small muted">Chapters render one at a time, in order, each in its own voice — free. While one renders you can open and edit any other chapter; its clip changes render right after.</p>
     </div>
   );
 }
