@@ -61,11 +61,11 @@ export default function AllChapters() {
           })}>
           📦 Archive ({sel.length})
         </ConfirmButton>
-        <ConfirmButton className="sm danger" disabled={!sel.length} confirm={`Delete ${sel.length}? This can’t be undone`}
+        <ConfirmButton className="sm danger" disabled={!sel.length} confirm={`Delete ${sel.length}? They move to Deleted — restorable for 14 days.`}
           onConfirm={() => act(async () => {
             const r = await api("/api/projects/delete", { ids: sel });
             setSel([]); reload();
-            toast(`Deleted ${r.deleted.length}, freed ${r.freed_mb} MB` +
+            toast(`Moved ${r.deleted.length} to Deleted (restorable for 14 days)` +
               (r.skipped.length ? ` · not deleted: ${r.skipped.map((x: any) => `${x.id} (${x.reason})`).join("; ")}` : ""), r.skipped.length > 0);
           })}>
           🗑 Delete ({sel.length})

@@ -39,6 +39,7 @@ def main():
     active = _proj(root, "active_one")
     srv.active_project_dir = lambda: active
     _proj(root, "old_one", export_age_days=30)      # past retention
+    _proj(root, "old_one2", export_age_days=1)
     _proj(root, "new_one", export_age_days=1)       # inside retention
 
     # ---- guards
@@ -81,8 +82,12 @@ def main():
 
     # ---- single delete reports freed space
     ok, why, mb = srv._delete_one_project("old_one")
-    r.append(("deleting a project removes it and reports freed MB",
-              ok and mb > 0 and not os.path.isdir(os.path.join(root, "old_one"))))
+    # 2026-10-14: a delete moves the chapter to the Deleted bin (restorable)
+    r.append(("deleting a project moves it to Deleted",
+              ok and not os.path.isdir(os.path.join(root, "old_one"))
+              and any(n.startswith("old_one__") for n in os.listdir(os.path.join(root, "_trash")))))
+    ok2, _w, mb2 = srv._delete_one_project("old_one2", to_bin=False) if os.path.isdir(os.path.join(root, "old_one2")) else (True, "", 1)
+    r.append(("an erase (automatic clean-up) still reports freed MB", ok2 and mb2 > 0))
 
     # ---- bulk: partial success
     _proj(root, "bulk_a"); _proj(root, "bulk_b")
@@ -92,7 +97,8 @@ def main():
     r.append(("...and skips one it can't delete WITHOUT aborting the batch",
               [s["id"] for s in res["skipped"]] == ["no_such_chapter"]))
     r.append(("...with the reason", res["skipped"][0]["reason"] == "unknown project"))
-    r.append(("bulk delete reports total freed MB", res["freed_mb"] > 0))
+    r.append(("bulk delete moves both to Deleted",
+              {n.split("__")[0] for n in os.listdir(os.path.join(root, "_trash"))} >= {"bulk_a", "bulk_b"}))
 
     # ---- duplicate ids are collapsed
     _proj(root, "dup_one")

@@ -1163,3 +1163,11 @@ Other details:
 - **One render at a time still holds.** An edit's clip re-render on the other chapter waits for the running render, shown as "waits for the other chapter's render to finish". More edits join the same waiting job.
 - **The render queue no longer switches your open chapter** when it starts the next render; it binds to that chapter instead.
 - **⏸ / ▶ / ■ work on Approve → render** (2026-10-13 fix). The jobs bar only shows the buttons a job really honours.
+
+## E24. Deleted tab — restore anything you delete (2026-10-14)
+- **Delete no longer erases.** A chapter or merged video you delete moves to `projects/_trash/<id>__<time>`. It's listed in the **Deleted** tab (menu) with **↩ Restore** and **Delete forever**.
+- **How long items stay:** 14 days, then they're emptied. If free disk space falls under 1.5 GB, the oldest go first.
+- **Deleting a merged video releases its chapters** back to how they were (review status and schedule place). Restoring it takes them back inside it.
+  - Before this, deleting one left its chapters hidden as "merged" into a video that no longer existed.
+- **Automatic clean-up of POSTED chapters** (after their 14-day archive) still erases for good, to keep disk space.
+- `POST /api/ranges/release_orphans` (dry run; `{"apply": true}`) frees chapters stuck as "merged" into a deleted merged video.

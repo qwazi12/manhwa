@@ -10243,3 +10243,17 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   - Posting runs `validate_publish` (which trims and saves) right before upload, so the 4 go through once back in line. Regressed Mercenary's tags trim to 497.
 - **Also seen:** Death Knight 88-91's tags all say "chapter 90" (built before the merged-video SEO fix).
 - **Tests:** a new tag-count test; chapter_seo / seo_v2 / merge / series_defaults 19 pass, publish_prep 47/47, seo 159/159, publish_spec 5, prepare 15/15, validator 87/87.
+
+### 2026-10-14 — Deleted tab; what the owner's deletes did
+- **Owner:** wants a Deleted tab to restore from; thinks deleting a chapter "took the merged chapters along with it".
+- **Verified on live:**
+  - `_gone.json` plus 3 separate `POST /api/projects/delete` calls (19:21–19:22 ET, Oct 14) deleted `a-regressors-tale-of-cultivation_32` (chapter), `i-am-the-fated-villain_ch361-362` and `return-of-the-mount-hua-sect_ch181-183` (merged videos). None were posted.
+  - NO cascade in code: each was its own request. RToC 32-33 still exists, so ch.32's content survives in it.
+  - Delete was `shutil.rmtree`, i.e. permanent. No backups on the volume, so the 3 folders can't be recovered from the server.
+  - BUT FV 361/362 and MH 181/182/183 still exist with their videos; they were stranded as "merged" into the deleted merged videos (hidden).
+- **Built:**
+  - delete → bin (`_trash`, 14 days, purge under 1.5 GB free); `/api/trash`, `/api/trash/restore`, `/api/trash/purge`; Deleted page + nav link; prompts say "restorable for 14 days";
+  - deleting a merged video releases its chapters (`_release_merge_pieces`, shared with Unmerge); restoring re-merges them (`_remerge_pieces`);
+  - `/api/ranges/release_orphans`;
+  - archive auto-clean keeps erasing (`to_bin=False`).
+- **Tests:** new `test_trash` (3), merge/unmerge 5, render_bound 2; tsc + `next build` OK.

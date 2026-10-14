@@ -3540,37 +3540,7 @@ def api_range_unmerge(body: UnmergeIn):
     for it in mine:
         if it.get("status") in ("queued", "failed"):
             _pq.remove(_ing.PROJECTS, it["id"])
-    pieces = meta.get("merged_from")
-    if pieces is None:
-        # merged before 2026-10-12: rebuild the record from the files
-        pieces = []
-        at = float(meta.get("created_at") or 0)
-        for n in range(int(meta.get("chapters_start") or 0), int(meta.get("chapters_end") or -1) + 1):
-            cp = os.path.join(_ing.PROJECTS, f"{meta.get('series_id')}_{n}")
-            for cname, rv in ((_read_json(os.path.join(cp, "reviews.json")) or {}).items()):
-                if isinstance(rv, dict) and rv.get("merged_into") == pid:
-                    prev = {k: v for k, v in rv.items() if k not in ("status", "merged_into", "merged_at")}
-                    ids = [it["id"] for it in q.get("items", [])
-                           if (it.get("project"), it.get("name")) == (os.path.basename(cp), cname)
-                           and it.get("status") == "removed" and abs(float(it.get("updated_at") or 0) - at) < 600]
-                    pieces.append({"project": os.path.basename(cp), "name": cname,
-                                   "review": prev or None, "queue_ids": ids})
-    restored = []
-    for pc in pieces:
-        cp = os.path.join(_ing.PROJECTS, pc["project"])
-        if not os.path.isdir(cp):
-            continue
-        r_path = os.path.join(cp, "reviews.json")
-        revs = _read_json(r_path) or {}
-        if pc.get("review"):
-            revs[pc["name"]] = pc["review"]
-        else:
-            revs.pop(pc["name"], None)
-        with open(r_path, "w", encoding="utf-8") as rf:
-            json.dump(revs, rf, indent=2)
-        for qid in pc.get("queue_ids") or []:
-            _pq.requeue(_ing.PROJECTS, qid)
-        restored.append(pc["project"])
+    _pieces, restored = _release_merge_pieces(rdir, meta)
     aside = os.path.join(_ing.PROJECTS, f"_unmerged_{pid}_{int(time.time())}")
     os.replace(rdir, aside)
     _ev("publish", f"unmerged {meta.get('series')} {meta.get('chapters_start')}-{meta.get('chapters_end')}: "
@@ -4654,8 +4624,128 @@ def _note_gone(pdir, why):
     os.replace(tmp, path)
 
 
-def _delete_one_project(pid, why="deleted by you"):
-    """Remove one project dir. Returns (ok, detail_or_reason, freed_mb)."""
+TRASH_DIR = "_trash"            # owner, 2026-10-14: a Deleted tab to restore from
+TRASH_DAYS = 14
+TRASH_MIN_FREE_GB = 1.5
+
+
+def _release_merge_pieces(rdir, meta):
+    """Put a merged video's chapters back as they were before the merge
+    (review status + schedule slot). Used by Unmerge and when a merged video
+    is deleted — deleting one left its chapters stuck as "merged" into a video
+    that no longer existed (Fated Villain 361-362, Mount Hua 181-183)."""
+    import ingest as _ing
+    pid = os.path.basename(rdir.rstrip("/"))
+    q = _pq.load(_ing.PROJECTS)
+    pieces = meta.get("merged_from")
+    if pieces is None:
+        pieces = []
+        at = float(meta.get("created_at") or 0)
+        for n in range(int(meta.get("chapters_start") or 0), int(meta.get("chapters_end") or -1) + 1):
+            cp = os.path.join(_ing.PROJECTS, f"{meta.get('series_id')}_{n}")
+            for cname, rv in ((_read_json(os.path.join(cp, "reviews.json")) or {}).items()):
+                if isinstance(rv, dict) and rv.get("merged_into") == pid:
+                    prev = {k: v for k, v in rv.items() if k not in ("status", "merged_into", "merged_at")}
+                    ids = [it["id"] for it in q.get("items", [])
+                           if (it.get("project"), it.get("name")) == (os.path.basename(cp), cname)
+                           and it.get("status") == "removed" and abs(float(it.get("updated_at") or 0) - at) < 600]
+                    pieces.append({"project": os.path.basename(cp), "name": cname,
+                                   "review": prev or None, "queue_ids": ids})
+    restored = []
+    for pc in pieces:
+        cp = os.path.join(_ing.PROJECTS, pc["project"])
+        if not os.path.isdir(cp):
+            continue
+        r_path = os.path.join(cp, "reviews.json")
+        revs = _read_json(r_path) or {}
+        cur = revs.get(pc["name"]) or {}
+        if cur.get("status") == "merged" and cur.get("merged_into") not in (None, pid):
+            continue                     # it belongs to a different merge now
+        if pc.get("review"):
+            revs[pc["name"]] = pc["review"]
+        else:
+            revs.pop(pc["name"], None)
+        with open(r_path, "w", encoding="utf-8") as rf:
+            json.dump(revs, rf, indent=2)
+        for qid in pc.get("queue_ids") or []:
+            _pq.requeue(_ing.PROJECTS, qid)
+        restored.append(pc["project"])
+    return pieces, restored
+
+
+def _remerge_pieces(rdir, meta):
+    """A restored merged video takes its chapters back (merged + off the schedule)."""
+    import ingest as _ing
+    pid = os.path.basename(rdir.rstrip("/"))
+    pieces = meta.get("merged_from") or []
+    q = _pq.load(_ing.PROJECTS)
+    for pc in pieces:
+        cp = os.path.join(_ing.PROJECTS, pc["project"])
+        if not os.path.isdir(cp):
+            continue
+        pc["queue_ids"] = []
+        for it in q.get("items", []):
+            if (it.get("project"), it.get("name")) == (pc["project"], pc["name"]) and it.get("status") in _pq.ACTIVE:
+                try:
+                    _pq.remove(_ing.PROJECTS, it["id"])
+                    pc["queue_ids"].append(it["id"])
+                except Exception:
+                    pass
+        r_path = os.path.join(cp, "reviews.json")
+        revs = _read_json(r_path) or {}
+        pc["review"] = revs.get(pc["name"])
+        revs[pc["name"]] = {**(revs.get(pc["name"]) or {}), "status": "merged", "merged_into": pid,
+                            "merged_at": time.time()}
+        with open(r_path, "w", encoding="utf-8") as rf:
+            json.dump(revs, rf, indent=2)
+    meta["merged_from"] = pieces
+    with open(os.path.join(rdir, "project.json"), "w", encoding="utf-8") as mf:
+        json.dump(meta, mf, indent=2)
+
+
+def _trash_root():
+    import ingest as _ing
+    d = os.path.join(_ing.PROJECTS, TRASH_DIR)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _dir_mb(d):
+    size = 0
+    for root, _dirs, files in os.walk(d):
+        for fn in files:
+            try:
+                size += os.path.getsize(os.path.join(root, fn))
+            except OSError:
+                pass
+    return round(size / 1e6, 1)
+
+
+def _purge_trash(now=None):
+    """Empty the bin: anything older than TRASH_DAYS, and the oldest first
+    while free space is under TRASH_MIN_FREE_GB. Returns purged names."""
+    import shutil as _sh
+    now = now or time.time()
+    d = _trash_root()
+    items = sorted((n for n in os.listdir(d) if os.path.isdir(os.path.join(d, n))),
+                   key=lambda n: os.path.getmtime(os.path.join(d, n)))
+    gone = []
+    for n in items:
+        p = os.path.join(d, n)
+        old = now - os.path.getmtime(p) > TRASH_DAYS * 86400
+        low = _sh.disk_usage(d).free < TRASH_MIN_FREE_GB * 1e9
+        if old or low:
+            _sh.rmtree(p, ignore_errors=True)
+            gone.append(n)
+    if gone:
+        print(f"[trash] emptied {len(gone)} item(s): {gone}", flush=True)
+    return gone
+
+
+def _delete_one_project(pid, why="deleted by you", to_bin=True):
+    """Remove one project dir. Returns (ok, detail_or_reason, freed_mb).
+    to_bin (default): moved to the Deleted bin (restorable for TRASH_DAYS);
+    False: erased for good (automatic clean-up of posted chapters)."""
     import ingest as _ing
     import shutil as _sh
     if not pid or "/" in pid or ".." in pid or pid.startswith("_"):
@@ -4688,10 +4778,25 @@ def _delete_one_project(pid, why="deleted by you"):
                 size += os.path.getsize(os.path.join(root, fn))
             except OSError:
                 pass
+    meta0 = _read_json(os.path.join(pdir, "project.json")) or {}
+    if meta0.get("kind") == "range":
+        try:
+            _release_merge_pieces(pdir, meta0)    # its chapters come back, not stranded
+        except Exception as e:  # noqa
+            print(f"[delete] releasing {pid}'s chapters failed: {e}", flush=True)
     try:
         _note_gone(pdir, why)
     except Exception as e:  # noqa — the record is a courtesy; never block a delete
         print(f"[gone] {pid}: {str(e)[:160]}", flush=True)
+    if to_bin:
+        name = f"{pid}__{int(time.time())}"
+        os.replace(pdir, os.path.join(_trash_root(), name))
+        try:
+            os.utime(os.path.join(_trash_root(), name))   # its 14 days start now
+            _purge_trash()
+        except Exception:
+            pass
+        return True, "moved to Deleted (restorable for 14 days)", 0.0
     _sh.rmtree(pdir)
     return True, "deleted", round(size / 1e6, 1)
 
@@ -4728,6 +4833,112 @@ def delete_project(body: ProjectDelIn):
         raise HTTPException(code, skipped[0]["reason"])
     return {"ok": True, "deleted": deleted, "skipped": skipped,
             "freed_mb": round(freed, 1)}
+
+
+class TrashIn(BaseModel):
+    name: str
+
+
+def _trash_item(name):
+    if not name or "/" in name or ".." in name:
+        raise HTTPException(400, "bad name")
+    p = os.path.join(_trash_root(), name)
+    if not os.path.isdir(p):
+        raise HTTPException(404, "not in Deleted (it may have been emptied)")
+    return p
+
+
+@app.get("/api/trash")
+def api_trash():
+    """The Deleted tab: everything you deleted in the last 14 days."""
+    import shutil as _sh
+    _purge_trash()
+    d = _trash_root()
+    out = []
+    for n in sorted(os.listdir(d), key=lambda n: -os.path.getmtime(os.path.join(d, n))):
+        p = os.path.join(d, n)
+        if not os.path.isdir(p):
+            continue
+        meta = _read_json(os.path.join(p, "project.json")) or {}
+        pid = n.rsplit("__", 1)[0]
+        at = os.path.getmtime(p)
+        exports = []
+        try:
+            exports = [f for f in os.listdir(os.path.join(p, "exports")) if f.endswith(".mp4")]
+        except OSError:
+            pass
+        out.append({"name": n, "project": pid, "title": _pretty(pid), "series": meta.get("series"),
+                    "chapter": meta.get("chapter"), "kind": meta.get("kind") or "chapter",
+                    "deleted_at": at, "days_left": max(0, -int(-(TRASH_DAYS - (time.time() - at) / 86400) // 1)),
+                    "videos": len(exports), "mb": _dir_mb(p),
+                    "posted": bool(_read_json(os.path.join(p, "publishes.json"))),
+                    "can_restore": not os.path.exists(os.path.join(os.path.dirname(d), pid))})
+    du = _sh.disk_usage(d)
+    return {"items": out, "days": TRASH_DAYS, "free_gb": round(du.free / 1e9, 1),
+            "note": f"Deleted items stay here {TRASH_DAYS} days (sooner if the disk runs low), then they're gone."}
+
+
+@app.post("/api/trash/restore")
+def api_trash_restore(body: TrashIn):
+    """Bring a deleted chapter or merged video back exactly as it was."""
+    import ingest as _ing
+    p = _trash_item(body.name)
+    pid = body.name.rsplit("__", 1)[0]
+    dest = os.path.join(_ing.PROJECTS, pid)
+    if os.path.exists(dest):
+        raise HTTPException(409, f"{_pretty(pid)} exists again (made since) — delete or rename that one first")
+    os.replace(p, dest)
+    gone = _read_json(os.path.join(_ing.PROJECTS, GONE_NAME)) or {}
+    if gone.pop(pid, None) is not None:
+        with open(os.path.join(_ing.PROJECTS, GONE_NAME), "w", encoding="utf-8") as f:
+            json.dump(gone, f, indent=1)
+    meta = _read_json(os.path.join(dest, "project.json")) or {}
+    if meta.get("kind") == "range":
+        _remerge_pieces(dest, meta)          # its chapters go back inside it
+    _ev("library", f"{_pretty(pid)}: restored from Deleted", "ok")
+    return {"ok": True, "project": pid}
+
+
+@app.post("/api/trash/purge")
+def api_trash_purge(body: TrashIn):
+    """Delete forever — this one can't be undone."""
+    import shutil as _sh
+    p = _trash_item(body.name)
+    mb = _dir_mb(p)
+    _sh.rmtree(p)
+    _ev("library", f"{_pretty(body.name.rsplit('__', 1)[0])}: deleted forever ({mb} MB freed)", "warn")
+    return {"ok": True, "freed_mb": mb}
+
+
+class OrphanIn(BaseModel):
+    apply: bool = False
+
+
+@app.post("/api/ranges/release_orphans")
+def api_release_orphans(body: OrphanIn):
+    """Chapters still marked "merged" into a merged video that no longer
+    exists (deleted before 2026-10-14) — dry run unless apply=true."""
+    import ingest as _ing
+    found = []
+    for pid in sorted(os.listdir(_ing.PROJECTS)):
+        cp = os.path.join(_ing.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(cp):
+            continue
+        revs = _read_json(os.path.join(cp, "reviews.json")) or {}
+        for name, rv in revs.items():
+            into = (rv or {}).get("merged_into") if isinstance(rv, dict) else None
+            if (rv or {}).get("status") == "merged" and into and not os.path.isdir(os.path.join(_ing.PROJECTS, into)):
+                found.append({"project": pid, "name": name, "merged_into": into})
+                if body.apply:
+                    revs[name] = {k: v for k, v in rv.items() if k not in ("status", "merged_into", "merged_at")}
+                    if not revs[name]:
+                        revs.pop(name)
+        if body.apply and any(f["project"] == pid for f in found):
+            with open(os.path.join(cp, "reviews.json"), "w", encoding="utf-8") as f:
+                json.dump(revs, f, indent=2)
+    if body.apply and found:
+        _ev("library", f"released {len(found)} chapter video(s) from merged videos that were deleted", "ok")
+    return {"applied": body.apply, "chapters": found}
 
 
 @app.post("/api/render-missing")
@@ -8697,7 +8908,7 @@ def _archive_sweep(now=None):
             _autopilot.audit("project_archived", project=pid, reason="published")
             out["archived"].append(pid)
         elif st is not None and _archive.due(pdir, now) and pid != active:
-            ok, why, mb = _delete_one_project(pid, why="cleaned up after posting (archive)")
+            ok, why, mb = _delete_one_project(pid, why="cleaned up after posting (archive)", to_bin=False)
             _autopilot.audit("archived_project_deleted" if ok else "archived_delete_skipped",
                              project=pid, detail=why, freed_mb=mb)
             if ok:

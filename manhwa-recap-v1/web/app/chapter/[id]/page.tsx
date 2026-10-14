@@ -135,7 +135,7 @@ function ChapterPage({ id }: { id: string }) {
           {c.url && <a className="btn sm ghost" href={c.url} target="_blank" rel="noreferrer">Source ↗</a>}
           {c.archive && !c.archive.keep && <Busy className="sm" onClick={() => act(async () => { await api("/api/projects/archive", { id, action: "keep" }); reload(); }, "Kept — it won’t be deleted")}>Keep</Busy>}
           {c.archive && <Busy className="sm" onClick={() => act(async () => { await api("/api/projects/archive", { id, action: "unarchive" }); reload(); }, "Back in the library")}>Unarchive</Busy>}
-          <ConfirmButton className="sm danger" confirm="Delete this chapter? This can’t be undone"
+          <ConfirmButton className="sm danger" confirm="Delete this chapter? It moves to Deleted — restorable for 14 days."
             onConfirm={() => act(async () => {
               await api("/api/projects/delete", { id });
               try { localStorage.removeItem(LAST_CHAPTER_KEY); } catch {}

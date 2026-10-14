@@ -48,6 +48,7 @@ function Frame({ children }: { children: ReactNode }) {
     ["/queue", "Posting schedule", h?.queue?.schedule_on ? `Next post ${h.queue.next_post || "—"}` : "Review, scheduled, posted",
       (c.video_ready || 0) + (h?.queue?.scheduled || 0), (c.video_ready || 0) > 0],
     ["/activity", "Activity", "Live, jobs, spend", h?.jobs?.length || null, (h?.jobs?.length || 0) > 0],
+    ["/deleted", "Deleted", "Restore anything deleted (14 days)", null, false],
     ["/settings", "Settings", "Everything you can change", null, false],
     ["/legacy", "Legacy", "The old studio, any time", null, false],
   ];
