@@ -862,10 +862,11 @@ def _clamp(out, card, style=None, patterns=None):
         tag = re.sub(r"\s+", " ", str(tag)).strip().strip(",")
         if not tag or tag.lower() in {x.lower() for x in tags}:
             continue
-        if total + len(tag) + 1 > YT_TAGS_CHARS_MAX:
+        cost = len(tag) + (2 if " " in tag else 0) + 1      # YouTube quotes tags with spaces
+        if total + cost > YT_TAGS_CHARS_MAX:
             break
         tags.append(tag)
-        total += len(tag) + 1
+        total += cost
 
     hashtags, seen_h = [], set()
     for h in (out.get("hashtags") or [])[:8]:

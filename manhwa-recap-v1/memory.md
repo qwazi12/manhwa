@@ -10233,3 +10233,13 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
     - cover-badge: Murim, Mount Hua, Dark Mage, Former Supreme, Bountiful Harvest;
     - cover-center: Too Many Heroes.
   - Consistency check: every series approved, 0 videos off. Indomitable Martial King has no videos yet.
+
+### 2026-10-14 — 4 posts refused: "One or more tags are invalid" (Upload-Post / YouTube)
+- **Failed:** the merged videos Regressed Mercenary 96-99, Fated Villain 361-362, Death Knight 88-91, Mount Hua 181-183.
+- **Root cause (verified):** YouTube wraps every tag that contains a space in quotes, so each costs len + 2. Our trimming counted plain length (479–496, "fits"); YouTube's count was 520–528, over 500. Merged videos have many long multi-word tags, which is why only they hit it.
+- **Fix:**
+  - `chapter_seo.tag_cost` / `tag_chars` / `fit_tags` count YouTube's way.
+  - Used by `build_tags`, `validate` (H1), `server._trim_tags_to_limit`, `validate_publish` and `seo.py`'s tag cap.
+  - Posting runs `validate_publish` (which trims and saves) right before upload, so the 4 go through once back in line. Regressed Mercenary's tags trim to 497.
+- **Also seen:** Death Knight 88-91's tags all say "chapter 90" (built before the merged-video SEO fix).
+- **Tests:** a new tag-count test; chapter_seo / seo_v2 / merge / series_defaults 19 pass, publish_prep 47/47, seo 159/159, publish_spec 5, prepare 15/15, validator 87/87.

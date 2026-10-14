@@ -61,6 +61,36 @@ def range_parts(n):
     return _num(a), _num(b)
 
 
+def tag_cost(t, first=False):
+    """What one tag costs against YouTube's 500-character tag limit. YouTube
+    wraps a tag that contains a space in quotes, so it counts 2 more than its
+    length (2026-10-14: 4 merged videos at 479-496 by plain length were
+    520-528 by YouTube's count and were refused "One or more tags are
+    invalid"). Plus 1 for the separating comma."""
+    t = str(t)
+    return len(t) + (2 if " " in t else 0) + (0 if first else 1)
+
+
+def tag_chars(tags):
+    """YouTube's count for a whole tag list."""
+    return sum(tag_cost(t, i == 0) for i, t in enumerate(tags or []))
+
+
+def fit_tags(tags, limit=TAGS_MAX):
+    """Keep tags in order while they fit YouTube's count."""
+    out, total = [], 0
+    for t in tags or []:
+        t = str(t).strip()
+        if not t:
+            continue
+        c = tag_cost(t, not out)
+        if total + c > limit:
+            break
+        out.append(t)
+        total += c
+    return out
+
+
 def _num(n):
     if is_range(n):
         return "%s-%s" % range_parts(n)
@@ -157,7 +187,7 @@ def build_tags(series, n, pack, limit=TAGS_MAX):
     <= 500 characters (tags + separating commas); overflow trims the evergreen
     tail first, then the series block's tail."""
     ch, se, ev = chapter_block(series, n), series_block(pack), list(EVERGREEN)
-    size = lambda xs: sum(len(x) for x in xs) + max(0, len(xs) - 1)
+    size = tag_chars
     seen = set()
     blocks = []
     for blk in (ch, se, ev):
@@ -314,22 +344,11 @@ def validate(pkg, series, n, strict=False):
 
     tags = pkg.get("tags") or []
     if isinstance(tags, list):
-        trimmed = []
-        total_sz = 0
-        for t in tags:
-            t_str = str(t).strip()
-            if not t_str:
-                continue
-            add_c = len(t_str) + (1 if trimmed else 0)
-            if total_sz + add_c <= TAGS_MAX:
-                trimmed.append(t_str)
-                total_sz += add_c
-            else:
-                break
+        trimmed = fit_tags(tags)
         if len(trimmed) != len(tags):
             pkg["tags"] = trimmed
             tags = trimmed
-    size = sum(len(x) for x in tags) + max(0, len(tags) - 1)
+    size = tag_chars(tags)
     if size > TAGS_MAX:
         out.append(f"Tags total {size} characters; the limit is {TAGS_MAX} (H1).")
     if strict and chapter_block(series, n)[0] not in [x.lower() for x in tags]:

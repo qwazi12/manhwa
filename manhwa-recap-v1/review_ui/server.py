@@ -1012,22 +1012,12 @@ YT_CATEGORIES = {"1": "Film & Animation", "24": "Entertainment", "31": "Anime/An
 
 
 def _trim_tags_to_limit(tags, limit=YT_TAGS_CHARS_MAX):
-    """Auto-trim tags so that sum(len(t)) + max(0, len(tags) - 1) <= limit."""
+    """Trim tags (in order) to fit YouTube's count — a tag with a space counts
+    2 extra for its quotes (chapter_seo.tag_cost; 2026-10-14)."""
     if not tags or not isinstance(tags, list):
         return tags or []
-    res = []
-    total = 0
-    for t in tags:
-        t_str = str(t).strip()
-        if not t_str:
-            continue
-        add_cost = len(t_str) + (1 if res else 0)
-        if total + add_cost <= limit:
-            res.append(t_str)
-            total += add_cost
-        else:
-            break
-    return res
+    import chapter_seo as _cs
+    return _cs.fit_tags(tags, limit)
 
 
 def load_publish(pdir):
@@ -1366,7 +1356,8 @@ def validate_publish(md, pdir=None, name=None):
                         save_publish(pdir, store)
                 except Exception:
                     pass
-        total = sum(len(t) for t in tags) + max(0, len(tags) - 1)
+        import chapter_seo as _cs_t
+        total = _cs_t.tag_chars(tags)              # YouTube's count (quotes included)
         if total > YT_TAGS_CHARS_MAX:
             out.append(f"Tags total {total} characters; the limit is {YT_TAGS_CHARS_MAX}.")
     if md.get("privacy") not in YT_PRIVACY:

@@ -109,3 +109,14 @@ def test_merged_video_titles_tags_and_line1():
     assert cs.line1("Hound", "181-183", "", "").startswith("Hound Chapters 181-183 recap (English)!")
     assert cs.validate({"title": short, "description": cs.build_description("Hound", "32-33", {}), "tags": tags},
                        "Hound", "32-33") == []
+
+
+def test_tags_are_counted_the_way_youtube_counts_them():
+    # 2026-10-14: 479-496 by plain length, 520-528 by YouTube's count -> refused
+    assert cs.tag_chars(["one two", "x"]) == (7 + 2) + 1 + 1           # quotes on the spaced tag, one comma
+    long = [f"the regressed mercenary has a plan chapter {n}" for n in range(1, 20)]
+    kept = cs.fit_tags(long)
+    assert cs.tag_chars(kept) <= 500 and cs.tag_chars(kept + long[len(kept):len(kept) + 1]) > 500
+    tags = cs.build_tags("The Regressed Mercenary Has a Plan", "96-99", {"series_name_en": "x" * 5,
+                                                                         "characters": ["cecil perdium"]})
+    assert cs.tag_chars(tags) <= 500
