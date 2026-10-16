@@ -1171,3 +1171,17 @@ Other details:
   - Before this, deleting one left its chapters hidden as "merged" into a video that no longer existed.
 - **Automatic clean-up of POSTED chapters** (after their 14-day archive) still erases for good, to keep disk space.
 - `POST /api/ranges/release_orphans` (dry run; `{"apply": true}`) frees chapters stuck as "merged" into a deleted merged video.
+
+## E25. Never make the same chapter twice (2026-10-16)
+- **One "made" register per tracker series** (`server._made_registry`) counts a chapter as made if it is:
+  - a finished chapter folder, from ANY site (Asura, WEBTOON, a mirror, under any folder name);
+  - a chapter inside a merged video;
+  - a chapter in the Deleted bin;
+  - one removed earlier (deleted, or cleaned up after posting);
+  - anything autopilot made.
+- **Autopilot and Scheduled-for-processing skip every one of these.** A make that failed part-way is NOT counted, so it is still retried.
+- **Any manual make** of a chapter in the register is refused with where it is ("in Deleted — restore it there", "inside the merged video …", "made (…)"). A version (v2), a fresh redo of the same folder, or **Make again** are deliberate and allowed.
+- **Why:**
+  - Before this, autopilot only knew existing folders plus its own record. A chapter made by hand and later deleted or cleaned up looked "not made".
+  - The make button only checked "is this exact link being made right now".
+  - Regressor ch.33 was made from Asura, deleted, and a second copy made from the MGeko mirror took its place.

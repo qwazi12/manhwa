@@ -397,7 +397,8 @@ def candidates(st, series_view, canon, live_projects=(), now=None):
         start = st["start_from"][sid]
         row["start_from"] = start
         ck = canon(best["series_key"])
-        have = {norm_chapter(c) for c in s.get("ingested") or []}
+        have = {norm_chapter(c) for c in s.get("ingested") or []} | \
+            {norm_chapter(c) for c in s.get("made_any") or []}     # made in ANY form, from any site
         mine = {k: e for k, e in ledger.items() if e.get("series_id") == sid or k.startswith(ck + "|")}
         row["made_by_autopilot"] = sum(1 for e in mine.values()
                                        if e.get("source") == "autopilot" and e.get("status") in MADE)
@@ -559,7 +560,8 @@ def priority_rows(st, series_view, canon, live_projects=(), now=None, running=No
             keep.append(e); out.append(row); continue
         listed = {norm_chapter(c) for c in best.get("chapters") or []}
         le = ledger.get(ledger_key(canon(best["series_key"]), ch))
-        made = ch in {norm_chapter(c) for c in s.get("ingested") or []} or (le and le.get("status") == "done")
+        made = ch in {norm_chapter(c) for c in (s.get("ingested") or []) + (s.get("made_any") or [])} \
+            or (le and le.get("status") == "done")
         if made:
             continue                                   # done: leaves the list
         keep.append(e)
@@ -744,8 +746,8 @@ def run_now(root, deps, series_id, chapter, now=None, remake=False):
                              f"(latest there is ch.{best.get('latest')})")
         key = ledger_key(deps["canon"](best["series_key"]), chapter)
         e = st["ledger"].get(key)
-        already = chapter in {norm_chapter(c) for c in series.get("ingested") or []} or \
-            (e and e.get("status") in MADE)
+        already = chapter in {norm_chapter(c) for c in (series.get("ingested") or []) + (series.get("made_any") or [])} \
+            or (e and e.get("status") in MADE)
         if already and not remake:
             raise ValueError(f"ch.{chapter} is already made or in the line")
         spent, cap = deps["spend"]()

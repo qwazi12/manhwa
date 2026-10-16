@@ -10257,3 +10257,18 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   - `/api/ranges/release_orphans`;
   - archive auto-clean keeps erasing (`to_bin=False`).
 - **Tests:** new `test_trash` (3), merge/unmerge 5, render_bound 2; tsc + `next build` OK.
+
+### 2026-10-16 — "autopilot is remaking videos we already did" (owner's 3rd report)
+- **Checked live:**
+  - The last 4 days of autopilot's ledger: 10 chapters, all new (42, 155, 363, 100, 133, 47, 184, 92, 32, 89). Each has one folder, none deleted or merged before.
+  - Former Supreme ch.19 is a NEW chapter failing on Asura's paywall ("no panel images"; it predates the 24 h wait), not a remake. Nothing is remade right now.
+- **Real gaps found:**
+  1. The tracker's "made" list = existing folders only (`watchlist.view` over `list_projects`), plus autopilot's own ledger. A chapter made by hand, then deleted or cleaned up, counted as NOT made → re-pickable.
+  2. `start_ingest` only de-duplicated an identical link currently running. The same chapter from another site (MGeko "en_…" folder) or after a delete was made again.
+  - **Proof:** Regressor ch.33. Made from Asura Oct 10, deleted Oct 11 15:26; a MGeko-made copy took the folder at 15:58 (`project.json` url = mgeko reader).
+- **Fix:**
+  - `_made_registry()`: finished folders from any site, merged-video spans, `_trash`, `_gone.json`, ledger "done"; keyed by tracker series id via `_canon_series`.
+  - The autopilot view gets `made_any` (candidates, priority rows and `run_now` all honour it).
+  - `start_ingest` refuses an already-made chapter (409, says where it is) unless it's a variant, a fresh redo of the same folder, or `allow_duplicate`.
+  - The check is fail-safe (never blocks on its own error).
+- **Tests:** new `test_never_remake` (3); autopilot 55/55, priority 25/25, paste_add 22/22, job_control 51/51; full suite passes.

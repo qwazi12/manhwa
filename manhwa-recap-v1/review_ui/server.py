@@ -6744,6 +6744,7 @@ class IngestIn(BaseModel):
     # Direct speech for this ingest: True/False, or None = the DIRECT_SPEECH
     # env default (off). docs/craft_reconciliation.md P2.
     direct_speech: bool | None = None
+    allow_duplicate: bool = False   # make a chapter that was already made (on purpose)
     # Narrator voice for this chapter ("gemini:Puck", "chirp:Charon"); empty =
     # the studio default. Applies when the chapter is first voiced or on a
     # fresh re-ingest — a voiced chapter keeps its voice.
@@ -6769,6 +6770,16 @@ def start_ingest(body: IngestIn):
     existing = _active_ingest_for_url(url, variant)
     if existing:
         return {"job": existing, "stages": ingest_stages(), "existing": True}
+    # never make the same chapter twice by accident (2026-10-16). A version
+    # (variant), a fresh redo of the SAME folder, or an explicit "make it
+    # again" are deliberate and allowed.
+    if not variant and not body.allow_duplicate:
+        made = _already_made(url)
+        if made:
+            same = os.path.isdir(os.path.join(_ing_v.PROJECTS, _ing_v.project_id(url, "")))
+            if not (body.fresh and same):
+                raise HTTPException(409, f"ch.{made[1]} of this series is already made — {made[2]}. "
+                                         "Open it, restore it from Deleted, or use Make again on purpose.")
     # Validate the engine BEFORE the queue branch: a queued ingest used to skip
     # this check entirely (and then drop the engine), so it could neither be
     # refused up front nor actually run on Claude.
@@ -8658,6 +8669,101 @@ import project_archive as _archive
 _SCHED = {"started": False, "last_run": None, "last_error": None}
 
 
+_MADE_CACHE = {"at": 0.0, "data": None}
+
+
+def _made_registry(max_age=20):
+    """Every chapter that was ever made, per TRACKER series, whatever site it
+    came from (owner, 2026-10-16, third report of autopilot remaking chapters):
+      * a chapter folder that exists now (any source: Asura, WEBTOON, a mirror);
+      * a chapter inside a merged video;
+      * a chapter you deleted (in the Deleted bin, or only in the gone record);
+      * anything autopilot's own record says it made.
+    Before this, only existing folders + autopilot's record counted, so a chapter
+    made by hand and later deleted/cleaned up (or made from a mirror under
+    another folder name) looked "not made" and could be made again.
+    Returns {series_id: {chapter: "where it is"}}."""
+    import ingest as _ing
+    import autopilot as _ap
+    if _MADE_CACHE["data"] is not None and time.time() - _MADE_CACHE["at"] < max_age:
+        return _MADE_CACHE["data"]
+    reg = {}
+
+    def put(sid, ch, where):
+        if sid and ch not in (None, ""):
+            reg.setdefault(sid, {}).setdefault(_ap.norm_chapter(ch), where)
+
+    def sid_of(meta):
+        try:
+            return _canon_series(meta) or meta.get("series_id") or ""
+        except Exception:
+            return meta.get("series_id") or ""
+    def finished(d):
+        # a make that failed part-way is NOT made (autopilot must retry it)
+        if os.path.exists(os.path.join(d, "segments.json")):
+            return True
+        try:
+            return any(f.endswith(".mp4") for f in os.listdir(os.path.join(d, "exports")))
+        except OSError:
+            return False
+    root = _ing.PROJECTS
+    for pid in os.listdir(root):
+        pj = os.path.join(root, pid, "project.json")
+        if pid.startswith("_") or not os.path.exists(pj) or not finished(os.path.join(root, pid)):
+            continue
+        meta = _read_json(pj) or {}
+        sid = sid_of(meta)
+        if meta.get("kind") == "range":
+            try:
+                for n in range(int(meta["chapters_start"]), int(meta["chapters_end"]) + 1):
+                    put(sid, n, f"inside the merged video {pid}")
+            except (KeyError, TypeError, ValueError):
+                pass
+        elif meta.get("chapter"):
+            put(sid, meta["chapter"], f"made ({pid})")
+    tdir = os.path.join(root, TRASH_DIR)
+    if os.path.isdir(tdir):
+        for n in os.listdir(tdir):
+            if not finished(os.path.join(tdir, n)):
+                continue
+            meta = _read_json(os.path.join(tdir, n, "project.json")) or {}
+            if meta.get("kind") == "range":
+                continue                   # its chapters were released when it was deleted
+            if meta.get("chapter"):
+                put(sid_of(meta), meta["chapter"], f"in Deleted ({n.rsplit('__', 1)[0]}) — restore it there")
+    for gpid, g in (_read_json(os.path.join(root, GONE_NAME)) or {}).items():
+        if "_ch" in gpid and "-" in gpid.rsplit("_ch", 1)[-1]:
+            continue                       # a deleted merged video: its chapters were released
+        if g.get("chapter"):
+            put(sid_of({"url": g.get("url"), "series": g.get("series")}), g["chapter"],
+                f"made before, then {'posted and ' if g.get('posted') else ''}removed ({gpid})")
+    try:
+        for e in (_ap.load(root).get("ledger") or {}).values():
+            if e.get("status") == "done":
+                put(e.get("series_id"), e.get("chapter"), f"made by autopilot ({e.get('project')})")
+    except Exception:
+        pass
+    _MADE_CACHE.update(at=time.time(), data=reg)
+    return reg
+
+
+def _already_made(url):
+    """(series_id, chapter, where) when the chapter this link points to was
+    already made in any form; else None."""
+    import ingest as _ing
+    import autopilot as _ap
+    try:
+        _slug, ch = _ing.parse_series_chapter(url)
+        sid = _canon_series({"url": url})
+        if not sid or ch in (None, ""):
+            return None
+        where = (_made_registry(max_age=0).get(sid) or {}).get(_ap.norm_chapter(ch))
+    except Exception as e:  # noqa — the check must never be what breaks a make
+        print(f"[made check] {url}: {e}", flush=True)
+        return None
+    return (sid, _ap.norm_chapter(ch), where) if where else None
+
+
 def _ap_deps():
     import providers as _prov
     import watchlist as _wl
@@ -8695,7 +8801,16 @@ def _ap_deps():
         m = row["mirror"]
         return _prov.by_name(m["source"]).chapter_url(m["series_url"], chapter)
 
-    return {"view": lambda: _wl_view()["series"], "refresh": refresh, "ap_spend": _ap_spent_today,
+    def view():
+        reg = _made_registry()
+        out = []
+        for sx in _wl_view()["series"]:
+            sx = dict(sx)
+            sx["made_any"] = sorted((reg.get(sx["id"]) or {}).keys())    # the never-remake list
+            out.append(sx)
+        return out
+
+    return {"view": view, "refresh": refresh, "ap_spend": _ap_spent_today,
             "canon": _prov.canonical_key, "live_projects": live_projects,
             "queue_busy": queue_busy, "running_projects": running_projects, "spend": spend, "chapter_url": chapter_url,
             "project_id": lambda url: _ingest_mod.project_id(url),
@@ -9210,11 +9325,16 @@ def _canon_series(meta):
     import watchlist as _wl
     if time.time() - _CANON_CACHE["at"] > 60 or _CANON_CACHE["data"] is None:
         _CANON_CACHE.update(at=time.time(), data=_wl.load(_wl_root()))
-    data = _CANON_CACHE["data"]
+    data = _CANON_CACHE["data"] or {}
+    if not isinstance(data, dict) or not isinstance(data.get("series"), list):
+        return None
     url = (meta or {}).get("url") or ""
-    s_, _m = _wl.find_by_mirror(data, url) if url else (None, None)
-    if not s_ and (meta or {}).get("series_id"):
-        s_ = _wl.find(data, meta["series_id"])
+    try:
+        s_, _m = _wl.find_by_mirror(data, url) if url else (None, None)
+        if not s_ and (meta or {}).get("series_id"):
+            s_ = _wl.find(data, meta["series_id"])
+    except Exception:
+        return None
     return s_["id"] if s_ else None
 
 
