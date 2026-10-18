@@ -4,8 +4,12 @@
 
 **Prepared and regression-tested; not deployed and no chapter processed.**
 Branch `dev/flamingo-staging-ch34` starts from integrated `fc32713268c312bf248748753bff9468cf239bfa`.
-An exact candidate snapshot SHA will be recorded after committing the staging
-tools. The integrated app is the existing studio, not a replacement or mock UI.
+The prepared candidate is **`9abeb627ae88d4dd5a817098dae1dc351a77dc59`**
+(both frontend and backend); subsequent documentation-only checkpoints do not
+change that snapshot. Its Next production build passed. An in-process test of
+the actual FastAPI startup verified shared-secret authentication, project reads,
+blocked publishing/OAuth and a stopped scheduler; no TCP listener was launched.
+The integrated app is the existing studio, not a replacement or mock UI.
 PR #5 contains architecture documentation; it does not implement an Investigator,
 shared Series/Episode projections or the planned connected SEO architecture.
 
@@ -24,6 +28,17 @@ configs disable Git deployment for `dev/flamingo-*`. No main push or deployment.
 | New staging preparation | Committed-source snapshot tool, separate SQLite/data/HOME/media, fresh private auth, credential allowlist, offline Python network guard, disabled account/publish/automatic-job routes, explicit launch approval flag and fail-closed staging frontend proxy. **20 new boundary tests pass**, including actual Next middleware execution. No service launch. |
 | Still to build for this test | Explicitly labeled queue/scheduling simulation; approved provider-only paid profile; complete stage evidence/report capture and real-media targeted repair exercise. The launcher's default profile cannot generate paid artifacts. |
 | Still blocked in the product roadmap | M3.5 semantic coverage, M3.6 reviewed legacy adoption and real-media QA calibration. No historical inputs guessed; all-reference coverage never proves story coverage. |
+
+The installed renderer also passed its existing **14/14** generated-fixture
+regressions: four FFmpeg clips rendered in 4.2 seconds; exact streams/durations,
+audio placement/silence, visual modes and overflow refusal passed. Frame-level
+parity with the installed HyperFrames renderer passed (minimum SSIM **0.955**,
+threshold 0.95). This verifies local renderer operation, not chapter quality.
+HyperFrames doctor found Node24, ffmpeg/ffprobe8.1.2 and system Chrome. Its overall
+`ok=false` reflects absent optional Whisper/Kokoro/MusicGen and a stopped Docker
+daemon; the successful native render does not need Docker. No model was installed
+or called. About **9.9 GB** free disk remained after removing only the redundant
+scratch source snapshot; original data and retained evidence were not removed.
 
 ## Concrete launch proposal requiring owner approval
 
@@ -75,7 +90,8 @@ No paid call has been made. Locally available Gemini credentials were detected
 by presence only; none enter the offline snapshot. Tesseract is missing locally,
 so offline fallback OCR is unavailable. ffmpeg/ffprobe, Python FastAPI/Uvicorn,
 OpenCV/Pillow/SQLAlchemy/Google SDK, Node and Chrome executables are present;
-renderer discovery and an actual render remain unverified until local tests.
+renderer discovery and generated-fixture rendering are now verified as described
+above; real chapter rendering, narration and subjective QA remain unverified.
 
 Preliminary cost example, **not a measured estimate for this unknown chapter**:
 assuming 200,000 Flash input tokens, 40,000 output/thinking tokens and 20 minutes
