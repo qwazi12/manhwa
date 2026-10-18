@@ -1,6 +1,6 @@
 # Flamingo production verification — October 18, 2026
 
-The completed M1–M3 implementation was already released under the earlier owner instruction. **No additional main merge or deployment is approved by the current verification gates.** A newly reproduced QA/deletion race is fixed and tested on `dev/flamingo-release-safety`, pending review and safe deployment conditions.
+The completed M1–M3 implementation was already released under the earlier owner instruction. The owner now authorizes merging/deploying PR #8 **if all gates pass**. **Those gates have not passed; no additional main merge or deployment occurred.** A newly reproduced QA/deletion race is fixed and tested on `dev/flamingo-release-safety`, pending safe deployment conditions.
 
 ## Release and PR inventory
 
@@ -50,7 +50,7 @@ The broader run also exposed an intermittent merged-project restore conflict. A 
 | Frontend → backend | Current authenticated Next settings shows backend deploy `48a1eff`; real dashboard/chapter/QA/jobs requests return 200 in backend logs |
 | Startup | Persistent volume mapped; original active Chapter 34 restored; application startup complete; four old jobs lacked chapter links and were not resumed. Existing Python escape warnings, no startup exception in the inspected interval |
 | Persistent storage | Existing `recap-studio-volume`, 30,000 MB, mounted `/app/data`; live app 20.85/29.44 GB, 62 project folders. Entrypoint/storage mapping and database code unchanged by this release |
-| Backups | Settings offers per-project backup downloads. A full-volume backup, verified restore point and restore drill are **not independently verified**; a mounted volume or Drive copies do not prove them |
+| Backups | Existing SQLite snapshot passes checksum/integrity/isolated restore, but its six tables are empty. Original Chapter 34 project archive restores 125 files with matching hashes and 78 valid voice MP3s. Neither establishes full-volume recovery; details below |
 | Platform notification | Railway reports one unresolved critical notification, zero warnings. Connector does not expose its explanation; browser dashboard requires sign-in. Treat as unresolved rather than dismissing it |
 | Pending infrastructure changes | None staged/applying; main-only Railway source; feature-prefix Vercel deployment guards retained |
 
@@ -58,7 +58,28 @@ No new deployment, restart, migration, cache adoption, volume replacement, accou
 
 ## Live work and smoke tests
 
-**The new mandatory idle gate fails:** authenticated Jobs shows Running 0 and Waiting 4: two interrupted Dark Mage Chapter 105 finalizations, one interrupted Murim Chapter 45 finalization, and one interrupted Murim Chapter 45 publication waiting for YouTube confirmation. They were preserved, not cancelled/resumed to make deployment possible. Posting shows 2 needing review, 19 posted records, 0 ready to post; schedule remains on at 10:00/14:00/22:00 Eastern, maximum 3/day/channel. The passing startup status does not override these gates.
+**The mandatory idle gate remains uncleared:** authenticated Jobs shows Running 0 and Waiting 4. Read-only review establishes later successful outcomes for these historical records, but their stored interrupted status remains unchanged. They were preserved, not cancelled/resumed to make deployment possible. Posting shows 2 needing review, 19 posted records, 0 ready to post; schedule remains on at 10:00/14:00/22:00 Eastern, maximum 3/day/channel. The passing startup status does not override these gates.
+
+| Waiting record | Stored state | Read-only evidence / disposition |
+|---|---|---|
+| `684b271aa3b2` — Dark Mage 105 finalize | Interrupted, export 69/69 | Later successful finalize `fc6c2fb4d8a5` produced `final_Oct11_03.17PM_1.1x.mp4`; chapter now merged. Leave historical record untouched |
+| `97b762094d26` — Dark Mage 105 finalize | Interrupted, render 14/85 | Same later successful export; chapter has no render queue or active render job. No rerender |
+| `e7deae78a155` — Murim 45 finalize | Interrupted, render 56/75 | Later export was approved and published; chapter now archived. No rerender |
+| `ea244d5ffbb8` — Murim 45 publish | Interrupted, confirmation 3/4 | Downloaded project archive's `publishes.json` identifies this exact job as published/done with a platform post ID and later completion timestamp. Do not retry an already confirmed publication |
+
+These findings explain the mismatch between job history and completed project/publication records. They do not clear or mutate that history. The publish-status refresh endpoint was deliberately avoided because it can update stored publication records; no upload or remote publication operation was requested.
+
+## Backup verification follow-up
+
+The authenticated current-site `/api/backup/status` reports an enabled SQLite backup, one fresh local snapshot and no configured Drive backup destination. The existing snapshot `manhwa_20261018_133829_pre_migration.db.gz`, created **2026-10-18 17:38:29 UTC**, was downloaded without creating or restoring anything on production. Its 122,880 decompressed bytes match the recorded SHA-256 `753d5876abe86c721c9c1557ef0a1dee7d477a19edcbe65a1a187b30ce7c8185`; gzip CRC, SQLite integrity, foreign-key checks and an isolated local SQLite restore all pass. **All six tables have zero rows.** This is a valid database snapshot, not a backup of the existing file-based projects, queues, settings, voice or media.
+
+The live snapshot path is `/app/manhwa-recap-v1/review_ui/data/backups/…`. `ops_config.py` selects explicit `MANHWA_DATA_DIR`, otherwise writable `/data`, otherwise `review_ui/data`; Railway mounts the volume at **`/app/data`**, and its configured variable names contain neither `MANHWA_DATA_DIR` nor `DATABASE_URL`. The entrypoint persists projects, segments-workspace and review_crops, but does not map `review_ui/data`. **Database/backup persistence therefore appears misconfigured and is not verified.** A runtime realpath check is still needed to exclude an out-of-band symlink. Do not simply change the directory and redeploy: preserve the current database/backups first, then verify a non-destructive migration and restore procedure.
+
+An on-demand, read-only archive of the **original** Chapter 34 project was also downloaded and restored into a private local directory. Archive SHA-256: `40782ae73b18b58699b79eb35cf51d8eda8d9fda4c1a0bcb02dd2c7f5827f33c`; 25,527,473 bytes. All **125 restored files** match their archived hashes: 21 pages, 95 descriptions, 83 segments, 1,591 script words and 78 voice MP3s. Every voice file passes ffprobe; total voice duration 527.72 seconds. The existing archive endpoint excludes `crops/` and `clips/`, so this is **partial project recovery**, not a complete artwork/full-volume backup. Murim 45's separate archive was downloaded only to inspect existing review/publication metadata. Archives, source art and private manifests remain outside Git.
+
+Railway plugin access is working. Its exposed tools supply health, deployment, storage configuration, metrics and logs, but no alert-detail/acknowledgment or volume-backup-history operation. Dashboard access is a separate browser session and currently presents sign-in; the CLI is also not authenticated. No account reconnect or credentials workaround was attempted. The latest supported check still reports **Online, 1/1 replica, zero recent deployment failures, no pending changes and one critical notification**. The alert's cause and full-volume recovery remain unresolved; neither successful startup nor low current CPU/memory resolves them.
+
+## Existing smoke-test details
 
 - Authenticated current Next navigation, settings, dashboard/chapter list, Library (15 tracked series) and original Chapter 34 board/Issues load. Existing settings identify the same configured Flamingo Remix target, public default, Charon/energetic style, daily $7 cap, autopilot $6/4 chapters. They were observed without saving or refreshing accounts.
 - Original Chapter 34 retains 21 pages, 95 panels/descriptions, 1,591 script words, 78 voice lines and 83 segments; timestamps still October 16. This confirms accessibility/counts, not a full before/after byte audit.
@@ -75,6 +96,6 @@ Original project: https://manhwa.nodepilot.dev/chapter/a-regressors-tale-of-cult
 
 M1 diagnostic QA/exact-export identities, M2 dialogue/review repairs and M3 safe freshness/source preservation are deployed. The deletion safety repair is tested but pending release. Semantic coverage, reviewed legacy adoption and real-media calibration/enforcement remain incomplete; `MEDIA_QA_ENFORCE` remains off as confirmed by diagnostic UI. External Investigator/shared Series/Episode architecture and story-grounded audience research remain plans; broad collectors, paid integrations and account changes are not implemented/enabled.
 
-Next independent safe task: review the narrow safety PR and collect read-only evidence for the four waiting records, the critical platform notification and a verified backup/restore point. Recheck all gates before any main merge. If a deployed fault requires recovery, preserve diagnostics and volume data; use an idle, verified rollback to the prior application version without resetting storage or weakening safeguards.
+Next independent safe task: prepare an offline, regression-tested persistence/backup migration plan and a read-only job-history reconciliation preview, preserving every job and artifact. Runtime alert details and full-volume backup history still need an access path that exposes those operations. PR #8 is mergeable with a successful CodeRabbit status, but these operational gates prevent release. Recheck all gates before any main merge, account for the evidence-only #7 dependency, and avoid redundant production restarts.
 
 Reviewable safety repair: https://github.com/qwazi12/manhwa/pull/8 . Evidence-only dependency: https://github.com/qwazi12/manhwa/pull/7 . Both remain draft/unmerged.
