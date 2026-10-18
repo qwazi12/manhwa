@@ -1,5 +1,7 @@
 # Chapter 34 end-to-end test — isolation gate
 
+**Historical assessment, superseded later the same day:** the isolation profile has now been built/tested and the fresh test run through MP4. See [actual results and remaining QA failures](FLAMINGO_CH34_E2E_REPORT.md). The assessment below records the earlier stop, not current execution status.
+
 October18,2026. **Stopped before merge/deployment or generation under the owner's explicit isolation stop condition. No new test project, chapter processing, paid request or MP4 was created.** PR9 remains open/unmerged; production remains88920f3. This is a blocker assessment, not a completed episode-test report.
 
 ## Current authorization

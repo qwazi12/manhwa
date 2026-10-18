@@ -14,6 +14,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
+        {process.env.FLAMINGO_E2E === "1" && (
+          <div role="note" style={{ padding: "10px 16px", background: "#704700", color: "#fff", textAlign: "center" }}>
+            Isolated Chapter 34 test · publishing, scheduling and Drive uploads disabled
+          </div>
+        )}
         <Shell>{children}</Shell>
       </body>
     </html>

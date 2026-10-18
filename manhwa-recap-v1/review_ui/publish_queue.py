@@ -80,6 +80,10 @@ def add(root, entries):
     with _lock:
         d = load(root)
         for e in entries:
+            import qa_project_policy as policy
+            if policy.restricted(os.path.join(root, e["project"])):
+                skipped.append({"project": e["project"], "name": e["name"], "reason": policy.REASON})
+                continue
             key = (e["project"], e["name"])
             if any((x["project"], x["name"]) == key and x["status"] in ACTIVE + ("posted",)
                    for x in d["items"]):
@@ -100,7 +104,8 @@ def add(root, entries):
             else:
                 d["items"].insert(at, row)
             added.append({"project": e["project"], "name": e["name"]})
-        _save(root, d)
+        if added:
+            _save(root, d)
     return added, skipped
 
 

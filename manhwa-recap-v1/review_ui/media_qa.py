@@ -138,6 +138,7 @@ def input_manifest(pdir, context):
                       if k in ("provider", "model", "voice", "style")},
             "renderer_code": {name: file_digest(Path(RECAP) / "hyperframes" / name)
                               for name in ("render_segments.py", "fast_render.py")},
+            "assembly_code": file_digest(Path(RECAP) / "media_concat.py"),
             "renderer": {k: os.environ.get(k, "") for k in
                          ("RENDERER", "RENDER_FPS", "FAST_RENDER_CRF", "FAST_RENDER_PRESET", "EXPORT_LUFS")}}
 
