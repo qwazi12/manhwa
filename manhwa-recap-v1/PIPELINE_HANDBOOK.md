@@ -1339,3 +1339,27 @@ an old record has ok=true. Incomplete batches exit nonzero after preservation;
 ingest stops before narration/voice. Usage-cap propagation remains unchanged.
 Source-promotion disk-failure tests verify the old trees, partial index and pending
 new source remain recoverable; no new automatic repair or regeneration is added.
+
+## E29. TV-production intelligence architecture plan (not implemented, 2026-10-18)
+
+See `docs/FLAMINGO_STUDIO_VISION.md`, the original eight-milestone roadmap and
+`docs/FLAMINGO_INTELLIGENCE_DESIGN.md`. The new design extends existing Bible,
+series pack, source/OCR/script/storyboard/QA and SEO/thumbnail contracts. It keeps
+market observations/theories separate from canon, defines one versioned episode
+projection consumed throughout production, and proposes selective dependency
+invalidation and distinct evidence-backed packaging promises.
+
+The detailed sequence begins with read-only, fixture-tested identity/projection
+work, then dependency previews and evidence import; broad live adapters require
+separate approval/access/cost verification. No Investigator service, additional
+canon database, source integration or intelligence UI was added by this plan.
+Current source tiers/line references and model rubric scores are not semantic
+coverage or performance proof. Keep existing locked-series-hook/owner decisions.
+
+M1/M2 and M3.1–M3.4 offline work is Ready for Review. Legacy adoption, semantic
+coverage and real-media calibration remain incomplete pending the reviewed
+artifacts/evidence/decisions recorded in the roadmap. New publication enforcement
+stays off. The next independent repair/prototype is Unicode-safe identity lookup
+and read-only Series/Episode projection fixtures; never re-key historical canon
+or adopt unverified caches implicitly. Source/app access findings and the missing
+resource video are documented in the design, not disguised as integrations.
