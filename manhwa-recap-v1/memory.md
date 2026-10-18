@@ -10272,3 +10272,16 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   - `start_ingest` refuses an already-made chapter (409, says where it is) unless it's a variant, a fresh redo of the same folder, or `allow_duplicate`.
   - The check is fail-safe (never blocks on its own error).
 - **Tests:** new `test_never_remake` (3); autopilot 55/55, priority 25/25, paste_add 22/22, job_control 51/51; full suite passes.
+
+### 2026-10-18 — AGENTS.md / CLAUDE.md brought up to date (owner: continuing in OpenAI Codex)
+- Both files (kept identical) now say:
+  - pushing = deploying (auto Railway + Vercel), never `railway up` or a manual Vercel deploy;
+  - check `/api/jobsbar` before every push and verify SUCCESS + `/health` after;
+  - big requests: plan in memory.md and wait for approval;
+  - the frontend is `manhwa-recap-v1/web` (Next.js); `static/` is legacy;
+  - where the handbook, tests and live data (`railway ssh`) are.
+- Codex reads AGENTS.md automatically. The owner was given an install + first-message prompt.
+- **Pending for the next agent:**
+  - FV 361–362 / MH 181–183: merge again vs. free (owner to choose);
+  - Former Supreme ch.19: owner can press Make;
+  - Death Knight 88-91 tags say "chapter 90": Redo SEO or a tags-only fix.
