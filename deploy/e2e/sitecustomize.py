@@ -3,6 +3,12 @@ import os
 import socket
 
 if os.environ.get('FLAMINGO_E2E') == '1':
+    # The source scraper has a legacy unverified-context path. The test
+    # must validate certificates even when that path asks otherwise.
+    import ssl, certifi
+    def verified_context(*args, **kwargs):
+        return ssl.create_default_context(cafile=certifi.where())
+    ssl._create_unverified_context=verified_context
     original_connect=socket.socket.connect
     original_connect_ex=socket.socket.connect_ex
     def permitted(address):

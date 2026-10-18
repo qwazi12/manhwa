@@ -104,3 +104,16 @@ def test_launcher_environment_copies_only_generation_credentials(tmp_path):
  assert env['DATABASE_URL']==f'sqlite:///{tmp_path}/data/staging.db'
  assert env['AUTOPILOT_SCHEDULER']==env['BACKUP_ENABLED']=='0'
  assert env['MAX_DAILY_SPEND_USD']==env['MAX_DAILY_SPEND_CEILING_USD']=='5'
+
+
+def test_inherited_worker_forces_verified_tls_and_rejects_direct_network():
+ script='''import socket,ssl
+assert ssl._create_unverified_context().verify_mode==ssl.CERT_REQUIRED
+assert ssl._create_unverified_context().check_hostname
+for address in [('8.8.8.8',443),('127.0.0.1',9999)]:
+ try:socket.socket().connect(address)
+ except PermissionError:pass
+ else:raise AssertionError('direct network permitted')
+'''
+ env={'PATH':os.environ['PATH'],'FLAMINGO_E2E':'1','PYTHONPATH':str(HERE),'PYTHONDONTWRITEBYTECODE':'1'}
+ subprocess.run([sys.executable,'-c',script],env=env,check=True,timeout=10)

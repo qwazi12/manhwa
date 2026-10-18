@@ -54,12 +54,16 @@ def main():
     args=ap.parse_args();stage=args.directory.resolve()
     if args.action=='prepare':
         result=prepare.prepare(stage,dependencies=False)
+        result.update(mode='isolated-generation',paid_calls_enabled=False,profile_commit=result['commit'])
         # APFS clone-on-write copies keep dependency paths inside the checkout.
         for rel in ('manhwa-recap-v1/web/node_modules','manhwa-recap-v1/hyperframes/node_modules'):
             subprocess.run(['/bin/cp','-cR',str(ROOT/rel),str(stage/'app'/rel)],check=True)
+        (stage/'manifest.json').write_text(json.dumps(result,indent=2))
         print(json.dumps(result));return
     if not stage.is_relative_to(ROOT/'work'):raise ValueError('Test directory must be under private work/')
     env=environment(stage,providers=args.action=='launch')
+    if args.action=='launch':
+        manifest=json.loads((stage/'manifest.json').read_text());manifest.update(mode='isolated-generation',paid_calls_enabled=True,estimated_spend_cap_usd=5,publishing_enabled=False,drive_enabled=False,scheduling_enabled=False);(stage/'manifest.json').write_text(json.dumps(manifest,indent=2))
     profile=stage/'test.sb';profile.write_text(sandbox_profile(stage))
     command=['/usr/bin/sandbox-exec','-f',str(profile)]
     web=stage/'app/manhwa-recap-v1/web'
@@ -85,7 +89,7 @@ def main():
         for name,cmd,cwd,child_env in [
             ('proxy',[sys.executable,str(stage/'app/deploy/e2e/proxy.py')],stage,proxy_env),
             ('backend',command+[sys.executable,'-m','uvicorn','e2e_backend:app','--host','127.0.0.1','--port','8138'],stage/'app',env),
-            ('frontend',command+['node','node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3138'],web,env)]:
+            ('frontend',command+['node','node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3138'],web,{k:v for k,v in env.items() if k not in ('GEMINI_API_KEY','TTS_API_KEY')})]:
             log=(stage/'logs'/f'{name}.log').open('a');handles.append(log)
             children.append(subprocess.Popen(cmd,cwd=cwd,env=child_env,stdout=log,stderr=subprocess.STDOUT))
         (stage/'pids.json').write_text(json.dumps([p.pid for p in children]))
