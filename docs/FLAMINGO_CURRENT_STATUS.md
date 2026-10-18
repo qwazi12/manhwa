@@ -1,6 +1,6 @@
 # Flamingo Recap Studio — overall status
 
-October 18, 2026. Production is the current Next.js site at https://manhwa.nodepilot.dev/ running **88920f3**. PRs1–8 are merged, with #7 evidence included through #8. The cancelled-chapter visibility repair described below is a separate **review-only feature branch**, not deployed. No work in this checkpoint resumes Chapter34 or changes the four historical Waiting records.
+October 18, 2026. Production is the current Next.js site at https://manhwa.nodepilot.dev/ running **91bfd89**. PRs1–9 are merged and deployed after release gates. PR10 contains a separate isolated test studio and remains unmerged. A fresh isolated Chapter34 test produced a playable MP4; original/cancelled variants and all four historical Waiting jobs remain unchanged. See [the actual end-to-end report](FLAMINGO_CH34_E2E_REPORT.md). Final-media QA failed with cumulative audio timing discrepancies; this is a reviewable test, not publication-ready output.
 
 ## Where the product stands
 
@@ -17,7 +17,7 @@ There is no defensible single completion percentage: the pipeline exists, operat
 | Story and continuity | Existing sourced research/Bible/series packs, canonical context in writing/revisions, typed ordered dialogue, speaker/line provenance, anchored scripts and critique states | Model claims can be wrong; final story coverage and real narrative quality remain uncalibrated |
 | Narration | Script-to-voice, configurable narrator/style, content-keyed TTS reuse, beats/slices and timing | Existing voices work; deliberate voice direction, pronunciation and scene pacing need further work |
 | Visual editing | Source-linked panel matching, storyboard inclusion/reordering, crops/timing, motion, undo, focused reruns and range/compilation workflows | Existing rendering pipeline preserved; scene-aware direction remains future work |
-| Rendering and exports | Clip/final video assembly, loudness/speed, exact-export identity, range checks and final-media diagnostics | New media enforcement remains off until real-media calibration; no fresh Chapter34 MP4 exists |
+| Rendering and exports | Clip/final video assembly, loudness/speed, exact-export identity, range checks and final-media diagnostics | New media enforcement remains off until real-media calibration; fresh isolated Chapter34 MP4 exists; final-media QA failed and needs timing repair |
 | Packaging | Existing SEO/title research, series hooks, chapter metadata, thumbnail candidates/readability/style and owner edits | These are not yet all consumers of a shared verified episode-event contract; heuristic scores are not observed CTR |
 | Distribution | Review/approve, render/post queues, scheduled publishing and connected video Drive copies | Existing connectivity/history verified; no new upload/publication or destination change in this checkpoint |
 | Control and safety | Spend/call limits, cooperative stop/pause/resume, preserved edits, source/rerun archives, duplicate protection, job/activity visibility | Stop waits for an in-flight operation to finish; owner approval still governs live generation/release |
@@ -31,13 +31,13 @@ There is no defensible single completion percentage: the pipeline exists, operat
 - **Architecture/vision:** existing research, Bible, SEO, thumbnail, demand and vidIQ-related capabilities audited. Detailed Series/Episode/evidence contracts, consumer mapping and reuse/repair/build backlog documented. This is a plan, not a completed external Investigator.
 - **Release/staging safety:** isolated staging and regression infrastructure, QA deletion/restore race fix, populated ops-data persistence, startup ingest-scope fix and offline fixture repairs. PR8 is deployed through the normal main-only flow.
 - **Operations:** Railway capacity alert cleared,50GBvolume, current21.08GBvolume restore points, populated72projectDB restored in isolation, protected files verified across the actual deployment. Existing thresholds/accounts unchanged.
-- **This fix:** read durable ingest history for chapter context without repopulating worker memory. Partial cancelled chapters with an existing directory remain visible after restart; live state wins; render/research history is excluded; deleted directories are not recreated. The page explicitly says Stopped by you and adds no resume action for cancelled jobs. [PR #9](https://github.com/qwazi12/manhwa/pull/9) is open for review; merge/deployment authorization remains separate.
+- **This fix:** read durable ingest history for chapter context without repopulating worker memory. Partial cancelled chapters with an existing directory remain visible after restart; live state wins; render/research history is excluded; deleted directories are not recreated. The page explicitly says Stopped by you and adds no resume action for cancelled jobs. [PR #9](https://github.com/qwazi12/manhwa/pull/9) is merged and deployed at91bfd89; protected data remains unchanged.
 
 ## What still needs repair or validation
 
 | Item | Current state / next evidence |
 |---|---|
-| Cancelled partial chapter displays unknown chapter after restart | Fixed offline in this review branch; still present on production until a separately approved release |
+| Cancelled partial chapter displays unknown chapter after restart | Fixed, deployed and verified on the cancelled variant; it explicitly remains stopped |
 | Chapter34 original project | Preserved:21pages,95panels/descriptions,1591words,78voice lines,83segments,noexport. Evaluate five missing-audio findings on excluded slots66–70 and the ~42second repeated-panel hold without automatic regeneration |
 | Fresh Chapter34 variant | Cancelled after21pages/93panels/93descriptions, estimated$0.407; no script/TTS/timeline/export. Remains stopped; monitor paused |
 | Four historical Waiting labels | Later successful outcomes verified; records retained exactly under owner's exception. Any future reconciliation must be separately reviewable; no retry/cancel to clear labels |
@@ -47,7 +47,7 @@ There is no defensible single completion percentage: the pipeline exists, operat
 | Real-media calibration | Need approved good/defective final-MP4 examples and narrative/creative evaluation; `MEDIA_QA_ENFORCE=0` |
 | Backup operations | Existing database schedule is enabled; automatic Railway full-volume schedule is not configured. Full-volume restore exercise still needs an isolated recovery plan/window |
 | Source catalog / demand accounting | Documented TLS/fallback-provenance hardening and YouTube quota-accounting verification remain planned; no live settings/access changes |
-| Full fresh E2E validation | Chapter34 test stopped by owner. A complete source→script→voice→MP4 quality assessment has not been delivered. Normal render can auto-copy to Drive, so any no-upload test needs a verified path |
+| Full fresh E2E validation | Fresh separate e2e-1018 project generated through MP4 in an OS/proxy/application sandbox; playback works, media QA failed, SEO prepared, five thumbnail concepts and a1280×720JPEG prepared. Original and cancelled production Chapter34 remain stopped. Report separates measured results from creative/semantic limits |
 
 ## What genuinely still needs building
 
