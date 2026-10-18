@@ -15,7 +15,7 @@ Production website: https://manhwa.nodepilot.dev/ (the current Next.js studio).
 | #5 | Research/shared-intelligence architecture **documentation** | Merged; `fc32713268c312bf248748753bff9468cf239bfa`; no Investigator implemented |
 | #6 | Integrated stack and isolated staging tools | Merged once into main as `48a1eff1cacad241c35f87b07721a04adad11a79` |
 | #7 | Earlier release/run evidence | Draft on `dev/flamingo-release-followup`; deferred to avoid a redundant production restart |
-| Safety follow-up | QA deletion race and isolated test fixtures | Separate development branch/PR; not deployed |
+| #8 | QA deletion race and isolated test fixtures | Draft, `dev/flamingo-release-safety`, stacked on #7; tested code commit `b48b721`; not deployed |
 
 GitHub confirms PRs #1–#6 closed/merged. The integrated #6 merge retained the stacked commits once; no force push or production history rewrite. Main remains `48a1eff`. The previous main rollback reference is `40d67cd`; no rollback was required or executed.
 
@@ -60,7 +60,7 @@ No new deployment, restart, migration, cache adoption, volume replacement, accou
 
 **The new mandatory idle gate fails:** authenticated Jobs shows Running 0 and Waiting 4: two interrupted Dark Mage Chapter 105 finalizations, one interrupted Murim Chapter 45 finalization, and one interrupted Murim Chapter 45 publication waiting for YouTube confirmation. They were preserved, not cancelled/resumed to make deployment possible. Posting shows 2 needing review, 19 posted records, 0 ready to post; schedule remains on at 10:00/14:00/22:00 Eastern, maximum 3/day/channel. The passing startup status does not override these gates.
 
-- Authenticated current Next navigation, settings, dashboard/chapter list and original Chapter 34 board/Issues load. Existing settings identify the same configured Flamingo Remix target, public default, Charon/energetic style, daily $7 cap, autopilot $6/4 chapters. They were observed without saving or refreshing accounts.
+- Authenticated current Next navigation, settings, dashboard/chapter list, Library (15 tracked series) and original Chapter 34 board/Issues load. Existing settings identify the same configured Flamingo Remix target, public default, Charon/energetic style, daily $7 cap, autopilot $6/4 chapters. They were observed without saving or refreshing accounts.
 - Original Chapter 34 retains 21 pages, 95 panels/descriptions, 1,591 script words, 78 voice lines and 83 segments; timestamps still October 16. This confirms accessibility/counts, not a full before/after byte audit.
 - M1 displays diagnostic mode and no export. M2 displays missing legacy dialogue-transfer history and unverified final critique. M3 shows 80 source lines, 78 artwork descriptions and 85 reference review candidates, explicitly **not semantic coverage**. No repair/redo/accept/approve button was pressed.
 - Existing timing UI reports five missing-audio findings for excluded silent slots 66–70 and a 42-second repeated-image hold. These require a project-scoped evaluation; they are not final-MP4 measurements. No automatic correction was applied.
@@ -76,3 +76,5 @@ Original project: https://manhwa.nodepilot.dev/chapter/a-regressors-tale-of-cult
 M1 diagnostic QA/exact-export identities, M2 dialogue/review repairs and M3 safe freshness/source preservation are deployed. The deletion safety repair is tested but pending release. Semantic coverage, reviewed legacy adoption and real-media calibration/enforcement remain incomplete; `MEDIA_QA_ENFORCE` remains off as confirmed by diagnostic UI. External Investigator/shared Series/Episode architecture and story-grounded audience research remain plans; broad collectors, paid integrations and account changes are not implemented/enabled.
 
 Next independent safe task: review the narrow safety PR and collect read-only evidence for the four waiting records, the critical platform notification and a verified backup/restore point. Recheck all gates before any main merge. If a deployed fault requires recovery, preserve diagnostics and volume data; use an idle, verified rollback to the prior application version without resetting storage or weakening safeguards.
+
+Reviewable safety repair: https://github.com/qwazi12/manhwa/pull/8 . Evidence-only dependency: https://github.com/qwazi12/manhwa/pull/7 . Both remain draft/unmerged.
