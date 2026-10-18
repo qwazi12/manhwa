@@ -755,6 +755,7 @@ def build_timeline(beats, panels, assignments):
             "start": float(b["start"]),
             "end": float(b["end"]),
             "beat_text": b["text"],
+            "source_line_refs": list(b.get("source_line_refs") or []),
             "panel_id": p.get("panel_id"),
             "panel_file": p.get("file"),
             "width": p.get("width"),

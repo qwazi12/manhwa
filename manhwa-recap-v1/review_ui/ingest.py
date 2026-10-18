@@ -441,6 +441,9 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     script_path = os.path.join(proj, "script.txt")
     prov_path = os.path.join(proj, "script.json")
     _cached_script = open(script_path).read().strip() if os.path.exists(script_path) else ""
+    panels = narrate.load_panels(desc_path)
+    json.dump(dict(narrate.LAST_SOURCE_REVIEW),
+              open(os.path.join(proj, "source_review.json"), "w"), indent=1, ensure_ascii=False)
     scenes = None
     # P2 record lives beside the script it describes, so a cached-script
     # rerun reports THIS chapter's lines, never the previous run's module state
@@ -460,7 +463,6 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
                 scenes = None
     else:
         progress("narrate", "Writing narration from panels…", 60)
-        panels = narrate.load_panels(desc_path)
         # Spec 06 B4: the opening line names the series with one of its
         # aliases (series pack, rotating by chapter). No pack yet -> none.
         open_title, open_alias = "", ""

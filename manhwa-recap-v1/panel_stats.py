@@ -29,6 +29,7 @@ Roles:
 import json
 import os
 import re
+import copy
 
 FRAGMENT_STD = 20.0     # luma std below this, with no text = near-blank fragment
 FRAGMENT_INK = 0.10     # ...and less ink than this (Murim fragments: ≤ 0.076)
@@ -158,39 +159,61 @@ def annotate(desc_path, crops_dir):
 
 
 def attach_bubble_dialogue(panels):
-    """Give each bubble panel's dialogue to the nearest art panel on the same
-    page — the next one if there is one (the bubble usually sits above the art
-    it belongs to, so its text goes FIRST), else the previous (text goes
-    after). Works on the in-memory list narrate uses; files are untouched.
-    Returns {bubble_pid: art_pid}."""
+    """Ordered, typed transfer on the in-memory narration input only.
+
+    Repeated calls restore original evidence first. An orphan stays explicit;
+    no cross-page speaker or image assignment is fabricated.
+    """
+    import matcher
+    import ocr_lines
+
     def page(pid):
         return (pid or "").split("_panel")[0]
-    moved = {}
+
+    def usable(p):
+        return p.get("role", "art") == "art" and p.get("ok", True) and not matcher.is_junk_panel(p)
+
+    for p in panels:
+        if "_dialogue_original" not in p:
+            p["_dialogue_original"] = {"ocr_text": p.get("ocr_text", ""),
+                                       "lines": copy.deepcopy(p.get("lines"))}
+        p.update(copy.deepcopy(p["_dialogue_original"]))
+        for k in ("dialogue_from", "dialogue_to", "dialogue_orphan"):
+            p.pop(k, None)
+        p["lines"] = ocr_lines.source_lines(p)
+    moved, groups = {}, {}
     for i, b in enumerate(panels):
         if b.get("role") != "bubble":
             continue
-        text = (b.get("ocr_text") or "").strip()
+        text = (b.get("ocr_text") or ocr_lines.ocr_from_lines(b["lines"])).strip()
         if not text:
             continue
-        target, before = None, True
-        for q in panels[i + 1:]:
+        target = None
+        for j, q in enumerate(panels[i + 1:], i + 1):
             if page(q.get("panel_id")) != page(b.get("panel_id")):
                 break
-            if q.get("role", "art") == "art" and q.get("ok", True):
-                target = q
+            if usable(q):
+                target = j
                 break
         if target is None:
-            before = False
-            for q in reversed(panels[:i]):
+            for j in range(i - 1, -1, -1):
+                q = panels[j]
                 if page(q.get("panel_id")) != page(b.get("panel_id")):
                     break
-                if q.get("role", "art") == "art" and q.get("ok", True):
-                    target = q
+                if usable(q):
+                    target = j
                     break
         if target is None:
+            b["dialogue_orphan"] = {"panel_id": b["panel_id"], "lines": copy.deepcopy(b["lines"]),
+                                     "text": text, "reason": "No eligible story-art panel on the same page; placement needs review."}
             continue
-        cur = (target.get("ocr_text") or "").strip()
-        target["ocr_text"] = (f"{text} / {cur}" if before else f"{cur} / {text}").strip(" /")
-        target.setdefault("dialogue_from", []).append(b.get("panel_id"))
-        moved[b.get("panel_id")] = target.get("panel_id")
+        groups.setdefault(target, []).append((i, text, copy.deepcopy(b["lines"]), b["panel_id"]))
+        moved[b["panel_id"]] = panels[target]["panel_id"]
+        b["dialogue_to"] = panels[target]["panel_id"]
+    for j, transfers in groups.items():
+        target = panels[j]
+        entries = sorted(transfers + [(j, target.get("ocr_text", ""), target["lines"], None)])
+        target["ocr_text"] = " / ".join(text for _, text, _, _ in entries if text)
+        target["lines"] = [line for _, _, lines, _ in entries for line in lines]
+        target["dialogue_from"] = [pid for _, _, _, pid in entries if pid]
     return moved

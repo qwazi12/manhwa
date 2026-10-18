@@ -1238,3 +1238,41 @@ segments, range joins, content mutation, final server export and readiness paths
 The F8 test leak was fixed using monkeypatch so chapter-media and render-bound
 pytest tests can share a process. No real recap MP4 or semantic speech evaluation
 has been verified by these tests.
+
+## E27. Ordered source dialogue and truthful critique (development, 2026-10-18)
+
+`panel_stats.attach_bubble_dialogue` now gathers transfers before combining them
+in original panel/line order. It transfers structured lines as well as flat OCR,
+preserving original speaker/basis and `source_panel_id` / `source_line_id`.
+Repeated calls restore the original in-memory evidence, avoiding duplicates.
+Legacy or unmatched flat OCR remains explicitly untyped/unknown rather than
+inheriting the art panel's speaker. Source descriptions on disk are untouched.
+
+A bubble without a safe, eligible art target on its own page is an explicit
+orphan. `narrate.LAST_SOURCE_REVIEW` is saved as `source_review.json`, exposed via
+`/api/source-review` and shown in Issues; the free validator raises an OCR finding.
+This does NOT guess a cross-page speaker/image or promise the orphan was narrated.
+All-text/no-eligible-art input stops before a model call. Script, beat, matched
+shot and segment records carry `source_line_refs` with relation
+`available_evidence`; these references are not a semantic coverage verdict.
+
+Narrative critique requires a valid JSON issue array and valid unit/type/problem/
+fix records. Malformed or partially invalid replies are incomplete, not clean.
+The three-unit revision cap and usage-cap exception propagation remain intact.
+Revisions receive the same Bible/opening context as the initial draft. The critic
+receives complete supplied description/text evidence instead of the old 110/60
+character excerpts; future token usage can rise, but no extra critique calls are
+added and existing usage gates remain in force.
+
+`critique.json` now records response validity, units submitted (not a claim that a
+model truly checked every fact), attempts and unresolved issues. Rewritten
+narrative issues remain `rewritten_unverified` without a paid second review.
+Final outcome is clean, needs_review or incomplete; an unavailable critic and an
+empty successful issue array are distinct. Existing direct-speech contract checks
+still run after revision. Issues displays incomplete/legacy results without
+claiming zero unknown defects. Human creative approval remains authoritative.
+
+M2 is offline/Ready for Review on a separate stacked branch; no runtime defaults,
+voice settings, production data or paid artifacts were changed. Rollback is an
+isolated code revert; additive source/critique metadata stays readable by older
+consumers. Real-media/source narrative accuracy remains unverified.

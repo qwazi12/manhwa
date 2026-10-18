@@ -11,7 +11,7 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 | Milestone | Priority | Dependency | Status | Evidence and remaining boundary |
 |---|---|---|---|---|
 | M1 Final media audio QA and export readiness | Critical | Existing renderer/timeline contracts | Ready for Review | Offline implementation/tests/UI verified; real-media calibration and deployment approval remain required. |
-| M2 OCR dialogue and narrative reliability | High | M1 offline checkpoint; safe fixes separable | Not Started | F1/F2/F5/F7 confirmed in audit. |
+| M2 OCR dialogue and narrative reliability | High | M1 offline checkpoint; safe fixes separable | Ready for Review | Ordered typed transfer, orphan visibility and truthful critique lifecycle implemented offline. |
 | M3 Cache freshness and source completeness | High | M2 provenance contracts; cache fixes separable | Not Started | F6 same-size replacement reproduced. |
 | M4 Narration voice and pacing | High | M1 measurements; real-media decisions | Not Started | Current pauses/speed remain unchanged pending evaluation. |
 | M5 Scene-aware visual editing | High | Reliable provenance and source QA | Not Started | Preserve renderer; prototype reversible presets. |
@@ -41,12 +41,12 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 
 | Task | Status | Files | Acceptance and tests |
 |---|---|---|---|
-| M2.1 Ordered structured dialogue transfer | Not Started | `panel_stats.py`, `ocr_lines.py`, `narrate.py` | Fix F1/F2; typed lines and legacy strings preserve source order, speakers and line identity; multiple bubbles, mixed representations, repeated calls and backward transfer tested. |
-| M2.2 Orphan speech handling | Not Started | narration/provenance, validator/UI | Text with no safe art target remains explicit and reviewable; no silent loss or fabricated attribution; page-edge/all-text cases tested. |
-| M2.3 Truthful critique lifecycle | Not Started | `narrate.py`, critique UI | F5: malformed/skipped/incomplete differs from clean; bounded repair attempts, unresolved defects tracked; cap and error tests with fake providers. |
-| M2.4 Canonical revision context | Not Started | `narrate.py`, Series Bible integration | F7: revisions retain original Bible/opening/story inputs; deterministic prompt/context and final-audit tests. |
+| M2.1 Ordered structured dialogue transfer | Ready for Review | `panel_stats.py`, `ocr_lines.py`, `narrate.py` | Fix F1/F2; typed lines and legacy strings preserve source order, speakers and line identity; multiple bubbles, mixed representations, repeated calls and backward transfer tested. |
+| M2.2 Orphan speech handling | Ready for Review | narration/provenance, validator/UI | Text with no safe art target remains explicit and reviewable; no silent loss or fabricated attribution; page-edge/all-text cases tested. |
+| M2.3 Truthful critique lifecycle | Ready for Review | `narrate.py`, critique UI | F5: malformed/skipped/incomplete differs from clean; bounded repair attempts, unresolved defects tracked; cap and error tests with fake providers. |
+| M2.4 Canonical revision context | Ready for Review | `narrate.py`, Series Bible integration | F7: revisions retain original Bible/opening/story inputs; deterministic prompt/context and final-audit tests. |
 
-**Evidence:** pending. **Risks:** approved creative tone and real narrative quality need source/media evaluation; do not remove spending caps to improve apparent completion. **Rollback:** isolated code revert; preserve source identities and old artifact readability.
+**Evidence:** 49 combined pytest tests passed before the final speaker-preservation regression; all 20 M2-specific regressions then passed. Eight existing script suites passed (265 recorded assertions); impacted roles/OCR/direct-speech suites were rerun after the last source-line change. TypeScript/static checks and Next.js build pass. Local browser confirmed orphan text and incomplete-review warnings through the real API. No generated narrative quality claim: model calls were fakes; real creative calibration remains outstanding. **Risks:** approved creative tone and real narrative quality need source/media evaluation; do not remove spending caps to improve apparent completion. **Rollback:** isolated code revert; preserve source identities and old artifact readability.
 
 ## M3 Cache freshness and source completeness
 
@@ -115,3 +115,5 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 - October 18: owner authorization recorded; roadmap/vision created; development-only Vercel Git deployment guards and persistent agent instructions prepared. Next: M1 shared resolver and decoded diagnostics. All production behavior remains unchanged.
 
 - M1 offline checkpoint: resolver, diagnostics, export manifests, review/readiness contracts and UI implemented. 40 combined pytest tests and 421 selected existing script checks pass; tsc/build and isolated browser flow verified. Production enforcement remains OFF. Next: M2 dialogue/provenance and critique reliability.
+
+- M2 checkpoint: F1/F2/F5/F7 repaired offline; M2 Ready for Review. Source references mean available evidence, not proven semantic coverage. Next safe work: M3 content fingerprints with explicit legacy-cache handling and editorial preservation.

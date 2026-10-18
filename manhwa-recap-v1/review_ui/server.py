@@ -10485,6 +10485,12 @@ def critique_view(project: str = ""):
         return {"missing": True}
 
 
+@app.get("/api/source-review")
+def source_review_view(project: str):
+    pdir = project_dir_for(project)
+    return _read_json(os.path.join(pdir, "source_review.json")) or {"missing": True}
+
+
 @app.get("/api/demand")
 def demand_view():
     import demand_research as _dr

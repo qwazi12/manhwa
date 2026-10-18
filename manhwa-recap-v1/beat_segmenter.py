@@ -104,6 +104,7 @@ def segment_beats_scenes(scenes):
                 "text": "",
                 "word_count": 0,
                 "silent": True,
+                "source_line_refs": list(sc.get("source_line_refs") or []),
             })
             idx += 1
         else:
@@ -112,6 +113,7 @@ def segment_beats_scenes(scenes):
                 b["scene_id"] = sc["scene_id"]
                 b["panel_ids"] = pids
                 b["silent"] = False
+                b["source_line_refs"] = list(sc.get("source_line_refs") or [])
                 beats.append(b)
                 idx += 1
     return beats
