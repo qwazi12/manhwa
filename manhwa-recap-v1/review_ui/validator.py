@@ -362,7 +362,9 @@ def rule_findings(rows):
                                 "rules", category="ocr"))
 
         # --- System description ------------------------------------------
-        if not r["desc"]:
+        excluded_non_story = (r.get("role") in {"fragment", "credits"}
+                              and p["role"] == "left_out" and not t["in_video"])
+        if not r["desc"] and not excluded_non_story:
             out.append(_finding(
                 r, "System description", "high",
                 "No description was produced for this panel.",

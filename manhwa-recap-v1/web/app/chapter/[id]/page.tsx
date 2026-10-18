@@ -108,6 +108,7 @@ function ChapterPage({ id }: { id: string }) {
 
   return (
     <>
+      {c.qa_only && <div className="banner warn" role="status">QA-only episode · publishing, scheduling and external uploads are disabled.</div>}
       <div className="spread">
         <div className="row" style={{ flex: 1, minWidth: 0 }}>
           <select aria-label="Choose a chapter" value={id} style={{ maxWidth: 420, fontWeight: 600 }}

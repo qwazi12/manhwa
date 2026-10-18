@@ -559,9 +559,9 @@ def _do_export(speed=1.0):
     cards = []
     try:
         import ingest as _ing
-        series, chapter = _ing.parse_series_chapter(
-            json.load(open(os.path.join(pdir, "project.json"))).get("url", "")) \
-            if os.path.exists(os.path.join(pdir, "project.json")) else ("", "")
+        card_meta = _read_json(os.path.join(pdir, "project.json")) or {}
+        series, chapter = (_ing.parse_series_chapter(card_meta["url"])
+                           if card_meta.get("url") else (card_meta.get("series", ""), card_meta.get("chapter", "")))
         # V4 (Session 23 review): title cards showed the aggregator's hash
         # suffix ("Swordmasters Youngest Son F886A8Af") because this path
         # title-cased the raw slug. Reuse ingest's cleaner — the same one the
@@ -607,12 +607,13 @@ def _do_export(speed=1.0):
         except OSError:
             pass
     out = os.path.join(part_dir, f"final_{_stamp}.mp4")
-    # cards are stream-matched by _title_card, so always stream-copy (a
-    # re-encode pads each clip's video to its audio tail — accumulating
-    # frozen frames across the whole export)
-    subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listfile,
-         "-c", "copy", out], check=True, capture_output=True)
+    # Copy pictures, but decode each AAC shot independently and encode the
+    # joined soundtrack once. Copying AAC packets repeats encoder padding.
+    from media_concat import concatenate
+    entries = ([cards[0]] if cards and cards[0] else [])
+    entries += [os.path.join(pdir, s["clip"]) for s in approved]
+    entries += [cards[1]] if cards and cards[1] else []
+    concatenate(entries, out)
     # E4: optional BGM bed — drop a licensed bgm.mp3 into the project dir
     bgm = os.path.join(pdir, "bgm.mp3")
     if os.path.exists(bgm):
@@ -887,6 +888,9 @@ def _record_export_media(pdir, name, **context):
 
 
 def _media_readiness_blockers(pdir, name):
+    import qa_project_policy as policy
+    if policy.restricted(pdir):
+        return [policy.REASON]
     if not _mqa.enforcement_enabled():
         return []
     if not name:
@@ -1003,6 +1007,9 @@ def api_review_save(body: ReviewIn):
     if status and status not in ("approved", "sent_back", "review_pending"):
         raise HTTPException(400, "status must be approved, sent_back or review_pending")
     pdir = project_dir_for(body.project)
+    import qa_project_policy as policy
+    if status == "approved" and policy.restricted(pdir):
+        raise HTTPException(403, policy.REASON)
     pid = os.path.basename(pdir.rstrip("/"))
     name = os.path.basename(body.name)
     if not name.endswith(".mp4"):
@@ -4511,7 +4518,8 @@ def _after_export(pdir, name):
         _qc_bundle(pdir, name)        # warm the Watch tab's checks so it opens at once
     except Exception:
         pass
-    if name and _drive.configured():
+    import qa_project_policy as policy
+    if name and not policy.restricted(pdir) and _drive.configured():
         _drive_copy(pdir, name)
 
 
@@ -10319,6 +10327,10 @@ def chapter_view(pid: str):
     out = {**row, "steps": _ps.status(pdir), "busy": _chapter_busy(pdir), "drive": _drive.record(pdir),
            "drive_ready": _drive.configured(),
            "can_rerun": bool(meta.get("url")) and (meta.get("engine") or "gemini") == "gemini"}
+    import qa_project_policy as policy
+    out["qa_only"] = policy.restricted(pdir)
+    if out["qa_only"]:
+        out["drive_ready"] = False
     rj = [dict(j, id=k) for k, j in JOBS.items() if j.get("type") == "finalize" and j.get("project") == pid]
     rj.sort(key=lambda j: j.get("ts") or 0)
     if rj:
@@ -10427,12 +10439,16 @@ _DRIVE_RUNNING = set()
 
 def _drive_copy_later(pdir, name):
     """Copy a finished export to Drive in the background (never blocks or fails the render)."""
-    if not name or not _drive.configured():
+    import qa_project_policy as policy
+    if policy.restricted(pdir) or not name or not _drive.configured():
         return
     threading.Thread(target=_drive_copy, args=(pdir, name), daemon=True).start()
 
 
 def _drive_copy(pdir, name):
+    import qa_project_policy as policy
+    if policy.restricted(pdir):
+        return None
     import thumbnail as _tb
     pid = os.path.basename(pdir.rstrip("/"))
     if pid in _DRIVE_RUNNING:

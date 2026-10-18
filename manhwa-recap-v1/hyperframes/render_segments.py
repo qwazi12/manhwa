@@ -542,12 +542,10 @@ def concat(segments, final_path):
     with open(listing, "w") as f:
         for e in entries:
             f.write(f"file '{e}'\n")
-    # Cards are stream-matched to the segment clips, so concat ALWAYS
-    # stream-copies (a full re-encode pads every clip's video to its audio
-    # tail — +37s of frozen frames over 50 clips, measured).
-    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listing,
-                    "-c", "copy", final_path], check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Preserve pictures while joining decoded audio at exact shot boundaries.
+    # Independently encoded AAC priming must not repeat in the final track.
+    from media_concat import concatenate
+    concatenate(entries, final_path)
     print(f"Concatenated {len(entries)} clips -> {final_path}")
     bgm = os.environ.get("HF_BGM", os.path.join(WORK, "bgm.mp3"))
     if os.path.exists(bgm):
