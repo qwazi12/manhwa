@@ -117,3 +117,15 @@ for address in [('8.8.8.8',443),('127.0.0.1',9999)]:
 '''
  env={'PATH':os.environ['PATH'],'FLAMINGO_E2E':'1','PYTHONPATH':str(HERE),'PYTHONDONTWRITEBYTECODE':'1'}
  subprocess.run([sys.executable,'-c',script],env=env,check=True,timeout=10)
+
+
+def test_live_proxy_rejects_forbidden_connect_without_upstream_call(monkeypatch):
+ import socket,threading
+ import proxy
+ monkeypatch.setattr(proxy.socket,'create_connection',lambda *a,**k:pytest.fail('forbidden destination dialled'))
+ with proxy.Server(('127.0.0.1',0),proxy.Handler) as server:
+  thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+  conn=socket.socket();conn.connect(server.server_address)
+  conn.sendall(b'CONNECT www.googleapis.com:443 HTTP/1.1\r\nHost: www.googleapis.com:443\r\n\r\n')
+  assert conn.recv(4096).startswith(b'HTTP/1.1 403')
+  conn.close();server.shutdown();thread.join()
