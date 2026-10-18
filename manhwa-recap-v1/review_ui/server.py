@@ -36,6 +36,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)   # so same-dir modules (usage, ingest) resolve
                                # regardless of launch cwd/app-dir
 import usage  # cost/abuse guardrails — same dir (path set just above)
+import media_qa as _mqa
 
 RECAP = os.path.abspath(os.path.join(HERE, ".."))
 HF = os.path.join(RECAP, "hyperframes")
@@ -643,6 +644,9 @@ def _do_export(speed=1.0):
     done = os.path.join(active_exports_dir(), os.path.basename(final))
     os.replace(final, done)                      # appears in Exports only now
     final = done
+    _record_export_media(pdir, os.path.basename(final), speed=speed,
+                         cards=[(role, path) for role, path in
+                                zip(("intro", "outro"), cards or ()) if path])
     return {"ok": True, "clips": len(approved), "output": os.path.basename(final),
             "url": f"/export/{os.path.basename(final)}", "loudness": loud}
 
@@ -762,11 +766,16 @@ def review_state(pdir, name, rec=None, current_sig=None):
     sig = current_sig if current_sig is not None else cut_signature(pdir=pdir)
     status = rec.get("status") or "review_pending"
     superseded = bool(rec.get("cut_signature") and rec["cut_signature"] != sig)
+    media_changed = bool(rec.get("media_identity") and
+                         rec["media_identity"] != _mqa.identity(pdir, name))
+    if _mqa.enforcement_enabled():
+        superseded = superseded or media_changed
     return {"status": status, "notes": rec.get("notes", ""),
             "reviewed_at": rec.get("reviewed_at"),
             "reviewed_by": rec.get("reviewed_by"),
             "cut_signature": rec.get("cut_signature"),
             "current_signature": sig, "superseded": superseded,
+            "media_superseded": media_changed,
             "history": rec.get("history", [])}
 
 
@@ -869,6 +878,53 @@ def _qc_bundle_build(pdir, name):
     }
 
 
+def _record_export_media(pdir, name, **context):
+    try:
+        _mqa.capture_export(pdir, name, **context)
+    except Exception as exc:
+        _mqa.record_incomplete(pdir, name, exc)
+        _ev("render", f"Final-media manifest incomplete: {str(exc)[:200]}", "warn")
+
+
+def _media_readiness_blockers(pdir, name):
+    if not _mqa.enforcement_enabled():
+        return []
+    if not name:
+        return ["No export is available for final-media QA."]
+    try:
+        return _mqa.blockers(pdir, name, load_reviews(pdir).get(name))
+    except Exception:
+        return ["Final-media QA is unavailable; publication cannot proceed while enforcement is enabled."]
+
+
+class MediaQaIn(BaseModel):
+    project: str
+    name: str
+
+
+@app.get("/api/media-qa")
+def api_media_qa(project: str, name: str = ""):
+    pdir = project_dir_for(project)
+    if not name:
+        name, _pid = latest_export(project)
+    if not name:
+        return {"status": "not_checked", "findings": [], "note": "No export yet.",
+                "enforced": _mqa.enforcement_enabled()}
+    try:
+        return {"name": os.path.basename(name), **_mqa.status(pdir, os.path.basename(name))}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/media-qa")
+def api_media_qa_start(body: MediaQaIn):
+    pdir = project_dir_for(body.project)
+    name = os.path.basename(body.name)
+    if not name.endswith(".mp4") or not _export_stat(pdir, name):
+        raise HTTPException(404, "The MP4 export no longer exists.")
+    return {"started": _mqa.start(pdir, name), **_mqa.status(pdir, name)}
+
+
 def _export_stat(pdir, name):
     p = os.path.join(pdir, "exports", os.path.basename(name))
     if not os.path.exists(p):
@@ -925,7 +981,7 @@ def api_review(project: str = "", name: str = ""):
             "file_present": stat is not None, "stat": stat,
             "url": f"/export/{name}?project={pid}",
             "review": review_state(pdir, name, recs.get(name), sig),
-            "qc": _qc_bundle(pdir, name)}
+            "qc": _qc_bundle(pdir, name), "media_qa": _mqa.status(pdir, name)}
 
 
 class ReviewIn(BaseModel):
@@ -966,6 +1022,7 @@ def api_review_save(body: ReviewIn):
     rec["export_mtime"] = stat["mtime"] if stat else rec.get("export_mtime")
     if status:                                # a verdict pins the cut it judged
         rec["cut_signature"] = cut_signature(pdir=pdir)
+        rec["media_identity"] = _mqa.identity(pdir, name)
     recs[name] = rec
     save_reviews(pdir, recs)
     scheduled = _schedule_on_verdict(pid, name, status)
@@ -1383,6 +1440,7 @@ def publish_readiness(pdir, name):
     if rv["superseded"]:
         blockers.append("The cut changed after this export was approved — "
                         "re-render and re-review before preparing it.")
+    blockers += _media_readiness_blockers(pdir, name)
     return {"review_status": rv["status"], "superseded": rv["superseded"],
             "blockers": blockers, "ready": not blockers}
 
@@ -3401,6 +3459,8 @@ def api_range_build(body: RangeIn):
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "done", "at": time.time(), "export": name, "marks": marks}
             json.dump(m, open(os.path.join(rdir, "project.json"), "w"), indent=2)
+            _record_export_media(rdir, name, components=[(cp, cn) for _n, cp, cn in pl["chapters"]])
+            _mqa.start(rdir, name)
             _ev("publish", f"{series} chapters {a}-{b}: long-form compilation video built with series defaults applied — ready in studio", "ok")
         except Exception as e:
             m = _read_json(os.path.join(rdir, "project.json"))
@@ -3747,6 +3807,7 @@ def upload_eligibility(pdir, name):
     problems = validate_publish(md, pdir, name)
     if problems:
         blockers.append("Publish metadata is incomplete: " + " ".join(problems))
+    blockers += _media_readiness_blockers(pdir, name)
     acct = _yt.account_status(_yt_root())
     if not acct.get("can_upload"):
         blockers.append(acct.get("detail") or "No usable YouTube connection.")
@@ -3875,6 +3936,7 @@ def publish_eligibility(pdir, name):
     if problems:
         blockers.append("Publish metadata is incomplete: " + " ".join(problems))
 
+    blockers += _media_readiness_blockers(pdir, name)
     acct = mod.accounts_status(_os_root())
     if not acct.get("configured"):
         blockers.append(acct.get("detail") or f"{backend_name} is not configured.")
@@ -4442,6 +4504,8 @@ def _prepare_publish(pdir, name, do_seo=True):
 def _after_export(pdir, name):
     """Background, after an export: prepare it for publishing, then copy it
     (with its thumbnail) to Drive."""
+    if name:
+        _mqa.start(pdir, name)
     _prepare_publish(pdir, name)
     try:
         _qc_bundle(pdir, name)        # warm the Watch tab's checks so it opens at once
@@ -9074,6 +9138,7 @@ def _local_post_blockers(project, name):
         out.append("the board changed after you approved it — watch and approve the new render")
     md = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
     out += validate_publish(md, pdir, name)
+    out += _media_readiness_blockers(pdir, name)
     return out
 
 
@@ -10420,6 +10485,18 @@ def critique_view(project: str = ""):
         return {"missing": True}
 
 
+@app.get("/api/source-review")
+def source_review_view(project: str):
+    pdir = project_dir_for(project)
+    return _read_json(os.path.join(pdir, "source_review.json")) or {"missing": True}
+
+
+@app.get("/api/source-coverage")
+def source_coverage_view(project: str):
+    import source_coverage
+    return source_coverage.inspect(project_dir_for(project))
+
+
 @app.get("/api/demand")
 def demand_view():
     import demand_research as _dr
@@ -11276,5 +11353,3 @@ def api_space_cleanup():
 
 
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")
-
-

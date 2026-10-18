@@ -190,10 +190,10 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     env var to the describe subprocess, so every external API call this
     ingestion makes is attributed to the same job for the per-job cap.
 
-    `fresh=True` (S4) clears the project's DERIVED artifacts so every stage
+    `fresh=True` (S4) archives the project's DERIVED artifacts so every stage
     regenerates: cached script/provenance, segments, review state, per-beat
-    audio files and clips. Kept: descriptions.json (describe --merge re-does
-    only changed panels) and the hash-keyed TTS cache (unchanged sentences
+    audio files and clips. Kept: descriptions.json (describe --merge verifies content; changed or
+    unknown evidence requires an explicit describe rerun) and the hash-keyed TTS cache (unchanged sentences
     re-synth for free). Needed to re-run a chapter after a pipeline fix —
     without it the script cache happily replays the old cut."""
     if engine not in ENGINES:
@@ -218,30 +218,20 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
 
     proj_id = project_id(url, variant)
     proj = os.path.join(PROJECTS, proj_id)
-    pages = os.path.join(proj, "pages")
-    crops = os.path.join(proj, "crops")
+    import tempfile
+    import generation_cache as cache
+    os.makedirs(proj, exist_ok=True)
+    source_staging = tempfile.mkdtemp(prefix=".source-staging-", dir=proj)
+    pages = os.path.join(source_staging, "pages")
+    crops = os.path.join(source_staging, "crops")
     audio = os.path.join(proj, "audio")
     for d in (pages, crops, audio):
         os.makedirs(d, exist_ok=True)
 
     if fresh:
-        import glob as _glob
-        import shutil as _shutil
-        progress("scrape", "fresh=1 — clearing derived artifacts…", 2)
-        for f in ("script.txt", "script.json", "direct_speech.json",
-                  "segments.json", "review.json",
-                  "storyboard.json", "edits.log.jsonl", "beatsheet.json",
-                  # every line is re-recorded, so the chapter takes the
-                  # current narration voice instead of its old pin
-                  "tts.json"):
-            try:
-                os.remove(os.path.join(proj, f))
-            except FileNotFoundError:
-                pass
-        for f in _glob.glob(os.path.join(audio, "beat_*.mp3")) + \
-                 _glob.glob(os.path.join(audio, "slices", "*.mp3")):
-            os.remove(f)
-        _shutil.rmtree(os.path.join(proj, "clips"), ignore_errors=True)
+        import pipeline_steps
+        progress("scrape", "fresh=1 — archiving derived artifacts…", 2)
+        pipeline_steps.prepare_rerun(proj, "narrate")
     desc_path = os.path.join(proj, "descriptions.json")
 
     # 1. scrape -----------------------------------------------------------
@@ -260,14 +250,9 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
 
     # 2. split (with vision segmentation of tall panels) ------------------
     progress("split", "Splitting pages into panels…", 18)
-    # Wipe stale crops first: split_panels writes into the dir WITHOUT
-    # cleaning it, so a splitter change (e.g. YOLO weights appearing) leaves
-    # old crops mixed with new ones and describe/match then run on a corrupt
-    # union. Descriptions are safe to keep — describe runs in --merge mode
-    # and re-describes any panel whose dimensions no longer match.
-    import shutil
-    shutil.rmtree(crops, ignore_errors=True)
-    os.makedirs(crops, exist_ok=True)
+    # Split into a fresh workspace: failed downloads/splits must not destroy
+    # the original source behind an approved cut. Changed successful source
+    # trees are archived before promotion, never mixed with stale crops.
     subp_env = {**os.environ, "RECAP_JOB_ID": job_id}
     if tier:                                   # describe runs as a subprocess
         subp_env["RECAP_SERVICE_TIER"] = tier
@@ -373,6 +358,11 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     else:
         progress("split", f"{n_crops} panel crops.", 30)
 
+    source_revision = cache.promote_sources(proj, source_staging)
+    pages, crops = os.path.join(proj, "pages"), os.path.join(proj, "crops")
+    if source_revision:
+        progress("split", f"Previous source preserved in {source_revision}", 31)
+
     # 3. describe ---------------------------------------------------------
     # Resolve Series Bible (character cheat-sheet, setting tropes, costume vs monster rules)
     series_raw, _ = parse_series_chapter(url)
@@ -441,12 +431,33 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     script_path = os.path.join(proj, "script.txt")
     prov_path = os.path.join(proj, "script.json")
     _cached_script = open(script_path).read().strip() if os.path.exists(script_path) else ""
+    panels = narrate.load_panels(desc_path)
+    json.dump(dict(narrate.LAST_SOURCE_REVIEW),
+              open(os.path.join(proj, "source_review.json"), "w"), indent=1, ensure_ascii=False)
+    # Spec 06 B4: the opening line names the series with one of its
+    # aliases (series pack, rotating by chapter). No pack yet -> none.
+    open_title, open_alias = "", ""
+    try:
+        import series_pack as _sp
+        _s_raw, _ch = parse_series_chapter(url)
+        _pack = _sp.load(PROJECTS, clean_series_slug(_s_raw)) or {}
+        open_title = _pack.get("title_en") or ""
+        open_alias = _sp.spoken_alias(_pack, _ch)
+    except Exception:
+        pass
+    script_inputs = cache.script_inputs(proj, panels, bible, direct,
+                                        open_title, open_alias, narrate.DEFAULT_MODEL)
+    script_cache = os.path.join(proj, "script.cache.json")
+    script_outputs = {"script.txt": script_path, "script.json": prov_path}
     scenes = None
     # P2 record lives beside the script it describes, so a cached-script
     # rerun reports THIS chapter's lines, never the previous run's module state
     ds_path = os.path.join(proj, "direct_speech.json")
     direct_record = {}
-    if _cached_script:
+    if os.path.exists(script_path) or os.path.exists(prov_path):
+        cache.require_current(script_cache, script_inputs, script_outputs, "narrate")
+        if not _cached_script:
+            raise RuntimeError("Cached narration is empty; work preserved, explicitly rerun narrate")
         progress("narrate", "Script exists, loading cached narration…", 60)
         script = _cached_script
         try:
@@ -460,18 +471,6 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
                 scenes = None
     else:
         progress("narrate", "Writing narration from panels…", 60)
-        panels = narrate.load_panels(desc_path)
-        # Spec 06 B4: the opening line names the series with one of its
-        # aliases (series pack, rotating by chapter). No pack yet -> none.
-        open_title, open_alias = "", ""
-        try:
-            import series_pack as _sp
-            _s_raw, _ch = parse_series_chapter(url)
-            _pack = _sp.load(PROJECTS, clean_series_slug(_s_raw)) or {}
-            open_title = _pack.get("title_en") or ""
-            open_alias = _sp.spoken_alias(_pack, _ch)
-        except Exception:
-            pass
         # D2: per-unit progress so a long narrate is visible, not a silent 60%
         script, results = narrate.generate_narration(
             panels, verbose=False, direct=direct,
@@ -487,6 +486,11 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
                   open(os.path.join(proj, "critique.json"), "w"), indent=1, ensure_ascii=False)
         scenes = narrate.provenance(results)
         json.dump(scenes, open(prov_path, "w"), indent=1)
+        # Detect evidence changes during generation; never bless a mixed run.
+        if script_inputs != cache.script_inputs(proj, panels, bible, direct,
+                                                open_title, open_alias, narrate.DEFAULT_MODEL):
+            raise RuntimeError("Narration inputs changed during generation; outputs preserved, review required")
+        cache.record(script_cache, script_inputs, script_outputs)
         try:                       # names the script uses that the bible lacks
             import research_service
             research_service.note_suggestions(url, script)
@@ -515,16 +519,27 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     # TTS_WORKERS=1 restores one-at-a-time.
     todo = [(b, os.path.join(audio, f"beat_{b['index']:03d}.mp3")) for b in beats
             if not b.get("silent") and (b.get("text") or "").strip()]
+    voice_inputs = cache.voice_inputs(beats, voice_engine)
+    # Only the synthesis function participates, not unrelated server edits.
+    import inspect
+    voice_inputs["synth_code"] = cache.digest(inspect.getsource(srv._synth_rest))
+    voice_cache = os.path.join(proj, "voice.cache.json")
+    from pathlib import Path
+    voice_outputs = {out.name: str(out) for out in Path(audio).glob("beat_*.mp3")}
+    if voice_outputs or os.path.exists(voice_cache):
+        cache.require_current(voice_cache, voice_inputs, voice_outputs, "voice")
     todo = [(b, out) for b, out in todo if not os.path.exists(out)]
     if todo:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         n_w = max(1, int(os.environ.get("TTS_WORKERS", "4")))
         with ThreadPoolExecutor(max_workers=n_w) as ex:
             synth = usage.carry(srv._synth_rest)          # count under THIS job
-            futs = [ex.submit(synth, b["text"], out, engine=voice_engine)
-                    for b, out in todo]
+            futs = {ex.submit(synth, b["text"], out, engine=voice_engine): out
+                    for b, out in todo}
             for k, fut in enumerate(as_completed(futs), 1):
                 fut.result()      # first failure (incl. a usage cap) stops the job
+                voice_outputs[os.path.basename(futs[fut])] = futs[fut]
+                cache.record(voice_cache, voice_inputs, voice_outputs)
                 if k % 10 == 0:
                     progress("voice", f"recorded {k}/{len(todo)} lines",
                              72 + int(12 * k / len(todo)))

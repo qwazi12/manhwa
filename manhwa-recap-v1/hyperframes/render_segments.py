@@ -31,6 +31,9 @@ from segments import build_segments
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RECAP = os.path.abspath(os.path.join(HERE, ".."))
+if RECAP not in sys.path:
+    sys.path.insert(0, RECAP)
+from audio_paths import beat_audio_path, beat_audio_asset
 PROJ = os.path.abspath(os.path.join(HERE, "..", "..")) # ROOT
 PANELS_SUBDIR = os.environ.get("HF_PANELS_DIR", "panel-split/review_crops")
 DESCRIPTIONS_FILE = os.environ.get("HF_DESCRIPTIONS", "panel-describe/descriptions.json")
@@ -221,10 +224,10 @@ def audio_plan(seg, audio_dir):
     for b in seg["beats"]:
         # A beat may carry an explicit "file" (storyboard edits slice a beat's
         # mp3 when an image cut lands mid-sentence); default is index naming.
-        fname = b.get("file") or f"beat_{b['index']:03d}.mp3"
-        a = os.path.join(audio_dir, fname)
+        fname = beat_audio_asset(audio_dir, b)
+        a = beat_audio_path(audio_dir, b)
         if not os.path.exists(a):
-            continue
+            raise RuntimeError(f"seg {seg['seg_index']}: beat {b['index']} audio missing: {fname}")
         off = round(b["start"] - seg["start"], 3)
         adur = ffprobe_dur(a)
         if off < -COVER_TOL or off + adur > dur + COVER_TOL:
@@ -372,13 +375,10 @@ def stage_assets(seg, audio_dir):
     serially first — no concurrent writes to the same asset path."""
     pid = seg["panel_id"]
     copy(_panel_src(seg), os.path.join(ASSETS, f"{pid}.png"))
-    for b in seg["beats"]:
-        fname = b.get("file") or f"beat_{b['index']:03d}.mp3"
-        a = os.path.join(audio_dir, fname)
-        if os.path.exists(a):
-            dst = os.path.join(ASSETS, fname)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            copy(a, dst)
+    for _b, fname, a, _off, _dur in audio_plan(seg, audio_dir):
+        dst = os.path.join(ASSETS, fname)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        copy(a, dst)
 
 
 def _panel_src(seg):

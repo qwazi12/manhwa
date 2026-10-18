@@ -1,4 +1,5 @@
 "use client";
+import MediaQaCard from "./MediaQaCard";
 import { useEffect, useRef, useState } from "react";
 import { api, useApi } from "@/lib/api";
 import { enc, mmss, when } from "@/lib/fmt";
@@ -33,6 +34,7 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
   const toast = useToast();
   const [md, setMd] = useState<any>(null);
   const [notes, setNotes] = useState("");
+  const player = useRef<HTMLVideoElement>(null);
   const [cb, setCb] = useState(Date.now());
   useEffect(() => { if (pub.data?.metadata && !md) setMd(pub.data.metadata); }, [pub.data]);
   useEffect(() => { if (rv.data?.review) setNotes(rv.data?.review.notes || ""); }, [rv.data?.review?.reviewed_at]);
@@ -117,8 +119,9 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
     <div className="vgrid">
       <div className="vcol vleft">
         {!draft && <Card title="Watch" right={<span className="small muted">{rv.data?.stat?.size_mb} MB · {name}</span>}>
-          <video controls playsInline preload="metadata" src={`/export/${enc(name)}?project=${enc(id)}&s=${rv.data?.stat?.size_mb ?? ""}`} />
+          <video ref={player} controls playsInline preload="metadata" src={`/export/${enc(name)}?project=${enc(id)}&s=${rv.data?.stat?.size_mb ?? ""}`} />
           {review.superseded && <div className="banner warn">The board changed after this video was approved. Render again, then approve the new video.</div>}
+          {review.media_superseded && !review.superseded && <div className="banner warn">The media or narration inputs changed after approval. Recheck this export before posting.</div>}
           <label className="field">Notes for yourself or the next edit
             <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ minHeight: 60 }} />
           </label>
@@ -139,6 +142,9 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
           )}
         </Card>}
         {!draft && rv.data?.qc && <QualityCard qc={rv.data?.qc} />}
+        {!draft && <MediaQaCard id={id} name={name} onSeek={(seconds) => {
+          if (player.current) { player.current.pause(); player.current.currentTime = seconds; player.current.scrollIntoView({ block: "center", behavior: "smooth" }); }
+        }} />}
         {!draft && <>
         <Card title="Post">
           {posted.length > 0 ? (

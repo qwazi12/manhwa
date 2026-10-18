@@ -22,7 +22,7 @@ import re
 _CJK = re.compile(r"[ᄀ-ᇿ㄰-㆏가-힯぀-ヿ一-鿿]")
 _LATIN = re.compile(r"[A-Za-z]")
 
-LINE_TYPES = ("speech", "shout", "whisper", "thought", "caption", "sfx")
+LINE_TYPES = ("speech", "shout", "whisper", "thought", "caption", "sfx", "unknown")
 SPEAKER_BASES = ("tail", "position", "context", "guess")
 # Only these bases are trustworthy enough to put words in a named mouth.
 ATTRIBUTABLE = ("tail", "position")
@@ -84,9 +84,35 @@ def normalize_lines(raw):
             basis = "guess"
         if typ in ("caption", "sfx"):
             speaker, basis = None, None
-        out.append({"text": text, "type": typ, "speaker": speaker,
-                    "speaker_basis": basis, "lang": lang})
+        record = {"text": text, "type": typ, "speaker": speaker,
+                  "speaker_basis": basis, "lang": lang}
+        for key in ("source_panel_id", "source_line_id"):
+            if isinstance(item.get(key), str) and item[key]:
+                record[key] = item[key]
+        out.append(record)
     return out
+
+
+def source_lines(panel):
+    """Source identities describe available evidence, not semantic coverage.
+
+    Legacy OCR has no reliable type/speaker; its conservative fallback cannot
+    become attributable direct speech merely by moving onto another panel.
+    """
+    lines = normalize_lines(panel.get("lines"))
+    pid = panel.get("panel_id") or "unknown"
+    represented = " ".join(re.sub(r"\W+", " ", l["text"]).casefold().strip() for l in lines)
+    for i, text in enumerate(speech_segments(panel.get("ocr_text"))):
+        plain = re.sub(r"\W+", " ", text).casefold().strip()
+        if plain and plain in represented:
+            continue
+        lines.append({"text": text, "type": "unknown", "speaker": None,
+                      "speaker_basis": "guess", "lang": "en",
+                      "source_panel_id": pid, "source_line_id": f"{pid}:ocr:{i}"})
+    for i, line in enumerate(lines):
+        line.setdefault("source_panel_id", pid)
+        line.setdefault("source_line_id", f"{pid}:line:{i}")
+    return lines
 
 
 def ocr_from_lines(lines):

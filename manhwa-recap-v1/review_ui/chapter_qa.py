@@ -19,6 +19,13 @@ import json
 import os
 import re
 import subprocess
+import sys
+
+_RECAP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _RECAP not in sys.path:
+    sys.path.insert(0, _RECAP)
+from audio_paths import beat_audio_path
+import media_audio
 
 TWIN_SHARE = 0.30          # this share of identical files with a neighbour = a twin
 LEN_TOLERANCE = 0.20       # export vs storyboard length
@@ -92,27 +99,25 @@ def check(projects_root, pid, expected_pid=None, cache=None):
     if missing:
         issues.append(f"{missing} picture file(s) missing")
     in_video = [s for s in segs if s.get("user_included")]
-    # 2026-10-11 audit: a voice failure used to be replaced by 0.5 s of
-    # silence — a line with words but a ~0.5 s clip is narration that's missing
-    silent = 0
+    silent, broken = 0, 0
     for sg in in_video:
         for b in sg.get("beats") or []:
-            f = os.path.join(pdir, b.get("file") or "")
-            if not b.get("file") or not re.search(r"[A-Za-z]{3}", b.get("text") or ""):
+            if not any(c.isalnum() for c in b.get("text") or ""):
                 continue
             try:
-                if os.path.getsize(f) > 20000:
-                    continue
-                d = float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                                   "-of", "csv=p=0", f], text=True, timeout=10).strip() or 0)
-            except Exception:
+                m = media_audio.health(beat_audio_path(os.path.join(pdir, "audio"), b))
+            except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+                broken += 1
                 continue
-            if d <= 0.6:
+            if m["active_seconds"] < min(.06, m["duration"] * .1):
                 silent += 1
     if silent:
         bad = True
-        issues.append(f"{silent} narration line(s) are silent (a voice error was covered with silence) — "
+        issues.append(f"{silent} narration line(s) are silent (decoded audio has no activity) — "
                       "re-voice those lines before posting")
+    if broken:
+        bad = True
+        issues.append(f"{broken} narration file(s) missing or undecodable — inspect the affected voice inputs")
     series, n = _chapter_num(pid)
     for sub in ("pages", "crops"):
         mine = cache.setdefault((pid, sub), fingerprints(pdir, sub))

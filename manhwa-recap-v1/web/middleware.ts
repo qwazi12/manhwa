@@ -13,6 +13,13 @@ import { COOKIE, SESSION_DAYS, makeToken, same, validToken } from "./lib/session
 // working while the new pages replace them.
 
 const BACKEND = process.env.BACKEND_URL || "https://recap-studio-production.up.railway.app";
+const STAGING = process.env.FLAMINGO_STAGING === "1";
+
+function stagingConfigured() {
+  // A staging build must never use the production fallback or an open login.
+  return process.env.BACKEND_URL === "http://127.0.0.1:8138" &&
+    !!process.env.BASIC_AUTH_USER && !!process.env.BASIC_AUTH_PASSWORD && !!process.env.SHARED_SECRET;
+}
 const PROXY = [
   /^\/api\//, /^\/clip\//, /^\/thumb\//, /^\/thumbnail$/, /^\/thumbconcept$/, /^\/audio\//,
   /^\/panelimg\//, /^\/splitimg\//, /^\/segimg\//, /^\/export\//, /^\/storyboard$/, /^\/review$/,
@@ -97,6 +104,10 @@ async function login(req: NextRequest) {
 }
 
 export async function middleware(req: NextRequest) {
+  if (STAGING && !stagingConfigured()) {
+    return new NextResponse("Staging requires authentication and its isolated loopback backend.",
+      { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
   if (PROD && (!process.env.BASIC_AUTH_USER || !process.env.BASIC_AUTH_PASSWORD || !process.env.SHARED_SECRET)) {
     return new NextResponse("Site configuration missing: BASIC_AUTH_USER, BASIC_AUTH_PASSWORD and SHARED_SECRET must be set on Vercel.",
       { status: 503, headers: { "Cache-Control": "no-store" } });

@@ -51,6 +51,7 @@ def build_segments(shots):
             "start": float(s["start"]),
             "end": float(s["end"]),
             "text": s.get("beat_text", ""),
+            "source_line_refs": list(s.get("source_line_refs") or []),
         }
         # A shot may carry its OWN slice of a shared beat's audio. Without an
         # explicit file the renderer falls back to beat_<index>.mp3 — the WHOLE

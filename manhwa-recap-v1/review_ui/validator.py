@@ -200,6 +200,7 @@ def build_rows(pdir, review=None):
     descs.sort(key=lambda r: _natural(r.get("panel_id", "")))
     scenes = _load("script.json", [])
     segs = _load("segments.json", [])
+    orphan_ids = {x.get("panel_id") for x in (_load("source_review.json", {}) or {}).get("orphans", [])}
 
     # Which narration unit claims each panel, and whether this panel is the one
     # that CARRIES the line or merely shares the unit's window with others.
@@ -271,6 +272,7 @@ def build_rows(pdir, review=None):
             "desc": (d.get("visual_description") or "").strip(),
             "desc_ok": bool(d.get("ok", True)),
             "role": d.get("role"),
+            "dialogue_orphan": pid in orphan_ids,
             "pix": d.get("pix"),
             "placement": placement,
             "timing": {
@@ -353,6 +355,11 @@ def rule_findings(rows):
 
     for r in rows:
         t, p = r["timing"], r["placement"]
+        if r.get("dialogue_orphan"):
+            out.append(_finding(r, "System OCR", "high",
+                                "Source dialogue has no safe narrative placement and may be absent from the recap.",
+                                "Review this text and neighboring artwork; do not invent a speaker or silently discard it.",
+                                "rules", category="ocr"))
 
         # --- System description ------------------------------------------
         if not r["desc"]:

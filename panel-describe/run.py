@@ -23,6 +23,7 @@ import sys
 import time
 
 import describe
+import generation_cache as cache
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 UsageCapExceeded = describe.usage.UsageCapExceeded if describe.usage else None
@@ -94,31 +95,41 @@ def main():
             for rec in json.load(f):
                 existing[rec["panel_id"]] = rec
         if not args.force_rerun:
-            # Skip panels that already have a good description — but only if
-            # the crop on disk is still the SAME crop that was described.
-            # Filename alone is not identity: a splitter change (e.g. YOLO
-            # weights appearing/disappearing) reuses names for different
-            # content, and stale descriptions then poison narrate/match.
-            # Recorded width/height vs the file's current dimensions is a
-            # cheap, reliable staleness check.
-            def _still_valid(f):
-                rec = existing.get(os.path.splitext(f)[0])
-                if not rec or not rec.get("ok", False):
-                    return False
-                try:
-                    from PIL import Image
-                    with Image.open(os.path.join(args.input, f)) as im:
-                        return im.size == (rec.get("width"), rec.get("height"))
-                except Exception:
-                    return False
-            files = [f for f in files if not _still_valid(f)]
+            states = {f: describe.cache_state(existing[os.path.splitext(f)[0]],
+                       os.path.join(args.input, f), api_key, args.model, bible_data)
+                      for f in files if os.path.splitext(f)[0] in existing}
+            # Decide for the whole chapter BEFORE submitting any requests.
+            # Legacy/changed evidence must never silently spend on refresh.
+            blocked = {f: state for f, state in states.items() if state != "current"}
+            cache.write_json(args.out + ".cache.json", {
+                "status": "needs_review" if blocked else "current", "panels": states})
+            if blocked:
+                sys.exit("Description cache is stale or unknown; existing work preserved. "
+                         "Review descriptions.json.cache.json, then explicitly rerun describe "
+                         "(or --force-rerun) to refresh; normal generation costs apply.")
+            files = [f for f in files if not (
+                states.get(f) == "current" and existing[os.path.splitext(f)[0]].get("ok", False))]
             print(f"Merge mode: {len(files)} panels need (re)description, skipping the rest.\n")
+
+    if os.path.exists(args.out) and (args.force_rerun or not args.merge):
+        # Explicit standalone replacement is reviewable and recoverable, too.
+        import shutil
+        import uuid
+        backup = args.out + ".previous-" + uuid.uuid4().hex + ".json"
+        shutil.copy2(args.out, backup)
 
     print(f"Describing {len(files)} panels "
           f"({'Gemini: ' + args.model if api_key else 'Tesseract OCR-only'})...\n")
 
     def _one(fname):
         path = os.path.join(args.input, fname)
+        before = describe.generation_inputs(path, api_key, args.model, bible_data)
+        def stamped(rec):
+            after = describe.generation_inputs(path, api_key, args.model, bible_data)
+            rec["generation"] = {"version": cache.VERSION, "inputs": before}
+            if before != after:
+                rec.update(ok=False, error="Source/generation inputs changed during description; retry explicitly")
+            return rec
         # Pre-describe junk gate: sliver crops (stray gutter lines, cut-off
         # SFX fragments) can never carry a narration beat — the matcher's
         # junk filter drops them by content anyway. Skipping them here saves
@@ -132,12 +143,12 @@ def main():
         except Exception:
             _w = _h = 0
         if _w and _h and (min(_w, _h) < 40 or _w * _h < 10000):
-            return {"panel_id": os.path.splitext(fname)[0], "file": fname,
+            return stamped({"panel_id": os.path.splitext(fname)[0], "file": fname,
                     "width": _w, "height": _h, "bbox": [0, 0, _w, _h],
                     "ocr_text": "", "visual_description": "",
                     "source": "size-filter", "ok": True,
-                    "_note": f"skipped (sliver {_w}x{_h})"}
-        return describe.describe_panel(path, api_key, args.model, series_bible=bible_data)
+                    "_note": f"skipped (sliver {_w}x{_h})"})
+        return stamped(describe.describe_panel(path, api_key, args.model, series_bible=bible_data))
 
     # Panels are independent, so several are described at once. Each call is
     # still gated by usage.gate (cross-process lock), so caps hold exactly.
@@ -160,7 +171,14 @@ def main():
                     for other in futs:
                         other.cancel()
                     continue
-                raise
+                # A corrupt/unreadable panel must not discard other completed
+                # paid descriptions. Persist an explicit failure and stop the
+                # stage after the batch is saved, before narration can run.
+                rec = {"panel_id": os.path.splitext(fname)[0], "file": fname,
+                       "width": 0, "height": 0, "bbox": [0, 0, 0, 0],
+                       "ocr_text": "", "visual_description": "", "lines": [],
+                       "source": "none", "ok": False,
+                       "error": f"{type(e).__name__}: {e}"}
             by_name[fname] = rec
             done_n += 1
             if rec.pop("_note", None):
@@ -171,15 +189,6 @@ def main():
             print(f"[{done_n:>3}/{len(files)}] {fname:32} {status:8} text: {ocr_preview!r}",
                   flush=True)
     records = [by_name[f] for f in files if f in by_name]   # original order
-    if cap_err is not None:
-        # Save whatever we already have before exiting, so partial
-        # progress isn't lost, then stop the run with a clear reason.
-        if records:
-            with open(args.out, "w", encoding="utf-8") as f:
-                json.dump(records, f, indent=2, ensure_ascii=False)
-            print(f"\nSaved {len(records)} panels described before the cap tripped.")
-        sys.exit(f"\nUSAGE CAP EXCEEDED — stopping: {cap_err}")
-
     # If merging, overlay new records on top of existing ones
     # CRITICAL: only replace existing record with new one if new run succeeded
     if args.merge and existing:
@@ -189,7 +198,9 @@ def main():
             if rec.get("ok", False):
                 # New description succeeded — update
                 merged[pid] = rec
-            elif pid not in merged or not merged[pid].get("ok", False):
+            elif (pid not in merged or not merged[pid].get("ok", False)
+                  or describe.cache_state(merged[pid], os.path.join(args.input, rec["file"]),
+                                          api_key, args.model, bible_data) != "current"):
                 # New and old both failed (or no existing) — store failure for visibility
                 merged[pid] = rec
             # else: new failed but old was good — keep the old one (no-op)
@@ -205,13 +216,30 @@ def main():
     else:
         final = records
 
-    with open(args.out, "w", encoding="utf-8") as f:
-        json.dump(final, f, indent=2, ensure_ascii=False)
+    cache.write_json(args.out, final)
+    states = {}
+    for rec in final:
+        state = "failed"
+        if rec.get("ok"):
+            try:
+                state = describe.cache_state(rec, os.path.join(args.input, rec["file"]),
+                                             api_key, args.model, bible_data)
+            except OSError:
+                state = "unknown"
+        states[rec["panel_id"]] = state
+    incomplete = bool(cap_err) or any(state != "current" for state in states.values())
+    cache.write_json(args.out + ".cache.json", {
+        "status": "incomplete" if incomplete else "current", "panels": states})
+    if cap_err is not None:
+        sys.exit(f"\nUSAGE CAP EXCEEDED — stopping: {cap_err}")
 
     ok = sum(1 for r in final if r["ok"])
     print(f"\nWrote {args.out}: {ok}/{len(final)} panels described successfully.")
     if ok < len(final):
         print("Some panels failed — check their 'error' field in the JSON.")
+    if incomplete:
+        sys.exit("Description pass incomplete — successful progress preserved; "
+                 "review failed/stale panels before narration or an explicit retry.")
     print("\nReview the visual_description and ocr_text fields before we build the")
     print("matcher. If the descriptions are vague or wrong, that's the signal to")
     print("adjust the prompt or model — not to start matching yet.")

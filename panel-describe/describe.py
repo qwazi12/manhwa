@@ -347,6 +347,34 @@ def describe_with_tesseract(path: str):
 
 # ------------------------------------------------------------------ driver
 
+def vision_prompt(series_bible=None):
+    if series_bible:
+        import series_bible as sb
+        text = sb.format_for_vision(series_bible)
+        if text:
+            return text + "\n\n" + VISION_PROMPT
+    return VISION_PROMPT
+
+
+def generation_inputs(path, api_key, model, series_bible=None):
+    import generation_cache as cache
+    return {"source_sha256": cache.file_digest(path),
+            "engine": "gemini" if api_key else "tesseract",
+            "model": model if api_key else "tesseract-default",
+            "prompt": cache.digest(vision_prompt(series_bible)) if api_key else None,
+            "code": cache.code_identity(os.path.dirname(__file__), ["describe.py"]),
+            "ocr_code": cache.file_digest(os.path.join(_RECAP, "ocr_lines.py"))}
+
+
+def cache_state(rec, path, api_key, model, series_bible=None):
+    import generation_cache as cache
+    recorded = rec.get("generation")
+    if not isinstance(recorded, dict) or recorded.get("version") != cache.VERSION:
+        return "unknown"
+    current = generation_inputs(path, api_key, model, series_bible)
+    return "current" if recorded.get("inputs") == current else "stale"
+
+
 def describe_panel(path: str, api_key: str | None, model: str, series_bible: dict | None = None):
     w, h = Image.open(path).size
     rec = {
@@ -359,19 +387,7 @@ def describe_panel(path: str, api_key: str | None, model: str, series_bible: dic
     }
     try:
         if api_key:
-            custom_prompt = None
-            if series_bible:
-                import sys
-                _RECAP = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "manhwa-recap-v1"))
-                if _RECAP not in sys.path:
-                    sys.path.insert(0, _RECAP)
-                try:
-                    import series_bible as _sb
-                    b_txt = _sb.format_for_vision(series_bible)
-                    if b_txt:
-                        custom_prompt = b_txt + "\n\n" + VISION_PROMPT
-                except Exception:
-                    custom_prompt = None
+            custom_prompt = vision_prompt(series_bible)
             for attempt in range(DESCRIBE_RETRIES + 1):
                 try:
                     ocr, desc, raw_lines = describe_with_gemini(

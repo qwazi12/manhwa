@@ -1185,3 +1185,194 @@ Other details:
   - Before this, autopilot only knew existing folders plus its own record. A chapter made by hand and later deleted or cleaned up looked "not made".
   - The make button only checked "is this exact link being made right now".
   - Regressor ch.33 was made from Asura, deleted, and a second copy made from the MGeko mirror took its place.
+
+## E26. Final media diagnostics and exact export identity (development, 2026-10-18)
+
+Implemented on `dev/flamingo-m1-media-qa`, not deployed. `audio_paths.py` shares
+standard beat, explicit filename and nested slice resolution between chapter QA,
+timeline validation and both renderers. External absolute audio files receive a
+safe staged asset name; missing renderer audio is refused rather than skipped.
+Chapter QA now decodes expected narration instead of inferring silence from size.
+
+`review_ui/media_audio.py` streams decoded PCM into 20 ms energy/spectral measures.
+`media_qa.py` records `exports/_qa/<name>.manifest.json` at export completion, after
+BGM/loudness/speed. It freezes selected-segment/card timing, actual clip lengths,
+voice paths, speed, source/renderer hashes and final SHA256. Ranges get their own
+manifest with constituent offsets. Replacing source audio, text, offsets, panels,
+renderer inputs or final bytes invalidates report freshness. Cleaned derived
+clips do not by themselves stale a valid report.
+
+Inspection probes and fully decodes final video/audio, checks duration against the
+delivered schedule, examines source activity/silence/clipping and scheduled voice
+overlaps/gaps, and compares expected voice spectra with delivered audio. BGM energy
+alone is not evidence that narration exists. Spectral similarity is NOT word
+recognition: it cannot prove story accuracy, pronunciation or complete spoken
+words. Thresholds remain uncalibrated; measure false positives/negatives on real
+Flamingo videos before relying on enforcement. Clipping checks use resampled,
+mono decoded audio; they are diagnostics, not a true-peak mastering analysis.
+
+`GET /api/media-qa` reads status; `POST /api/media-qa` starts one offline inspection
+without changing media. Background analysis is serialized. New regular/range
+exports start diagnostic analysis; legacy exports without render evidence remain
+incomplete instead of guessing their speed or cards. There is no automatic trim,
+revoice, API call, approval or publication. Reports are versioned and atomically
+written. Do not commit reports or source media from projects/.
+
+The existing Video and Issues tabs show results; Video findings can seek the
+player to affected timestamps. Human export review records an additional media
+identity. Existing legacy cut approval behavior is preserved by default; a changed
+media identity is advisory until the new policy is explicitly authorized.
+
+**`MEDIA_QA_ENFORCE` defaults to `0`.** Only exact `1` enables the new readiness
+blockers for preparation, direct upload eligibility, social publishing, worker
+rechecks and scheduled-queue blockers. Locally tested enforcement refuses
+failed/incomplete/stale reports and missing/mismatched human media approval before
+an upload backend is called. No production setting was changed. Enabling this
+requires owner-approved real-media calibration and a separately approved release.
+Rollback: revert the isolated M1 change, preserve additive manifests/reports and
+existing originals; do not mark failures passed to bypass a block.
+
+Regression evidence: generated silent/voiced/mixed/corrupt media, missing files,
+legitimate pauses, overlapping stems, clipped source, speed/card mapping, omitted
+segments, range joins, content mutation, final server export and readiness paths.
+The F8 test leak was fixed using monkeypatch so chapter-media and render-bound
+pytest tests can share a process. No real recap MP4 or semantic speech evaluation
+has been verified by these tests.
+
+## E27. Ordered source dialogue and truthful critique (development, 2026-10-18)
+
+`panel_stats.attach_bubble_dialogue` now gathers transfers before combining them
+in original panel/line order. It transfers structured lines as well as flat OCR,
+preserving original speaker/basis and `source_panel_id` / `source_line_id`.
+Repeated calls restore the original in-memory evidence, avoiding duplicates.
+Legacy or unmatched flat OCR remains explicitly untyped/unknown rather than
+inheriting the art panel's speaker. Source descriptions on disk are untouched.
+
+A bubble without a safe, eligible art target on its own page is an explicit
+orphan. `narrate.LAST_SOURCE_REVIEW` is saved as `source_review.json`, exposed via
+`/api/source-review` and shown in Issues; the free validator raises an OCR finding.
+This does NOT guess a cross-page speaker/image or promise the orphan was narrated.
+All-text/no-eligible-art input stops before a model call. Script, beat, matched
+shot and segment records carry `source_line_refs` with relation
+`available_evidence`; these references are not a semantic coverage verdict.
+
+Narrative critique requires a valid JSON issue array and valid unit/type/problem/
+fix records. Malformed or partially invalid replies are incomplete, not clean.
+The three-unit revision cap and usage-cap exception propagation remain intact.
+Revisions receive the same Bible/opening context as the initial draft. The critic
+receives complete supplied description/text evidence instead of the old 110/60
+character excerpts; future token usage can rise, but no extra critique calls are
+added and existing usage gates remain in force.
+
+`critique.json` now records response validity, units submitted (not a claim that a
+model truly checked every fact), attempts and unresolved issues. Rewritten
+narrative issues remain `rewritten_unverified` without a paid second review.
+Final outcome is clean, needs_review or incomplete; an unavailable critic and an
+empty successful issue array are distinct. Existing direct-speech contract checks
+still run after revision. Issues displays incomplete/legacy results without
+claiming zero unknown defects. Human creative approval remains authoritative.
+
+M2 is offline/Ready for Review on a separate stacked branch; no runtime defaults,
+voice settings, production data or paid artifacts were changed. Rollback is an
+isolated code revert; additive source/critique metadata stays readable by older
+consumers. Real-media/source narrative accuracy remains unverified.
+
+## E28. Content-aware generation caches and recoverable reruns (development, 2026-10-18)
+
+F6 is repaired for newly generated artifacts. Descriptions record image SHA-256,
+engine/model, effective Bible-aware prompt hash and generation/parser code identity.
+`--merge` only reuses verified current successful records. Before submitting any
+requests it checks existing selected records; changed or legacy-unverifiable ones
+stop with `descriptions.json.cache.json` and explicit rerun guidance. A normal
+new artifact can still be generated through the usual usage gates. No automatic
+paid cache refresh occurs. An explicit standalone `--force-rerun` preserves the
+previous JSON as `.previous-<uuid>.json`. Failed refreshes cannot silently reuse
+good-looking descriptions of different pixels. Usage-cap partial saves merge with
+existing records instead of truncating the paid cache.
+
+Ingest writes `script.cache.json` with exact script/provenance output hashes plus
+source evidence/image bytes, Bible, effective direct-speech choice, model, opening
+and relevant generation code. `voice.cache.json` records speakable beat text and
+silent intent, non-secret pinned provider/model/voice/style, synthesis code and
+completed beat-file hashes. A cache is current, stale, edited, incomplete or unknown.
+Existing stale/edited/unknown work stops at that generation stage with a visible
+job error; it is not overwritten or silently re-generated. Valid caches are reused
+without extra generation calls. Partial completed voice progress is recorded after
+each completed future. The global content-keyed TTS cache and spending gates remain.
+API credentials are excluded from all new generation identities.
+
+Explicit step reruns now move their cleared derived files into
+`_revisions/<timestamp-uuid>/` with `index.json`, preserving scripts, edits,
+approvals, audio/slices, voice pin/manifests and clips. Exports are never moved.
+Fresh ingest uses the same archive path. Download/split runs in
+`.source-staging-*`; failed work leaves the previous active source alone. When a
+successful staged source differs, the original pages/crops are moved to an indexed
+`_revisions/source-<uuid>/` archive before replacement. Unchanged trees retain
+original files. Partial filesystem failures leave recoverable archive/staging
+state; promotion is not a transaction across both directories. Do not delete these
+archives or staging directories automatically. Restore indexed relative paths
+only after stopping jobs; no production restore/migration was performed.
+
+`GET /api/source-coverage?project=...` is a free read-only scan of current source
+and script provenance. It flags eligible OCR lines/artwork descriptions with no
+matching spoken provenance link, including changed source text and legacy missing
+links. Silent scenes do not count as spoken coverage. SFX and non-story cards are
+excluded using existing source classification. Issues shows expandable candidates.
+**All results retain semantic_coverage=not_assessed.** Linked evidence is not proof
+that the narration conveys it; unlinked evidence may be intentionally omitted or
+missing a historical reference. Independently edited plain/structured scripts get
+an explicit discrepancy. Missing/malformed evidence is incomplete, never clean.
+
+M3 cache/linkage work is Ready for Review; the milestone remains In Progress.
+Semantic coverage evaluation and an explicit reviewed legacy-adoption workflow
+remain unbuilt. In particular, legacy artifacts currently require review and an
+explicit targeted rerun before reuse in ingest; do not roll this conservative
+behavior into production without evaluating that migration experience. No global
+voice/speed settings, publication policy or production artifacts were changed.
+Rollback is an isolated code revert with additive metadata/archives preserved.
+
+M3 regression hardening: a description batch now saves completed records and
+explicit per-panel failures even when a worker encounters an unreadable image.
+The saved freshness report recalculates retained records against current source
+bytes, so a capped forced refresh cannot label old pixels current merely because
+an old record has ok=true. Incomplete batches exit nonzero after preservation;
+ingest stops before narration/voice. Usage-cap propagation remains unchanged.
+Source-promotion disk-failure tests verify the old trees, partial index and pending
+new source remain recoverable; no new automatic repair or regeneration is added.
+
+## E29. TV-production intelligence architecture plan (not implemented, 2026-10-18)
+
+See `docs/FLAMINGO_STUDIO_VISION.md`, the original eight-milestone roadmap and
+`docs/FLAMINGO_INTELLIGENCE_DESIGN.md`. The new design extends existing Bible,
+series pack, source/OCR/script/storyboard/QA and SEO/thumbnail contracts. It keeps
+market observations/theories separate from canon, defines one versioned episode
+projection consumed throughout production, and proposes selective dependency
+invalidation and distinct evidence-backed packaging promises.
+
+The detailed sequence begins with read-only, fixture-tested identity/projection
+work, then dependency previews and evidence import; broad live adapters require
+separate approval/access/cost verification. No Investigator service, additional
+canon database, source integration or intelligence UI was added by this plan.
+Current source tiers/line references and model rubric scores are not semantic
+coverage or performance proof. Keep existing locked-series-hook/owner decisions.
+
+M1/M2 and M3.1–M3.4 offline work is Ready for Review. Legacy adoption, semantic
+coverage and real-media calibration remain incomplete pending the reviewed
+artifacts/evidence/decisions recorded in the roadmap. New publication enforcement
+stays off. The next independent repair/prototype is Unicode-safe identity lookup
+and read-only Series/Episode projection fixtures; never re-key historical canon
+or adopt unverified caches implicitly. Source/app access findings and the missing
+resource video are documented in the design, not disguised as integrations.
+
+## E30. Isolated Chapter 34 staging preparation (not deployed, 2026-10-18)
+
+`deploy/staging/prepare.py` prepares a committed feature snapshot with separate
+SQLite/project/media/HOME storage and private auth. It can build without launching;
+launch requires explicit owner approval. See `deploy/staging/README.md` and
+`docs/FLAMINGO_CH34_STAGING_TEST.md` for exact commands, proposed resources and
+stage evidence. The profile blocks paid Python network calls and real publishing,
+accounts and automatic jobs; no provider credentials are inherited. Next refuses
+any staging backend except the explicit loopback address and requires auth.
+This is an application boundary, not an OS network sandbox. Its paid processing
+profile and labeled queue simulation are not implemented. No stage of the actual
+Chapter 34 run has happened; do not present regression fixtures as its outputs.

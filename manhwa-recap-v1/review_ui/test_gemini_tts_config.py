@@ -265,10 +265,14 @@ def main():
     finally:
         _ing.PROJECTS = saved_root
 
-    src = open(os.path.join(HERE, "ingest.py"), encoding="utf-8").read()
-    fresh = src[src.index("if fresh:"):src.index("desc_path = os.path.join(proj")]
-    check("a fresh re-ingest drops the voice pin (all lines are re-recorded)",
-          '"tts.json"' in fresh)
+    import pipeline_steps
+    old_pin = open(os.path.join(ch3, "tts.json"), "rb").read()
+    pipeline_steps.prepare_rerun(ch3, "narrate")
+    import glob
+    archived = glob.glob(os.path.join(ch3, "_revisions", "*", "tts.json"))
+    check("a fresh script rerun archives the old voice pin before using a new voice",
+          not os.path.exists(os.path.join(ch3, "tts.json")) and len(archived) == 1
+          and open(archived[0], "rb").read() == old_pin)
 
     for n, ok in R:
         print(("PASS " if ok else "FAIL ") + n)

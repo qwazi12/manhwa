@@ -71,6 +71,7 @@ they had barely waited for the protagonist."""
 DEFAULT_MODEL = os.environ.get("PIPELINE_MODEL", "gemini-3.8-flash")
 
 NAME_HINT = "protagonist / the guy / the boy / the prince (rotate naturally; do not repeat one name every sentence)"
+LAST_SOURCE_REVIEW = {}
 
 
 def load_panels(descriptions_path=None):
@@ -79,11 +80,14 @@ def load_panels(descriptions_path=None):
     panels.sort(key=lambda r: _natural_key(r["panel_id"]))
     # Bubble/text-only panels stay off the timeline, but their DIALOGUE must
     # reach the script: attach it to the neighbouring art panel first.
-    try:
-        import panel_stats
-        panel_stats.attach_bubble_dialogue(panels)
-    except Exception:
-        pass
+    import panel_stats
+    moved = panel_stats.attach_bubble_dialogue(panels)
+    orphans = [p["dialogue_orphan"] for p in panels if p.get("dialogue_orphan")]
+    LAST_SOURCE_REVIEW.clear()
+    LAST_SOURCE_REVIEW.update(version=1, transfers=moved, orphans=orphans,
+                              status="needs_review" if orphans else "transferred")
+    if orphans:
+        print(f"source dialogue: {len(orphans)} panel(s) have no safe narrative placement; see source_review.json", file=sys.stderr)
     return [p for p in panels if p.get("ok", True) and not matcher.is_junk_panel(p)]
 
 
@@ -341,7 +345,6 @@ def build_prompt(scene_panels, global_beatsheet=None, budget=None, direct_lines=
     lines = []
     for i, p in enumerate(scene_panels, 1):
         desc = p.get("visual_description", "").strip()
-        ocr = p.get("ocr_text", "").strip()
         entry = f"Panel {i} (ID: {p.get('panel_id')}): {desc}"
         # not gated on `ocr`: a panel whose only text is a drawn SFX has an
         # empty ocr_text but still an [sfx] line the writer should see
@@ -521,6 +524,32 @@ def narrate_scene(scene_panels, model=DEFAULT_MODEL, global_beatsheet=None,
 MAX_REVISED_UNITS = 3   # A3: cap revision calls per chapter
 
 
+class CritiqueError(ValueError):
+    def __init__(self, message, issues=()):
+        super().__init__(message)
+        self.issues = list(issues)
+
+
+def parse_critique(raw, units):
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", (raw or "").strip(), flags=re.I)
+    try:
+        records = json.loads(text)
+    except (ValueError, TypeError) as exc:
+        raise CritiqueError("Reviewer did not return a valid JSON issue array") from exc
+    if not isinstance(records, list):
+        raise CritiqueError("Reviewer output is not an issue array")
+    known = {"hallucination", "misorder", "missed_beat", "style_violation", "redundancy",
+             "flat_dialogue", "misattributed_dialogue", "spoiled_reveal"}
+    issues = []
+    for record in records:
+        if (not isinstance(record, dict) or type(record.get("unit")) is not int
+                or not 0 <= record["unit"] < units or record.get("type") not in known
+                or any(not isinstance(record.get(k), str) or not record[k].strip() for k in ("problem", "fix"))):
+            raise CritiqueError("Reviewer returned an invalid or out-of-range issue; review is incomplete", issues)
+        issues.append(record)
+    return issues
+
+
 def critique_units(results, model, api_key, direct_by_unit=None):
     """A3 pass 1: ONE reviewer call over the whole draft. Returns issue list
     [{"unit": int, "type": ..., "problem": ..., "fix": ...}]. Types:
@@ -531,9 +560,7 @@ def critique_units(results, model, api_key, direct_by_unit=None):
     for i, (scene_panels, text) in enumerate(results):
         pids = ", ".join(p["panel_id"] for p in scene_panels)
         facts = " | ".join(
-            f"{p.get('visual_description','')[:110]}"
-            + (f" [text: {ocr_lines.prompt_ocr(p.get('ocr_text'))[:60]}]"
-               if ocr_lines.prompt_ocr(p.get("ocr_text")) else "")
+            f"{p.get('visual_description','')}\n{ocr_lines.prompt_block(p)}"
             for p in scene_panels)
         approved = "; ".join(f'{a["speaker"]}: "{a["text"]}"'
                              for a in direct_by_unit.get(i, [])) or "none"
@@ -563,22 +590,17 @@ Output the JSON array only.
                       LAST_USAGE.get("cached", 0))
     else:
         raw = call_gemini_rest(model, prompt, api_key)
-    m = re.search(r"\[.*\]", raw or "", re.S)
-    try:
-        issues = json.loads(m.group(0)) if m else []
-        return [i for i in issues if isinstance(i, dict) and isinstance(i.get("unit"), int)]
-    except json.JSONDecodeError:
-        print(f"critique: unparseable reviewer output, skipping revision", file=sys.stderr)
-        return []
+    return parse_critique(raw, len(results))
 
 
 def revise_unit(scene_panels, draft, unit_issues, model, global_beatsheet, api_key,
-                direct_lines=None):
+                direct_lines=None, series_bible_data=None, opening=""):
     """A3 pass 2: regenerate ONE flagged unit with the reviewer's notes
     appended — provenance (unit -> panels) is preserved by construction."""
     notes = "\n".join(f"- {i['type']}: {i['problem']} FIX: {i['fix']}"
                       for i in unit_issues)
-    prompt = (build_prompt(scene_panels, global_beatsheet, direct_lines=direct_lines)
+    prompt = (build_prompt(scene_panels, global_beatsheet, direct_lines=direct_lines,
+                           series_bible_data=series_bible_data, opening=opening)
               + f"\n\nEDITOR NOTES on the previous draft (you MUST fix these):\n{notes}"
               + f"\n\nPREVIOUS DRAFT:\n{draft}\n\nRewrite the narration for this scene now:")
     if usage:
@@ -598,6 +620,8 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
 
     direct: True/False forces direct speech on/off for this chapter; None
     defers to direct_speech.enabled() (the DIRECT_SPEECH env var, off)."""
+    if not panels:
+        raise ValueError("No eligible story panels; review source text and panel classification before narration")
     # Pass 1: Generate global pacing beatsheet for the entire chapter
     if verbose:
         print(f"Generating global pacing beatsheet using {model}...", file=sys.stderr)
@@ -639,31 +663,40 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
     # regenerate at most MAX_REVISED_UNITS flagged units with editor notes.
     api_key = os.environ.get("GEMINI_API_KEY")
     LAST_CRITIQUE.clear()
-    LAST_CRITIQUE.update(status="not run", issues=[], revised=[])
+    LAST_CRITIQUE.update(status="not run", outcome="incomplete", issues=[], revised=[],
+                         attempts=[], unresolved=[], units_total=len(results), units_submitted=len(results),
+                         review_response_valid=False, revision_limit=MAX_REVISED_UNITS)
+    model_issues = []
     try:
         if progress_cb:
             progress_cb(len(scenes), len(scenes), "review")
         # Stray quotes are FACTS computed in code, not a reviewer's opinion,
         # so they are raised here and revised first.
         code_issues, _ = _audit()
-        issues = code_issues + critique_units(
+        model_issues = critique_units(
             results, model, api_key,
             direct_by_unit={u: _direct(u) for u in range(len(results))})
+        issues = code_issues + model_issues
         LAST_CRITIQUE.update(status="done", issues=[
             {"unit": it.get("unit"), "type": it.get("type"), "problem": str(it.get("problem") or "")[:300],
-             "fix": str(it.get("fix") or "")[:300]} for it in issues[:40]])
+             "fix": str(it.get("fix") or "")[:300]} for it in issues], review_response_valid=True)
         if issues:
             by_unit = {}
             for it in issues:
                 by_unit.setdefault(it["unit"], []).append(it)
             coded = {it["unit"] for it in code_issues}
-            worst = sorted(by_unit, key=lambda u: (u not in coded, -len(by_unit[u])))[:MAX_REVISED_UNITS]
+            rank = {"hallucination": 0, "misattributed_dialogue": 0, "misorder": 1, "missed_beat": 1,
+                    "spoiled_reveal": 1, "flat_dialogue": 2, "style_violation": 3, "redundancy": 3}
+            worst = sorted(by_unit, key=lambda u: (u not in coded,
+                           min(rank.get(i.get("type"), 4) for i in by_unit[u]), -len(by_unit[u]), u))[:MAX_REVISED_UNITS]
             for u in worst:
                 if 0 <= u < len(results):
                     scene, draft = results[u]
                     fixed = revise_unit(scene, draft, by_unit[u], model,
                                         global_beatsheet, api_key,
-                                        direct_lines=_direct(u))
+                                        direct_lines=_direct(u), series_bible_data=series_bible_data,
+                                        opening=opening_rule(series_title, opening_alias) if u == 0 else "")
+                    LAST_CRITIQUE["attempts"].append({"unit": u, "status": "rewritten_unverified" if fixed and fixed.strip() else "empty_rewrite"})
                     if fixed and fixed.strip():
                         results[u] = (scene, fixed.strip())
                         LAST_CRITIQUE["revised"].append({
@@ -671,15 +704,25 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
                             "before": strip_anchored_tags(draft)[:1500],
                             "after": strip_anchored_tags(fixed.strip())[:1500]})
             print(f"critique: {len(issues)} issue(s), revised "
-                  f"{min(len(by_unit), MAX_REVISED_UNITS)} unit(s)", file=sys.stderr)
+                  f"{len(LAST_CRITIQUE['revised'])} unit(s)", file=sys.stderr)
+    except CritiqueError as e:
+        model_issues = e.issues
+        LAST_CRITIQUE.update(status="incomplete", error=str(e), issues=list(e.issues), review_response_valid=False)
     except (usage.UsageCapExceeded if usage else ()) :
         raise
     except Exception as e:
         # The review pass is a quality net, never a job-killer.
         print(f"critique pass skipped: {e}", file=sys.stderr)
-        LAST_CRITIQUE["status"] = f"skipped: {str(e)[:200]}"
+        LAST_CRITIQUE["status"] = "incomplete" if LAST_CRITIQUE["review_response_valid"] else f"skipped: {str(e)[:200]}"
+        LAST_CRITIQUE["error"] = str(e)[:300]
 
     left, summary = _audit()
+    revised_units = {x["unit"] for x in LAST_CRITIQUE["revised"]}
+    LAST_CRITIQUE["unresolved"] = [
+        {**it, "resolution": "rewritten_unverified" if it["unit"] in revised_units else "not_repaired"}
+        for it in model_issues] + [{**it, "resolution": "direct_speech_contract_failed"} for it in left]
+    LAST_CRITIQUE["outcome"] = ("incomplete" if LAST_CRITIQUE["status"] != "done" else
+                                "needs_review" if LAST_CRITIQUE["unresolved"] else "clean")
     LAST_DIRECT_SPEECH.clear()
     LAST_DIRECT_SPEECH.update(summary, enabled=direct_speech.enabled(direct), approved_lines=[
         {k: a[k] for k in ("panel_id", "speaker", "text", "why")} for a in approved],
@@ -767,11 +810,14 @@ def provenance(results):
     for i, (scene_panels, text) in enumerate(results):
         items = parse_anchored_narrations(text, scene_panels)
         for item in items:
+            refs = [dict(line, relation="available_evidence") for p in scene_panels
+                    if p["panel_id"] in item["panel_ids"] for line in ocr_lines.source_lines(p)]
             scenes.append({
                 "scene_id": i,
                 "panel_ids": item["panel_ids"],
                 "text": item["text"],
                 "silent": item.get("silent", False),
+                "source_line_refs": refs,
             })
     return scenes
 
