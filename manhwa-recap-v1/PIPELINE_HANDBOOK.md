@@ -1411,3 +1411,10 @@ calibration remain incomplete; enforcement stays diagnostic/off.
 
 
 E32 release result: PR8 at88920f3 activated review_ui/data → /app/data/studio-ops. Both live SQLite and the fresh persistent startup backup contain72projects, integrityok/FK0; isolated backup restore passes with the same populatedSHA. All protected hashes survive. Full-volume restore drill remains unperformed and volume backup scheduling unconfigured. See the verification report for exact deployment identities and bounded smoke-test results.
+
+
+## E33. Cancelled partial-chapter visibility after restart (review branch, October 18)
+
+An ingest stopped before project.json was saved retained its pages/descriptions/job record, but disappeared from Chapter/Library after server memory reset. `_ingest_by_project` now reads the existing durable history reader for chapter context. Disk-only records require an existing project folder; live records override their disk copy; typed/render-prefixed records remain excluded. The read does not insert into INGEST, recover/resume jobs, synthesize metadata or recreate deleted projects. Chapter detail includes cancelled state; its card says Stopped by you and the existing action whitelists offer no cancelled-job Resume.
+
+Nine new API/identity/preservation regressions include repeated empty-memory reads, a partial folder with no project.json, original/variant separation, latest history and live precedence, missing directories, worker types and broken JSON. The principal case guards enqueue/recovery/persistence and compares all fixture bytes+mtimes, including4historical Waiting records/shadows and the stopped ingest. Pre-fix3fail/6pass; post-fix9pass plus6startup-scope cases. Combined245pytest/189script checks/tsc/build pass. This fix is review-only; production remains88920f3, Chapter34stopped and the4jobs untouched. See docs/FLAMINGO_CURRENT_STATUS.md for the overall inventory.
