@@ -153,13 +153,9 @@ def main():
     # happen to agree today.
     import theme
     rhtml = review_page.build_review_html()
-    proj = [d for d in sorted(os.listdir("projects"))
-            if os.path.isdir(os.path.join("projects", d)) and not d.startswith("_")]
-    bhtml = ""
-    if proj:
-        import storyboard as _sb, matcher as _m
-        bhtml = _sb.build_storyboard_html(os.path.join("projects", proj[0]), _m,
-                                          review={}, usage_summary={}, approved=False)
+    import storyboard as _sb, matcher as _m
+    bhtml = _sb.build_storyboard_html(pa, _m,
+                                      review={}, usage_summary={}, approved=False)
     r.append(("the review page renders the shared palette",
               theme.TOKENS_CSS.strip() in rhtml))
     r.append(("the board renders the SAME shared palette",

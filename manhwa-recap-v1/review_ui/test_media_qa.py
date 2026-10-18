@@ -50,6 +50,23 @@ def project(tmp_path, kind="tone", speed=1, filename=None, seconds=2):
     return d, a
 
 
+def test_late_qa_writes_do_not_resurrect_a_deleted_project(tmp_path):
+    d, _ = project(tmp_path)
+    deleted = tmp_path / "deleted-chapter"
+    d.rename(deleted)
+    original_video = (deleted / "exports/final.mp4").read_bytes()
+
+    # A queued inspector or range-build completion may arrive after Delete.
+    qa.inspect(d, "final.mp4")
+    qa.record_incomplete(d, "final.mp4", "late checker error")
+    qa.capture_export(d, "final.mp4")
+
+    assert not d.exists()
+    assert (deleted / "exports/final.mp4").read_bytes() == original_video
+    deleted.rename(d)  # the original identity is still free for Restore
+    assert (d / "project.json").exists()
+
+
 @pytest.mark.parametrize("filename", [None, "custom.mp3", "slices/b000_a.mp3"])
 def test_standard_explicit_and_slice_audio_paths(tmp_path, filename):
     d, a = project(tmp_path, filename=filename)
