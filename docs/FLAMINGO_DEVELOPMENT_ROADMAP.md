@@ -10,7 +10,7 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 
 | Milestone | Priority | Dependency | Status | Evidence and remaining boundary |
 |---|---|---|---|---|
-| M1 Final media audio QA and export readiness | Critical | Existing renderer/timeline contracts | In Progress | Implementation starting; production enforcement must remain disabled. |
+| M1 Final media audio QA and export readiness | Critical | Existing renderer/timeline contracts | Ready for Review | Offline implementation/tests/UI verified; real-media calibration and deployment approval remain required. |
 | M2 OCR dialogue and narrative reliability | High | M1 offline checkpoint; safe fixes separable | Not Started | F1/F2/F5/F7 confirmed in audit. |
 | M3 Cache freshness and source completeness | High | M2 provenance contracts; cache fixes separable | Not Started | F6 same-size replacement reproduced. |
 | M4 Narration voice and pacing | High | M1 measurements; real-media decisions | Not Started | Current pauses/speed remain unchanged pending evaluation. |
@@ -25,15 +25,15 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 
 | Task | Status | Files | Acceptance and required tests |
 |---|---|---|---|
-| M1.1 Shared beat/slice audio resolver | In Progress | shared audio helper, `chapter_qa.py`, renderer, storyboard validator | Standard index, explicit relative filename and nested slice resolve consistently; missing/corrupt inputs visible; path regression tests. |
-| M1.2 Decoded voice diagnostics | Not Started | focused media QA module | Inspect silence/activity, missing/broken voice, excessive pauses, clipping and truncation evidence; deterministic real FFmpeg fixtures including short voiced content and deliberate silence. |
-| M1.3 Final MP4 inspection and timestamp map | Not Started | media QA, export/range paths | Inspect after BGM/loudness/speed; decode streams and compare delivered schedule; map cards, omitted segments, range joins and 1.0/1.25x; music cannot satisfy absent expected voice. |
-| M1.4 Versioned report and media identity | Not Started | media QA, `server.py` review/signatures | Digest checker inputs and exact export; changed audio/text/timing/images/settings/export invalidate freshness; preserve legacy records with explicit migration status. |
-| M1.5 Readiness contract everywhere | Not Started | direct/social/worker/scheduled/range gates | Locally enforce failed/incomplete critical checks with zero backend upload calls; default policy diagnostic-only; no new production blocking without calibration and approval. |
-| M1.6 Existing Chapter Video and Issues UI | Not Started | `web/components/chapter/` | Display checked/incomplete/stale state, evidence timestamps, affected beats and recommended focused repairs; safe local run control without AI calls. |
-| M1.7 Regression and release documentation | Not Started | tests, handbook, roadmap, memory | Relevant existing tests + new media tests; fix F8 global test leakage; tsc/build; record exact results and skipped checks. |
+| M1.1 Shared beat/slice audio resolver | Ready for Review | shared audio helper, `chapter_qa.py`, renderer, storyboard validator | Standard index, explicit relative filename and nested slice resolve consistently; missing/corrupt inputs visible; path regression tests. |
+| M1.2 Decoded voice diagnostics | Ready for Review | focused media QA module | Inspect silence/activity, missing/broken voice, excessive pauses, clipping and truncation evidence; deterministic real FFmpeg fixtures including short voiced content and deliberate silence. |
+| M1.3 Final MP4 inspection and timestamp map | Ready for Review | media QA, export/range paths | Inspect after BGM/loudness/speed; decode streams and compare delivered schedule; map cards, omitted segments, range joins and 1.0/1.25x; music cannot satisfy absent expected voice. |
+| M1.4 Versioned report and media identity | Ready for Review | media QA, `server.py` review/signatures | Digest checker inputs and exact export; changed audio/text/timing/images/settings/export invalidate freshness; preserve legacy records with explicit migration status. |
+| M1.5 Readiness contract everywhere | Ready for Review | direct/social/worker/scheduled/range gates | Locally enforce failed/incomplete critical checks with zero backend upload calls; default policy diagnostic-only; no new production blocking without calibration and approval. |
+| M1.6 Existing Chapter Video and Issues UI | Ready for Review | `web/components/chapter/` | Display checked/incomplete/stale state, evidence timestamps, affected beats and recommended focused repairs; safe local run control without AI calls. |
+| M1.7 Regression and release documentation | Ready for Review | tests, handbook, roadmap, memory | Relevant existing tests + new media tests; fix F8 global test leakage; tsc/build; record exact results and skipped checks. |
 
-**Completion evidence:** pending. Each implementation commit must update task states, test commands/results and limitations here or link a concise handbook section.
+**Completion evidence:** 40 pytest tests pass in one process, including new generated-media regressions and the formerly leaking render-isolation sequence. Twelve selected existing script suites pass (421 recorded assertions, not end-to-end videos). TypeScript and Next.js build pass. Local browser verification confirmed inspect → POST/GET API → SHA-bound saved report → pass/stale/failure display in Video and Issues. The only browser console error was the existing missing favicon. Python static checks pass. See handbook E26 for limits and rollout. The final renderer parity rerun is recorded in memory.
 
 **Risks and decisions:** energy/activity is not semantic word verification; no automatic trimming or regeneration; intentional pauses/cards need explicit representation. Calibrate thresholds on one defective and one approved-good real recap before enabling enforcement. No local finished recap MP4 was available in the audit. Rollback is additive-report preservation plus reverting isolated commits; default-off gate preserves production behavior.
 
@@ -113,3 +113,5 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 ## Checkpoint log
 
 - October 18: owner authorization recorded; roadmap/vision created; development-only Vercel Git deployment guards and persistent agent instructions prepared. Next: M1 shared resolver and decoded diagnostics. All production behavior remains unchanged.
+
+- M1 offline checkpoint: resolver, diagnostics, export manifests, review/readiness contracts and UI implemented. 40 combined pytest tests and 421 selected existing script checks pass; tsc/build and isolated browser flow verified. Production enforcement remains OFF. Next: M2 dialogue/provenance and critique reliability.

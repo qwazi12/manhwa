@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { when } from "@/lib/fmt";
 import { Busy, Card, Chips, ConfirmButton, Empty, Pill, useAct } from "@/components/ui";
+import MediaQaCard from "./MediaQaCard";
 
 type Mode = "rules" | "text" | "full";
 const SEV: Record<string, string> = { high: "bad", medium: "warn", low: "muted" };
@@ -34,6 +35,7 @@ export default function Issues({ id, onFixed }: { id: string; onFixed?: () => vo
   const findings: any[] = check?.findings || [];
   return (
     <div className="grid">
+      <MediaQaCard id={id} />
       <Card title={`Timing & pacing · ${timing.n_errors} errors, ${timing.n_warnings} warnings`} pad={false}>
         <div className="list">
           {timing.errors.length + timing.warnings.length === 0 ? <Empty>No timing or pacing problems.</Empty> : (

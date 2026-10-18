@@ -30,14 +30,14 @@ def _chapter(root, n, colour):
     return pid, d
 
 
-def test_media_routes_serve_the_named_chapter_not_the_active_one(tmp_path):
+def test_media_routes_serve_the_named_chapter_not_the_active_one(tmp_path, monkeypatch):
     from PIL import Image
     import ingest as ing
     import server as srv
-    ing.PROJECTS = str(tmp_path)
+    monkeypatch.setattr(ing, "PROJECTS", str(tmp_path))
     p31, d31 = _chapter(str(tmp_path), 31, (200, 20, 20))      # red: the one "rendering"
     p32, d32 = _chapter(str(tmp_path), 32, (20, 20, 200))      # blue: the one being viewed
-    srv.active_project_dir = lambda: d31
+    monkeypatch.setattr(srv, "active_project_dir", lambda: d31)
     for resp in (srv.panelimg("page001_panel_001", 0, p32), srv.thumb(0, p32), srv.segimg(0, 1, p32)):
         im = Image.open(resp.path).convert("RGB")
         assert im.getpixel((im.width // 2, im.height // 2))[2] > 150, resp.path   # blue = ch.32

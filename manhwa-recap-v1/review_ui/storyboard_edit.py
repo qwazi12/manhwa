@@ -1135,6 +1135,7 @@ _RECAP_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file
 if _RECAP_DIR not in _sys.path:
     _sys.path.insert(0, _RECAP_DIR)
 from shot_planner import crop_area, crop_status          # noqa: E402
+from audio_paths import beat_audio_path
 
 # Slack before audio counts as falling outside its window.
 # 0.15s ~= 6 mp3 frames (1152 samples @44.1kHz = 26.1ms each). _slice_mp3
@@ -1544,7 +1545,11 @@ def validate_timeline(pdir, segs=None):
         seen = []
         for b in beats:
             fname = b.get("file") or f"beat_{b['index']:03d}.mp3"
-            path = os.path.join(adir, fname)
+            try:
+                path = beat_audio_path(adir, b)
+            except ValueError as exc:
+                errors.append({"seg": si, "rule": "G0-missing-audio", "msg": str(exc)})
+                continue
             alen = _audio_len(path)
             if alen is None:
                 errors.append({"seg": si, "rule": "G0-missing-audio",

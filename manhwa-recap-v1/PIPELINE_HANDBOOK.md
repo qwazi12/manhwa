@@ -1185,3 +1185,56 @@ Other details:
   - Before this, autopilot only knew existing folders plus its own record. A chapter made by hand and later deleted or cleaned up looked "not made".
   - The make button only checked "is this exact link being made right now".
   - Regressor ch.33 was made from Asura, deleted, and a second copy made from the MGeko mirror took its place.
+
+## E26. Final media diagnostics and exact export identity (development, 2026-10-18)
+
+Implemented on `dev/flamingo-m1-media-qa`, not deployed. `audio_paths.py` shares
+standard beat, explicit filename and nested slice resolution between chapter QA,
+timeline validation and both renderers. External absolute audio files receive a
+safe staged asset name; missing renderer audio is refused rather than skipped.
+Chapter QA now decodes expected narration instead of inferring silence from size.
+
+`review_ui/media_audio.py` streams decoded PCM into 20 ms energy/spectral measures.
+`media_qa.py` records `exports/_qa/<name>.manifest.json` at export completion, after
+BGM/loudness/speed. It freezes selected-segment/card timing, actual clip lengths,
+voice paths, speed, source/renderer hashes and final SHA256. Ranges get their own
+manifest with constituent offsets. Replacing source audio, text, offsets, panels,
+renderer inputs or final bytes invalidates report freshness. Cleaned derived
+clips do not by themselves stale a valid report.
+
+Inspection probes and fully decodes final video/audio, checks duration against the
+delivered schedule, examines source activity/silence/clipping and scheduled voice
+overlaps/gaps, and compares expected voice spectra with delivered audio. BGM energy
+alone is not evidence that narration exists. Spectral similarity is NOT word
+recognition: it cannot prove story accuracy, pronunciation or complete spoken
+words. Thresholds remain uncalibrated; measure false positives/negatives on real
+Flamingo videos before relying on enforcement. Clipping checks use resampled,
+mono decoded audio; they are diagnostics, not a true-peak mastering analysis.
+
+`GET /api/media-qa` reads status; `POST /api/media-qa` starts one offline inspection
+without changing media. Background analysis is serialized. New regular/range
+exports start diagnostic analysis; legacy exports without render evidence remain
+incomplete instead of guessing their speed or cards. There is no automatic trim,
+revoice, API call, approval or publication. Reports are versioned and atomically
+written. Do not commit reports or source media from projects/.
+
+The existing Video and Issues tabs show results; Video findings can seek the
+player to affected timestamps. Human export review records an additional media
+identity. Existing legacy cut approval behavior is preserved by default; a changed
+media identity is advisory until the new policy is explicitly authorized.
+
+**`MEDIA_QA_ENFORCE` defaults to `0`.** Only exact `1` enables the new readiness
+blockers for preparation, direct upload eligibility, social publishing, worker
+rechecks and scheduled-queue blockers. Locally tested enforcement refuses
+failed/incomplete/stale reports and missing/mismatched human media approval before
+an upload backend is called. No production setting was changed. Enabling this
+requires owner-approved real-media calibration and a separately approved release.
+Rollback: revert the isolated M1 change, preserve additive manifests/reports and
+existing originals; do not mark failures passed to bypass a block.
+
+Regression evidence: generated silent/voiced/mixed/corrupt media, missing files,
+legitimate pauses, overlapping stems, clipped source, speed/card mapping, omitted
+segments, range joins, content mutation, final server export and readiness paths.
+The F8 test leak was fixed using monkeypatch so chapter-media and render-bound
+pytest tests can share a process. No real recap MP4 or semantic speech evaluation
+has been verified by these tests.
