@@ -2,7 +2,26 @@
 
 ## Actual status
 
-**Prepared and regression-tested; not deployed and no chapter processed.**
+**Local staging launched after owner approval; no chapter processed.**
+The owner typed **“launch”** on October 18 after reviewing the $0 local proposal.
+The running, authenticated studio is **http://localhost:3138/** on this Mac;
+FastAPI listens only at **http://127.0.0.1:8138**. Both run candidate `9abeb62`.
+The browser is signed in and left open. No cloud resources were provisioned.
+
+Live checks passed: signed form login and session cookie, authenticated dashboard,
+frontend-to-backend project/home/studio requests (200), unauthenticated API
+rejection (401), and real publishing/OAuth rejection (403). Browser error/warning
+logs were empty at handoff. No source project metadata exists in the snapshot;
+the projects API retains the legacy empty-workspace fallback “chapter-2 (current)”
+with zero segments, which is not an imported chapter. The actual dashboard shows
+zero boards/videos, posting off and a $0 cap. Use **localhost** consistently:
+Next canonicalized the initial numeric-loopback login redirect to localhost, so
+mixing those hostnames loses the host-scoped cookie. The localhost login works.
+
+Paid model calls remain unapproved/disabled. The original production Chapter 34
+has not been modified or copied. No Chapter 34 project, source processing or final
+MP4 is available in staging yet. Queue simulation remains unimplemented.
+
 Branch `dev/flamingo-staging-ch34` starts from integrated `fc32713268c312bf248748753bff9468cf239bfa`.
 The prepared candidate is **`9abeb627ae88d4dd5a817098dae1dc351a77dc59`**
 (both frontend and backend); subsequent documentation-only checkpoints do not
@@ -40,7 +59,7 @@ daemon; the successful native render does not need Docker. No model was installe
 or called. About **9.9 GB** free disk remained after removing only the redundant
 scratch source snapshot; original data and retained evidence were not removed.
 
-## Concrete launch proposal requiring owner approval
+## Approved local launch resources (paid processing still requires approval)
 
 Recommended first environment: the owner's existing Mac, with one backend and
 one frontend process, no additional cloud resources/subscriptions. Additional
@@ -57,7 +76,7 @@ identification. No hosted server, volume, public DNS or tunnel will be created.
 | External access | No provider/account credentials inherited; Python external connections denied; publishing/account/autopilot routes disabled |
 | Availability | This Mac only, while both processes run. Not yet deployed or owner-browser verified. A remotely accessible cloud preview needs a different approval proposal. |
 
-Launch approval is independent of spending approval. Approving this proposal
+Local launch was approved and executed; that approval is independent of spending approval. Approving this proposal
 alone does **not** authorize model calls, source-network downloads or publishing.
 Source identification can proceed read-only once an authenticated studio view
 or a verified chapter URL/source-only export is available. Never request API keys

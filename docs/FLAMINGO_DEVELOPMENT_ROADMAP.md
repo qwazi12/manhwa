@@ -169,6 +169,8 @@ Finish current M3 offline work before dependent consumers. Safe M3.1–M3.4 hard
 
 ## Checkpoint log
 
+- Owner typed “launch”: approved $0 local staging now runs exact candidate `9abeb62` at `http://localhost:3138` with isolated backend8138. Browser signed in; live form/session/proxy/API isolation checks pass, browser warnings/errors empty, publishing/OAuth blocked403, scheduler off and cap$0. No Chapter34 processing/source copy, paid calls, cloud provisioning or production changes. Queue simulation, semantic coverage, legacy adoption and real-media calibration remain incomplete. See Chapter34 test report for current state and legacy empty-workspace/API cookie-host observations.
+
 - Chapter 34 staging request: integrated M1–M3/hardening regression snapshot passes 104 tests; stacked PRs #1–#5 verified draft/unmerged. Added offline staging preparation and 20 boundary regressions, separate storage/auth, fail-closed proxy and disabled publishing/account/automatic jobs. See `FLAMINGO_CH34_STAGING_TEST.md` for the concrete $0 local launch proposal and stage evidence protocol. **Not deployed; Chapter 34 source/original project unverified; no chapter processing or paid calls.** Launch/spending approvals, source access, labeled queue simulation and actual renderer/media validation remain outstanding. M3 semantic coverage, legacy adoption and real-media calibration remain incomplete.
 
 - October 18: owner authorization recorded; roadmap/vision created; development-only Vercel Git deployment guards and persistent agent instructions prepared. Next: M1 shared resolver and decoded diagnostics. All production behavior remains unchanged.

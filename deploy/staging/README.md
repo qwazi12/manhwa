@@ -3,7 +3,9 @@
 This prepares the real integrated Next.js/FastAPI studio from a committed
 feature-branch snapshot. It does not provision infrastructure or launch a site.
 The owner's October 18 testing brief requires approval **before launch**, even
-for this local, zero-infrastructure-cost option. No approval has been received.
+for this local, zero-infrastructure-cost option. The owner subsequently typed
+“launch”; the prepared `work/ch34-private` environment is now running locally.
+That approval does not include paid generation or a cloud deployment.
 
 ```sh
 python3 deploy/staging/prepare.py prepare work/ch34-private --ref HEAD
@@ -22,8 +24,10 @@ The current Mac lacks Tesseract; offline fallback OCR cannot run yet.
 Private credentials live in `work/ch34-private/credentials.json` (0600, inside
 a 0700 root). Never commit or print them in logs/PRs. Login uses the existing
 studio login form. The frontend is **http://127.0.0.1:3138** and backend
-**http://127.0.0.1:8138**, bound only to this Mac. These are proposed addresses,
-not live URLs until launch and health/auth/proxy checks pass. No tunnel/public
+**http://127.0.0.1:8138**, bound only to this Mac. For browser use, open
+**http://localhost:3138/** consistently: Next canonicalizes login redirects to
+localhost, and cookies are host-scoped. Local launch and live auth/proxy checks
+passed after approval. No tunnel/public
 hostname is created. This is not a remotely accessible Railway/Vercel preview.
 
 The snapshot has its own app/project/media tree, SQLite database, HOME and
