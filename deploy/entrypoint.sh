@@ -4,6 +4,17 @@ set -e
 # If a persistent volume is mounted at /app/data, set up symlinks for mutable data
 if [ -d "/app/data" ]; then
   echo "Persistent volume /app/data detected. Setting up symlinks..."
+
+  # Database + database backups previously fell back to the container's
+  # review_ui/data because ops_config only recognized /data. Preserve all of
+  # that directory before linking it; fail closed on any copy/conflict error.
+  # Existing installations MUST seed this target from the running container
+  # and verify a volume backup before deploying (see persistence runbook).
+  if [ -z "${MANHWA_DATA_DIR:-}" ]; then
+    python /app/deploy/persist_ops_data.py \
+      --source /app/manhwa-recap-v1/review_ui/data \
+      --target /app/data/studio-ops --require-prepared-if-projects-exist
+  fi
   
   # 1. segments-workspace
   mkdir -p /app/data/segments-workspace/clips
