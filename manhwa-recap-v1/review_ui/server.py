@@ -10048,12 +10048,22 @@ def _job_pid(j):
 
 
 def _ingest_by_project():
-    """Newest ingest record per project id (and per URL for ones without a folder yet)."""
+    """Read-only chapter context from durable history, with live state winning.
+
+    Partial ingests may stop before project.json exists. Their job files survive
+    a restart; reading them must not repopulate INGEST or enqueue recovery.
+    Disk-only history needs an existing folder so deleted projects stay deleted.
+    """
     import ingest as _i
     out, by_url = {}, {}
-    for jid, j in sorted(INGEST.items(), key=lambda kv: kv[1].get("ts") or 0):
-        rec = dict(j, job=jid)
+    for j in sorted(_all_ingest_jobs(), key=lambda j: j.get("ts") or 0):
+        jid = j["job"]
+        if j.get("type") or str(jid).startswith("render_"):
+            continue
         pid = _job_pid(j)
+        if jid not in INGEST and (not pid or not os.path.isdir(os.path.join(_i.PROJECTS, pid))):
+            continue
+        rec = dict(j, job=jid)
         if pid:
             out[pid] = rec
         if j.get("url"):
@@ -10334,7 +10344,7 @@ def chapter_view(pid: str):
     out["videos"] = vids
     ing, _u = _ingest_by_project()
     ij = ing.get(pid)
-    if ij and ij.get("status") in ("queued", "running", "paused", "pausing", "budget_paused", "interrupted", "error"):
+    if ij and ij.get("status") in ("queued", "running", "paused", "pausing", "budget_paused", "interrupted", "error", "cancelled"):
         out["ingest"] = {k: ij.get(k) for k in ("job", "status", "stage", "pct", "msg", "error", "ts", "source")}
     # a "send back" verdict must reach the board with its notes (classic banner)
     for v in vids:

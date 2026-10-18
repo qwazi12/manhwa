@@ -70,4 +70,6 @@ The [connected-intelligence design and source assessment](FLAMINGO_INTELLIGENCE_
 
 ## Release boundary — October 18, 2026
 
-M1 diagnostic media QA, M2 dialogue/review repairs and safe M3 freshness/source preservation are released at `48a1eff`. The shared-intelligence and Investigator sections remain architecture requirements, not implemented integrations. A reproduced QA/deletion race has a separately tested, undeployed safety fix; further release is gated on waiting jobs, platform notification and backup/restore evidence. See the production verification report and roadmap. Semantic coverage, legacy adoption and calibrated enforcement are still incomplete.
+M1 diagnostic media QA, M2 dialogue/review repairs and safe M3 freshness/source preservation are released; PR8 safety/persistence/recovery fixes are production-verified at `88920f3`. The database/new startup backup contain72projects on the persistent volume; Railway is healthy and the capacity alert cleared. Four historical Waiting records are preserved under the owner's explicit exception, and Chapter34 remains stopped. Full-volume restore exercise/scheduling and semantic coverage, legacy adoption and calibrated media enforcement remain incomplete.
+
+Cancelled partial-chapter restart visibility is repaired/tested on a separate review-only feature branch; it is not deployed. The shared-intelligence and Investigator sections remain architecture requirements. See [overall status](FLAMINGO_CURRENT_STATUS.md), production verification and roadmap for what exists, needs repair and still needs building.

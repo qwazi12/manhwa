@@ -213,7 +213,7 @@ function ChapterPage({ id }: { id: string }) {
       {c.ingest && (
         <Card>
           <div className="spread">
-            <span><b>{["queued", "running"].includes(c.ingest.status) ? "Being made" : c.ingest.status === "error" ? "Stopped with an error" : "Waiting"}</b>
+            <span><b>{["queued", "running"].includes(c.ingest.status) ? "Being made" : c.ingest.status === "cancelled" ? "Stopped by you" : c.ingest.status === "error" ? "Stopped with an error" : "Waiting"}</b>
               {" · "}{c.ingest.stage || c.ingest.status}{c.ingest.msg ? ` — ${c.ingest.msg}` : ""}{c.ingest.error ? ` — ${c.ingest.error}` : ""}</span>
             <span className="row">
               {["queued", "running"].includes(c.ingest.status) && (

@@ -90,3 +90,9 @@ It covers committed WAL rows, backup recovery across container replacement,
 idempotent startup, collision/corruption/source drift, failed copy/link and the
 real entrypoint preserving a protected fixture job. No real providers or data
 are loaded.
+
+## October 18 activation and release verification
+
+PR8 merged once at88920f32dc965f3c38d7c3c398bbd7d92c6a0ac3. Automatic Railway deployment4539f8a5-ec0d-4c93-8f4c-4f8efa6669e4 reports linked target; live review_ui/data is a symlink to /app/data/studio-ops. Current SQLite integrity/FK checks pass with72projects. New startup snapshot manhwa_20261018_150014_pre_migration.db.gz resolves under the persistent backups directory, decompresses/restores in isolation with72projects and the same populated rawSHA314cf3dda3a9f5436c2b650e3362dee4f29b061301aa56966a5060824111d626.
+
+All9protected job files,153Chapter34files and3queue/settings files match pre-release hashes. No workers/processing queues are active; four historical Waiting records remain unchanged under the owner's explicit exception, and Chapter34is cancelled. Railway now reports zero critical/zero warnings. No production restore, full-volume restore drill or new automatic volume-backup schedule occurred. Preserve all recovery copies and use the rollback precautions above.
