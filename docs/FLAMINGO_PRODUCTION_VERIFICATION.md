@@ -1,6 +1,6 @@
 # Flamingo production verification — October 18, 2026
 
-The completed M1–M3 implementation was already released under the earlier owner instruction. The owner now authorizes merging/deploying PR #8 **if all gates pass**. **Those gates have not passed; no additional main merge or deployment occurred.** A newly reproduced QA/deletion race is fixed and tested on `dev/flamingo-release-safety`, pending safe deployment conditions.
+The completed M1–M3 implementation was already released under the earlier owner instruction. The owner authorizes merging/deploying PR #8 when live safety checks pass, with an explicit exception for verified historical status labels. **Final preflight/release is in progress; deployment completion is not yet claimed.** A newly reproduced QA/deletion race is fixed and tested on `dev/flamingo-release-safety`, pending safe deployment conditions.
 
 ## Latest persistence checkpoint (October 18, afternoon Eastern)
 
@@ -14,7 +14,7 @@ PR #8 now also contains the persistence entrypoint/helper and an ingest-recovery
 
 Final live preflight: `/api/jobsbar?failed=1` returns `jobs: []`; logs show no running work and the same four historical Waiting IDs. Raw posting queue has **20 posted / 32 removed / zero queued or posting**; render queue has **39 done / one error / zero waiting or rendering**. Existing schedule remains 10:00/14:00/22:00 Eastern, max three/channel/day. Chapter 34 is cancelled at $0.407. The filesystem now reports **49.13 GB total / 28.26 GB free**. All nine protected job files retain their pre-copy hashes. A second fresh restore point labelled **Online resize to 50000MB**, 21.08 GB, is now also visible alongside the manual 14:38 backup.
 
-**Owner decision pending:** the exact candidate is prepared/tested, but Railway still reports the old capacity event as critical and the four completed historical records remain labelled Waiting. The owner was asked whether to keep holding the strict status gates or explicitly accept these documented historical statuses while leaving records and monitoring unchanged. No exception is inferred from silence. Until that decision or actual platform clearance, do not merge or activate the new startup mapping.
+**Owner exception approved:** the owner explicitly selected “Approve historical-status exception.” The four confirmed completed historical jobs may retain their Waiting labels; their records, monitoring thresholds and Chapter 34 stop state must remain unchanged. A fresh Railway check now independently reports **zero critical notifications, zero warnings**, Online 1/1, zero recent failures and no pending work. The capacity alert has actually cleared; no alert exception is now needed. Final live preflight and the single approved PR #8 release are being executed; this paragraph is authorization/preparation evidence, not a completed deployment claim.
 
 ## Release and PR inventory
 
