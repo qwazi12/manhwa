@@ -8914,7 +8914,12 @@ def _ap_spent_today():
 
 
 def _waiting_ingests(status):
-    return [j for j in _all_ingest_jobs() if j.get("status") == status]
+    # The shared directory also contains render/finalize/publish history.
+    # Match _job_rows' ingest scope: otherwise startup recovery rewrites a
+    # completed render's shadow record or even re-ingests its chapter URL.
+    return [j for j in _all_ingest_jobs()
+            if j.get("status") == status and not j.get("type")
+            and not str(j.get("job", "")).startswith("render_")]
 
 
 # ---- the line (owner, 2026-10-06: "avoid more than 2 chapters at once — 3

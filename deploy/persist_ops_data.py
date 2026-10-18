@@ -170,12 +170,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)
-    parser.add_argument("--prepare-only", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--prepare-only", action="store_true",
+                      help="Copy only (the default); do not switch the running server")
+    mode.add_argument("--activate", action="store_true",
+                      help="Link the verified copy before starting the server, never while live")
     parser.add_argument("--require-prepared-if-projects-exist", action="store_true")
     arguments = parser.parse_args()
     projects = arguments.target.parent / "projects"
     require_prepared = (arguments.require_prepared_if_projects_exist and
                         projects.is_dir() and any(projects.iterdir()))
     print(json.dumps(prepare(arguments.source, arguments.target,
-                             activate=not arguments.prepare_only,
+                             activate=arguments.activate,
                              require_prepared=require_prepared)))

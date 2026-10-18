@@ -13,7 +13,7 @@ if [ -d "/app/data" ]; then
   if [ -z "${MANHWA_DATA_DIR:-}" ]; then
     python /app/deploy/persist_ops_data.py \
       --source /app/manhwa-recap-v1/review_ui/data \
-      --target /app/data/studio-ops --require-prepared-if-projects-exist
+      --target /app/data/studio-ops --activate --require-prepared-if-projects-exist
   fi
   
   # 1. segments-workspace

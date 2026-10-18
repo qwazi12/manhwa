@@ -1388,3 +1388,23 @@ Bible integration tests now use temporary canonical storage and the existing cor
 The high-priority brief requires no active OR waiting-to-resume work before a further release. Four old interrupted jobs remain, along with an unexplained critical Railway notification and unverified full-volume restore point. Do not cancel those jobs or merge documentation merely to obtain a green gate. The distinct `upd-1018` test was stopped at owner request with21pages/93panels/93descriptions and estimated$0.41; no TTS/export. Its monitor is paused.
 
 Normal finalize invokes `_after_export`, which prepares metadata, starts QA and copies to Drive when configured. The connected Drive path can remove copied clips. A no-upload test must avoid this automatic path using an independently verified alternative; do not silently change account settings or assume rendering has no upload side effect.
+
+## E32. Ops database and backup persistence (October 18, 2026)
+
+Production mounts `/app/data`, but ops configuration originally recognized
+`/data` and otherwise wrote SQLite/backups under the container's `review_ui/data`.
+The repair adds a verified copy and startup-only symlink to
+`/app/data/studio-ops`; project/media/job paths are unchanged. Existing studios
+require a prepared copy before deployment; originals are retained and conflicts
+fail closed. The default helper action copies only, with `--activate` reserved
+for the entrypoint before uvicorn starts. See
+[the persistence runbook](../docs/FLAMINGO_PERSISTENCE_RUNBOOK.md).
+
+Live preparation preserved the current 72-row project database and existing
+backups; nine protected job record files retained their hashes. The earlier
+empty pre-migration snapshot does not represent the populated live database.
+A fresh 21.08 GB Railway volume backup is listed at October 18, 14:38 Eastern;
+no automatic volume-backup schedule is configured. Preparation is not activation
+or a production release. See the latest verification report and memory for the
+current gate/deployment outcome. Semantic coverage, legacy adoption and real-media
+calibration remain incomplete; enforcement stays diagnostic/off.

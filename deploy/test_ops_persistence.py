@@ -152,6 +152,17 @@ def test_existing_studio_requires_pre_release_copy(tmp_path):
     assert not target.exists()
 
 
+def test_cli_defaults_to_copy_only_on_a_running_container(tmp_path):
+    source, target = fixture_data(tmp_path)
+    result = subprocess.run([sys.executable, str(DEPLOY / 'persist_ops_data.py'),
+                             '--source', str(source), '--target', str(target)],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)['state'] == 'prepared'
+    assert target.is_dir()
+    assert not source.is_symlink()
+
+
 def test_existing_retained_original_is_never_replaced(tmp_path):
     source, target = fixture_data(tmp_path)
     ops.prepare(source, target)
