@@ -75,3 +75,7 @@ A fresh read-only production comparison confirms **9job files,153Chapter34files 
 5. Evaluate one complete episode against agreed creative/technical standards before wider automation, then packaging experiments, original shorts and audience learning.
 
 Detailed evidence: [production verification](FLAMINGO_PRODUCTION_VERIFICATION.md), [roadmap](FLAMINGO_DEVELOPMENT_ROADMAP.md), [intelligence design](FLAMINGO_INTELLIGENCE_DESIGN.md), [vision](FLAMINGO_STUDIO_VISION.md), and append-only `manhwa-recap-v1/memory.md`.
+
+## Latest requested full episode test: held at isolation gate
+
+The owner conditionally authorizes PR9release and a new isolated Chapter34test, with an explicit stop if isolation cannot be guaranteed. Current offline staging cannot call real providers; normal production export can automatically upload to Drive. No tested provider-only sandbox currently joins required real generation with fail-closed external-side-effect isolation. Stopped before merge/deploy/generation; no new MP4/test project. PR9remains reviewable/unmerged, production88920f3. See [the isolation gate assessment](FLAMINGO_CH34_ISOLATION_GATE.md) for exact evidence and required controls.
