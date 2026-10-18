@@ -44,7 +44,7 @@ configs disable Git deployment for `dev/flamingo-*`. No main push or deployment.
 |---|---|
 | Existing implementation ready for review | M1 diagnostics/export identity; M2 ordered OCR/provenance and truthful critique; M3.1–M3.4 cache fingerprints, manifests, source preservation and deterministic linkage. Integrated isolated regression run: **104 passed**, 7 existing warnings, 15.30 seconds. Test-created media/fakes are regression fixtures, not this chapter. |
 | Preparation repair | A frontend dependency symlink crossed repository roots and caused a React Client Manifest failure during prerendering. Copying dependencies and cleaning the snapshot build output fixed it; isolated Next production build passed. No product code workaround for that build failure. |
-| New staging preparation | Committed-source snapshot tool, separate SQLite/data/HOME/media, fresh private auth, credential allowlist, offline Python network guard, disabled account/publish/automatic-job routes, explicit launch approval flag and fail-closed staging frontend proxy. **20 new boundary tests pass**, including actual Next middleware execution. No service launch. |
+| New staging preparation | Committed-source snapshot tool, separate SQLite/data/HOME/media, fresh private auth, credential allowlist, offline Python network guard, disabled account/publish/automatic-job routes, explicit launch approval flag and fail-closed staging frontend proxy. **20 new boundary tests pass**, including actual Next middleware execution. Subsequently launched locally after owner approval, as recorded above. |
 | Still to build for this test | Explicitly labeled queue/scheduling simulation; approved provider-only paid profile; complete stage evidence/report capture and real-media targeted repair exercise. The launcher's default profile cannot generate paid artifacts. |
 | Still blocked in the product roadmap | M3.5 semantic coverage, M3.6 reviewed legacy adoption and real-media QA calibration. No historical inputs guessed; all-reference coverage never proves story coverage. |
 
@@ -68,13 +68,13 @@ review finishes. Snapshot source/dependencies need roughly 1 GB before chapter
 media; allow several additional GB for clips/MP4s, to be measured after source
 identification. No hosted server, volume, public DNS or tunnel will be created.
 
-| Resource | Proposed boundary |
+| Resource | Running boundary |
 |---|---|
-| Next frontend | `http://127.0.0.1:3138`, existing login, unique local credentials, staging-only backend rewrite |
+| Next frontend | `http://localhost:3138`, existing login, unique local credentials, staging-only backend rewrite; listener bound127.0.0.1 |
 | FastAPI backend | `http://127.0.0.1:8138`, new shared secret, actual updated app wrapped by offline controls |
 | State | New private directory below repo `work/`; source/project/media tree separate from canonical checkout; isolated SQLite database and HOME |
 | External access | No provider/account credentials inherited; Python external connections denied; publishing/account/autopilot routes disabled |
-| Availability | This Mac only, while both processes run. Not yet deployed or owner-browser verified. A remotely accessible cloud preview needs a different approval proposal. |
+| Availability | This Mac only, while both processes run. Launched and browser-verified; the signed-in tab is left open for the owner. A remotely accessible cloud preview needs a different approval proposal. |
 
 Local launch was approved and executed; that approval is independent of spending approval. Approving this proposal
 alone does **not** authorize model calls, source-network downloads or publishing.
@@ -134,8 +134,9 @@ tokens/second. Do not use a commercial API just to check model availability.
 ## Stage evidence and evaluation protocol
 
 All real chapter stages below are **not run**. There is no Chapter 34 project URL,
-real narration, final MP4, QA verdict or measured chapter cost/time yet. Proposed
-localhost addresses must not be presented as a working website.
+real narration, final MP4, QA verdict or measured chapter cost/time yet. The
+authenticated localhost website is running, but its empty workspace must not be
+presented as a completed chapter.
 
 | Stage | Capture on the actual isolated app | Evaluation |
 |---|---|---|
