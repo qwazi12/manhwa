@@ -13,21 +13,22 @@ ingest; render and export re-run through Approve, so they have no re-run here.
 import glob
 import json
 import os
-import shutil
 import time
+import uuid
 
 # Files a re-run must clear, by the step it restarts from. A later step's set
 # is always inside an earlier one's: re-describing re-writes the script, etc.
 _BOARD = ["segments.json", "review.json", "storyboard.json", "edits.log.jsonl"]
-_VOICE = ["tts.json"]
-_SCRIPT = ["script.txt", "script.json", "direct_speech.json", "critique.json", "beatsheet.json"]
+_VOICE = ["tts.json", "voice.cache.json"]
+_SCRIPT = ["script.txt", "script.json", "script.cache.json", "source_review.json",
+           "direct_speech.json", "critique.json", "beatsheet.json"]
 CLEARS = {
     "match": _BOARD,
     "voice": _VOICE + _BOARD,
     "narrate": _SCRIPT + _VOICE + _BOARD,
     # series_bible.json: the chapter's copy of the cast list, so a re-describe
     # picks up the series' current one
-    "describe": ["descriptions.json", "series_bible.json"] + _SCRIPT + _VOICE + _BOARD,
+    "describe": ["descriptions.json", "descriptions.json.cache.json", "series_bible.json"] + _SCRIPT + _VOICE + _BOARD,
 }
 RERUN = {
     "describe": {"label": "describe the panels again", "cost": "about $0.20 (Gemini vision), then the script and voice below"},
@@ -113,24 +114,38 @@ def status(pdir):
 
 
 def prepare_rerun(pdir, step):
-    """Remove the step's outputs and everything built from them. Returns the
-    list of removed paths (relative). Raises ValueError for an unknown step."""
+    """Archive derived outputs, then clear their active paths. Exports stay.
+
+    Same-filesystem moves preserve originals without duplicating large clips.
+    The archive index records partial progress even if a move fails.
+    """
     if step not in CLEARS:
         raise ValueError(f"'{step}' cannot be re-run on its own")
-    removed = []
-    for f in CLEARS[step]:
-        p = os.path.join(pdir, f)
-        if os.path.exists(p):
-            os.remove(p)
-            removed.append(f)
+    paths = list(CLEARS[step])
     if step in ("describe", "narrate", "voice"):
         for f in glob.glob(os.path.join(pdir, "audio", "beat_*.mp3")) + \
                 glob.glob(os.path.join(pdir, "audio", "slices", "*.mp3")):
-            os.remove(f)
-            removed.append(os.path.relpath(f, pdir))
+            paths.append(os.path.relpath(f, pdir))
     if os.path.isdir(os.path.join(pdir, "clips")):
-        shutil.rmtree(os.path.join(pdir, "clips"), ignore_errors=True)
-        removed.append("clips/")
+        paths.append("clips/")
+    archive = os.path.join("_revisions", time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+                           + "-" + uuid.uuid4().hex[:12])
+    removed = []
+    try:
+        for rel in paths:
+            src = os.path.join(pdir, rel.rstrip("/"))
+            if not os.path.exists(src):
+                continue
+            dest = os.path.join(pdir, archive, rel.rstrip("/"))
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            os.replace(src, dest)
+            removed.append(rel)
+    finally:
+        if removed:
+            import generation_cache
+            generation_cache.write_json(os.path.join(pdir, archive, "index.json"), {
+                "step": step, "at": time.time(), "paths": removed})
     with open(os.path.join(pdir, "rerun.log.jsonl"), "a", encoding="utf-8") as f:
-        f.write(json.dumps({"at": time.time(), "step": step, "removed": len(removed)}) + "\n")
+        f.write(json.dumps({"at": time.time(), "step": step, "removed": len(removed),
+                            "archive": archive if removed else None}) + "\n")
     return removed

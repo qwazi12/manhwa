@@ -10491,6 +10491,12 @@ def source_review_view(project: str):
     return _read_json(os.path.join(pdir, "source_review.json")) or {"missing": True}
 
 
+@app.get("/api/source-coverage")
+def source_coverage_view(project: str):
+    import source_coverage
+    return source_coverage.inspect(project_dir_for(project))
+
+
 @app.get("/api/demand")
 def demand_view():
     import demand_research as _dr

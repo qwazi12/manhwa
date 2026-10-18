@@ -12,12 +12,19 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 |---|---|---|---|---|
 | M1 Final media audio QA and export readiness | Critical | Existing renderer/timeline contracts | Ready for Review | Offline implementation/tests/UI verified; real-media calibration and deployment approval remain required. |
 | M2 OCR dialogue and narrative reliability | High | M1 offline checkpoint; safe fixes separable | Ready for Review | Ordered typed transfer, orphan visibility and truthful critique lifecycle implemented offline. |
-| M3 Cache freshness and source completeness | High | M2 provenance contracts; cache fixes separable | Not Started | F6 same-size replacement reproduced. |
+| M3 Cache freshness and source completeness | High | M2 provenance contracts; cache fixes separable | In Progress | Cache/source-preservation and deterministic linkage tasks Ready for Review; semantic assessment and legacy adoption remain open. |
 | M4 Narration voice and pacing | High | M1 measurements; real-media decisions | Not Started | Current pauses/speed remain unchanged pending evaluation. |
 | M5 Scene-aware visual editing | High | Reliable provenance and source QA | Not Started | Preserve renderer; prototype reversible presets. |
 | M6 Demand vidIQ SEO and growth intelligence | Medium | Channel identity; quality baseline | Not Started | No account changes or paid research authorized. |
 | M7 Shorts Reels and community content | Medium | Approved reliable long-form; format standards | Not Started | Authoring prototypes only; no public posting. |
 | M8 Audience analytics and learning | Medium | Authorized intended-channel analytics | Not Started | Current connection does not authorize intended private analytics. |
+
+## Working features, repairs, and new development
+
+- **Already working and preserved:** production background splitter/fallback; structured OCR/speaker basis; Series Bible; anchored narration and constrained matching; targeted timeline/slice/crop repairs; content-keyed TTS cache and pinned voice; FFmpeg renderer plus HyperFrames alternative; review, range, SEO/thumbnail and publishing transport; trash, release wait, duplicate prevention and budget gates.
+- **Repairs implemented offline:** F1/F2 dialogue loss/order, F3 audio QA paths/heuristics, F4 exact-export freshness support, F5 incomplete critique reporting, F6 dimension/presence-only caches, F7 missing revision context, and F8 leaking test globals. Each has targeted regression evidence; production has not received these changes.
+- **New capabilities built offline:** final-file diagnostics and mapped findings, default-off readiness policy, source orphan/linkage review, versioned generation identities, staged source replacement and recoverable rerun archives.
+- **Genuinely still needs building/evaluation:** semantic narration completeness, legacy adoption UX, calibrated creative voice/pacing and scene editing, intended-channel identity/analytics, recent-demand observations, original repurposed assets and audience-learning workflow. Remaining tasks below retain their actual status.
 
 ## M1 Final media audio QA and export readiness
 
@@ -52,12 +59,16 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 
 | Task | Status | Files | Acceptance and tests |
 |---|---|---|---|
-| M3.1 Image content fingerprints | Not Started | `panel-describe/run.py`, `describe.py` | F6: same-size changed pixels invalidate OCR/descriptions; unchanged valid cache reusable; offline mocked-service regression. |
-| M3.2 Generation manifests | Not Started | ingest/narrate/TTS/cache helpers | Track source/Bible/prompt/model/voice inputs; changed dependencies stale descendants; retain valid content-keyed TTS; no paid regeneration in tests. |
-| M3.3 Editorial preservation and invalidation | Not Started | `pipeline_steps.py`, review/signatures | Preserve user edits/approved originals; explicit stale/review state; no destructive automatic refresh. |
-| M3.4 Source-line and event coverage | Not Started | provenance, validator, Issues | Meaningful unrepresented OCR/events appear as uncertainty findings; deterministic line coverage first; semantic claims require evaluated evidence. |
+| M3.1 Image content fingerprints | Ready for Review | `panel-describe/run.py`, `describe.py`, `generation_cache.py` | F6: SHA-256 of actual image bytes plus engine/model/effective Bible prompt/code; same-size changes stale; verified unchanged descriptions reuse without calls; stale/unknown data preserved before any description requests. |
+| M3.2 Generation manifests | Ready for Review | ingest, `generation_cache.py` | Script source/Bible/effective direct-speech/opening/model/code inputs and exact output hashes; voice speakable text/config/function identity and per-beat hashes; fresh reuse makes zero repeat generation calls, stale/edited/unknown stops before that generation stage. Existing global content-keyed TTS cache preserved. |
+| M3.3 Editorial/source preservation | Ready for Review | ingest, `pipeline_steps.py`, cache helper | Explicit reruns archive scripts, edits, approvals, voices, slices, manifests and clips; exports untouched. Download/split staged; failed downloads leave active sources intact; changed successful source trees archived before promotion; partial archive failures recoverable from index. |
+| M3.4 Deterministic source linkage | Ready for Review | `source_coverage.py`, server, Issues | Eligible OCR source-line IDs/text and artwork panel IDs without spoken provenance links become review candidates; changed/missing/legacy references, silent scenes, original bubble identity, non-story/SFX exclusions and project-scoped read-only API tested. Always semantic_coverage=not_assessed, even when all references exist. |
+| M3.5 Semantic story coverage evaluation | Not Started | source/script evaluation fixtures and checker | Determine whether meaningful events/dialogue were actually conveyed, including paraphrases and supported omissions; linkage alone cannot satisfy this. Requires labeled source/script evaluation before any correctness claim or publication gate. |
+| M3.6 Reviewed legacy-cache adoption | Not Started | migration/review workflow | Preserve reviewed historical artifacts without forcing paid rewrites; an explicit adoption must record uncertainty/owner review rather than retroactively assert historical inputs. Existing unmanifested caches currently stop at their generation stage with targeted-rerun guidance; no automatic migration. |
 
-**Evidence:** pending. **Risks:** legacy caches lack manifests; adopt conservative explicit status rather than silently assume freshness or regenerate. **Rollback:** additive schema; retain previous media and edits.
+**Evidence:** 99 combined pytest tests pass, including 27 cache/source-preservation and 12 source-linkage tests alongside M1/M2/render/publish regressions. Pipeline strip19, hardening54 and TTS config33 assertions pass (106 total). TypeScript/static checks and Next.js build pass. Local browser/API confirmed the expandable source candidate with original text and explicit semantic uncertainty; only existing favicon404. No real service/model calls or real chapter regeneration. Final text-only UI build rerun recorded in memory.
+
+**Risks and release decisions:** M3 is still In Progress because semantic coverage and legacy adoption are not built. Conservative code fingerprints intentionally mark caches stale after relevant generation-code changes. Legacy outputs cannot be proven fresh retrospectively; do not automatically regenerate/adopt them on release. Archives/staging remain on disk with no automatic retention deletion; plan disk/restore UX before production rollout. Source promotion is recoverable but not a transaction spanning both directories; partial disk errors require inspection of index/staging. No live migration was run. **Rollback:** isolated code revert; additive metadata and archives remain, with originals recoverable by restoring indexed relative paths while jobs are stopped.
 
 ## M4 Narration voice and pacing
 
@@ -117,3 +128,5 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 - M1 offline checkpoint: resolver, diagnostics, export manifests, review/readiness contracts and UI implemented. 40 combined pytest tests and 421 selected existing script checks pass; tsc/build and isolated browser flow verified. Production enforcement remains OFF. Next: M2 dialogue/provenance and critique reliability.
 
 - M2 checkpoint: F1/F2/F5/F7 repaired offline; M2 Ready for Review. Source references mean available evidence, not proven semantic coverage. Next safe work: M3 content fingerprints with explicit legacy-cache handling and editorial preservation.
+
+- M3 review checkpoint: content-aware generation caches, staged/preserved sources, archival reruns and deterministic source linkage implemented/tested. M3 stays In Progress: semantic coverage and reviewed legacy adoption remain open. Next recommended engineering task: explicit no-regeneration legacy review/adoption workflow; real-media calibration remains an owner-evaluated release prerequisite.

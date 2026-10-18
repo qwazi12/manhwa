@@ -1276,3 +1276,57 @@ M2 is offline/Ready for Review on a separate stacked branch; no runtime defaults
 voice settings, production data or paid artifacts were changed. Rollback is an
 isolated code revert; additive source/critique metadata stays readable by older
 consumers. Real-media/source narrative accuracy remains unverified.
+
+## E28. Content-aware generation caches and recoverable reruns (development, 2026-10-18)
+
+F6 is repaired for newly generated artifacts. Descriptions record image SHA-256,
+engine/model, effective Bible-aware prompt hash and generation/parser code identity.
+`--merge` only reuses verified current successful records. Before submitting any
+requests it checks existing selected records; changed or legacy-unverifiable ones
+stop with `descriptions.json.cache.json` and explicit rerun guidance. A normal
+new artifact can still be generated through the usual usage gates. No automatic
+paid cache refresh occurs. An explicit standalone `--force-rerun` preserves the
+previous JSON as `.previous-<uuid>.json`. Failed refreshes cannot silently reuse
+good-looking descriptions of different pixels. Usage-cap partial saves merge with
+existing records instead of truncating the paid cache.
+
+Ingest writes `script.cache.json` with exact script/provenance output hashes plus
+source evidence/image bytes, Bible, effective direct-speech choice, model, opening
+and relevant generation code. `voice.cache.json` records speakable beat text and
+silent intent, non-secret pinned provider/model/voice/style, synthesis code and
+completed beat-file hashes. A cache is current, stale, edited, incomplete or unknown.
+Existing stale/edited/unknown work stops at that generation stage with a visible
+job error; it is not overwritten or silently re-generated. Valid caches are reused
+without extra generation calls. Partial completed voice progress is recorded after
+each completed future. The global content-keyed TTS cache and spending gates remain.
+API credentials are excluded from all new generation identities.
+
+Explicit step reruns now move their cleared derived files into
+`_revisions/<timestamp-uuid>/` with `index.json`, preserving scripts, edits,
+approvals, audio/slices, voice pin/manifests and clips. Exports are never moved.
+Fresh ingest uses the same archive path. Download/split runs in
+`.source-staging-*`; failed work leaves the previous active source alone. When a
+successful staged source differs, the original pages/crops are moved to an indexed
+`_revisions/source-<uuid>/` archive before replacement. Unchanged trees retain
+original files. Partial filesystem failures leave recoverable archive/staging
+state; promotion is not a transaction across both directories. Do not delete these
+archives or staging directories automatically. Restore indexed relative paths
+only after stopping jobs; no production restore/migration was performed.
+
+`GET /api/source-coverage?project=...` is a free read-only scan of current source
+and script provenance. It flags eligible OCR lines/artwork descriptions with no
+matching spoken provenance link, including changed source text and legacy missing
+links. Silent scenes do not count as spoken coverage. SFX and non-story cards are
+excluded using existing source classification. Issues shows expandable candidates.
+**All results retain semantic_coverage=not_assessed.** Linked evidence is not proof
+that the narration conveys it; unlinked evidence may be intentionally omitted or
+missing a historical reference. Independently edited plain/structured scripts get
+an explicit discrepancy. Missing/malformed evidence is incomplete, never clean.
+
+M3 cache/linkage work is Ready for Review; the milestone remains In Progress.
+Semantic coverage evaluation and an explicit reviewed legacy-adoption workflow
+remain unbuilt. In particular, legacy artifacts currently require review and an
+explicit targeted rerun before reuse in ingest; do not roll this conservative
+behavior into production without evaluating that migration experience. No global
+voice/speed settings, publication policy or production artifacts were changed.
+Rollback is an isolated code revert with additive metadata/archives preserved.
