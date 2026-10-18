@@ -10345,3 +10345,4 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Initial canonical-context regression lacked opening_alias (opening_rule intentionally needs it); corrected fixture, then passed. No app policy change to opening requirements. No remaining selected-test failures.
 - Roadmap and handbook E27 updated. M2 branch will be saved to GitHub and reviewed separately against M1; production restrictions unchanged.
 - Final M2 Next.js build rerun passed after review-status wording changes; production enforcement still defaults OFF.
+- M2 checkpoint **4b542c7** pushed successfully. Draft stacked PR https://github.com/qwazi12/manhwa/pull/2 targets dev/flamingo-m1-media-qa, attached to this chat; no merge/deployment. Final M2-specific regressions: 20 passed. Work continues only on safe separable M3 cache tasks.
