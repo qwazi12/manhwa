@@ -2,6 +2,15 @@
 
 ## Actual status
 
+**Subsequent main release:** the owner requested main merge and an updated
+Chapter34 run. PRs1–6 are merged at **48a1eff1cacad241c35f87b07721a04adad11a79**.
+The production frontend is Ready and Railway deployment
+`b890f79d-e562-4ada-a7f7-5d383e3dc533` is SUCCESS; backend `/health` returned200.
+The deployed Chapter34 Issues page shows M1 diagnostic mode, M2 unverified legacy
+review and M3 source-evidence links. These read existing artifacts and do not
+constitute a fresh generation. Semantic coverage/calibration/adoption remain open.
+The local staging snapshot below continues running separately with paid calls off.
+
 **Local staging launched after owner approval; no chapter processed.**
 The owner typed **“launch”** on October 18 after reviewing the $0 local proposal.
 The running, authenticated studio is **http://localhost:3138/** on this Mac;
@@ -92,10 +101,15 @@ No cloud price or preview protection is assumed from the existing account.
 
 Target: **A Regressor's Tale of Cultivation, chapter 34**, fresh project identity
 `staging-regressors-tale-ch34-<run-id>` (proposed; none created yet). No matching
-local project was found. The original production project and correct source URL
-are **not verified**: the browser reached the login form, the connector cannot
-read sealed application secrets, and the installed Railway CLI lacks SSH.
-No production secret was changed/recreated and no source identity was guessed.
+local project was found during initial preparation. Authenticated read-only UI
+access subsequently verified original project **a-regressors-tale-of-cultivation_34**
+and source **https://asurascans.com/comics/a-regressors-tale-of-cultivation-3ec3b16f/chapter/34**.
+Its existing artifacts report21pages,95panels,1591words,78voice lines,83segments
+and no final export. The old autopilot activity recorded estimated$0.66. A
+separate credential-free, verified-TLS download retrieved21image pages (15,019,510
+bytes) with no source-count warning; SHA-256/order/dimensions are recorded in a
+private local source manifest. No production artifact/cache was copied or changed
+by that download. No production secret was changed/recreated or identity guessed.
 
 Once authenticated read-only access is available: record the original project
 ID, chapter/series metadata and exact source URL; verify artwork/chapter header
@@ -133,7 +147,9 @@ tokens/second. Do not use a commercial API just to check model availability.
 
 ## Stage evidence and evaluation protocol
 
-All real chapter stages below are **not run**. There is no Chapter 34 project URL,
+The fresh application's paid pipeline stages below are **not run**. Source-only
+preparation downloaded21pages separately; they are not a completed app ingest.
+There is no new Chapter 34 project URL,
 real narration, final MP4, QA verdict or measured chapter cost/time yet. The
 authenticated localhost website is running, but its empty workspace must not be
 presented as a completed chapter.
