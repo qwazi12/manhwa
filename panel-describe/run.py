@@ -171,7 +171,14 @@ def main():
                     for other in futs:
                         other.cancel()
                     continue
-                raise
+                # A corrupt/unreadable panel must not discard other completed
+                # paid descriptions. Persist an explicit failure and stop the
+                # stage after the batch is saved, before narration can run.
+                rec = {"panel_id": os.path.splitext(fname)[0], "file": fname,
+                       "width": 0, "height": 0, "bbox": [0, 0, 0, 0],
+                       "ocr_text": "", "visual_description": "", "lines": [],
+                       "source": "none", "ok": False,
+                       "error": f"{type(e).__name__}: {e}"}
             by_name[fname] = rec
             done_n += 1
             if rec.pop("_note", None):
@@ -210,9 +217,19 @@ def main():
         final = records
 
     cache.write_json(args.out, final)
+    states = {}
+    for rec in final:
+        state = "failed"
+        if rec.get("ok"):
+            try:
+                state = describe.cache_state(rec, os.path.join(args.input, rec["file"]),
+                                             api_key, args.model, bible_data)
+            except OSError:
+                state = "unknown"
+        states[rec["panel_id"]] = state
+    incomplete = bool(cap_err) or any(state != "current" for state in states.values())
     cache.write_json(args.out + ".cache.json", {
-        "status": "incomplete" if cap_err or any(not r.get("ok") for r in final) else "current",
-        "panels": {r["panel_id"]: "current" if r.get("ok") else "failed" for r in final}})
+        "status": "incomplete" if incomplete else "current", "panels": states})
     if cap_err is not None:
         sys.exit(f"\nUSAGE CAP EXCEEDED — stopping: {cap_err}")
 
@@ -220,6 +237,9 @@ def main():
     print(f"\nWrote {args.out}: {ok}/{len(final)} panels described successfully.")
     if ok < len(final):
         print("Some panels failed — check their 'error' field in the JSON.")
+    if incomplete:
+        sys.exit("Description pass incomplete — successful progress preserved; "
+                 "review failed/stale panels before narration or an explicit retry.")
     print("\nReview the visual_description and ocr_text fields before we build the")
     print("matcher. If the descriptions are vague or wrong, that's the signal to")
     print("adjust the prompt or model — not to start matching yet.")

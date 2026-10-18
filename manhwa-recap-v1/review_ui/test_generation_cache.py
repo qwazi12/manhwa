@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -102,7 +103,8 @@ def test_explicit_failed_refresh_cannot_relabel_old_pixels_as_current(descriptio
     def failed(*a, **k):
         return {**fake(*a, **k), "ok": False, "error": "offline failure"}
     monkeypatch.setattr(describe, "describe_panel", failed)
-    run("--merge", "--force-rerun")
+    with pytest.raises(SystemExit, match="incomplete"):
+        run("--merge", "--force-rerun")
     assert not json_at(out)[0]["ok"]
     backups = list(out.parent.glob("descriptions.json.previous-*.json"))
     assert len(backups) == 1 and backups[0].read_bytes() == original
@@ -124,6 +126,36 @@ def test_usage_cap_preserves_existing_merge_records(description_run, monkeypatch
     assert [r["panel_id"] for r in json_at(out)] == ["page001_panel_001", "page001_panel_002"]
 
 
+def test_cap_does_not_label_retained_stale_record_current(description_run, monkeypatch):
+    _, image, out, _, _, run = description_run
+    run()
+    Image.new("RGB", (200, 200), "red").save(image)
+    def capped(*a, **k):
+        raise runner.UsageCapExceeded("offline cap")
+    monkeypatch.setattr(describe, "describe_panel", capped)
+    with pytest.raises(SystemExit, match="USAGE CAP EXCEEDED"):
+        run("--merge", "--force-rerun")
+    report = json_at(str(out) + ".cache.json")
+    assert report["status"] == "incomplete"
+    assert report["panels"][image.stem] == "stale"
+
+
+def test_bad_panel_preserves_successful_progress_and_stops_description_stage(description_run, monkeypatch):
+    crops, _, out, _, fake, run = description_run
+    bad = crops / "page001_panel_002.png"
+    bad.write_bytes(b"not an image")
+    def unreadable(path, *a, **k):
+        if Path(path) == bad:
+            raise ValueError("unreadable panel")
+        return fake(path, *a, **k)
+    monkeypatch.setattr(describe, "describe_panel", unreadable)
+    with pytest.raises(SystemExit, match="incomplete"):
+        run()
+    recs = json_at(out)
+    assert len(recs) == 2 and recs[0]["ok"] and not recs[1]["ok"]
+    assert "unreadable panel" in recs[1]["error"]
+
+
 def test_source_changed_during_description_is_not_verified(description_run, monkeypatch):
     _, image, out, _, fake, run = description_run
     def changed(*a, **k):
@@ -131,7 +163,8 @@ def test_source_changed_during_description_is_not_verified(description_run, monk
         Image.new("RGB", (200, 200), "red").save(image)
         return result
     monkeypatch.setattr(describe, "describe_panel", changed)
-    run()
+    with pytest.raises(SystemExit, match="incomplete"):
+        run()
     assert not json_at(out)[0]["ok"]
     assert "changed during" in json_at(out)[0]["error"]
 
@@ -385,6 +418,28 @@ def test_failed_ingest_download_keeps_active_sources(ingest_fixture, monkeypatch
     assert counts == {"narrate": 1, "voice": 1}
 
 
+@pytest.mark.parametrize("existing", [False, True])
+def test_incomplete_description_stage_never_starts_narration_or_voice(ingest_fixture, monkeypatch, existing):
+    import ingest
+    pdir, counts, run, reached = ingest_fixture
+    if existing:
+        with pytest.raises(reached):
+            run()
+    before = {name: (pdir / name).read_bytes() for name in ("script.txt", "audio/beat_000.mp3")
+              if (pdir / name).exists()}
+    old_counts = dict(counts)
+    def incomplete(argv, **kw):
+        kw["stdout"].write("Description pass incomplete — progress preserved")
+        return SimpleNamespace(returncode=1, args=argv)
+    monkeypatch.setattr(ingest.subprocess, "run", incomplete)
+    with pytest.raises(subprocess.CalledProcessError) as exc:
+        run()
+    assert "Description pass incomplete" in exc.value.stderr
+    assert counts == old_counts
+    for name, contents in before.items():
+        assert (pdir / name).read_bytes() == contents
+
+
 def test_source_promotion_preserves_old_bytes_and_keeps_unchanged_tree(tmp_path):
     staging = tmp_path / ".source-staging-test"
     for base in (tmp_path, staging):
@@ -412,3 +467,26 @@ def test_empty_source_workspace_cannot_replace_active_source(tmp_path):
         cache.promote_sources(tmp_path, staging)
     assert (tmp_path / "pages/a.png").read_bytes() == b"original"
     assert (staging / "pages/a.png").read_bytes() == b"changed"
+
+
+def test_partial_source_promotion_keeps_both_old_trees_and_pending_new_source(tmp_path, monkeypatch):
+    staging = tmp_path / ".source-staging-test"
+    for base, payload in ((tmp_path, b"original"), (staging, b"new")):
+        for name in ("pages", "crops"):
+            (base / name).mkdir(parents=True)
+            (base / name / "a.png").write_bytes(payload)
+    real = os.replace
+    def fail_last(src, dst):
+        if Path(src) == staging / "crops":
+            raise OSError("offline promotion error")
+        real(src, dst)
+    monkeypatch.setattr(os, "replace", fail_last)
+    with pytest.raises(OSError, match="promotion error"):
+        cache.promote_sources(tmp_path, staging)
+    indices = list((tmp_path / "_revisions").glob("source-*/index.json"))
+    assert len(indices) == 1
+    assert json_at(indices[0]) == {"step": "source", "paths": ["pages", "crops"], "status": "partial"}
+    for name in ("pages", "crops"):
+        assert (indices[0].parent / name / "a.png").read_bytes() == b"original"
+    assert (tmp_path / "pages/a.png").read_bytes() == b"new"
+    assert (staging / "crops/a.png").read_bytes() == b"new"

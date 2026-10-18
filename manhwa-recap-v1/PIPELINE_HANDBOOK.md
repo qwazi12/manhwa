@@ -1330,3 +1330,12 @@ explicit targeted rerun before reuse in ingest; do not roll this conservative
 behavior into production without evaluating that migration experience. No global
 voice/speed settings, publication policy or production artifacts were changed.
 Rollback is an isolated code revert with additive metadata/archives preserved.
+
+M3 regression hardening: a description batch now saves completed records and
+explicit per-panel failures even when a worker encounters an unreadable image.
+The saved freshness report recalculates retained records against current source
+bytes, so a capped forced refresh cannot label old pixels current merely because
+an old record has ok=true. Incomplete batches exit nonzero after preservation;
+ingest stops before narration/voice. Usage-cap propagation remains unchanged.
+Source-promotion disk-failure tests verify the old trees, partial index and pending
+new source remain recoverable; no new automatic repair or regeneration is added.
