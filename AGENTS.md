@@ -14,26 +14,31 @@ Every working session, regardless of IDE, agent, or machine:
    verifications (with evidence), failures and their root causes. The file is the
    project's single source of history; any new session must be able to catch up
    from it alone.
-2. **Commit and push to GitHub (`origin main`) at every natural checkpoint** —
-   after each completed fix/feature/log entry, not just at session end. The owner
-   may switch IDEs or lose connection at any moment; unpushed work is considered
-   lost work. If a push is impossible, say so explicitly rather than silently
-   carrying local-only state.
-3. Never let GitHub drift from deployed reality. Every push to `origin main`
-   auto-deploys BOTH the Railway backend and the Vercel frontend and restarts
-   the server — so deploying IS pushing. Never run `railway up` or a manual
-   Vercel deploy.
-4. **Check live jobs before EVERY push.** A push restarts the server and kills
-   any render, ingest or upload in flight. `GET
-   https://recap-studio-production.up.railway.app/api/jobsbar?failed=1` with
-   header `x-shared-secret` (Railway variable `SHARED_SECRET`, read via
-   `railway variables --json`, never printed). If anything is
-   running/queued/paused/in_queue: commit locally, wait, push when idle, and
-   say so. After a push, confirm `railway deployment list` shows SUCCESS for
-   the commit and `/health` returns 200.
-5. **Big or multi-part requests: write the plan into memory.md and wait for the
-   owner's approval before building.** Surgical changes only; root cause with
-   evidence; a test for every fix.
+2. **Commit and push development checkpoints to GitHub feature branches.**
+   The owner explicitly requires passive GitHub saving and append-only memory
+   logging. Never push or merge to `main`: it deploys production. Use
+   `dev/flamingo-*` branches; both Vercel project configs disable Git deployments
+   for that prefix. Verify those guards and Railway's main-only source before
+   the first push. Never stage generated media, credentials or scratch evidence.
+   If a push fails, record it and say so; do not silently leave work local-only.
+3. **No deployments, live-data mutations, paid API calls, account changes or
+   real publishing/scheduling without separate owner authorization.** Never run
+   `railway up` or a manual Vercel deploy. Do not enable new publication blockers
+   in production before real-media calibration and explicit owner approval.
+4. **Production pushes are forbidden by the current roadmap.** If a later owner
+   instruction authorizes a production release, check live jobs first: GET
+   `https://recap-studio-production.up.railway.app/api/jobsbar?failed=1` with
+   `x-shared-secret` (never printed). Any running/queued/paused/in_queue job means
+   wait: a main push restarts the backend. Verify SUCCESS and `/health` after
+   an authorized release. Feature-branch backup pushes must not deploy.
+5. **The October 18 autonomous roadmap is approved for reversible offline
+   development.** Follow `docs/FLAMINGO_DEVELOPMENT_ROADMAP.md` sequentially;
+   log significant decisions/results and preserve the full vision in
+   `docs/FLAMINGO_STUDIO_VISION.md`. Do not request approval again for ordinary
+   in-scope engineering. Mark implemented milestones Ready for Review; do not
+   call uncalibrated or undeployed work production-complete. Keep milestones
+   in reviewable commits/branches. User restrictions override older main-push
+   and plan-only instructions. Every meaningful fix needs a regression test.
 
 ## Working directory
 Use `~/dev/manhwa` (off-iCloud clone). The copy at `~/Desktop/manhwa` lives on

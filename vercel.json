@@ -73,5 +73,10 @@
       "source": "/(.*)",
       "destination": "/manhwa-recap-v1/review_ui/static/$1"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "dev/flamingo-*": false
+    }
+  }
 }
