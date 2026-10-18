@@ -23,7 +23,7 @@ def test_proxy_refuses_forbidden_destinations(host):assert not allowed_tunnel(ho
 
 
 @pytest.mark.parametrize('host',['generativelanguage.googleapis.com:443','texttospeech.googleapis.com:443',
- 'asurascans.com:443','cdn.asurascans.com:443'])
+ 'asurascans.com:443','cdn.asurascans.com:443','cdn.jsdelivr.net:443'])
 def test_only_required_source_and_generation_destinations(host):assert allowed_tunnel(host)
 
 

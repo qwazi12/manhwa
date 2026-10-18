@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shlex
 import subprocess
 import sys
 
@@ -35,6 +36,8 @@ def environment(stage, *, providers=False, inherited=None):
         MAX_DAILY_CLAUDE_CALLS='0',MAX_CLAUDE_CALLS_PER_JOB='0',
         EXPORT_SPEED='1.1',RENDER_CLIP_PARALLEL='2',RENDER_WORKERS='1',
         PYTHONUNBUFFERED='1',PYTHONDONTWRITEBYTECODE='1',
+        HYPERFRAMES_BROWSER_PATH=str(stage/'browser-with-proxy'),
+        HYPERFRAMES_TELEMETRY_DISABLED='1',DO_NOT_TRACK='1',HYPERFRAMES_SKIP_SKILLS='1',
         HF_WORKSPACE=str(stage/'app/manhwa-recap-v1/hyperframes/segments-workspace'))
     env['PYTHONPATH']=os.pathsep.join(str(stage/'app'/p) for p in
         ['deploy/e2e','manhwa-recap-v1/review_ui','manhwa-recap-v1','panel-describe'])
@@ -45,6 +48,22 @@ def environment(stage, *, providers=False, inherited=None):
         if not env.get('GEMINI_API_KEY'):raise RuntimeError('Generation credential not configured')
     validate(stage,env)
     return env
+
+
+def prepare_browser(stage):
+    # Reuse already installed public browser/font assets, no downloads or profile data.
+    cache=stage/'home/.cache/hyperframes'
+    if not (cache/'chrome').exists():
+        source=Path.home()/'.cache/hyperframes'
+        cache.mkdir(parents=True,exist_ok=True)
+        for name in ('chrome','fonts'):
+            if (source/name).is_dir():
+                subprocess.run(['/bin/cp','-cR',str(source/name),str(cache/name)],check=True)
+    browsers=sorted((cache/'chrome/chrome-headless-shell').glob('mac_arm-*/chrome-headless-shell-mac-arm64/chrome-headless-shell'))
+    if not browsers:raise RuntimeError('Install the pinned local browser before launching this test')
+    shim=stage/'browser-with-proxy'
+    shim.write_text('#!/bin/sh\nexec '+shlex.quote(str(browsers[-1]))+' --proxy-server=http://127.0.0.1:8149 --disable-background-networking "$@"\n')
+    shim.chmod(0o700)
 
 
 def main():
@@ -61,6 +80,7 @@ def main():
         (stage/'manifest.json').write_text(json.dumps(result,indent=2))
         print(json.dumps(result));return
     if not stage.is_relative_to(ROOT/'work'):raise ValueError('Test directory must be under private work/')
+    prepare_browser(stage)
     env=environment(stage,providers=args.action=='launch')
     if args.action=='launch':
         manifest=json.loads((stage/'manifest.json').read_text());manifest.update(mode='isolated-generation',paid_calls_enabled=True,estimated_spend_cap_usd=5,publishing_enabled=False,drive_enabled=False,scheduling_enabled=False);(stage/'manifest.json').write_text(json.dumps(manifest,indent=2))

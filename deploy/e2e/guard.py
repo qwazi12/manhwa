@@ -3,7 +3,8 @@ from pathlib import Path
 import os
 
 HOSTS = frozenset({'asurascans.com', 'cdn.asurascans.com',
-                   'generativelanguage.googleapis.com', 'texttospeech.googleapis.com'})
+                   'generativelanguage.googleapis.com', 'texttospeech.googleapis.com',
+                   'cdn.jsdelivr.net'})
 PROXY_PORT = 8149
 
 
@@ -62,7 +63,7 @@ def sandbox_profile(stage):
 (deny file-write*)
 (allow file-write* (subpath "{stage}") (literal "/dev/null") (literal "/dev/tty"))
 (deny network*)
-(allow network-outbound (remote ip "localhost:8149") (remote ip "localhost:8138") (remote ip "localhost:3138"))
-(allow network-inbound (local ip "localhost:8138") (local ip "localhost:3138"))
-(allow network-bind (local ip "localhost:8138") (local ip "localhost:3138"))
+(allow network-outbound (remote ip "localhost:*"))
+(allow network-inbound (local ip "localhost:*"))
+(allow network-bind (local ip "localhost:*"))
 '''
