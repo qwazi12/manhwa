@@ -76,15 +76,25 @@ def _paths(pdir, name):
 
 def _save(path, value):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".qa-", dir=path.parent)
+    tmp = None
     try:
+        # QA owns only exports/_qa, not the project/export directories. A
+        # late worker must not recreate them after Delete or Unmerge moves
+        # the project away, including a move during the atomic save.
+        path.parent.mkdir(exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".qa-", dir=path.parent)
         with os.fdopen(fd, "w") as f:
             json.dump(value, f, indent=2, allow_nan=False)
         os.replace(tmp, path)
+    except FileNotFoundError:
+        return False
     finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except FileNotFoundError:
+                pass
+    return True
 
 
 def _selected(pdir):

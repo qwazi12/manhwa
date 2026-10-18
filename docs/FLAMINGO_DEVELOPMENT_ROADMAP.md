@@ -10,14 +10,22 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 
 | Milestone | Priority | Dependency | Status | Evidence and remaining boundary |
 |---|---|---|---|---|
-| M1 Final media audio QA and export readiness | Critical | Existing renderer/timeline contracts | Ready for Review | Offline implementation/tests/UI verified; real-media calibration and deployment approval remain required. |
-| M2 OCR dialogue and narrative reliability | High | M1 offline checkpoint; safe fixes separable | Ready for Review | Ordered typed transfer, orphan visibility and truthful critique lifecycle implemented offline. |
-| M3 Cache freshness and source completeness | High | M2 provenance contracts; cache fixes separable | In Progress | Cache/source-preservation and deterministic linkage tasks Ready for Review; semantic assessment and legacy adoption remain open. |
+| M1 Final media audio QA and export readiness | Critical | Existing renderer/timeline contracts | Ready for Review | Released diagnostically at 48a1eff; calibration/enforcement remains blocked. Newly reproduced QA/deletion safety repair is tested on a feature branch, not deployed. |
+| M2 OCR dialogue and narrative reliability | High | M1 offline checkpoint; safe fixes separable | Ready for Review | Ordered typed transfer, orphan visibility and truthful critique lifecycle released at 48a1eff; real narrative quality still needs evaluation. |
+| M3 Cache freshness and source completeness | High | M2 provenance contracts; cache fixes separable | In Progress | Safe cache/source-preservation and deterministic linkage released at 48a1eff; semantic assessment and legacy adoption remain open. |
 | M4 Narration voice and pacing | High | M1 measurements; real-media decisions | Not Started | Current pauses/speed remain unchanged pending evaluation. |
 | M5 Scene-aware visual editing | High | Reliable provenance and source QA | Not Started | Preserve renderer; prototype reversible presets. |
 | M6 Demand vidIQ SEO and growth intelligence | Medium | Channel identity; quality baseline | Not Started | No account changes or paid research authorized. |
 | M7 Shorts Reels and community content | Medium | Approved reliable long-form; format standards | Not Started | Authoring prototypes only; no public posting. |
 | M8 Audience analytics and learning | Medium | Authorized intended-channel analytics | Not Started | Current connection does not authorize intended private analytics. |
+
+## Current production checkpoint (October 18)
+
+PRs #1–#6 are already merged through the single integration merge `48a1eff`; Railway and the current Next.js Vercel frontend run that commit. The new high-priority verification brief does **not** authorize a redundant deployment while its stricter gates fail. Four historical interrupted jobs wait to resume; a critical Railway notification and a verified full-volume backup/restore point remain unresolved.
+
+The follow-up on `dev/flamingo-release-safety` repairs a reproduced late-QA write that could recreate a deleted merged project and block restore. It also isolates existing Bible/review tests. The regression fails before the fix and passes after; **215 combined pytest tests and 26 script suites / 756 checks pass**, TypeScript and Next production build pass. This fix is **Ready for Review, not deployed**. Keep PR #7 evidence and the separate safety PR unmerged until gates pass. See [production verification](FLAMINGO_PRODUCTION_VERIFICATION.md) for exact results, failures repaired, smoke-test limits and operational risks.
+
+The separately approved `upd-1018` Chapter 34 run was cancelled at the owner's priority change after pages/panels/descriptions: 21/93/93, estimated $0.41, no narration or export. Monitor paused; original project retained. Do not resume it under an older approval. Normal export automatically copies to the connected Drive, so future no-upload tests require a verified no-copy path. Semantic coverage, legacy adoption and real-media calibration remain incomplete; diagnostic enforcement remains off.
 
 ## TV-production expansion and dependency order (October 18 addendum)
 
@@ -42,7 +50,7 @@ Finish current M3 offline work before dependent consumers. Safe M3.1–M3.4 hard
 
 | Scope | State | Evidence or missing requirement |
 |---|---|---|
-| M1.1–M1.7 offline implementation | Ready for Review | Resolver, decoded/final-media diagnostics, exact identities, readiness paths and UI; recorded media fixtures/build/browser regressions. No deployment or claim of calibrated production quality. |
+| M1.1–M1.7 offline implementation | Ready for Review | Resolver, decoded/final-media diagnostics, exact identities, readiness paths and UI; recorded media fixtures/build/browser regressions. Diagnostic implementation deployed at 48a1eff; no calibrated-quality claim. QA deletion safety follow-up is not deployed. |
 | M2.1–M2.4 offline implementation | Ready for Review | Ordered OCR/speaker/source-line fidelity, orphan visibility, strict critique lifecycle and canonical revision context; regressions recorded. |
 | M3.1–M3.4 offline implementation + hardening | Ready for Review | Content-aware description/script/voice reuse, source/rerun preservation, truthful source linkage and incomplete-stage stops; 104 selected combined pytest tests pass. |
 | M3.5 semantic coverage | Blocked | Owner-reviewed labeled source/script corpus and creative omission/paraphrase decisions missing; references alone cannot prove completeness. |
@@ -53,8 +61,8 @@ Finish current M3 offline work before dependent consumers. Safe M3.1–M3.4 hard
 ## Working features, repairs, and new development
 
 - **Already working and preserved:** production background splitter/fallback; structured OCR/speaker basis; Series Bible; anchored narration and constrained matching; targeted timeline/slice/crop repairs; content-keyed TTS cache and pinned voice; FFmpeg renderer plus HyperFrames alternative; review, range, SEO/thumbnail and publishing transport; trash, release wait, duplicate prevention and budget gates.
-- **Repairs implemented offline:** F1/F2 dialogue loss/order, F3 audio QA paths/heuristics, F4 exact-export freshness support, F5 incomplete critique reporting, F6 dimension/presence-only caches, F7 missing revision context, and F8 leaking test globals. Each has targeted regression evidence; production has not received these changes.
-- **New capabilities built offline:** final-file diagnostics and mapped findings, default-off readiness policy, source orphan/linkage review, versioned generation identities, staged source replacement and recoverable rerun archives.
+- **Repairs implemented and released at 48a1eff:** F1/F2 dialogue loss/order, F3 audio QA paths/heuristics, F4 exact-export freshness support, F5 incomplete critique reporting, F6 dimension/presence-only caches, F7 missing revision context, and F8 leaking test globals. Each has targeted regression evidence; calibration and complete semantic verification are not implied by deployment.
+- **New capabilities released diagnostically:** final-file diagnostics and mapped findings, default-off readiness policy, source orphan/linkage review, versioned generation identities, staged source replacement and recoverable rerun archives.
 - **Genuinely still needs building/evaluation:** semantic narration completeness, legacy adoption UX, calibrated creative voice/pacing and scene editing, intended-channel identity/analytics, recent-demand observations, original repurposed assets and audience-learning workflow. Remaining tasks below retain their actual status.
 
 ## M1 Final media audio QA and export readiness

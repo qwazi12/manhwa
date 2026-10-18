@@ -1364,7 +1364,7 @@ and read-only Series/Episode projection fixtures; never re-key historical canon
 or adopt unverified caches implicitly. Source/app access findings and the missing
 resource video are documented in the design, not disguised as integrations.
 
-## E30. Isolated Chapter 34 staging preparation (not deployed, 2026-10-18)
+## E30. Isolated Chapter 34 staging preparation (historical preparation snapshot, 2026-10-18)
 
 `deploy/staging/prepare.py` prepares a committed feature snapshot with separate
 SQLite/project/media/HOME storage and private auth. It can build without launching;
@@ -1374,5 +1374,17 @@ stage evidence. The profile blocks paid Python network calls and real publishing
 accounts and automatic jobs; no provider credentials are inherited. Next refuses
 any staging backend except the explicit loopback address and requires auth.
 This is an application boundary, not an OS network sandbox. Its paid processing
-profile and labeled queue simulation are not implemented. No stage of the actual
-Chapter 34 run has happened; do not present regression fixtures as its outputs.
+profile and labeled queue simulation are not implemented. This offline profile has not processed Chapter 34; do not present regression fixtures as its outputs. The later owner-authorized main release and cancelled distinct production test are recorded in E31.
+
+
+## E31. Production verification and QA/deletion safety (October 18, 2026)
+
+M1/M2/safe-M3 code is deployed at `48a1eff` through the existing automatic Railway/Vercel flow. Media QA remains diagnostic; real calibration, semantic coverage and reviewed legacy adoption remain incomplete. See `docs/FLAMINGO_PRODUCTION_VERIFICATION.md` for exact deployment IDs, fresh test results, preserved original Chapter34 counts and missing verification.
+
+A late media-QA inspector, error recorder or range-manifest capture could recreate project/export ancestors after Delete/Unmerge moved the project away, blocking Restore with a conflict. The feature-branch repair allows `_save` to create only `exports/_qa` under an existing export directory, and discards late writes if the directory disappears during saving. It never recreates the deleted project. A deterministic real-media regression fails before the repair and passes after, including restoring the original identity. This repair is not yet deployed. Avoid deleting/unmerging a project during QA/build completion on the currently deployed code.
+
+Bible integration tests now use temporary canonical storage and the existing corrected cast; the review suite uses its own project fixture. These do not alter production canon. Combined candidate tests:215passed;26script suites/756checks pass; TypeScript/Next build pass.
+
+The high-priority brief requires no active OR waiting-to-resume work before a further release. Four old interrupted jobs remain, along with an unexplained critical Railway notification and unverified full-volume restore point. Do not cancel those jobs or merge documentation merely to obtain a green gate. The distinct `upd-1018` test was stopped at owner request with21pages/93panels/93descriptions and estimated$0.41; no TTS/export. Its monitor is paused.
+
+Normal finalize invokes `_after_export`, which prepares metadata, starts QA and copies to Drive when configured. The connected Drive path can remove copied clips. A no-upload test must avoid this automatic path using an independently verified alternative; do not silently change account settings or assume rendering has no upload side effect.

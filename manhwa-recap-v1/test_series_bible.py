@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -31,6 +32,13 @@ import shot_planner
 class TestSeriesBible(unittest.TestCase):
 
     def setUp(self):
+        # Loading a built-in Bible seeds the canonical store. Keep these tests
+        # independent of saved developer/project data and of one another.
+        store = tempfile.TemporaryDirectory(prefix="series-bible-test-")
+        self.addCleanup(store.cleanup)
+        bible_dir = patch.object(series_bible, "BIBLES_DIR", store.name)
+        bible_dir.start()
+        self.addCleanup(bible_dir.stop)
         self.bible = series_bible.load_series_bible("murim-psychopath")
 
     def test_bible_loading(self):
@@ -39,29 +47,30 @@ class TestSeriesBible(unittest.TestCase):
         self.assertTrue(len(self.bible["characters"]) >= 2)
         protagonist = next((c for c in self.bible["characters"] if c["role"] == "protagonist"), None)
         self.assertIsNotNone(protagonist)
-        self.assertEqual(protagonist["name"], "Yu Shin")
+        self.assertEqual(protagonist["name"], "Dong Bongsu")
         self.assertEqual(protagonist["gender"], "male")
 
     def test_format_for_vision(self):
         text = series_bible.format_for_vision(self.bible)
         self.assertIn("KNOWN SERIES CONTEXT", text)
         self.assertIn("Murim Psychopath", text)
-        self.assertIn("Yu Shin", text)
+        self.assertIn("Dong Bongsu", text)
         self.assertIn("COSTUMES", text)
         self.assertIn("STAGE PROPS", text)
 
     def test_format_for_narrator(self):
         text = series_bible.format_for_narrator(self.bible)
         self.assertIn("SERIES BIBLE & CANONICAL CAST", text)
-        self.assertIn("Yu Shin", text)
+        self.assertIn("Dong Bongsu", text)
         self.assertIn("he/him", text)
         self.assertIn("Cursed Killing Star", text)
 
     def test_format_for_seo(self):
         data = series_bible.format_for_seo(self.bible)
         self.assertEqual(data["canonical_title"], "Murim Psychopath")
-        self.assertIn("Yu Shin", data["characters"])
-        self.assertIn("Cursed Killing Star", data["characters"])
+        self.assertIn("Dong Bongsu", data["characters"])
+        self.assertIn("Yeon Yeong-ha", data["characters"])
+        self.assertNotIn("Cursed Killing Star", data["characters"])
         self.assertTrue(len(data["keywords"]) > 0)
         self.assertTrue(len(data["hashtags"]) > 0)
 
@@ -74,7 +83,7 @@ class TestSeriesBible(unittest.TestCase):
         prompt = narrate.build_prompt(panels, series_bible_data=self.bible)
         self.assertIn("SERIES BIBLE & CANONICAL CAST", prompt)
         self.assertIn("CANONICAL CAST & WORLD ACCURACY", prompt)
-        self.assertIn("Yu Shin", prompt)
+        self.assertIn("Dong Bongsu", prompt)
 
     def test_seo_truth_card_enrichment(self):
         td = tempfile.mkdtemp()
@@ -88,8 +97,9 @@ class TestSeriesBible(unittest.TestCase):
         series_bible.save_series_bible("murim-psychopath", self.bible, pdir=td)
 
         card = seo.truth_card(td)
-        self.assertIn("Yu Shin", card["characters"])
-        self.assertIn("Cursed Killing Star", card["characters"])
+        self.assertIn("Dong Bongsu", card["characters"])
+        self.assertIn("Yeon Yeong-ha", card["characters"])
+        self.assertNotIn("Cursed Killing Star", card["characters"])
         self.assertIn("Crazy Demon", card["aliases"])
 
     def test_shot_planner_multi_beat_punchin(self):
