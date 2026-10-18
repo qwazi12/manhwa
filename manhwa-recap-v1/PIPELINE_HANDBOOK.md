@@ -1363,3 +1363,16 @@ stays off. The next independent repair/prototype is Unicode-safe identity lookup
 and read-only Series/Episode projection fixtures; never re-key historical canon
 or adopt unverified caches implicitly. Source/app access findings and the missing
 resource video are documented in the design, not disguised as integrations.
+
+## E30. Isolated Chapter 34 staging preparation (not deployed, 2026-10-18)
+
+`deploy/staging/prepare.py` prepares a committed feature snapshot with separate
+SQLite/project/media/HOME storage and private auth. It can build without launching;
+launch requires explicit owner approval. See `deploy/staging/README.md` and
+`docs/FLAMINGO_CH34_STAGING_TEST.md` for exact commands, proposed resources and
+stage evidence. The profile blocks paid Python network calls and real publishing,
+accounts and automatic jobs; no provider credentials are inherited. Next refuses
+any staging backend except the explicit loopback address and requires auth.
+This is an application boundary, not an OS network sandbox. Its paid processing
+profile and labeled queue simulation are not implemented. No stage of the actual
+Chapter 34 run has happened; do not present regression fixtures as its outputs.
