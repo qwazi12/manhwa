@@ -166,17 +166,19 @@ def main():
     # parity with the HyperFrames CLI, when it is installed (skipped in CI
     # images without node/chrome — the checks above still pin the contract)
     if os.path.exists(os.path.join(RECAP, "hyperframes", "node_modules", ".bin", "hyperframes")):
-        rs.RENDERER = "hyperframes"
         rs.ensure_project()
-        hf_clip = rs.render_segment(dict(normal, seg_index=10), audio)
-        rs.RENDERER = "ffmpeg"
-        ff_clip = rs.render_segment(dict(normal, seg_index=11), audio)
-        log = os.path.join(tmp, "ssim.log")
-        subprocess.run(["ffmpeg", "-v", "error", "-i", hf_clip, "-i", ff_clip, "-lavfi",
-                        f"[0:v][1:v]ssim=stats_file={log}", "-f", "null", "-"], check=True)
-        vals = [float(re.search(r"All:([0-9.]+)", l).group(1)) for l in open(log)]
-        check(f"frame parity with HyperFrames on every frame (min SSIM {min(vals):.3f} >= 0.95)",
-              min(vals) >= 0.95)
+        for n, (label, sample) in enumerate((("normal", normal), ("rotated", dict(normal, rotation_deg=90)))):
+            rs.RENDERER = "hyperframes"
+            hf_clip = rs.render_segment(dict(sample, seg_index=10 + 4 * n), audio)
+            rs.RENDERER = "ffmpeg"
+            # Same parity/id-dependent motion, separate output filenames.
+            ff_clip = rs.render_segment(dict(sample, seg_index=12 + 4 * n), audio)
+            log = os.path.join(tmp, f"ssim-{label}.log")
+            subprocess.run(["ffmpeg", "-v", "error", "-i", hf_clip, "-i", ff_clip, "-lavfi",
+                            f"[0:v][1:v]ssim=stats_file={log}", "-f", "null", "-"], check=True)
+            vals = [float(re.search(r"All:([0-9.]+)", l).group(1)) for l in open(log)]
+            check(f"{label} frame parity with HyperFrames on every frame (min SSIM {min(vals):.3f} >= 0.95)",
+                  min(vals) >= 0.95)
     else:
         print("SKIP parity check: hyperframes CLI not installed here")
 

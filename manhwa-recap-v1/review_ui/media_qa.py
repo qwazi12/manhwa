@@ -130,6 +130,8 @@ def input_manifest(pdir, context):
         segs.append({k: s.get(k) for k in ("seg_index", "panel_id", "start", "end", "dur",
                                          "crop_bbox_norm", "silent_hold", "intentional_pause")})
         segs[-1].update(panel=_asset(s.get("panel_file")), beats=beats)
+        if s.get("rotation_deg", 0):
+            segs[-1]["rotation_deg"] = s["rotation_deg"]
     return {"kind": "chapter", "segments": segs,
             "speed": context.get("speed", 1.0),
             "cards": [{"role": c["role"], "asset": _asset(c["path"])} for c in context.get("cards", [])],
@@ -139,6 +141,7 @@ def input_manifest(pdir, context):
             "renderer_code": {name: file_digest(Path(RECAP) / "hyperframes" / name)
                               for name in ("render_segments.py", "fast_render.py")},
             "assembly_code": file_digest(Path(RECAP) / "media_concat.py"),
+            "framing_code": file_digest(Path(RECAP) / "panel_framing.py"),
             "renderer": {k: os.environ.get(k, "") for k in
                          ("RENDERER", "RENDER_FPS", "FAST_RENDER_CRF", "FAST_RENDER_PRESET", "EXPORT_LUFS")}}
 

@@ -34,6 +34,7 @@ RECAP = os.path.abspath(os.path.join(HERE, ".."))
 if RECAP not in sys.path:
     sys.path.insert(0, RECAP)
 from audio_paths import beat_audio_path, beat_audio_asset
+import panel_framing
 PROJ = os.path.abspath(os.path.join(HERE, "..", "..")) # ROOT
 PANELS_SUBDIR = os.environ.get("HF_PANELS_DIR", "panel-split/review_crops")
 DESCRIPTIONS_FILE = os.environ.get("HF_DESCRIPTIONS", "panel-describe/descriptions.json")
@@ -48,7 +49,7 @@ W, H = 1920, 1080
 # stamped with an older epoch as needing a re-render — otherwise a renderer
 # upgrade silently ships old-looking clips, because the render step only
 # ever rebuilt clips whose FILE was missing (Session 23 finding).
-RENDER_EPOCH = 3
+RENDER_EPOCH = 4
 
 
 # ------------------------------------------------------- the renderer binary
@@ -173,7 +174,7 @@ def _png_size(path):
 # scroll-pans top->bottom instead of sitting as one unreadably small card.
 # Lowered 3.0 -> 2.2 (Session 23 video review): panels between 2.2 and 3.0
 # were rendering as ~1/3-width cards with unreadable dialogue.
-TALL_AR = 2.2
+TALL_AR = panel_framing.TALL_AR
 
 # Slack before audio counts as falling outside its window.
 # 0.15s ~= 6 mp3 frames (1152 samples @44.1kHz = 26.1ms each). _slice_mp3
@@ -203,7 +204,8 @@ def card_regime(seg, png_path):
     from shot_planner import is_sub_crop, normalize_crop
     crop = normalize_crop(seg.get("crop_bbox_norm"))
     has_crop = is_sub_crop(crop)
-    pw, ph = _png_size(png_path)
+    geom = panel_framing.geometry(png_path, panel_framing.rotation(seg))
+    pw, ph = (geom["width"], geom["height"]) if geom else (None, None)
     if not (pw and ph) and seg.get("panel_file"):
         pw, ph = _png_size(seg["panel_file"])
     if not (pw and ph):
@@ -254,7 +256,7 @@ def seg_html(seg, audio_dir):
       - normal panel: aspect-fit card, Ken Burns
     """
     pid = seg["panel_id"]
-    src = f"assets/{pid}.png"
+    src = f"assets/{panel_framing.asset_name(seg)}"
     dur = seg["dur"]
     # V8 (Session 23 review): a single fixed 3.5% Ken Burns for every segment
     # read as monotonous over 9 minutes. Amplitude now scales INVERSELY with
@@ -273,7 +275,10 @@ def seg_html(seg, audio_dir):
     # tall strips as ~18%-frame-width cards. is_sub_crop() is the shared test,
     # also used by the editor preview, so board and video agree.
     # stage_assets() has already copied the panel into ASSETS by this point.
-    crop, has_crop, tall, pw, ph = card_regime(seg, os.path.join(ASSETS, f"{pid}.png"))
+    raw_src = _panel_src(seg)
+    if not os.path.exists(raw_src):
+        raw_src = os.path.join(ASSETS, f"{pid}.png")
+    crop, has_crop, tall, pw, ph = card_regime(seg, raw_src)
     from shot_planner import get_crop_layout   # card_regime put RECAP on the path
 
     if has_crop:
@@ -374,7 +379,16 @@ def stage_assets(seg, audio_dir):
     Kept separate from rendering so parallel mode (E6) can stage everything
     serially first — no concurrent writes to the same asset path."""
     pid = seg["panel_id"]
-    copy(_panel_src(seg), os.path.join(ASSETS, f"{pid}.png"))
+    src = _panel_src(seg)
+    dst = os.path.join(ASSETS, panel_framing.asset_name(seg))
+    deg = panel_framing.rotation(seg)
+    geom = panel_framing.geometry(src, deg)
+    if deg or (geom and geom["exif_orientation"] != 1):
+        tmp = f"{dst}.{os.getpid()}.{threading.get_ident()}.tmp"
+        panel_framing.load_image(src, deg).save(tmp, format="PNG")
+        os.replace(tmp, dst)
+    else:
+        copy(src, dst)
     for _b, fname, a, _off, _dur in audio_plan(seg, audio_dir):
         dst = os.path.join(ASSETS, fname)
         os.makedirs(os.path.dirname(dst), exist_ok=True)

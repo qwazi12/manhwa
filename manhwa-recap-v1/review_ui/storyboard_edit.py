@@ -986,8 +986,8 @@ def assign_panel(pdir, si, panel_id, descs, move_here=False):
     seg["user_assigned"] = True
     # the planned sub-crop belonged to the OLD panel — it cannot survive a
     # move to different artwork; drop it so the renderer frames the new panel.
-    seg.pop("crop", None)
-    seg.pop("crop_box", None)
+    if old != panel_id:
+        panel_framing.clear_picture_edits(seg)
 
     if move_here:
         # reading order = the order panels appear in descriptions.json
@@ -1135,6 +1135,7 @@ _RECAP_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file
 if _RECAP_DIR not in _sys.path:
     _sys.path.insert(0, _RECAP_DIR)
 from shot_planner import crop_area, crop_status          # noqa: E402
+import panel_framing
 from audio_paths import beat_audio_path
 
 # Slack before audio counts as falling outside its window.
@@ -1203,6 +1204,25 @@ def restore_ai_crop(pdir, si):
 
 
 # --------------------------------------------------- P1: repair swapped slices
+def set_rotation(pdir, si, degrees):
+    """Reviewer turn, not an aspect-ratio guess. Original art/audio stay intact."""
+    panel_framing.rotation({"rotation_deg": degrees})
+    segs = load(pdir)
+    s = segs[_pos(segs, si)]
+    old_rotation = s.get("rotation_deg", 0)
+    if type(old_rotation) is int and old_rotation == degrees:
+        return segs
+    before = {k: s.get(k) for k in ("rotation_deg", "crop_bbox_norm", "crop_bbox_norm_ai")}
+    panel_framing.clear_picture_edits(s)
+    s["rotation_deg"] = degrees
+    s["focus_source"] = "manual_orientation"
+    s["focus_reason"] = "reviewer orientation; crop reset to the whole oriented picture"
+    save(pdir, segs)
+    _stale(pdir, [si])
+    _log(pdir, "set_rotation", seg=si, degrees=degrees, before=before)
+    return segs
+
+
 def _misfit(seg, beats):
     """Seconds of `beats` audio falling outside seg's window (0.0 == clean)."""
     out = 0.0
@@ -1602,6 +1622,12 @@ def validate_timeline(pdir, segs=None):
                                           f"the same moment ({ob_f} and {fname}); the "
                                           f"sentence would play over itself"})
             seen.append((b["index"], fname, b["start"], b["end"]))
+        if s.get("user_included", not s.get("silent_hold", False)):
+            try:
+                frame = panel_framing.inspect(s)
+                warnings.extend({"seg": si, **f} for f in frame["findings"])
+            except ValueError as exc:
+                errors.append({"seg": si, "rule": "F4-invalid-rotation", "msg": str(exc)})
         cs = crop_status(s.get("crop_bbox_norm"))
         if cs == "invalid":
             warnings.append({"seg": si, "rule": "C1-invalid-crop",
@@ -1636,7 +1662,9 @@ def pacing_warnings(segs):
         k = 0
         while k < len(run):                       # same shot = same panel AND same crop
             m = k
-            while m + 1 < len(run) and run[m + 1].get("crop_bbox_norm") == run[k].get("crop_bbox_norm"):
+            while (m + 1 < len(run)
+                   and run[m + 1].get("crop_bbox_norm") == run[k].get("crop_bbox_norm")
+                   and run[m + 1].get("rotation_deg", 0) == run[k].get("rotation_deg", 0)):
                 m += 1
             shot = sum(float(x.get("dur") or 0) for x in run[k:m + 1])
             if shot > HOLD_CAP:

@@ -33,16 +33,13 @@ PAD = 150                            # sprite margin that holds the shadow
 ENTRANCE = 0.4                       # tl.from("#card", {opacity:0, scale:.94})
 
 
-def _read_bgr(path):
-    img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-    if img is None:
-        raise RuntimeError(f"cannot read panel image {path}")
-    if img.ndim == 2:
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    if img.shape[2] == 4:            # transparent PNG -> on the card's white
-        a = img[:, :, 3:4].astype(np.float32) / 255.0
-        img = (img[:, :, :3] * a + 255.0 * (1 - a)).astype(np.uint8)
-    return img
+def _read_bgr(path, degrees=0):
+    import panel_framing
+    rgba = panel_framing.load_image(path, degrees).convert("RGBA")
+    img = np.asarray(rgba)
+    a = img[:, :, 3:4].astype(np.float32) / 255.0
+    rgb = (img[:, :, :3] * a + 255.0 * (1 - a)).astype(np.uint8)
+    return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
 
 def _background(img):
@@ -223,7 +220,8 @@ def render_frames(img, seg, crop, tall):
 def render(seg, panel_path, audio_plan, dst, crop=None, tall=False):
     """Render one segment to dst. audio_plan: [(mp3_path, offset_s), ...],
     already checked against the window by render_segments.audio_plan()."""
-    img = _read_bgr(panel_path)
+    import panel_framing
+    img = _read_bgr(panel_path, panel_framing.rotation(seg))
     dur = float(seg["dur"])
     n = max(1, math.ceil(dur * FPS - 1e-6))
     vdur = n / FPS
