@@ -1,4 +1,4 @@
-"""Approve applies the current studio voice; exports play at 1.25x (owner,
+"""Approve applies the current studio voice; exports play at 1.15x (owner,
 2026-10-04). Real (silent) MP3s so the timeline measures real lengths; TTS is
 faked; temp projects root. No network, no money."""
 import json
@@ -126,7 +126,7 @@ def main():
         server.JOBS.pop("t1", None)
 
     import studio_settings
-    check("exports default to 1.25x (studio setting)", studio_settings.DEFAULTS["export_speed"] == 1.25)
+    check("exports default to 1.15x (studio setting)", studio_settings.DEFAULTS["export_speed"] == 1.15)
     src = open(os.path.join(HERE, "server.py"), encoding="utf-8").read()
     check("approve-and-render exports at EXPORT_SPEED and applies the voice first",
           "speed = _studio.export_speed()" in src and "res = _do_export(speed)" in src

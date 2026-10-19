@@ -151,7 +151,7 @@ function Export({ d, reload }: any) {
   return (
     <Card title="Video export">
       <label className="field">Speed<select id="speed" value={speed} disabled={d.export.env_override} onChange={(e) => setSpeed(Number(e.target.value))}>
-        {[1.0, 1.1, 1.25, 1.5].map((v) => <option key={v} value={v}>{v}×</option>)}</select></label>
+        {[1.0, 1.1, 1.15, 1.25, 1.5].map((v) => <option key={v} value={v}>{v}×</option>)}</select></label>
       <Busy className="sm primary" disabled={d.export.env_override} onClick={() => act(async () => { await api("/api/settings", { export_speed: Number(speed) }); reload(); }, "Saved")}>Save</Busy>
       <p className="small muted">{d.export.env_override ? "Set by the EXPORT_SPEED variable on Railway." : "Every export is also levelled to −14 LUFS, the loudness YouTube plays at."}</p>
     </Card>
