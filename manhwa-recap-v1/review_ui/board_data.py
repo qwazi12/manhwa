@@ -15,8 +15,9 @@ import os
 import re
 
 from shot_planner import crop_area, crop_status, is_sub_crop
+import panel_framing
 
-TALL_AR = 2.2          # must match render_segments.TALL_AR
+TALL_AR = panel_framing.TALL_AR
 LONG_HOLD = 12.0
 
 
@@ -64,7 +65,13 @@ def build(pdir, review, junk_reason=None):
         box = s.get("crop_bbox_norm")
         cst = crop_status(box)
         d = next((x for x in descs if x.get("panel_id") == s["panel_id"]), {}) or {}
-        w, h = d.get("width") or 0, d.get("height") or 0
+        try:
+            framing = panel_framing.inspect(s)
+        except ValueError as exc:
+            framing = {"rotation_deg": -1, "geometry": None, "regime": "unknown",
+                       "findings": [{"rule": "F4-invalid-rotation", "msg": str(exc)}]}
+        geom = framing["geometry"] or {}
+        w, h = geom.get("width") or d.get("width") or 0, geom.get("height") or d.get("height") or 0
         ar = h / max(w, 1)
         silent = bool(s.get("silent_hold") or not s.get("beats"))
         motion = ("silent hold" if silent else "planned crop + Ken Burns" if is_sub_crop(box)
@@ -78,7 +85,9 @@ def build(pdir, review, junk_reason=None):
                "crop": {"status": cst, "keeps": round(crop_area(box) * 100) if cst == "sub" else None,
                         "full_override": s.get("focus_source") == "manual_full",
                         "restorable": s.get("crop_bbox_norm_ai") is not None},
-               "flags": [], "clip": s.get("clip")}
+               "framing": framing, "flags": [], "clip": s.get("clip")}
+        if framing["findings"]:
+            row["flags"].append("check framing")
         if row["dur"] > LONG_HOLD:
             row["flags"].append("long hold")
         if ar >= TALL_AR and not is_sub_crop(box):

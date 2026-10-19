@@ -4,6 +4,8 @@ October 18, 2026. The current Next.js studio at https://manhwa.nodepilot.dev/ ru
 
 ## Where the product stands
 
+Latest owner feedback: the5:50 test is over-condensed and uses Charon with a restrained project style rather than the energetic studio default. Further editorial revision is needed. A shared orientation/framing preflight, reversible current-board turns and stale-crop swap repair are implemented with offline regressions on a separate feature branch, **not deployed**. [Details and the expanded episode brief](FLAMINGO_ORIENTATION_AND_DELIVERY.md).
+
 Flamingo has an operational production pipeline and creator studio: source ingestion, panel processing, OCR/descriptions, Bible-assisted writing, voice, matching, storyboard editing, rendering, packaging and approval/scheduling infrastructure already exist. M1/M2 and safe M3 repairs strengthen that pipeline and are deployed. The target of a coordinated television production company with one verified Series/Episode Intelligence layer is still partly architectural work. Current AI output needs editorial review; a source link or a passing structural test is not proof of story completeness or creative quality.
 
 There is no defensible single completion percentage: the pipeline exists, operational safety has improved, and major intelligence/creative-evaluation capabilities remain unfinished.

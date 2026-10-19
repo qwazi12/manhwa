@@ -4,6 +4,8 @@ October 18, 2026, America/New_York. The owner requested pacing, name consistency
 
 [Watch the revised test in the current studio](https://manhwa.nodepilot.dev/chapter/a-regressors-tale-of-cultivation_34-liveqa-1018-edit1?tab=video).
 
+**Owner follow-up:** the shorter test is good but too condensed. Its Charon recordings use the restrained project style, not the saved Energetic recap host style. Technical completion below does not mean creative acceptance. [Delivery/orientation findings and the next edit specification](FLAMINGO_ORIENTATION_AND_DELIVERY.md) record this correction and the reviewable framing implementation; no replacement MP4 has been generated in that follow-up.
+
 ## Result
 
 | Item | Earlier live QA | Revised test |

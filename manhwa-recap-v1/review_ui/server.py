@@ -325,7 +325,9 @@ def seg_crop_rect(seg):
         return None
     if not sp.is_sub_crop(seg.get("crop_bbox_norm")):
         return None                       # full-frame box == no crop (P4)
-    w, h = _panel_px_size(src)
+    import panel_framing
+    geom = panel_framing.geometry(src, panel_framing.rotation(seg))
+    w, h = (geom["width"], geom["height"]) if geom else (None, None)
     if not (w and h):                     # unreadable header -> trust the manifest
         w, h = seg.get("width"), seg.get("height")
     return sp.crop_rect_px(seg.get("crop_bbox_norm"), w, h)
@@ -336,7 +338,14 @@ def _thumb_key(seg):
     swap or a re-planned crop can never keep serving the old thumbnail."""
     import hashlib
     rect = seg_crop_rect(seg)
-    sig = f"{seg.get('panel_id')}|{rect or 'full'}"
+    import panel_framing
+    src = seg.get("panel_file")
+    try:
+        st = os.stat(src)
+        revision = (st.st_size, st.st_mtime_ns)
+    except (OSError, TypeError):
+        revision = None
+    sig = f"{seg.get('panel_id')}|{rect or 'full'}|{panel_framing.rotation(seg)}|{revision}"
     return hashlib.md5(sig.encode()).hexdigest()[:8]
 
 
@@ -368,24 +377,26 @@ def ensure_thumb(seg, pdir=None):
     src = seg.get("panel_file")
     if not src or not os.path.exists(src):
         return None
-    rect = seg_crop_rect(seg)
-    vf = "scale=200:-1"
-    if rect:
-        x, y, w, h = rect
-        vf = f"crop={w}:{h}:{x}:{y},scale=200:-1"
     try:
-        subprocess.run(["ffmpeg", "-y", "-i", src, "-vf", vf,
-                        "-frames:v", "1", out], check=True, capture_output=True)
+        from PIL import Image
+        im = _framed_panel(seg).convert("RGBA")
+        bg = Image.new("RGB", im.size, "white")
+        bg.paste(im, mask=im.getchannel("A"))
+        bg.resize((200, max(1, round(200 * bg.height / bg.width))), Image.Resampling.LANCZOS).save(out)
         return out
     except Exception:
-        if not rect:
-            return None
-        try:                              # crop failed -> never show nothing
-            subprocess.run(["ffmpeg", "-y", "-i", src, "-vf", "scale=200:-1",
-                            "-frames:v", "1", out], check=True, capture_output=True)
-            return out
-        except Exception:
-            return None
+        return None
+
+
+def _framed_panel(seg):
+    """Same EXIF → reviewer rotation → crop order as both renderers."""
+    import panel_framing
+    im = panel_framing.load_image(seg["panel_file"], panel_framing.rotation(seg))
+    rect = seg_crop_rect(seg)
+    if rect:
+        x, y, w, h = rect
+        im = im.crop((x, y, x + w, y + h))
+    return im
 
 
 # ---------------------------------------------------------------- routes
@@ -719,6 +730,8 @@ def cut_signature(segs=None, pdir=None):
         parts.append("|".join([
             str(s.get("seg_index")), f"{float(s.get('dur', 0)):.3f}",
             str(s.get("panel_id")), str(s.get("crop_bbox_norm")), beats]))
+        if s.get("rotation_deg", 0):
+            parts[-1] += f"|rotation:{s['rotation_deg']}"
     return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:12]
 
 
@@ -5255,20 +5268,19 @@ def segimg(seg_index: int, full: int = 0, project: str = ""):
     src = seg.get("panel_file")
     if not src or not os.path.exists(src):
         raise HTTPException(404, "panel image not found")
+    import panel_framing
+    geom = panel_framing.geometry(src)
     rect = None if full else seg_crop_rect(seg)
-    if not rect:
+    if full or (not rect and not panel_framing.rotation(seg) and (not geom or geom["exif_orientation"] == 1)):
         return FileResponse(src, media_type="image/png")
-    x, y, w, h = rect
     c_dir = os.path.join(pdir, "thumbnails")
     os.makedirs(c_dir, exist_ok=True)
     out = os.path.join(c_dir, f"crop_{seg_index:03d}_{_thumb_key(seg)}.png")
     if not os.path.exists(out):
         try:
-            subprocess.run(["ffmpeg", "-y", "-i", src, "-vf",
-                            f"crop={w}:{h}:{x}:{y}", "-frames:v", "1", out],
-                           check=True, capture_output=True)
-        except Exception:
-            return FileResponse(src, media_type="image/png")   # safe fallback
+            _framed_panel(seg).save(out, format="PNG")
+        except Exception as exc:
+            raise HTTPException(422, "picture framing could not be prepared") from exc
     return FileResponse(out, media_type="image/png")
 
 
@@ -5286,6 +5298,9 @@ def swap_panel(seg_index: int, body: SwapIn):
     if not os.path.exists(new_path):
         raise HTTPException(400, f"panel {body.panel_id} not found")
     _snapshot()
+    if seg["panel_id"] != body.panel_id:
+        import panel_framing
+        panel_framing.clear_picture_edits(seg)
     seg["panel_id"] = body.panel_id
     seg["panel_file"] = new_path
     _write_segments(segs)
@@ -8373,6 +8388,31 @@ class SegOnlyIn(BaseModel):
     seg_index: int
 
 
+class RotationIn(BaseModel):
+    project: str
+    seg_index: int
+    degrees: int
+
+
+@app.post("/api/storyboard/rotation")
+def sb_rotation(body: RotationIn):
+    import storyboard_edit
+    import panel_framing
+    if not body.project:
+        raise HTTPException(400, "choose the chapter whose picture should turn")
+    try:
+        panel_framing.rotation({"rotation_deg": body.degrees})
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if any(x.get("project") == body.project
+           and (x.get("type") == "finalize" or "seg_indices" in x)
+           and x.get("status") in ("running", "queued", "paused", "pausing")
+           for x in list(JOBS.values())):
+        raise HTTPException(409, "wait for this chapter's render to finish before turning a picture")
+    with _bind_project(project_dir_for(body.project)):
+        return _sb_op(storyboard_edit.set_rotation, body.seg_index, body.degrees)
+
+
 @app.post("/api/storyboard/use_full_panel")
 def sb_use_full_panel(body: SegOnlyIn):
     """P3: reviewer overrides a bad planner crop with the whole panel.
@@ -8444,6 +8484,10 @@ def _gate_timeline(seg_indexes, action):
         raise HTTPException(409, f"{action} blocked — {e}")
     want = set(seg_indexes)
     errs = [e for e in v["errors"] if e["seg"] in want]
+    framing = [e for e in errs if e["rule"] == "F4-invalid-rotation"]
+    if framing:
+        detail = "; ".join(f"seg {e['seg']}: {e['msg']}" for e in framing[:6])
+        raise HTTPException(400, f"{action} blocked — {detail}. Choose a valid picture rotation on the board.")
     if errs:
         detail = "; ".join(f"seg {e['seg']}: {e['msg']}" for e in errs[:6])
         raise HTTPException(400,

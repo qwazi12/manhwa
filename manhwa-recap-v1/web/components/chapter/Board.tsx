@@ -116,7 +116,7 @@ export default function Board({ id, onChange, sentBack, builtWith }:
                 onDragLeave={() => setOver((o) => (o === s.seg_index ? null : o))}
                 onDrop={(e) => { e.preventDefault(); if (drag !== null && drag !== s.seg_index) run("/api/storyboard/move", { seg_index: drag, to: pos(s.seg_index) }, "Moved"); setDrag(null); setOver(null); }}
                 style={over === s.seg_index ? { boxShadow: "inset 0 3px 0 var(--blue)" } : undefined}>
-                <SegRow s={s} b={b} stamp={stamp} run={run} canDrag={canDrag}
+                <SegRow s={s} b={b} projectId={id} stamp={stamp} run={run} canDrag={canDrag}
                   onDragStart={() => setDrag(s.seg_index)} onDragEnd={() => { setDrag(null); setOver(null); }}
                   onSwap={() => setSwapFor(s)} index={pos(s.seg_index)} last={segs.length - 1}
                   selected={sel === s.seg_index} editSignal={sel === s.seg_index ? editSignal : 0} />
@@ -131,11 +131,12 @@ export default function Board({ id, onChange, sentBack, builtWith }:
   );
 }
 
-function SegRow({ s, b, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, index, last, selected, editSignal }: any) {
+function SegRow({ s, b, projectId, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, index, last, selected, editSignal }: any) {
   const [edit, setEdit] = useState(false);
   const [texts, setTexts] = useState<Record<number, string>>({});
   const [dur, setDur] = useState(String(s.dur));
   const [menu, setMenu] = useState(false);
+  const [turning, setTurning] = useState(false);
   const [add, setAdd] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => setDur(String(s.dur)), [s.dur]);
@@ -163,6 +164,28 @@ function SegRow({ s, b, stamp, run, canDrag, onDragStart, onDragEnd, onSwap, ind
         {(s.crop.status === "sub" || s.crop.status === "tiny") && <Busy className="sm" onClick={() => run("/api/storyboard/use_full_panel", { seg_index: s.seg_index }, "Whole panel used")}>Use full panel</Busy>}
         {s.crop.restorable && <Busy className="sm ghost" onClick={() => run("/api/storyboard/restore_crop", { seg_index: s.seg_index }, "Crop restored")}>Restore crop</Busy>}
         <a className="small" href={`/segimg/${s.seg_index}?full=1&project=${encodeURIComponent(PROJECT.id)}`} target="_blank" rel="noreferrer">original ↗</a>
+        {s.framing && <details className="small">
+          <summary>Framing & orientation</summary>
+          <label>Picture rotation
+            <select aria-label={`Picture rotation for segment ${s.seg_index}`} value={s.framing.rotation_deg}
+              disabled={!!b.locked || turning}
+              onChange={async (e) => {
+                const degrees = Number(e.target.value);
+                setTurning(true);
+                try { await run("/api/storyboard/rotation", { project: projectId, seg_index: s.seg_index, degrees }, "Picture turned — crop reset; render this shot again"); }
+                finally { setTurning(false); }
+              }}>
+              {s.framing.rotation_deg === -1 && <option value={-1} disabled>Choose a valid rotation</option>}
+              <option value={0}>As source</option>
+              <option value={90}>90° clockwise</option>
+              <option value={180}>180°</option>
+              <option value={270}>90° counterclockwise</option>
+            </select>
+          </label>
+          {s.framing.geometry && <div>{s.framing.geometry.width}×{s.framing.geometry.height} · {s.framing.regime}</div>}
+          <div>Turning resets the crop. Compare the original and preview before rendering.</div>
+          {s.framing.findings.map((x: { rule: string; msg: string }) => <div key={x.rule} className="warn">{x.msg}</div>)}
+        </details>}
       </div>
       <div className="txt">
         <div className="row small">
