@@ -1,56 +1,125 @@
-# Chapter 34 live release, test and editorial review
+# Chapter 34: live release, end-to-end test and editorial review
 
-October18,2026. Owner explicitly authorized push/merge/deployment followed by current-studio live testing. This supersedes the earlier local-only release boundary; it does not authorize publication, Drive uploads, account changes, or resuming the original/cancelled projects.
+October 18, 2026. The owner authorized merging and deployment followed by testing in the current Next studio. The original Chapter 34, its cancelled variant and the four historical Waiting jobs remain protected. Nothing is authorized for publication, scheduling or external upload.
 
-## Release actually completed
+## Delivered release
 
-PR10 merged once with expected head635645964a2f70597f3231e26ea0ba3dcb06150b. Main/release5fec5c7c7b3fb5611f1f925b2a4289aed09f6be6. Railway a07baa62-2277-4f0f-a09d-b88b94a5e02c SUCCESS/Online1of1/zeroalerts; health200. Vercel dpl_2uysdSFBRdPrqC4i9HDco3f9WBwd Ready/Production, exact-commit CLI filter, canonicalaliasmanhwa.nodepilot.dev.
+[PR 10](https://github.com/qwazi12/manhwa/pull/10) merged once at expected head `635645964a2f70597f3231e26ea0ba3dcb06150b`. Production release: `5fec5c7c7b3fb5611f1f925b2a4289aed09f6be6`.
 
-Validation:262Python regressions,419checks across12script suites,28isolation checks,TypeScript and Next build passed. The script expansion initially exposed invalid placeholder cards for empty-URL metadata; fixed and the actual export-swap6/6passes, then262pytest reran successfully. Synthetic60shot AAC test verifies frame/soundtrack spans, correspondence at every join, immutable inputs and failure preservation.
+- Railway deployment `a07baa62-2277-4f0f-a09d-b88b94a5e02c`: SUCCESS, Online 1/1, no critical alerts or warnings, backend health HTTP 200.
+- Vercel deployment `dpl_2uysdSFBRdPrqC4i9HDco3f9WBwd`: Ready / Production, exact commit verified, canonical alias `manhwa.nodepilot.dev`. Settings visibly reports deploy `5fec5c7`.
+- Validation: **262 Python tests**, **419 checks across 12 relevant script suites**, **28 isolated-runner regressions**, TypeScript and a Next production build passed. Expanded export tests first exposed an empty-URL placeholder-card bug; it was fixed, the six export-swap checks passed, and the integrated Python suite passed again. Initial failures remain private evidence.
 
-Fresh pre/post-release gates:9protected jobs,153original/cancelled Chapter34files,3settings/queuefiles retain exactSHA. Jobsbar empty/running0, same4historical Waiting IDs,cancelledc5b1067541f1unchanged. LiveSQLite/current compressed startup backup each integrityok/FK0/72projects; restored independently in temp/rawSHA314cf3dda3a9f5436c2b650e3362dee4f29b061301aa56966a5060824111d626.18:08Eastern17.54GBvolume restore point available; full-volume restore drill/automaticvolume schedule remain unperformed.
+The release repairs AAC assembly, excludes only intentionally omitted credits/fragments from missing-description requirements, and adds a tested QA-only project policy. The synthetic 60-shot regression verifies every soundtrack boundary, zero video start, immutable inputs, unsupported-stream refusal and preservation of the prior output on failure.
 
-## What the failed findings mean
+## What the earlier failure actually meant
 
-The old local export repeated AAC encoder priming/padding across independently encoded shots. Near the end, the expected voice schedule and actual soundtrack differed by about2.1seconds. This caused1duration failure and74correspondence warnings; they are not evidence of74separate missing voice files. All76source voices existed. Diagnostic mode describes enforcement policy, not a creative-quality pass. The release fixes assembly rather than suppressing findings or loosening thresholds. The old MP4/report are preserved in a private321file snapshot.
+The earlier local MP4 repeated AAC encoder priming/padding across independently encoded shots. Near the end, the soundtrack and expected voice schedule differed by about 2.1 seconds. This produced one duration failure and 74 correspondence findings; it did not mean 74 source voices were absent. All 76 voice files existed. Full decoding passed, but timing did not.
 
-The five missing-description findings were for excluded credit/fragments. The repaired validator skips that specific non-story/excluded case; included panels and missing art/bubble descriptions remain reportable. Semantic speech recognition was not run, thresholds remain uncalibrated, and production enforcement remains off.
+The deployed assembler copies encoded pictures, decodes each shot soundtrack independently to its exact video-frame span, and encodes the final AAC track once. It fixes the measured cause rather than suppressing warnings or relaxing thresholds. The original local MP4 and a 321-file snapshot remain preserved privately.
 
-## Live test scope and current state
+“Diagnostic mode” explains whether findings block approval; it is not a quality verdict. Signal checks do not establish correct spoken words. Semantic speech QA remains unrun, real-media thresholds remain uncalibrated and global `MEDIA_QA_ENFORCE` remains 0.
 
-Current Next studio: https://manhwa.nodepilot.dev/chapter/a-regressors-tale-of-cultivation_34-liveqa-1018
-New ingest job1d7130aa8d65; no old job resumed. Marker .flamingo-qa-only created before ingestion. Actual live review-approval probe returned403 without creating a review record. A visible banner identifies this test. Marker blocks approval/scheduling, queue admission, publishing readiness and both Drive workers, independently of globalMEDIA_QA_ENFORCE. Existing production account/settings destinations remain unchanged. NarratorCharon uses a project-specific restrained dramatic style; explicitGemini engine, fresh source, monitored$5estimated test allowance. Production daily cap remains$7, baseline$0.406672; no cap changed.
+## Live test and isolation
 
-**Ingestion currently running. No completed live MP4 or final live-QA pass is claimed yet.** Update this section with actual generation, rendering, QA, playback, packaging and preservation evidence.
+[Open the new Chapter 34 test in the current studio](https://manhwa.nodepilot.dev/chapter/a-regressors-tale-of-cultivation_34-liveqa-1018).
 
-## Research audit: what was actually used
+Only project `a-regressors-tale-of-cultivation_34-liveqa-1018` was created. Ingest job: `1d7130aa8d65`. Render queue item: `3ef35e35e6`; render job: `056807065695`. No old job was resumed. The idle local test runner was stopped and its browser tab closed; its files remain available.
 
-The earlier local isolated test had no Series Bible loaded. It generated from chapter panel descriptions/OCR, then created SEO afterward. Its SEO included22returned grounding citation entries but their redirect targets were blocked/unverified;0channel uploads and0comparable videos measured. It was not an externally validated audience brief.
+The `.flamingo-qa-only` marker existed before ingestion. The studio visibly labels this test. An actual live approval probe returned HTTP 403 before a review record could be created. The policy blocks approval, posting-queue admission, publishing readiness and both Drive worker paths, independently of diagnostic media enforcement. Production accounts, destinations and automation settings were not changed.
 
-Production does have existing research: a9character Bible and series pack, with25stored grounding citations and anOctober11,20:53Eastern pack update. Queries targeted series/author/publisher listings, Korean title, MangaUpdates, fandom characters and YouTube recaps. Alias-keyed SEO caches contain23and27source entries. Counts represent stored citations, not independently verified facts or distinct useful audience measurements. Some character roles/aliases contain novel-wide future information; the storedMakliWangshin spelling differs from this chapter translation'sHwangshin. Episode cutoff/provenance review matters before using that research as canon.
+The test uses a project-specific Charon narrator with restrained dramatic direction. Its approved estimated generation allowance is $5, monitored against a production baseline of $0.406672. The production daily cap remains $7. Recorded new generation and packaging increment: **$1.0151**; the prior isolated test cost approximately $0.93. These are estimates rather than provider-invoice totals.
 
-A new targeted official check during this repair (not during original generation) opened https://m.comic.naver.com/webtoon/list?titleId=839827 . It lists the Korean series, creators김무현/엄청난 and martial-arts/historical category; current34entry is behind the paid preview flow and was not accessed or purchased. Search snippets showed an older25episode listing while the opened page showed34, illustrating why dates/retrievals matter. This does not validate the aggregator chapter-number equivalence or every cast/story claim. No new broad Investigator, paidvidIQgeneration/scoring or connected-account changes were performed.
+## Stage evidence
 
-## Candid critique of the earlier observed episode
+| Stage | Observed result | Limits or findings |
+|---|---|---|
+| Ingestion | 21 source pages downloaded from the supplied Chapter 34 URL | Aggregator numbering has not been proven equivalent to the official publisher's paid-preview numbering |
+| Panels / descriptions | 95 records: 78 art, 8 bubble, 3 credits, 6 fragment | One additional thin decorative border was misclassified as art; see image finding below |
+| OCR / dialogue | Typed source text and source-line references are visible with storyboard beats | Available references are not proof every source event was understood or covered |
+| Series context | Actual project Bible contains 9 existing cast records | Four existing name disputes and future novel information require review |
+| Script | 1,581 words; valid model review completed with 0 issues / 0 rewrites | Human inspection found repeated title, name inconsistency and repetitive action prose |
+| Narration | 78 Charon voice lines prepared | Restrained direction lengthened the raw 769.5-second schedule; performance and delivery need direct media review |
+| Matching | 80 segments, source-linked beat/panel/text evidence | 12 raw holds exceed 12 seconds; maximum 16.954 seconds |
+| Render / MP4 | Complete: 228,109,843 bytes, 1920×1080, 30 fps, H.264/AAC; player advances without error | Actual duration 703.700 seconds (11:43), not the raw storyboard runtime shown elsewhere |
+| SEO / thumbnail | Four title suggestions, description/tags and five thumbnail concepts prepared; selected 1280×720 JPEG | Inherited metadata was wrong for this chapter; corrected only this test export, preserving automatic output privately |
 
-It is a functional narrated comic cut, not the high-quality television-episode standard requested. The script eventually has a clear rescue dilemma and cliffhanger, but it delays its explanation and describes repeated surface action instead of building the episode around choices/consequences. In the old delivered schedule, Younghoon's explanation arrives around2:15, thethirteenth-star disclosure3:36, thecannot-dodge dilemma5:44,thecounterattack6:01,andthebarrier6:50. These are schedule references, with the measured drift noted above.
+Two current storyboard findings remain unsuppressed: a high-severity image finding on `page011_panel_001`, and a medium pacing finding for two beats sharing `page010_panel_006` for 16.17 seconds. Direct inspection confirms the first is a 437×69 decorative hatching border, not a meaningful scene. It is incorrectly used under “Ash drifted across the freezing courtyard, leaving Eunhyun alone to anchor the line.” The validator is correctly exposing an upstream classification/matching problem.
 
-The opening spends too much time on interchangeableblood/blast/reaction descriptions; vivid words repeatedly substitute for new information. The title card names the series, but the spoken opening supplies little orientation. The model returned a validclean8/8critique despite these weaknesses. A good revision would establishwho/where/what is at stake early, compress repeated spectacle, preserve the possession/power-level distinction, build thechoice to protectYounghoon, give the successful block a beat to land, and end on the barrier changing the escape plan. Do not invent a victory or later-chapter outcome.
+## Candid story and episode critique
 
-The visual treatment repeats a centered panel/blurred background with similar entrance motions. This can be readable, but it is not scene-aware direction and some tall art becomes small. Restrained voice direction, intentional pauses and framing around the current speaker/action would help. Technical timing, factual coverage, pacing and artistic quality require separate judgments.
+**The observed script and board do not meet the requested television-production standard.** A functional rendered comic recap and a valid automated critique are useful, but they do not establish a well-directed episode.
 
-## Packaging critique and proposed correction
+The live opening repeats effectively the same series name as its own alternate title. It spends many beats on interchangeable blood, blasts, gore and frightened reactions before explaining who is protecting whom. It changes from Makli Hwangshin to Makli Wangshin in the middle and later changes back. The writer loaded a Bible containing a different spelling from this translation; shared context loading alone did not enforce consistent terminology.
 
-Old automatictitleANCIENTMONSTERAwakens uses a generic threat. AlternativeWipesThemOut overstates the verified result. Testvariant leaked into title/description/chapterbadge. The description summarizes mostly theopening instead of the full dramatic premise. Genericextracted character termsRefining/Core and unsupported dungeon/system genres show why keyword guesses are not shared intelligence.80/100confidence is heuristic, not observedCTR or verified demand.
+The dramatic spine is present: possession after apparent defeat, a weakened body with an experienced enemy's dangerous power, Young-hoon needing evacuation, Eunhyun refusing to retreat, the twenty-second sword form cutting the attack, and a barrier closing the escape route. That is the episode the editing should foreground. The present cut delays the rescue stakes, repeats spectacle and gives too many panels similar dramatic emphasis.
 
-The selected old thumbnail used a surprised bystander beneathANCIENTMONSTER, with a cut-off upper face and crowded lower face. Its internalwhy called ittheMCdespiteface_is_mc=false. Full-size text was legible; the promise/focal evidence was weak. Five concepts and1280x720/111878bytefile compliance do not establish good packaging.
+Raw board landmarks (before final playback-speed adjustment): possession recognition about 3:23; fifth-star vessel limitation about 4:29; thirteenth-star threat about 5:47; refusing to abandon the evacuation about 9:31; sword-form response about 9:53; barrier realization about 11:30. These are storyboard times, not asserted final MP4 timestamps.
 
-A source-grounded direction for this episode is a title about refusing to retreat while a wounded ally cannot escape, paired with the actual swordsman/loomingattack or finalbarrier, and short complementary text such asNOESCAPE. UseChapter34withoutinternalvariant text. The description should introduce the rescue dilemma, dangerous opponent and escalatingtrap without promising an outcome the chapter does not show. Tags should remain specific series/title variants,Chapter34,cultivation/martialarts and confirmed relevant characters; skip unrelatedsystem/dungeon labels. Final live suggestions, any applied corrections and actual image inspection must be recorded below before claiming them complete.
+A better revision should name the immediate situation concisely, establish the wounded-ally dilemma early, compress repeated blasts, retain the distinction between the fifth-star vessel and the enemy's effective strength, allow the successful counterattack to land, and make the barrier a clear change in the escape plan. It must not invent victory or later-chapter outcomes. Scene-aware framing, pronunciation review and intentional pacing remain necessary. The original 8/8 clean automated critique did not catch these structural shortcomings.
 
+## Research: what existed, what was used, what remains uncertain
 
-### Additional live research evidence
-The current Library card for this exact series reports medium YouTube demand:348median views/day across11matching recaps,5published within90days, and9cast members with4name disputes. Activity records an earlier14:30demand pass over15series using1,515YouTubequota units. Code inspection confirms the series signal is the median of lifetimeviews divided by videoage (minimumoneday), using title/alias-matched results from a capped15result search. It is not observed daily view velocity, total market demand, retention, CTR, or a guarantee that a new video will succeed. This data exists in production but was absent from the earlier isolated SEO comparison. The live test's local Bible copy contains all9existing names, confirming actual context loading rather than assuming it.
+The earlier local test had no Bible loaded. Its writer used chapter descriptions/OCR; SEO was prepared afterward. That SEO returned 22 grounding citation entries, but redirects were blocked/unverified, and it measured no channel uploads or comparable videos. That was not a validated audience brief.
 
-Read-only current-studio smoke loaded Library/15series, Activity, posting Queue and Settings. Settings reports live deploy5fec5c7 and existing connected services/caps; no setting was changed. Live Queue shows2Needsreview,0Ready,19Posted,0Errors, with22:00nextslot. These counts differ from raw persisted queue totals because UI views filter/hide historicalremoved records. Existing automation remains as configured; the QA-onlyproject cannot enter distribution.
+Production has more infrastructure. Its existing series pack contains 25 stored citation entries and was updated October 11 at 20:53 Eastern. Queries covered title/author/publisher listings, Korean title, MangaUpdates, fandom characters and YouTube recaps. Alias-keyed SEO caches contain 23 and 27 entries. Citation counts are not unique verified facts or a measure of audience demand. The current live project demonstrably loaded all 9 cast records. Some Bible roles and titles refer to future novel developments, so episode cutoff and provenance review remain essential.
 
-The idle local3138runner was stopped deliberately after verifying no active localjobs; its tab was closed. The321file originaltest snapshot and original MP4 remain on disk. Canonical live QA tab is the owner-facing result. Whole-track offline ASR of the old MP4 completed using an already-cached model without APIcalls/downloads:1,404of1,479normalized reference words matched in order (~94.9%). Names and some phonetic words differ; ASR is not groundtruth and does not establish correct pronunciation. It supports the diagnosis that the old soundtrack contains the narrative, while timing drift still needs correction.
+The current Library card reports **medium YouTube demand: 348 median views/day across 11 matching recaps, 5 published within 90 days**. Code inspection shows this is the median of lifetime views divided by video age, with a minimum age of one day and a capped 15-result title/alias-matched search. It is not measured current daily velocity, total market demand, retention, CTR or a forecast for this video. Activity records the earlier 14:30 research pass over 15 series using 1,515 YouTube quota units. No new paid vidIQ call or broad external integration was used during this repair.
+
+A targeted official check during this repair opened [Naver's series listing](https://m.comic.naver.com/webtoon/list?titleId=839827). It lists 회귀수선전, creators 김무현 / 엄청난 and a martial-arts/historical category. The current Chapter 34 entry is paid preview; it was not purchased or opened. This check was not part of the original writer's evidence and does not validate aggregator episode equivalence or all story claims.
+
+The External Research Investigator and shared verified Series/Episode Intelligence architecture remain planned work. Existing Bible, research, demand and SEO stores should be connected through reviewed identity, episode events, dates, evidence and uncertainty; they should not be replaced with disconnected generators or duplicate databases.
+
+## Packaging review
+
+The earlier local title “ANCIENT MONSTER Awakens” was generic; “Wipes Them Out” overpromised the episode outcome. Its chapter identity leaked the internal test variant into title/description/badge. The description mostly summarized the opening. Generic extracted tokens such as Refining/Core and unsupported dungeon/system genres weakened the tags. A heuristic 80/100 score is not observed CTR or verified demand.
+
+The earlier selected thumbnail used a surprised bystander, cropped the upper face and crowded the lower face. Its explanation called the face the main character despite `face_is_mc=false`. Five concepts and a compliant 1280×720 JPEG did not establish a strong thumbnail.
+
+A grounded direction is a title about refusing to retreat while a wounded ally cannot escape, paired with the actual swordsman, descending attack or closing barrier. Short complementary text such as “NO ESCAPE” should clarify the dilemma rather than invent an outcome. Use Chapter 34 without the internal test suffix. The description should establish the rescue, opponent and trap; tags should use specific series aliases, relevant confirmed characters and cultivation/martial-arts terms. Global owner-approved series templates and hooks are not being silently changed.
+
+The actual live automatic payload inherited the old series title hook and a Chapter 32–33 description, tags and timestamps. Its new suggestions focused on the opening blood-vortex scene rather than the whole rescue/escape dilemma. The selected cover thumbnail was clear but generic and displayed the internal `liveqa-1018` suffix. The chapter-card alternative cut off the focal face and placed a large badge over it; it was not selected. This is a metadata inheritance and identity problem, not evidence of an episode-aware research plan.
+
+Preserved the complete automatic payload and concepts under this new project's private `owner_review/automatic-packaging/`. Corrected only this export:
+
+- **Title:** He Must Hold the Line | A Regressor's Tale of Cultivation Chapter 34
+- **Description:** the possession, wounded Young-hoon, evacuation, Eunhyun holding the line, sword response and sealing barrier; no invented victory, Chapter 32–33 timestamps or test-suffix text.
+- **Tags:** specific series variants/Korean title, Chapter 34, Seo Eunhyun, Kim Young-hoon, cultivation, murim, martial arts and manhwa recap. Omitted disputed villain spelling and generic rankings.
+- **Thumbnail:** retained the owner's existing cover composition and corrected this concept's badge to CH 34. JPEG 1280×720, 136,995 bytes, no thumbnail-store advisories. This is a clean preview asset, not a validated best-performing episode thumbnail.
+- **Test metadata:** private, no publishing targets, no publish time; the QA-only policy remains in force. No series defaults, approved hook/style, connected account or destination changed.
+
+The current studio displays the corrected fields. The MP4 and thumbnail downloaded successfully. A browser attempt to download the optional upload-package ZIP timed out; ZIP delivery is not claimed verified. No upload was initiated. Title `68/100` is the character counter, while the separate SEO confidence label is a heuristic, not measured CTR.
+
+## Protection and operational checks
+
+Immediately before and after the release, all 9 protected job files, all 153 original/cancelled Chapter 34 files and all 3 queue/settings files retained exact hashes. No work was active at rollout. The normal render queue added one new test entry. Its 40-finished-item retention policy then pruned the oldest completed row, `d7aa2e2454` for I Am the Fated Villain Chapter 361. The final audit caught this. After verifying no active work and that all other old rows were identical, saved the completed QA queue item and post-test queue snapshot under the new project's `owner_review/`, then atomically restored the exact pre-test queue bytes. No job was cancelled or retried. The completed QA video and durable job evidence remain intact. This incident is recorded rather than described as uninterrupted queue preservation. QA render history should be isolated from ordinary retention in a future regression-backed fix.
+
+The four historical Waiting IDs remain `684b271aa3b2`, `97b762094d26`, `e7deae78a155` and `ea244d5ffbb8`: two completed Dark Mage Chapter 105 finalization attempts, a completed Murim Chapter 45 finalization attempt and its historical publishing confirmation. Their historical outcomes were verified under the owner's status exception; labels/files were not rewritten. Cancelled Chapter 34 job `c5b1067541f1` remains cancelled.
+
+The live SQLite database and compressed startup backup passed integrity/FK checks and an isolated temporary restore with 72 projects. Raw restored database SHA: `314cf3dda3a9f5436c2b650e3362dee4f29b061301aa56966a5060824111d626`. Railway's 18:08 Eastern full-volume restore point is available (17.54 GB). A full-volume restore drill and automatic volume-backup schedule remain incomplete; the enabled SQLite backup schedule is separate.
+
+Read-only current-studio smoke loaded Library (15 series), Activity, posting Queue and Settings. Queue showed 2 Needs review, 0 Ready, 19 Posted, 0 Errors; these filtered UI counts differ from raw retained historical records. Existing automation remains as configured. Destructive operations and actual publishing were not exercised live.
+
+## Review-method boundary
+
+The complete live storyboard text and source-linked descriptions were read. The actual live MP4 was downloaded and probed independently: video 703.700 seconds, audio 703.690 seconds, both start at zero. MP4 SHA-256: `bb73f565a9eb7425cf74984faa9e8dc21b55d5cdc695730ff0b57bdc0e510098`. Live player ready state 4, no media error, playback advanced from 0 to 10.97 seconds.
+
+**Final-media QA: passed, fresh report, full video decode passed, zero critical findings, one pause warning** at approximately 10:34 (1.04 seconds inside one voice file before playback-speed adjustment). The previous cumulative duration/correspondence failures did not recur. A clean signal result does not establish semantic correctness or creative quality.
+
+Inspected 78 representative frames sampled every nine seconds across the delivered video, the actual thumbnail and the flagged source border. The border is visibly on screen around 5:46. Tall panels commonly occupy only a narrow center column against blurred background; repeated motion and extended spectacle weaken pacing. Whole-track local ASR completed in 96.6 seconds using a cached model, producing 131 transcript segments without external calls or a model download. Read the entire transcript. It includes the core narrative and the inconsistent name forms; some phrases are missed or misrecognized, so it is not a word-perfect semantic pass.
+
+Approximate delivered landmarks from ASR: possession explanation 3:13, fifth-star vessel 4:16, thirteenth-star threat 5:21, explicit wounded-ally evacuation dilemma 8:53, twenty-second sword form 9:02, sealing barrier 10:35. This confirms that the cut waits too long to foreground the rescue stakes.
+
+Three audio samples were extracted, but the current tool could not present audio input to the reviewer. **Direct listening, vocal tone and pronunciation are therefore not verified**; the review uses frames, script, signal analysis and whole-track transcription. No full real-time manual listen is claimed. The earlier local MP4 was checked with whole-track offline ASR using a cached model: 1,404 of 1,479 normalized reference words matched in order (94.9%). Proper-name/phonetic differences are not proof of mispronunciation, and ASR is not ground truth. No claim of a full manual real-time listen is made.
+
+## Remaining work
+
+The live media test and documented visual/text review are complete; the episode remains an editorial revision candidate. Before another paid regeneration, repair episode identity/metadata inheritance and QA history retention with offline regressions, then address the decorative-panel selection, duplicate spoken alias, name consistency and story structure. Direct voice-performance review still needs an audible review environment. Introduce shared reviewed event contracts and improve the editorial plan. Semantic coverage, reviewed legacy-cache adoption and real-media calibration remain explicitly incomplete. None of those capabilities is established by this single test.
+
+## Why the current studio still shows other findings
+
+The board's two G0 missing-audio errors refer to segments 39 and 79, both explicitly `user_included=false`; they were not in the final video. All 78 included clips rendered and no included segment is silent. The selected-export media QA passes. A separate pre-render diagnostic is still validating excluded placeholders, and the pipeline strip reports 78 of 80 as “part done.” These are misleading selection-aware status calculations, not evidence of two missing delivered voices. They need regression-backed repair rather than global warning suppression.
+
+The runtime displayed in the chapter summary (12:47 / 767 seconds) is the raw included storyboard schedule; the actual 1.1× MP4 is 11:43. The page count 22 includes the fetched cover alongside 21 source pages. These distinctions should be made explicit in the UI.
+
+Final post-restoration gate: 9/9 protected job files, 153/153 original/cancelled Chapter 34 files and 3/3 settings/queue files match baseline hashes; no active jobs, no running workers, same four Waiting IDs, cancelled job still cancelled, and no QA Drive record. Final evidence is saved privately in the QA project.

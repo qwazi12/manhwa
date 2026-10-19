@@ -103,3 +103,14 @@ The unknown-chapter defect is repaired on dev/flamingo-cancelled-chapter-visibil
 ## Later PR9 release and isolated test checkpoint
 
 PR9 merged once at91bfd89515b41aae445ceadda7d8f57bc68282f3 after245Python tests and prior189script/tsc/build results, expected-head/CodeRabbit checks, a new18:08Eastern17.54GBfullvolume restore point, populated72projectSQLite/current compressed-backup restore integrity/FK checks, idle raw queues and protected-file checks. Railway f13c028b-57b2-4c5e-a976-7c7f82e8105a SUCCESS and Vercel dpl_5dyc8Tz2yZWGnDWFKGM8zG3jjMVX Ready/Production both match91bfd89; canonical alias retained. Cancelled chapter now loads with Stopped by you. Post-test recheck retained9job/153chapter/3state hashes exactly,0running and the same4historical Waiting. PR10 isolated studio remains separate/unmerged; real MP4 and failed media-QA evidence are in [the E2E report](FLAMINGO_CH34_E2E_REPORT.md). No production chapter regeneration, publication, scheduling or account/destination change.
+
+
+## October 18 — approved PR 10 rollout and live QA
+
+Production is now 5fec5c7 (PR 10), automatically deployed after 262 Python tests, 419 script checks, 28 isolation regressions, TypeScript/Next build and fresh idle/backup/preservation gates. Railway a07baa62-2277-4f0f-a09d-b88b94a5e02c SUCCESS/Online 1/1, health 200; Vercel dpl_2uysdSFBRdPrqC4i9HDco3f9WBwd Ready/Production with canonical alias. The old critical notification is historical; the operational health connector reports no current critical alerts. Retained owner exception applies to historical statuses only.
+
+New QA-only project _34-liveqa-1018 completed one live ingest and one render. MP4 228,109,843 bytes, 1920×1080/30 fps H.264/AAC, 703.700 seconds video / 703.690 seconds audio, zero stream start times; full decode and fresh final-media QA pass, with one pause warning. No semantic speech pass or calibration is claimed. Current Next playback advances without media error. Corrected only the new export's title/description/tags/badge; private, targets empty, no publish time, no Drive record.
+
+Normal render-history retention pruned one oldest completed I Am the Fated Villain Chapter 361 row. Audit caught it; with no active workers, preserved the QA completion and queue snapshot in this new project's owner_review directory and restored the original queue bytes. No retry/cancel occurred. The original/cancelled Chapter 34 and nine protected job files were unchanged throughout; final hashes are checked separately after restoration. See the live report for this incident and the remaining misleading excluded-slot diagnostics.
+
+Before rollout: live database and compressed startup backup integrity ok/FK 0, isolated temporary restore 72 projects, raw SHA 314cf3dda3a9f5436c2b650e3362dee4f29b061301aa56966a5060824111d626. Full-volume 18:08 Eastern / 17.54 GB restore point available. No full-volume restore drill or automatic full-volume schedule was performed.
