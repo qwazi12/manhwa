@@ -524,18 +524,18 @@ def video_segments(segs=None):
 
 
 class ExportIn(BaseModel):
-    speed: float = 1.0     # 1.0 = normal, 1.5 = fast pass
+    speed: float | None = None  # omitted: use the saved studio default
 
 
 @app.post("/api/export")
 def export(body: ExportIn):
-    return _do_export(speed=body.speed)
+    return _do_export(speed=_studio.export_speed() if body.speed is None else body.speed)
 
 
-# Owner, 2026-10-04: finished videos play at 1.25x — the approve-and-render
+# Owner, 2026-10-18: finished videos default to 1.15x — the approve-and-render
 # export uses this speed and keeps only the sped-up file. Set EXPORT_SPEED=1.0
 # to go back to normal speed.
-EXPORT_SPEED = float(os.environ.get("EXPORT_SPEED", "1.25"))
+EXPORT_SPEED = float(os.environ.get("EXPORT_SPEED", "1.15"))
 
 
 def _do_export(speed=1.0):

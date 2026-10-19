@@ -1,7 +1,7 @@
 """Studio-wide settings the owner changes from ⚙️ Settings & Channels.
 
 One small JSON file on the volume (`projects/_studio_settings.json`). Defaults
-are the owner's decisions of 2026-10-04: export at 1.25×; publish to
+include the owner's 2026-10-18 decision: export at 1.15×; publish to
 🦩 Flamingo Remix (Upload-Post profile "mk", YouTube). Privacy stays PRIVATE
 until the owner saves "public" here: the studio's standing guarantee is that
 nothing goes public by omission (CLAUDE.md: rights gating before public).
@@ -15,7 +15,7 @@ import threading
 
 NAME = "_studio_settings.json"
 DEFAULTS = {
-    "export_speed": 1.25,
+    "export_speed": 1.15,
     # Owner, 2026-10-05: "we need uniformity for titles, especially with many
     # chapters". The SEO writer only writes the {hook}; every title is built
     # from this format, so all chapters of a series read the same way.

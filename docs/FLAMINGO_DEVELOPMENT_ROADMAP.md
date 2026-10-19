@@ -202,3 +202,21 @@ Finish current M3 offline work before dependent consumers. Safe M3.1–M3.4 hard
 
 ### October18 real Chapter34 evidence checkpoint
 PR9 is deployed at91bfd89; PR10 builds a separate generation-only sandbox/current UI and remains reviewable. Fresh Chapter34 source→voice→matching→MP4 and playback executed. Final decode passes but QA fails: cumulative audio timing mismatch and74correspondence findings; do not label M1 media calibration complete. Preserve the observed export, diagnose concat/timing with private real-media regressions, and address source/cover/runtime display and packaging identity/grounding defects before any publication. Semantic coverage/legacy adoption remain incomplete. [Detailed evidence](FLAMINGO_CH34_E2E_REPORT.md).
+
+
+## October 18 live Chapter 34 checkpoint — release 5fec5c7
+
+PR 10 is merged and automatically deployed on Railway and Vercel. Regression gates: 262 pytest, 419 script checks, 28 isolated-runner checks, TypeScript and Next build pass. AAC assembly fixes cumulative encoder delay without hiding findings. New marked live QA project completed source → OCR/descriptions → writing → Charon narration → matching → rendering → full-decode/signal QA → SEO/thumbnail preparation. The 11:43 MP4 passes fresh final-media QA with one pause warning, but visual/text review does not meet the TV-episode creative target. See [the full live review](FLAMINGO_CH34_LIVE_REVIEW.md).
+
+Already repaired/deployed: AAC join drift, excluded credits/fragments description findings, and fail-closed project-local distribution/Drive guards. Project-only packaging was corrected after inherited Chapter 32–33 metadata and internal variant text were observed. Global series templates and accounts remain unchanged.
+
+Next safe offline work, before paid re-generation: regressions for QA queue retention (normal 40-row history cap pruned one unrelated completed row; restored exact pre-test queue after saving the QA completion separately), excluded-placeholder audio/status checks, actual delivered runtime/page-vs-cover presentation, and episode-specific metadata inheritance. Then repair Unicode/alias identity, duplicate spoken alias and consistent chapter terminology over existing Bible/SEO stores. A decorative border misclassified as art, delayed rescue stakes, repeated spectacle and weak scene framing require targeted editorial/source-selection repair.
+
+Still incomplete: owner-reviewed semantic story coverage (M3.5), reviewed legacy-cache adoption (M3.6), real-media calibration/enforcement, direct audible voice-performance review, a full-volume restore drill and automatic Railway volume-backup schedule. The external Research Investigator and shared reviewed Series/Episode Intelligence remain planned architecture; no broad integration or paid vidIQ credit was consumed. No publication, scheduling or external upload occurred.
+
+
+## October 18 — Chapter 34 editorial correction
+
+Completed the specifically requested pacing/name/border revision in a new preserved QA sibling, 837 words / 42 shots / 5:50 at 1.15×. All 42 delivered shot midpoints inspected; whole-track local transcription and fresh full-decode/signal QA pass with one short pause warning. Zero free rules findings; longest delivered shot 11.277s. Original153files/protected9jobs/priorQA418files match hashes; fourWaiting records and both queues unchanged. Live normal export default1.15 saved; source/UI/manual-default changes await review, no application deployment. [Detailed report](FLAMINGO_CH34_EDITORIAL_REVISION.md).
+
+Remaining audit work includes the newly supplied full production/content/SEO/autopilot brief; it was not silently treated as completed by this focused repair. Keep semantic coverage, reviewed legacy adoption, calibration, direct audible review, global identity disputes and shared intelligence work explicit.

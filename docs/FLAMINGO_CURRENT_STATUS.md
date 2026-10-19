@@ -1,6 +1,6 @@
 # Flamingo Recap Studio — overall status
 
-October 18, 2026. Production is the current Next.js site at https://manhwa.nodepilot.dev/ running **91bfd89**. PRs1–9 are merged and deployed after release gates. PR10 contains a separate isolated test studio and remains unmerged. A fresh isolated Chapter34 test produced a playable MP4; original/cancelled variants and all four historical Waiting jobs remain unchanged. See [the actual end-to-end report](FLAMINGO_CH34_E2E_REPORT.md). Final-media QA failed with cumulative audio timing discrepancies; this is a reviewable test, not publication-ready output.
+October 18, 2026. The current Next.js studio at https://manhwa.nodepilot.dev/ runs **5fec5c7**. PRs 1–10 are merged and deployed following the owner-authorized release gates. PR 10 fixes cumulative AAC assembly drift, false missing-description findings for excluded fragments, and adds project-local QA distribution guards. The earlier 11:43 QA export is preserved. A separate editorial sibling now delivers a 5:50 MP4 at 1.15×: 837 words, 42 shots, consistent chapter names and no decorative-border shot. Fresh media QA passes with one short-pause warning; every shot was visually sampled and the whole soundtrack transcribed. Direct audible voice performance remains unverified. See [the editorial revision](FLAMINGO_CH34_EDITORIAL_REVISION.md). Original/cancelled Chapter 34 and all four historical Waiting jobs remain protected. See [the live review](FLAMINGO_CH34_LIVE_REVIEW.md) and [the earlier local test](FLAMINGO_CH34_E2E_REPORT.md).
 
 ## Where the product stands
 
@@ -17,7 +17,7 @@ There is no defensible single completion percentage: the pipeline exists, operat
 | Story and continuity | Existing sourced research/Bible/series packs, canonical context in writing/revisions, typed ordered dialogue, speaker/line provenance, anchored scripts and critique states | Model claims can be wrong; final story coverage and real narrative quality remain uncalibrated |
 | Narration | Script-to-voice, configurable narrator/style, content-keyed TTS reuse, beats/slices and timing | Existing voices work; deliberate voice direction, pronunciation and scene pacing need further work |
 | Visual editing | Source-linked panel matching, storyboard inclusion/reordering, crops/timing, motion, undo, focused reruns and range/compilation workflows | Existing rendering pipeline preserved; scene-aware direction remains future work |
-| Rendering and exports | Clip/final video assembly, loudness/speed, exact-export identity, range checks and final-media diagnostics | New media enforcement remains off until real-media calibration; fresh isolated Chapter34 MP4 exists; final-media QA failed and needs timing repair |
+| Rendering and exports | Clip/final video assembly, loudness/speed, exact-export identity, range checks and final-media diagnostics | New media enforcement remains off until real-media calibration; earlier local MP4 exposed timing drift; the assembly repair is deployed and the new live QA MP4 passes fresh signal checks; creative/semantic limits remain |
 | Packaging | Existing SEO/title research, series hooks, chapter metadata, thumbnail candidates/readability/style and owner edits | These are not yet all consumers of a shared verified episode-event contract; heuristic scores are not observed CTR |
 | Distribution | Review/approve, render/post queues, scheduled publishing and connected video Drive copies | Existing connectivity/history verified; no new upload/publication or destination change in this checkpoint |
 | Control and safety | Spend/call limits, cooperative stop/pause/resume, preserved edits, source/rerun archives, duplicate protection, job/activity visibility | Stop waits for an in-flight operation to finish; owner approval still governs live generation/release |
@@ -30,7 +30,7 @@ There is no defensible single completion percentage: the pipeline exists, operat
 - **M3.1–M3.4:** content-aware generation identities, source/rerun preservation, cache freshness stops, incomplete-stage hardening and deterministic source evidence links. Deployed; references explicitly do not assert semantic completeness.
 - **Architecture/vision:** existing research, Bible, SEO, thumbnail, demand and vidIQ-related capabilities audited. Detailed Series/Episode/evidence contracts, consumer mapping and reuse/repair/build backlog documented. This is a plan, not a completed external Investigator.
 - **Release/staging safety:** isolated staging and regression infrastructure, QA deletion/restore race fix, populated ops-data persistence, startup ingest-scope fix and offline fixture repairs. PR8 is deployed through the normal main-only flow.
-- **Operations:** Railway capacity alert cleared,50GBvolume, current21.08GBvolume restore points, populated72projectDB restored in isolation, protected files verified across the actual deployment. Existing thresholds/accounts unchanged.
+- **Operations:** Railway capacity alert cleared,50GBvolume, retained full-volume restore points, including the fresh 17.54 GB backup, populated72projectDB restored in isolation, protected files verified across the actual deployment. Existing thresholds/accounts unchanged.
 - **This fix:** read durable ingest history for chapter context without repopulating worker memory. Partial cancelled chapters with an existing directory remain visible after restart; live state wins; render/research history is excluded; deleted directories are not recreated. The page explicitly says Stopped by you and adds no resume action for cancelled jobs. [PR #9](https://github.com/qwazi12/manhwa/pull/9) is merged and deployed at91bfd89; protected data remains unchanged.
 
 ## What still needs repair or validation
@@ -62,20 +62,26 @@ There is no defensible single completion percentage: the pipeline exists, operat
 
 ## Current verification and protection
 
-The new nine-case restart-visibility suite initially produced3failures/6passes, including the actual unknown-chapter404. After the fix, all9cases plus6startup-scope regressions pass. Final integrated result: **245Python tests pass**,58existing warnings; **189existing script checks pass** across chapter status31, job control41, sweep16, limits6, autopilot55, render queue15 and posting25; TypeScript and Next production build pass. Tests run with fake providers and denied external Python network in the isolated snapshot. No paid calls or media generation.
+PR 10 release validation passed: **262 Python tests**, **419 checks across 12 relevant script suites**, **28 isolated-runner regressions**, TypeScript and a Next production build. The expanded export tests initially found an empty-URL placeholder-card bug; it was repaired and the affected export tests and integrated Python suite reran successfully. Synthetic 60-shot coverage checks soundtrack correspondence across every join, input preservation and failed-output preservation.
 
-A fresh read-only production comparison confirms **9job files,153Chapter34files and3queue/settings files unchanged**, no running jobs, exactly the same4Waiting IDs and Chapter34cancelled. Production remains88920f3. No main merge, deployment, account/destination change or job-control action is part of this fix.
+Immediately before and after rollout, **9 protected job files, 153 original/cancelled Chapter 34 files and 3 queue/settings files** matched their baselines. No work was active then. The queue retention limit pruned one unrelated oldest completed row during the QA run; the final audit caught it, preserved the new completed-test evidence separately, and restored the pre-test queue bytes. This needs a dedicated regression-backed QA-retention fix. The cancelled job stays cancelled, and the four historical Waiting labels are retained under the owner's approved exception.
+
+The live database and compressed startup backup passed integrity/FK checks and an isolated temporary restore with 72 projects. Railway's 18:08 Eastern full-volume backup is available for restore. A full-volume restore drill and automatic full-volume backup schedule remain incomplete; they are distinct from the enabled SQLite backup schedule.
 
 ## Recommended order from here
 
-1. Review this cancelled-visibility PR; release only with separate owner authorization and the same idle/backup/preservation gates.
-2. Repair Unicode-safe Bible lookup and add read-only Series/Episode projection fixtures. These are independent offline tasks.
-3. Obtain reviewed semantic/adoption/calibration examples and an approved isolated restore plan; continue preserving Chapter34 until explicitly resumed.
-4. Implement shared evidence contracts and consumers before broad external research integrations. Add research adapters only with approved access/cost bounds.
-5. Evaluate one complete episode against agreed creative/technical standards before wider automation, then packaging experiments, original shorts and audience learning.
+1. Review the completed live Chapter 34 preview and report. Repair selection-aware status/runtime, metadata inheritance and QA queue retention with offline regressions, then revise the episode pacing and terminology before another paid regeneration.
+2. Repair Unicode-safe Bible lookup and add read-only Series/Episode projection fixtures; preserve existing IDs and reviewed canon.
+3. Obtain reviewed semantic-coverage, legacy-adoption and real-media calibration examples, plus an isolated volume-restore plan.
+4. Connect existing research, Bible, episode evidence and packaging through shared contracts before broad external research integrations.
+5. Improve editorial structure, terminology consistency and scene direction before wider automation or audience experiments.
 
 Detailed evidence: [production verification](FLAMINGO_PRODUCTION_VERIFICATION.md), [roadmap](FLAMINGO_DEVELOPMENT_ROADMAP.md), [intelligence design](FLAMINGO_INTELLIGENCE_DESIGN.md), [vision](FLAMINGO_STUDIO_VISION.md), and append-only `manhwa-recap-v1/memory.md`.
 
-## Latest requested full episode test: held at isolation gate
+## Latest live episode test
 
-The owner conditionally authorizes PR9release and a new isolated Chapter34test, with an explicit stop if isolation cannot be guaranteed. Current offline staging cannot call real providers; normal production export can automatically upload to Drive. No tested provider-only sandbox currently joins required real generation with fail-closed external-side-effect isolation. Stopped before merge/deploy/generation; no new MP4/test project. PR9remains reviewable/unmerged, production88920f3. See [the isolation gate assessment](FLAMINGO_CH34_ISOLATION_GATE.md) for exact evidence and required controls.
+The earlier isolation blocker was addressed with tested QA-only controls and an owner-authorized PR 10 release. Production project `a-regressors-tale-of-cultivation_34-liveqa-1018` is separate from the original and cancelled variants, visibly marked in the current studio, and blocked from approval, scheduling, publishing and Drive uploads. Ingest `1d7130aa8d65` completed with 21 pages, 95 panel descriptions, a 1,581-word script, 78 voice lines and 80 segments. Exactly one render was submitted with `keep_voice=true`; the MP4 is playable and fresh media QA passes with one pause warning. Project-only title/description/tags/badge are corrected, private and without publishing targets. Full visual/text review is documented; direct voice listening remains unverified.
+
+## Latest Chapter 34 editorial revision
+
+The owner-approved _34-liveqa-1018-edit1 preview is complete and private. The prior QA project retains all 418 file hashes; originals retain 153 and protected jobs retain 9. Both queues and the four Waiting jobs are unchanged. Production export_speed is now 1.15 by owner request; other settings are identical. Code/UI/default alignment and the source-linked cut helper are reviewable on dev/flamingo-ch34-editorial-revision, with no new application deployment. Full evidence: [editorial report](FLAMINGO_CH34_EDITORIAL_REVISION.md).

@@ -1,4 +1,4 @@
-"""⚙️ Settings & Channels (owner, 2026-10-04): export at 1.25x, post to
+"""⚙️ Settings & Channels (owner, 2026-10-04): export at 1.15x, post to
 Flamingo Remix (mk) as PUBLIC by default, every setting visible on one page.
 Temp projects root, upload-post status faked; no network, no money."""
 import os
@@ -29,7 +29,7 @@ def main():
         {"account_id": "mk:youtube", "network": "youtube", "username": "Flamingo Remix", "active": True},
         {"account_id": "default:youtube", "network": "youtube", "username": "Screen Central", "active": True}]}
     try:
-        check("default export speed is 1.25x", ss.export_speed() == 1.25)
+        check("default export speed is 1.15x", ss.export_speed() == 1.15)
         check("default posting: Flamingo Remix (mk), private until the owner saves public",
               ss.publish_defaults() == {"targets": ["mk:youtube"], "privacy": "private"})
         os.environ["EXPORT_SPEED"] = "1.5"
@@ -44,19 +44,26 @@ def main():
               [a["account_id"] for a in d["channels"]["accounts"]] == ["mk:youtube", "default:youtube"])
         check("overview scheduler shape is what the page reads",
               set(d["connection"]["scheduler"]) == {"running", "last_run", "last_error"})
-        check("overview export speed", d["export"]["speed"] == 1.25 and d["export"]["env_override"] is False)
+        check("overview export speed", d["export"]["speed"] == 1.15 and d["export"]["env_override"] is False)
 
         r = c.post("/api/settings", json={"export_speed": 1.1,
                                           "publish": {"targets": ["default:youtube"], "privacy": "unlisted"}})
         check("saving works", r.status_code == 200 and r.json()["settings"]["export_speed"] == 1.1)
         check("saved speed is used by export", ss.export_speed() == 1.1)
+        before_speed_only = ss.load()
+        speed_only = c.post("/api/settings", json={"export_speed": 1.15})
+        check("1.15x saves without changing publication or schedule",
+              speed_only.status_code == 200 and ss.export_speed() == 1.15
+              and ss.load()["publish"] == before_speed_only["publish"]
+              and ss.load()["schedule"] == before_speed_only["schedule"])
+
         check("publish defaults follow the saved channels",
               server.publish_defaults(proj)["targets"] == ["default:youtube"]
               and server.publish_defaults(proj)["privacy"] == "unlisted")
         check("speed outside 1.0-2.0 is refused", c.post("/api/settings", json={"export_speed": 3}).status_code == 400)
         check("unknown privacy is refused",
               c.post("/api/settings", json={"publish": {"privacy": "friends"}}).status_code == 400)
-        check("a refused save changes nothing", ss.export_speed() == 1.1)
+        check("a refused save changes nothing", ss.export_speed() == 1.15)
     finally:
         ingest.PROJECTS, server.os_status = saved
 
