@@ -81,3 +81,9 @@ This completes the requested Chapter 34 pacing/name/border revision and rerender
 ## Diagnostic context note
 
 A direct CLI media-status call through `/app/data/projects` reported stale while the actual production HTTP API remained passed/fresh. Compared the evidence: the audio bytes have identical hashes, but the captured path uses `/app/manhwa-recap-v1/review_ui/projects` (the service symlink) and the CLI used `/app/data/projects`. Path strings participate in the input digest. The final recorded result is the production API's passed/fresh identity, matching the downloaded MP4 hash; no manifest was recaptured or freshness check suppressed. Canonical path handling deserves an offline regression before changing historical identity contracts.
+
+## Review checkpoint and retained media
+
+[Draft PR 12](https://github.com/qwazi12/manhwa/pull/12) contains the tested source changes and this evidence, stacked on documentation PR 11. GitHub main remains `5fec5c7`; no new merge or application deployment occurred. Memory and all checkpoints are pushed to `dev/flamingo-ch34-editorial-revision`.
+
+The Watch UI's normal export retention remains unchanged. To preserve the QA versions beyond automatic export cleanup, verified three independent MP4 copies plus QA sidecars/index (465,493,591 bytes total) under the private volume path `/app/data/.flamingo-editorial-v2/retained-media`. This includes the preceding 11:43 video and both new editorial exports. No source project or historical job was rewritten to make these copies.
