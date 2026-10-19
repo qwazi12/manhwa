@@ -1,5 +1,9 @@
 # Flamingo production verification — October 18, 2026
 
+**Latest: PRs #12–13 merged/deployed at c4780070a55e5053cf508d972fda49aa775042b6.** Railwayd94aeb10 SUCCESS and actual running SHA verified; Verceldpl_7g9EoSuvDwB55HzFcjrN47FYDFjR Ready/Production at the same SHA, canonical studio playable. Fresh245Python tests, relevant script checks, rotated render comparison, TypeScript/build, idle, backup and preservation gates pass. New18.84GB22:14Eastern volume restore point available; isolated SQLite restore integrityok/FK0/72projects. Original/cancelled153files,9protectedjobs,418parentQA,289edit1files and3statefiles remain exact. New isolated fuller Chapter34edit2 rendered once,6:54, requested energetic Charon/1.15×, fresh signal/decode QA passed; no publication/upload. [Detailed current evidence](FLAMINGO_CH34_FULLER_REVIEW.md). Full-volume restore drill/schedule and semantic/calibration gates remain incomplete.
+
+## Earlier PR8 release evidence
+
 **PR #8 merged and deployed successfully at `88920f32dc965f3c38d7c3c398bbd7d92c6a0ac3`.** The current Next.js studio is https://manhwa.nodepilot.dev/ . Railway is Online 1/1 with zero critical notifications, zero warnings, zero recent deployment failures and no pending work. Database/backup persistence is active and independently checked after restart. All protected files match their pre-release hashes. Chapter 34 remains stopped; the four historical Waiting records are untouched under the owner's explicit historical-status exception.
 
 ## Authorization and release inventory

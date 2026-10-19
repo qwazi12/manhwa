@@ -13,13 +13,21 @@ Allowed task states: **Not Started / In Progress / Blocked / Testing / Ready for
 | M1 Final media audio QA and export readiness | Critical | Existing renderer/timeline contracts | Ready for Review | Released diagnostically at 48a1eff; calibration/enforcement remains blocked. QA/deletion safety repair deployed at88920f3; calibration remains open. |
 | M2 OCR dialogue and narrative reliability | High | M1 offline checkpoint; safe fixes separable | Ready for Review | Ordered typed transfer, orphan visibility and truthful critique lifecycle released at 48a1eff; real narrative quality still needs evaluation. |
 | M3 Cache freshness and source completeness | High | M2 provenance contracts; cache fixes separable | In Progress | Safe cache/source-preservation and deterministic linkage released at 48a1eff; semantic assessment and legacy adoption remain open. |
-| M4 Narration voice and pacing | High | M1 measurements; real-media decisions | Not Started | Current pauses/speed remain unchanged pending evaluation. |
-| M5 Scene-aware visual editing | High | Reliable provenance and source QA | Not Started | Preserve renderer; prototype reversible presets. |
+| M4 Narration voice and pacing | High | M1 measurements; real-media decisions | In Progress | Charon/energetic full62-line revoice and1.15× delivered in a new isolated owner-review cut; audible performance and pacing acceptance remain open. |
+| M5 Scene-aware visual editing | High | Reliable provenance and source QA | In Progress | Shared explicit orientation/crop contract, current-board controls and framing preflight deployed through PR13; scene-specific direction remains future work. |
 | M6 Demand vidIQ SEO and growth intelligence | Medium | Channel identity; quality baseline | Not Started | No account changes or paid research authorized. |
 | M7 Shorts Reels and community content | Medium | Approved reliable long-form; format standards | Not Started | Authoring prototypes only; no public posting. |
 | M8 Audience analytics and learning | Medium | Authorized intended-channel analytics | Not Started | Current connection does not authorize intended private analytics. |
 
 ## Current production checkpoint (October 18)
+
+Latest release: **PRs #12–13 merged and deployed at c478007** after fresh245Python tests, focused script checks, normal/rotated render agreement, TypeScript/build, backup restore, idle and preservation gates. Railwayd94aeb10 SUCCESS and Verceldpl_7g9EoSuvDwB55HzFcjrN47FYDFjR Ready at that exact commit. New isolated Chapter34edit2 is complete:1,377words/62shots/6:54, all lines re-recorded as Charon/energetic recap host, reviewed horizontal bird spreads,1.15× export, fresh signal/decode QA passed with zero findings. [Full report and owner watch link](FLAMINGO_CH34_FULLER_REVIEW.md).
+
+All9protectedjobs/153original-cancelledfiles/418parentQA/289edit1files and3queue/settings files match saved hashes after preserving the completed test outside renderqueue history. Four Waiting jobs unchanged; cancelledChapter34stayscancelled. No publication/upload; new export is private/no targets/no publish time. Fresh22:14Eastern18.84GBvolume restore point available; isolated72-project database restore passed. Full-volume restore drill/schedule, direct audible review, semantic coverage, legacy adoption and calibration remain incomplete.
+
+Next independent safe task: regression-backed QA render-history isolation, followed by variant-safe episode identity and template inheritance. Automatic packaging still pulled stale32–33 content/internal badge; this test-only package was corrected without changing global defaults. Shared Intelligence/Research Investigator remains planned; no fresh external research or vidIQ credits used.
+
+### Earlier PR8 checkpoint (historical)
 
 PR #8 is merged and production-verified at **88920f32dc965f3c38d7c3c398bbd7d92c6a0ac3**. Railway deployment4539f8a5 is SUCCESS/Online1of1 with zero alerts/failures/pending work; Vercel current studio deploymentdpl_FXHZBQrzcBbGbGQp9VaQczv17vuQ is Ready/Production and aliased to manhwa.nodepilot.dev. The owner approved the historical-status exception; all four completed historical Waiting records remain untouched. PR7 evidence is included through PR8 ancestry, with no separate deployment. One transient502 occurred during startup; health now200.
 

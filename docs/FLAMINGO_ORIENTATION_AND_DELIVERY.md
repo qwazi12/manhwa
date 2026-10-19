@@ -2,6 +2,8 @@
 
 October 18, 2026, America/New_York. Owner feedback: the 5:50 test is good but too condensed; use the saved Charon / Energetic recap host direction and check picture orientation/positioning before stitching.
 
+**Release update:** PRs #12–13 are merged and deployed at **c478007**. A new separate QA sibling now delivers1,377words/62shots/6:54 with all narration actually re-recorded in energetic Charon, reviewed bird turns and1.15× export. Fresh signal/decode QA passes; owner creative acceptance/direct audible review remain open. [Completed release, review and preservation evidence](FLAMINGO_CH34_FULLER_REVIEW.md). The sections below retain the pre-release findings and implementation brief.
+
 ## Verified facts
 
 - Saved production default: Gemini, Charon, `energetic, fast-paced YouTube recap host`.
