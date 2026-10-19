@@ -67,3 +67,11 @@ def test_materialization_refuses_cross_project_or_unverified_media(fault):
     if fault == "wrong_speech": audio[0]["text"] = "Old speech"
     if fault == "duration": audio[0]["duration"] = 0
     with pytest.raises(ValueError): cut.materialize(planned, source="/source", destination=destination, audio=audio)
+
+
+def test_manual_export_without_override_uses_saved_studio_speed(monkeypatch):
+    import server
+    monkeypatch.setattr(server._studio, "export_speed", lambda: 1.15)
+    monkeypatch.setattr(server, "_do_export", lambda speed: {"speed": speed})
+    assert server.export(server.ExportIn()) == {"speed": 1.15}
+    assert server.export(server.ExportIn(speed=1.0)) == {"speed": 1.0}
