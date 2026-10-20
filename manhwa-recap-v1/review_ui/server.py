@@ -1731,6 +1731,16 @@ def _thumb_state(pdir, name):
     }
 
 
+def _write_meta_atomic(pdir, meta):
+    """Replace project.json in one step: readers (the studio, other threads)
+    never see a half-written or empty file while a build records its status."""
+    path = os.path.join(pdir, "project.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+    os.replace(tmp, path)
+
+
 def _read_json(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -3478,14 +3488,14 @@ def api_range_build(body: RangeIn):
 
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "done", "at": time.time(), "export": name, "marks": marks}
-            json.dump(m, open(os.path.join(rdir, "project.json"), "w"), indent=2)
+            _write_meta_atomic(rdir, m)
             _record_export_media(rdir, name, components=[(cp, cn) for _n, cp, cn in pl["chapters"]])
             _mqa.start(rdir, name)
             _ev("publish", f"{series} chapters {a}-{b}: long-form compilation video built with series defaults applied — ready in studio", "ok")
         except Exception as e:
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "error", "at": time.time(), "error": str(e)[:300]}
-            json.dump(m, open(os.path.join(rdir, "project.json"), "w"), indent=2)
+            _write_meta_atomic(rdir, m)
             _ev("publish", f"{series} chapters {a}-{b}: range build failed — {str(e)[:160]}", "warn")
 
     threading.Thread(target=run, daemon=True).start()
