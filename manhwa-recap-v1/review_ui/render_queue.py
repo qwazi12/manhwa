@@ -17,6 +17,7 @@ import time
 import uuid
 
 FILE = "_render_queue.json"
+HISTORY = "_render_queue.history.jsonl"   # append-only home of pruned rows
 MAX_ATTEMPTS = 2
 KEEP_FINISHED = 40          # finished rows kept for the list, newest
 _LOCK = threading.Lock()
@@ -39,6 +40,13 @@ def _save(root, d):
     fin = [i for i in d["items"] if i["status"] in ("done", "error")]
     if len(fin) > KEEP_FINISHED:
         drop = {i["id"] for i in sorted(fin, key=lambda i: i.get("ended") or 0)[:len(fin) - KEEP_FINISHED]}
+        os.makedirs(root, exist_ok=True)
+        # The list only shows the newest rows, but a finished render is
+        # history: archive it before it leaves the list (never just delete).
+        with open(os.path.join(root, HISTORY), "a", encoding="utf-8") as h:
+            for i in d["items"]:
+                if i["id"] in drop:
+                    h.write(json.dumps({**i, "pruned_at": time.time()}) + "\n")
         d["items"] = [i for i in d["items"] if i["id"] not in drop]
     os.makedirs(root, exist_ok=True)
     tmp = _path(root) + ".tmp"

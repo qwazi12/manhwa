@@ -102,6 +102,22 @@ def main():
         check("the studio jobs bar shows waiting chapters", any(j["status"] == "in_queue" for j in bar))
         check("the classic jobs bar doesn't", not any(j["status"] == "in_queue" for j in c.get("/api/jobsbar").json()["jobs"]))
         server.JOBS["block"]["status"] = "done"
+
+        # --- retention never loses history: pruned rows go to the archive
+        hroot = tempfile.mkdtemp(prefix="rqh_")
+        d = {"items": [{"id": f"f{n:02d}", "project": f"p{n}", "status": "done",
+                        "ended": 1000 + n} for n in range(rq.KEEP_FINISHED + 3)]}
+        d["items"].append({"id": "live", "project": "w", "status": "waiting", "ended": None})
+        rq._save(hroot, d)
+        kept = rq.load(hroot)["items"]
+        hist = [json.loads(l) for l in open(os.path.join(hroot, rq.HISTORY))]
+        check("the list keeps only the newest finished rows plus waiting work",
+              len(kept) == rq.KEEP_FINISHED + 1 and any(i["id"] == "live" for i in kept))
+        check("the oldest finished rows are archived, not deleted",
+              [h["id"] for h in hist] == ["f00", "f01", "f02"] and all("pruned_at" in h for h in hist))
+        rq._save(hroot, rq.load(hroot))
+        check("an unchanged list archives nothing twice",
+              len(open(os.path.join(hroot, rq.HISTORY)).readlines()) == 3)
     finally:
         ingest.PROJECTS, server.WORK, server.storyboard_approve, server._RQ_POLL, server._ingest_mod.PROJECTS = saved
         server._ACTIVE_CACHE["key"] = None
