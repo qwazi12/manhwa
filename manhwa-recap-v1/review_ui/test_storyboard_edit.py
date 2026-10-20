@@ -215,7 +215,9 @@ def main():
     os.makedirs(os.path.join(d_pdir, "crops"))
     os.makedirs(os.path.join(d_pdir, "clips"))
     for i, dur in enumerate([4.0, 3.0]):
-        tone(os.path.join(d_pdir, "audio", f"beat_{i:03d}.mp3"), dur)
+        # 0.1s headroom: MP3 encoders pad differently (Ubuntu's ffmpeg made a
+        # 4.0s tone measure ~4.05s, which no longer fits the 4s windows).
+        tone(os.path.join(d_pdir, "audio", f"beat_{i:03d}.mp3"), dur - 0.1)
     for pid in ["d1", "d2", "d3", "d4"]:
         open(os.path.join(d_pdir, "crops", f"{pid}.png"), "wb").write(b"png")
     # group of 3 images sharing beat 0 (12s), plus a standalone with beat 1
