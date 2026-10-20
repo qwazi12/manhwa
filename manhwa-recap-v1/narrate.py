@@ -61,6 +61,34 @@ they had barely waited for the protagonist."""
 
 NAME_HINT = "protagonist / the guy / the boy / the prince (rotate naturally; do not repeat one name every sentence)"
 
+# System/game UI description detection — panels with game-like HUD text
+# (stat windows, skill descriptions, level notifications) get a [SYSTEM:] tag
+# so the user can toggle their narration on/off in the review UI.
+_SYSTEM_RE = re.compile(
+    r'\b(level\s*up|status\s*(window|screen)|skill[:\s]|HP[:\s]|MP[:\s]|'
+    r'STR[:\s]|AGI[:\s]|DEF[:\s]|ATK[:\s]|VIT[:\s]|INT[:\s]|'
+    r'quest\s*(complete|accepted|failed)|daily\s*quest|'
+    r'\[system\]|\[notification\]|\[alert\]|Lv\.\s*\d+|'
+    r'\d+\s*/\s*\d+\s*(HP|MP|health|mana))', re.I
+)
+
+
+# Panel tags the prompt asks Gemini to emit ("[p012] ..." / "[SYSTEM:p012] ...").
+# They are routing hints only and must never reach TTS, captions or the UI.
+_PANEL_TAG_RE = re.compile(r'^[ \t]*\[(?:SYSTEM:)?[^\]\n]+\][ \t]*', re.M)
+
+
+def strip_panel_tags(text):
+    """Remove leading [panel_id] / [SYSTEM:panel_id] tags from each narration line."""
+    return _PANEL_TAG_RE.sub("", text or "").strip()
+
+
+def _is_system_description(ocr_text):
+    """True if OCR text contains game/system UI elements (stat windows, skills, etc.)."""
+    if not ocr_text:
+        return False
+    return bool(_SYSTEM_RE.search(ocr_text))
+
 
 def load_panels(descriptions_path=None):
     with open(descriptions_path or DESCRIPTIONS_PATH, encoding="utf-8") as f:
@@ -161,29 +189,55 @@ def group_into_scenes(panels, max_group=4, sim_threshold=0.12):
 
 
 def call_gemini_rest(model, prompt, api_key):
+    """Call Gemini for text generation. Routes to Interactions API for AQ. auth
+    keys (gemini-3.5-flash), falls back to generateContent for legacy AIzaSy keys."""
     import json
     import urllib.request
     import ssl
-    
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }],
-        "generationConfig": {
-            "temperature": 0.2
+
+    try:
+        import certifi
+        context = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        context = ssl._create_unverified_context()
+
+    if api_key.startswith("AQ."):
+        # New Interactions API path (required for gemini-3.5-flash + auth keys)
+        url = "https://generativelanguage.googleapis.com/v1beta/interactions"
+        payload = {
+            "model": model,
+            "input": [{
+                "type": "user_input",
+                "content": [{"type": "text", "text": prompt}]
+            }]
         }
-    }
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"}
-    )
-    
-    context = ssl._create_unverified_context()
-    with urllib.request.urlopen(req, context=context) as response:
-        res = json.loads(response.read().decode("utf-8"))
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "X-goog-api-key": api_key}
+        )
+        with urllib.request.urlopen(req, timeout=120, context=context) as response:
+            res = json.loads(response.read().decode("utf-8"))
+        for step in res.get("steps", []):
+            if step.get("type") == "model_output":
+                for part in step.get("content", []):
+                    if part.get("type") == "text" and part.get("text"):
+                        return part["text"].strip()
+        raise ValueError(f"No model_output text in interactions response. Keys: {list(res.keys())}")
+    else:
+        # Legacy generateContent path (AIzaSy standard keys)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2}
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=120, context=context) as response:
+            res = json.loads(response.read().decode("utf-8"))
         try:
             return res["candidates"][0]["content"]["parts"][0]["text"].strip()
         except (KeyError, IndexError) as e:
@@ -193,14 +247,20 @@ def call_gemini_rest(model, prompt, api_key):
 
 def build_prompt(scene_panels, global_beatsheet=None):
     lines = []
+    system_count = 0
     for i, p in enumerate(scene_panels, 1):
         desc = p.get("visual_description", "").strip()
         ocr = p.get("ocr_text", "").strip()
-        entry = f"Panel {i} (ID: {p.get('panel_id')}): {desc}"
+        pid = p.get('panel_id')
+        entry = f"Panel {i} (ID: {pid}): {desc}"
         if ocr:
             entry += f'\n  Dialogue/text visible in this panel: "{ocr}"'
+        if _is_system_description(ocr):
+            entry += '\n  ⚠️ SYSTEM PANEL: Contains game/system UI (status window, skill text, level notification, etc.)'
+            system_count += 1
         lines.append(entry)
     panel_block = "\n".join(lines)
+    n_panels = len(scene_panels)
 
     global_context_block = ""
     if global_beatsheet:
@@ -211,33 +271,48 @@ Here is the overall storyline outline and emotional pacing flow for the entire c
 ------------------------------------------------
 """
 
-    return f"""You are a master comic-recap narrator writing a highly immersive, descriptive voiceover script for a video. Your style is detailed, dramatic, and visual, designed to pull the listener into the story.
+    system_instruction = ""
+    if system_count > 0:
+        system_instruction = """
+- **System/Game UI panels**: For panels marked ⚠️ SYSTEM PANEL, narrate what the system display shows in story form (e.g., "A translucent status window materialized before him, revealing his strength had risen to level five"). Use [SYSTEM:panel_id] prefix for these."""
+
+    return f"""You are a master comic-recap narrator writing a highly immersive, descriptive voiceover script for a video. Your style is detailed, dramatic, and visual.
 
 {global_context_block}
 
-VOICE & STYLE ANCHOR (match this level of visual detail, reported speech flow, and narrative cadence exactly):
-- "At night in the mountains covered with fog. A barefoot boy with long hair Ash in a robe ran through the forest. His clothes were torn and he himself was scared. He did not notice a snag and tripped over it. The boy lost his balance and rolled down a steep slope. He raised himself from the ground on his right hand and cursed. It seemed to him that the strength from under his feet was disappearing..."
-- "While the killer wasn’t looking, the guy plunged the blade into his throat. The dead man’s partners perked up. The guy landed. His enemy was choking on blood. The prince rubbed his neck, smiled, and agreed that it was funny."
+VOICE & STYLE ANCHOR (match this cadence exactly):
+- "At night in the mountains covered with fog. A barefoot boy with long hair Ash in a robe ran through the forest. His clothes were torn and he himself was scared. He did not notice a snag and tripped over it."
+- "While the killer wasn't looking, the guy plunged the blade into his throat. The dead man's partners perked up. The guy landed. His enemy was choking on blood."
 
-WRITE (mandatory):
-- **Recap-narrator voice**: Third-person past tense. Write smooth, highly detailed, connective storytelling.
-- **Cinematic Visuals & Action Detail**: Describe the specific actions, movements, settings, and events as they unfold panel-by-panel. Focus on specific verbs and physical descriptions (e.g. "rolled down a steep slope", "plunged the blade", "vomited", "vomiting right on the floor", "sweating", "kneeling").
-- **Physical & Appearance Details**: Retain visual details (e.g., hair style/color, robe/clothing states, environment fog, lightning auras) if they set the atmosphere or characterize the moment. Do NOT sanitize or genericize these details.
-- **Natural Reported Dialogue**: Seamlessly blend dialogue and text into reported narration (no quotes). Convert all visible text into narrative action or thought (e.g., panel text "Who are you?" becomes: Ash asked the figure who he was).
-- **Character Motivation & Emotion**: Describe what the characters are feeling, thinking, and their reactions (e.g., feeling humiliated, crying, determined, despondent).
-- **Pacing & Length**: Write roughly 2 to 3 flowing sentences per panel or distinct visual beat. Ensure the sentences flow naturally from one to the next, building up a cohesive, gripping story.
+RULES (mandatory):
+- **Recap-narrator voice**: Third-person past tense. Smooth, highly detailed, connective storytelling.
+- **EVERY panel gets narration**: Write at least 1 and at most 3 sentences for EACH of the {n_panels} panels below. No panel may be skipped.
+- **Cinematic detail**: Describe specific actions, movements, settings, and events as they unfold. Focus on specific verbs and physical descriptions (e.g. "rolled down a steep slope", "plunged the blade", "sweating", "kneeling").
+- **Physical & Appearance Details**: Retain visual details (hair, clothing, environment, auras) that set atmosphere. Do NOT sanitize these.
+- **Natural Reported Dialogue**: Seamlessly blend dialogue into reported narration (no quotation marks). Convert visible text into narrative action or thought.
+- **Character Motivation & Emotion**: Describe feelings, thoughts, and reactions.{system_instruction}
 
 DO NOT WRITE:
-- Comic terminologies: "speed lines", "panel borders", "the panel shows", "extreme close-up", "in the next frame", "the page has".
-- Preamble or labels: Output only the raw storytelling text.
+- Comic terminology: "speed lines", "panel borders", "the panel shows", "close-up", "in the next frame", "the page has".
+- Preamble, labels, or markdown formatting. Output ONLY the tagged narration lines.
 
-PANELS (in order):
+OUTPUT FORMAT (CRITICAL — follow EXACTLY):
+Each panel gets ONE line starting with its exact ID in square brackets, followed by 1-3 sentences:
+  [panel_id_here] Narration sentence(s) for this panel.
+For system UI panels (marked ⚠️ SYSTEM PANEL), use:
+  [SYSTEM:panel_id_here] Narration of the system display.
+Rules:
+- Output exactly {n_panels} tagged lines (one per panel, in order).
+- Narration MUST flow naturally from one line to the next, as if the tags were invisible.
+- Never combine multiple panels under one tag. Never skip a panel.
+
+PANELS (in order — narrate ALL {n_panels}):
 {panel_block}
 
-Write the narration script for this scene now:"""
+Write the panel-tagged narration now:"""
 
 
-def generate_global_beatsheet(panels, model="gemini-3.1-pro-preview"):
+def generate_global_beatsheet(panels, model="gemini-3.5-flash"):
     """First pass of the narration pipeline: compiles all panel metadata for the chapter
     and generates a cohesive, chronological plot and pacing outline.
     """
@@ -280,7 +355,7 @@ Write the story outline and pacing beat sheet now. Plain text only, no formattin
         return _call()
 
 
-def narrate_scene(scene_panels, model="gemini-3.1-pro-preview", global_beatsheet=None):
+def narrate_scene(scene_panels, model="gemini-3.5-flash", global_beatsheet=None):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.exit("GEMINI_API_KEY not set")
@@ -295,7 +370,7 @@ def narrate_scene(scene_panels, model="gemini-3.1-pro-preview", global_beatsheet
         return _call()
 
 
-def generate_narration(panels, model="gemini-3.1-pro-preview", verbose=True):
+def generate_narration(panels, model="gemini-3.5-flash", verbose=True):
     """Run the full pipeline over `panels` (already filtered/ordered) and
     return (full_script_text, [(scene_panels, scene_text), ...])."""
     # Pass 1: Generate global pacing beatsheet for the entire chapter
@@ -311,7 +386,7 @@ def generate_narration(panels, model="gemini-3.1-pro-preview", verbose=True):
         if verbose:
             print(f"[scene {i}/{len(scenes)}] {len(scene)} panel(s): {ids}",
                   file=sys.stderr)
-        text = narrate_scene(scene, model, global_beatsheet)
+        text = strip_panel_tags(narrate_scene(scene, model, global_beatsheet))
         results.append((scene, text))
     full_script = "\n\n".join(text for _, text in results)
     return full_script, results
@@ -322,7 +397,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Generate narration from panels")
     ap.add_argument("--limit-panels", type=int, default=10,
                      help="only use the first N (non-junk) panels — for a cheap style-check sample")
-    ap.add_argument("--model", default="gemini-3.1-pro-preview")
+    ap.add_argument("--model", default="gemini-3.5-flash")
     ap.add_argument("--descriptions", help="override descriptions.json path (e.g. a fresh chapter's subset)")
     args = ap.parse_args()
 

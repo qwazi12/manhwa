@@ -1004,3 +1004,196 @@ The review UI originally used a shared global workspace (`hyperframes/segments-w
 - Ran the two-pass scripting pipeline on *A Painter Who Draws Dungeons* chapter 2 panels, producing a cohesive global beat sheet and narration matching the sample script's style.
 - Committed and pushed all changes to GitHub (`main`) using Git plumbing commands to bypass iCloud status indexing locks.
 
+
+---
+
+### Session 18 — 2026-07-12 — Hard-Status Audit (evidence-based, all claims live-verified)
+
+**Method:** re-verified every claim against the live system (curl to Railway direct + through Vercel proxy, `railway deployment list`, `git diff` against origin, `.railwayignore`/`.gitignore` inspection) rather than trusting prior memory.md entries.
+
+#### Verified live (just now)
+- Railway direct: `/health`→200, `/ready`→200, `/api/health`→`status:OK`, disk 9.9% (0.45/4.51GB), both API keys configured, secret enforced (401 without header).
+- Vercel: root 401 unauth → 200 with Basic Auth; `/api/*` proxy to Railway returns real project JSON through `manhwa.nodepilot.dev`.
+- `/api/projects` live: `("Nano Machine","3",78 segs)`, `("A Painter Who Draws Dungeons","1",81 segs)` — multi-series naming + legacy backfill confirmed live.
+- `/api/logs/ingest` live: painter ch1 shows a **completed** run (`done · segment · 100%`, 81 segments) alongside the earlier cap-tripped attempt — Phase-3 "does a brand-new chapter complete end-to-end on live Railway" is now proven with evidence, not assumption.
+- Frontend has had zero code changes since Session 15 (`git diff 02e117a..origin/main -- static/` empty) → no Vercel drift; deployed HTML confirmed to contain the health widget.
+
+#### Problems found (new, not previously logged)
+1. **GitHub ≠ production drift:** local commit `0dbbbd9` ("add CPU-only PyTorch and ultralytics to Dockerfile") was deployed to Railway via `railway up` from `~/dev/manhwa` but **never pushed** — `git status` showed `ahead 1`. Anyone redeploying from GitHub would silently lose the YOLO dependency. **User instructed to push it — action pending confirmation.**
+2. **Cost-estimator/model mismatch:** `usage.py`'s `EST_COST_PER_GEMINI_CALL_USD=0.001` is flash-tier pricing, but `narrate.py` now defaults to `gemini-3.1-pro-preview` (materially more expensive per call) for both the global-beatsheet pass and per-scene narration. The $5/day spend cap is being enforced against an underestimate — real spend can exceed the intended guardrail. Not yet fixed.
+3. **YOLO weights (`yolo_panel_detector.pt`, 119MB) are gitignored** (`**/*.pt`) and exist only on two local Macs (Desktop + `~/dev/manhwa` clone) — no cloud backup, provenance (where/how trained) undocumented. `.railwayignore` does NOT exclude `.pt`, so it does upload with `railway up`, but this is a single point of failure for reproducing a deploy from scratch.
+4. **Unverified-in-production items** (worked locally per Session 17, not yet exercised on the deployed container since the latest deploy): YOLO detection path actually engaging (vs. silently falling back to geometric splitting), the two-pass narration pipeline, and the browser leg of edit-line → re-TTS → export-cut.
+
+#### Final verdict at audit time: PARTIAL — live and functional, not yet fully drift-safe
+Priority actions handed to user: (1) push `0dbbbd9`, (2) fix per-model cost accounting, (3) run one scripted live validation closing the matcher-invariant + full browser-workflow gap, (4) back up the YOLO weights + document provenance, (5) retire the iCloud Desktop working copy in favor of `~/dev/manhwa`, (6) rotate the four credentials that have appeared in session transcripts (Gemini key, TTS key, shared secret, Vercel Basic Auth password).
+
+---
+
+### Session 19 — 2026-07-12 — Rule 0 + drift closure + model-aware cost accounting
+
+#### 1. Universal passive-save rule (Rule 0) — DONE
+- Created repo-root **CLAUDE.md** and **AGENTS.md** (identical): every session, any IDE/agent, must (1) append significant work to memory.md, (2) commit+push at every checkpoint (unpushed work = lost work), (3) never let GitHub drift from deployed reality. Also documents ~/dev/manhwa as the only reliable working copy and where everything lives. Persisted the same rule in the agent's cross-session memory.
+
+#### 1.5 GitHub drift (0dbbbd9) — CLOSED, evidence
+- `0dbbbd9` = deploy/Dockerfile +3/-1: adds CPU-only torch/torchvision + ultralytics (required by the deployed YOLO panel-split path; production deployment 2adbf947 was built from it via `railway up`).
+- Before (audit): `git status -sb` → `ahead 1`. Pushed last session (`0dbbbd9..b7babfe main -> main`). After: `git rev-list --left-right --count origin/main...HEAD` → `0 0`. GitHub == local == deployed input. **Verified live.**
+
+#### 2. Model-aware cost accounting (usage.py) — DONE, tested
+- **Bug (audit finding):** `_est_cost` priced every Gemini call at flat `EST_COST_PER_GEMINI_CALL_USD=$0.001` (flash-tier), but narrate.py now uses `gemini-3.1-pro-preview` for beatsheet+scene calls → daily $5 spend cap enforced against an underestimate.
+- **Fix (smallest correct):** `EST_GEMINI_MODEL_COST_USD` prefix-matched table — pro `$0.02/call` (env `EST_COST_PRO_CALL_USD`), embeddings `$0.0002` (env `EST_COST_EMBED_CALL_USD`), flash keeps `$0.001`; unknown models fall back to flash rate. `_est_cost(kind, units, model)` + threaded `model` at the single gate() call site. All gate callers already passed `model=` (describe/narrate/matcher/TTS) — zero caller changes.
+- **Old vs new (painter-ch1-sized: 160 describe + 82 pro narration + 327 embeds):** OLD $0.569 → NEW **$1.865** (3.3×; pro counted honestly, embeds now cheaper than before). Dry-run test (isolated tmp counters): gate books 1 pro + 1 embed = $0.0202 exactly; spend-cap trip test with $0.05 cap raised UsageCapExceeded on the 3rd pro call. ✅
+- **Consequence:** ~2 full pro-narrated chapters/day fit under the $5 cap — raise MAX_DAILY_SPEND_USD env if more is wanted.
+
+#### 3. Live Phase-3 verification — found + fixed the "0 clips ever rendered on Railway" chain
+- **Browser (manhwa.nodepilot.dev, Basic Auth):** preview loads (Painter, 924s, System OK); **no autoplay on load** (▶, playhead static); ruler-click scrub → 15.1s, caption/beat correct, still paused (**no autoplay on seek**); play → visual+caption+clock sync at the played position. **Caveat:** continuous playback/audio can't be judged in the headless pane — rAF is throttled when the pane isn't actively rendered (clock freezes between forced frames; 0/172 audio elements playing). Play-loop correctness is code-verified + frame-catchup-verified; audible playback needs a human check in a visible tab.
+- **Per-line edit → re-TTS (LIVE, hard evidence):** edited seg0 line via the Details editor ("…whose brush could create living dungeons.") → status "⏳ re-synthesizing… → ⏳ re-rendering clip…"; manifest beat dur 4.886→3.528s; after the render fix, seg0's clip = **8.64s (was 9.964s) with AAC audio** — full edit→TTS→retime→re-render chain verified on the deployed system.
+- **RENDER FAILURE ROOT-CAUSE CHAIN (three layers deep, each found by surfacing the previous):**
+  1. `render_segments.py --only` (subprocess path used by /api/render-missing + narration re-render) still loaded the **legacy ch2 beatsheet path** → FileNotFoundError in container → every render failed silently (stderr was DEVNULL'd/discarded at BOTH layers). Fixed: HF_WORKSPACE mode loads the project's own segments.json (no legacy rebuild, no segments.json clobber, no forced concat); render_segment prefers the segment's own absolute panel_file; `npx --yes`; stderr surfaced into errors + container logs; render-missing fail-fast after 3 consecutive failures (commits 75e8d27, 0f97e42).
+  2. Then: hyperframes doesn't discover Debian `chromium` (HYPERFRAMES_CHROMIUM/PUPPETEER_EXECUTABLE_PATH are ignored — verified by local probe) → downloads Chrome Headless Shell per render → **"Browser not available"**.
+  3. Actual root cause (from surfaced build logs): **`unzip` missing in python:3.13-slim** — download completed, extraction impossible ("no zip archiver is available"). Fix: bake Chrome at build (`hyperframes browser ensure`), wrap cached binary with `--no-sandbox` (root container; wrapper validated at build via `--version`), add unzip + Chrome dep set, `PRODUCER_LOW_MEMORY_MODE=1` (auto workers saw the HOST's 48 cores). Commits c9cf652 (failed build exposed unzip), 319ae5a (fix). Deploy `10f5e85c` SUCCESS.
+- **RESULT — first clips ever rendered on Railway:** render-missing produces clips at ~1/min (low-memory, 1 worker); 81 running in background. **Export verified live:** 3 approved rendered clips → `review_export.mp4`, 30.17s, video+audio streams, downloaded via authenticated /export (HTTP 200, 22.5MB). Full 81-clip cut = re-run export after renders finish (~75 min).
+- **Also this session:** deployed cost fix (d580579f), Chrome-bake deploys; all changes pushed at each step per Rule 0.
+
+#### Final verdict (reported to user; append was delayed by a classifier outage)
+**PASS with one caveat.** (1) Drift CLOSED, verified live (0/0 ahead-behind). (2) Cost fix DEPLOYED (d580579f), dry-run-proven. (3) Browser verification PASS on every step except continuous audible playback, which cannot be judged from the headless pane (rAF throttling) — needs a 30-second human check in a visible tab. Render/export chain proven live (seg0 clip 8.64s with edited audio; 3-clip export 30.17s downloaded). Open: full-cut export after 81/81 clips; YOLO weights backup+provenance; retire Desktop copy; rotate the 4 transcript-exposed credentials. Painter renders later completed 81/81 (verified at the start of Session 20).
+
+---
+
+### Session 20 — 2026-07-18 — Project Status Audit & API Crop Details Fix
+
+#### Status Audit
+- **Railway Backend**: Deployed and fully **Online** at `https://recap-studio-production.up.railway.app` (active project restoration and symlinks working on boot).
+- **Vercel Frontend**: Deployed and fully **Online** at `https://manhwa.nodepilot.dev`.
+- **Ruler of Darkness**: Chapter 1 ingestion has fully completed. It produced **230 segments** representing a 2287.7-second (~38 minute) video timeline storyboard recap.
+
+#### API Crop Details Fix
+- **Problem**: The `/api/project` route in `server.py` did not propagate the new framing/crop metadata fields (`crop_bbox_norm`, `focus_source`, `focus_reason`, `focus_confidence`, `width`, `height`) in the returned segments payload. As a result, the crop/focus card in the Details section of the frontend remained hidden, even though `segments.json` on the persistent volume contained these fields.
+- **Fix**: Modified `server.py` to propagate these 6 crop/focus metadata fields in `/api/project`.
+- **Verification**: Committed changes, pushed to GitHub (`main`), and redeployed backend to Railway. Verified via curl request that the crop details (e.g. segment 0 crop `[0.35, 0.2, 0.85, 0.7]` with reason *"To highlight the main character, his white robes..."*) are now fully present in the segment response payload and visible to the frontend.
+
+
+---
+
+### Session 21 — 2026-07-18/19 — Gemini Auth Key Migration & Interactions API Integration
+
+#### Context
+User wanted to ingest **Dungeon Odyssey Chapter 1** (`https://asurascans.com/comics/dungeon-odyssey-1d35e5bd/chapter/1`) and produce 20–50 sample panel images plus two narration scripts for quality review.
+
+#### Problem 1: API Key Invalid (hours of troubleshooting)
+- Key `AIzaSyCzenx...` → `400 INVALID_ARGUMENT: API key not valid`
+- Key `AIzaSyCW...` → `403 PERMISSION_DENIED` (Generative Language API not enabled on project)
+- **Root cause**: Google has migrated to **authorization (auth) keys** (`AQ.` prefix). All new AI Studio keys are auth keys. They authenticate via `X-goog-api-key` header only — NOT the `?key=` URL param.
+
+#### Problem 2: Wrong API Endpoint
+- `gemini-3.5-flash` (new model from docs) returns 404 on old `generateContent` endpoint.
+- New model only exists on the **Interactions API** (`/v1beta/interactions`).
+- `gemini-2.5-flash` still works on `generateContent` with auth keys.
+
+#### Correct Interactions API Multimodal Schema (discovered via systematic probing)
+```
+Request body:
+{
+  "model": "gemini-3.5-flash",
+  "input": [{
+    "type": "user_input",
+    "content": [
+      {"type": "image", "data": "<base64>", "mime_type": "image/png"},
+      {"type": "text", "text": "...prompt..."}
+    ]
+  }]
+}
+
+Response text: steps[n].content[0].text  where  step.type == "model_output"
+```
+Wrong fields (all 400): `inlineData`, `inline_data`, `parts`, `source`, `image_url`
+
+#### Code Changes Committed to origin/main
+| Commit | File | Change |
+|---|---|---|
+| 7f56e22 | ingest.py | Write subprocess stdout/stderr to disk logs; prevent pipe deadlock |
+| 422cc91 | server.py | Add /api/debug/cat endpoint to read container log files |
+| b170ec7 | describe.py, ingest.py | Add Interactions API support for AQ. keys; fix model to gemini-3.5-flash |
+| 1f4a7b1 | describe.py | Fix multimodal schema (data+mime_type) and response extraction path |
+
+#### Railway State
+- Auth key (`AQ.Ab8...`) set as `GEMINI_API_KEY` on Railway (set via script reading transcript — never printed to output per security rules).
+- Final working deployment: `a180a682` — panel describe confirmed working (51/268 panels ok before server restart).
+- Ingest job `4bfca87af66a` was in describe stage at restart — status unknown.
+
+#### narrate.py — NOT YET FIXED
+- `narrate.py` → `call_gemini_rest()` uses old generateContent with `?key=` URL param.
+- Will fail with AQ. tokens. **TODO: update to Interactions API.**
+
+#### User's Approved Script Quality Requirements
+- Story-first, not panel-first — smooth narrative retelling, not caption track.
+- Each sentence = event / reaction / realization / intention / consequence.
+- Dialogue → reported narration (no quotation marks).
+- No art/panel language: no "the panel shows", speed lines, camera angles, hair/clothing unless plot-relevant.
+- **Script A** (enriched): narrator may infer motives, backstory from visual context.
+- **Script B** (grounded): strictly what panels show — zero invented motives or backstory.
+
+#### Pending at Session End (server restart 2026-07-19 11:36 EDT)
+- `dungeon_odyssey_sample.py` written but NOT run yet — describes 30 panels, generates Script A + B, saves to `~/Desktop/dungeon-odyssey-review/`.
+- Full 30-panel sample + 2 scripts still needs to be executed for user review.
+
+
+---
+
+### Session 21 (continued) — 2026-07-19 — Full Pipeline Fix & Re-trigger
+
+#### Root Cause: narrate.py produced empty script.txt
+- Previous ingest job `4bfca87af66a` reached `match` stage with error: `"axis 1 is out of bounds for array of dimension 1"`.
+- Investigation: `script.txt` existed on Railway but was **empty** (0 bytes content).
+- Root cause: `narrate.py` → `call_gemini_rest()` was calling old `generateContent?key=AQ.xxx` URL — this silently fails for AQ. tokens (no exception raised, empty string returned). Empty script → 0 beats → match numpy crash.
+
+#### Fix 1: narrate.py — Interactions API support (commit 4766810)
+- `call_gemini_rest()` now detects `AQ.` prefix and routes to Interactions API (`/v1beta/interactions`) with `X-goog-api-key` header.
+- Legacy `AIzaSy` keys still use old `generateContent?key=` path unchanged.
+- All default model references updated: `gemini-3.1-pro-preview` → `gemini-3.5-flash` (old model name was nonexistent).
+- Uses `certifi` CA bundle for SSL on Railway (same pattern as describe.py fix).
+
+#### Fix 2: ingest.py — empty script cache guard (commit 4766810)
+- Before fix: `if os.path.exists(script_path)` loaded cached script even if empty, silently skipping narration re-run.
+- After fix: checks `open(script_path).read().strip()` — only uses cache if non-empty; otherwise re-runs narration.
+- This prevents silent failures from poisoning downstream stages (voice, match, segment).
+
+#### Deployment
+- Commit `4766810` pushed to `origin/main`.
+- Railway redeployed: `ceea182e` — Online.
+
+#### Sample Test Audit (user-requested)
+- User confirmed: the sample test done earlier (7 panels, then 30 panels via `dungeon_odyssey_sample.py`) **bypassed the real pipeline** — it used a custom scratch script instead of `panel-describe/describe.py`, `narrate.py`, etc.
+- Corrected: full end-to-end pipeline now re-triggered properly through Railway `/api/ingest`.
+
+#### Active Ingest Job (as of 2026-07-19 15:52 UTC)
+- Job ID: `db7216d976ce`
+- URL: `https://asurascans.com/comics/dungeon-odyssey-1d35e5bd/chapter/1`
+- Stages: scrape → split → describe → narrate → voice → match → segment
+- Status: **Running** (new fresh job, no cached artifacts from failed previous run)
+- Expected: describe ~268 panels (~13 min), narrate (~2 min), voice TTS, match, segment.
+
+#### Next Steps
+- Monitor job `db7216d976ce` to completion.
+- Verify `script.txt` is non-empty after narrate stage.
+- Verify segments.json produced after segment stage.
+- Review output via Review UI at `https://manhwa.nodepilot.dev`.
+
+
+---
+
+### 2026-10-03 — Fix all 8 code-review findings on the uncommitted crop-planner/narration work
+
+Code review of the working tree (crop planner, tagged narration, entrypoint) found 8 bugs; all fixed:
+
+1. `deploy/entrypoint.sh` had been emptied to 0 bytes (container would not boot; volume symlinks lost) → restored from HEAD.
+2. `narrate.py`: the new prompt makes Gemini prefix every line with `[panel_id]` / `[SYSTEM:panel_id]`, but nothing removed them (TTS would read IDs aloud) → added `strip_panel_tags()`, applied per scene in `generate_narration`.
+3+4. `hyperframes/render_segments.py`: `ensure_project()` was skipped when `segments.json` existed (render-missing crashed on fresh projects: no `assets/`), and the CLI reused stale `segments.json` skipping `validate_beatsheet` → `ensure_project()` always runs; `segments.json` is reused only in a project workspace (`HF_WORKSPACE` set by the server), CLI rebuilds + re-validates.
+5. `shot_planner.py`: failures (incl. usage-cap breaches) were cached forever as full-panel fallbacks → failures no longer cached; `UsageCapExceeded` now propagates.
+6. `shot_planner.py` used the genai SDK for all keys → `AQ.` keys now go through the Interactions API (gemini-3.5-flash), same as describe/narrate.
+7. `shot_planner.py`: Gemini boxes not validated → `normalize_bbox()` handles 0–1000 scale, reversed corners, clamps to [0,1], rejects degenerate boxes.
+8. Crop cache keyed only by panel+beat index → entries store `beat_text`; re-queried when the text changes.
+9. Every shot got a crop box, so full-panel shots used the crop layout with a 1000×1000 guess → full-frame boxes (or missing dims) keep the original card layout.
+10. `server.py`: `/api/debug/cat` prefix check let `../dungeon-odyssey_10/…` through → `realpath` + `commonpath`; `/api/debug/test-planner` is now POST (opening it no longer spends Gemini quota) and uses real panel dims from descriptions.json.
+
+**Verified (offline, mocked Gemini):** bbox normalization cases; transient failure not cached; cache hit skips call; changed beat text re-queries (3 calls as expected); `UsageCapExceeded` propagates; full-frame segment renders the plain card; tag stripping keeps in-sentence brackets. All modified files `py_compile` clean.
+**Not verified:** live Gemini Interactions call from shot_planner, a real Railway deploy/render.

@@ -67,7 +67,31 @@ def seg_html(seg, audio_dir):
     dur = seg["dur"]
     z0, z1 = (1.0, 1.035) if seg["seg_index"] % 2 == 0 else (1.035, 1.0)
     audio_layers, tl = [], []
-    tl.append(f'  tl.fromTo("#card .cardimg", {{ scale: {z0} }}, '
+
+    import sys
+    if RECAP not in sys.path:
+        sys.path.insert(0, RECAP)
+    from shot_planner import get_crop_layout, is_full_frame
+    # Full-panel boxes keep the original card layout; a real crop needs the
+    # panel's true dimensions or its aspect ratio would be guessed.
+    has_crop = (not is_full_frame(seg.get("crop_bbox_norm"))
+                and seg.get("width") and seg.get("height"))
+    if has_crop:
+        layout = get_crop_layout(seg["crop_bbox_norm"], seg.get("width"), seg.get("height"))
+        
+        card_html = f"""  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
+    <div class="crop-container" id="card_container" style="position:relative; overflow:hidden; width:{layout["w"]:.1f}px; height:{layout["h"]:.1f}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">
+      <img class="cardimg" src="{src}" style="position:absolute; width:{layout["scale_w"]}%; height:{layout["scale_h"]}%; left:{layout["left"]}%; top:{layout["top"]}%; max-width:none; max-height:none;" alt="" />
+    </div>
+  </div>"""
+        target_el = "#card_container"
+    else:
+        card_html = f"""  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
+    <img class="cardimg" src="{src}" alt="" />
+  </div>"""
+        target_el = "#card .cardimg"
+
+    tl.append(f'  tl.fromTo("{target_el}", {{ scale: {z0} }}, '
               f'{{ scale: {z1}, duration: {dur}, ease: "none" }}, 0);')
     tl.append(f'  tl.fromTo("#bg", {{ scale: 1.15 }}, '
               f'{{ scale: 1.22, duration: {dur}, ease: "none" }}, 0);')
@@ -105,9 +129,7 @@ html,body {{ width:{W}px; height:{H}px; overflow:hidden; background:#e8e6e3; }}
   data-duration="{dur}" data-width="{W}" data-height="{H}">
   <img class="clip" id="bg" data-start="0" data-duration="{dur}" data-track-index="0" src="{src}" alt="" />
   <div id="veil"></div>
-  <div class="clip card" id="card" data-start="0" data-duration="{dur}" data-track-index="1">
-    <img class="cardimg" src="{src}" alt="" />
-  </div>
+{card_html}
 {os.linesep.join(audio_layers)}
 </div>
 <script>
@@ -170,27 +192,36 @@ def main():
     ap.add_argument("--concat-only", action="store_true", help="skip rendering, just concat existing clips")
     args = ap.parse_args()
 
-    shots = json.load(open(os.path.join(RECAP, BEATSHEET)))
-    panels = json.load(open(os.path.abspath(os.path.join(PROJ, DESCRIPTIONS_FILE))))
-    for s in shots:
-        s["panel_file"] = os.path.join(PANEL_DIR, f"{s['panel_id']}.png")
-
-    # pre-render gate
-    sys.path.insert(0, RECAP)
-    import matcher
-    for p in panels:
-        if p.get("file") and not os.path.isabs(p["file"]):
-            p["file"] = os.path.join(PANEL_DIR, p["file"])
-    problems = matcher.validate_beatsheet(shots, panels)
-    if problems:
-        print(f"ABORT: {len(problems)} validation problem(s):")
-        for p in problems[:20]:
-            print("  -", p)
-        raise SystemExit(1)
-
-    segments = build_segments(shots)
     ensure_project()
-    json.dump(segments, open(os.path.join(WORK, "segments.json"), "w"), indent=2)
+    segments_path = os.path.join(WORK, "segments.json")
+    # A project workspace (HF_WORKSPACE, set by the review server) owns its
+    # segments.json — it carries UI edits and is the canonical state. The default
+    # CLI workspace is always rebuilt from the beatsheet and re-validated.
+    if "HF_WORKSPACE" in os.environ and os.path.exists(segments_path):
+        print(f"Loading segments directly from {segments_path}...")
+        segments = json.load(open(segments_path))
+    else:
+        shots = json.load(open(os.path.join(RECAP, BEATSHEET)))
+        panels = json.load(open(os.path.abspath(os.path.join(PROJ, DESCRIPTIONS_FILE))))
+        for s in shots:
+            s["panel_file"] = os.path.join(PANEL_DIR, f"{s['panel_id']}.png")
+
+        # pre-render gate
+        sys.path.insert(0, RECAP)
+        import matcher
+        for p in panels:
+            if p.get("file") and not os.path.isabs(p["file"]):
+                p["file"] = os.path.join(PANEL_DIR, p["file"])
+        problems = matcher.validate_beatsheet(shots, panels)
+        if problems:
+            print(f"ABORT: {len(problems)} validation problem(s):")
+            for p in problems[:20]:
+                print("  -", p)
+            raise SystemExit(1)
+
+        segments = build_segments(shots)
+        json.dump(segments, open(segments_path, "w"), indent=2)
+
     audio_dir = os.path.join(RECAP, AUDIO_SUBDIR)
     final = os.path.join(WORK, "final.mp4")
 

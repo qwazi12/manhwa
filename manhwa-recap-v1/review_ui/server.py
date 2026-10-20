@@ -185,6 +185,12 @@ def project():
             "has_clip": clip_ok,
             "clip_url": f"/clip/{s['seg_index']}" if clip_ok else None,
             "thumb_url": f"/thumb/{s['seg_index']}",
+            "crop_bbox_norm": s.get("crop_bbox_norm"),
+            "focus_source": s.get("focus_source"),
+            "focus_reason": s.get("focus_reason"),
+            "focus_confidence": s.get("focus_confidence"),
+            "width": s.get("width"),
+            "height": s.get("height"),
         })
     counts = {"approved": 0, "rejected": 0, "pending": 0}
     for s in out:
@@ -292,6 +298,7 @@ def render_missing():
         env = os.environ.copy()
         env["HF_WORKSPACE"] = pdir
         env["HF_AUDIO_DIR"] = AUDIO_DIR
+        env["HF_PANELS_DIR"] = os.path.join(pdir, "crops")
         r = subprocess.run(
             [sys.executable, os.path.join(HF, "render_segments.py"),
              "--only", str(i)],
@@ -667,12 +674,30 @@ def build_preview_html(segs):
         pid = s["panel_id"]
         img = f"/panelimg/{_html.escape(pid)}"
         dur = s["dur"]
-        layers.append(
-            f'<div class="seg" id="seg{i}" style="opacity:0">'
-            f'<img class="bg" src="{img}" alt="">'
-            f'<div class="veil"></div>'
-            f'<div class="card"><img class="cardimg" id="ci{i}" src="{img}" alt=""></div>'
-            f'</div>')
+        has_crop = s.get("crop_bbox_norm") is not None
+        if has_crop:
+            import sys
+            if RECAP not in sys.path:
+                sys.path.insert(0, RECAP)
+            from shot_planner import get_crop_layout
+            layout = get_crop_layout(s["crop_bbox_norm"], s.get("width"), s.get("height"))
+            layers.append(
+                f'<div class="seg" id="seg{i}" style="opacity:0">'
+                f'<img class="bg" src="{img}" alt="">'
+                f'<div class="veil"></div>'
+                f'<div class="card">'
+                f'<div class="crop-container" id="ci{i}" style="position:relative; overflow:hidden; width:{layout["w"]:.1f}px; height:{layout["h"]:.1f}px; border-radius:6px; background:#fff; box-shadow:0 30px 70px rgba(0,0,0,.38), 0 8px 20px rgba(0,0,0,.22);">'
+                f'<img class="cardimg" src="{img}" style="position:absolute; width:{layout["scale_w"]}%; height:{layout["scale_h"]}%; left:{layout["left"]}%; top:{layout["top"]}%; max-width:none; max-height:none;" alt="">'
+                f'</div>'
+                f'</div>'
+                f'</div>')
+        else:
+            layers.append(
+                f'<div class="seg" id="seg{i}" style="opacity:0">'
+                f'<img class="bg" src="{img}" alt="">'
+                f'<div class="veil"></div>'
+                f'<div class="card"><img class="cardimg" id="ci{i}" src="{img}" alt=""></div>'
+                f'</div>')
         meta.append({"start": round(tcur, 3), "dur": dur,
                      "even": i % 2 == 0, "text": s["beats"][0]["text"] if s["beats"] else ""})
         for b in s["beats"]:
@@ -1114,5 +1139,74 @@ def health():
     }
 
 
+@app.post("/api/debug/test-planner")
+def debug_test_planner():
+    pdir = active_project_dir()
+    segments_path = os.path.join(pdir, "segments.json")
+    if not os.path.exists(segments_path):
+        return {"error": "no segments found"}
+    import sys
+    sys.path.insert(0, os.path.join(RECAP, "hyperframes"))
+    import shot_planner
+    with open(segments_path) as f:
+        segs = json.load(f)
+    dims = {}
+    desc_file = os.path.join(pdir, "descriptions.json")
+    if os.path.exists(desc_file):
+        dims = {p.get("panel_id"): (p.get("width"), p.get("height"))
+                for p in json.load(open(desc_file))}
+    shots = []
+    for seg in segs:
+        for b in seg["beats"]:
+            shots.append({
+                "index": b["index"],
+                "beat_text": b["text"],
+                "panel_id": seg["panel_id"],
+                "panel_file": os.path.join(pdir, "crops", f"{seg['panel_id']}.png"),
+                "width": dims.get(seg["panel_id"], (None, None))[0],
+                "height": dims.get(seg["panel_id"], (None, None))[1],
+            })
+    planned = shot_planner.plan_shots(shots[:5], os.path.join(pdir, "descriptions.json"), os.path.join(pdir, "crops"))
+    return {"planned": planned}
+
+
+@app.get("/api/debug/ps")
+def debug_ps():
+    import os
+    try:
+        import ingest
+        proj_dir = os.path.join(ingest.PROJECTS, "dungeon-odyssey_1")
+        if not os.path.exists(proj_dir):
+            return {"ok": True, "msg": "dungeon-odyssey_1 project dir does not exist", "projects_dir": ingest.PROJECTS}
+        files_list = []
+        for root, dirs, files in os.walk(proj_dir):
+            for file in files:
+                rel = os.path.relpath(os.path.join(root, file), proj_dir)
+                files_list.append(rel)
+        return {"ok": True, "files": sorted(files_list)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/debug/cat")
+def debug_cat(path: str):
+    import os
+    try:
+        import ingest
+        root = os.path.realpath(os.path.join(ingest.PROJECTS, "dungeon-odyssey_1"))
+        full_path = os.path.realpath(os.path.join(root, path))
+        # Sandbox check: component-wise, so sibling dirs like dungeon-odyssey_10 fail
+        if os.path.commonpath([root, full_path]) != root:
+            return {"ok": False, "error": "access denied"}
+        if not os.path.exists(full_path):
+            return {"ok": False, "error": "file not found"}
+        with open(full_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"ok": True, "content": content}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")
+
 
