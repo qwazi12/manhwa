@@ -58,7 +58,6 @@ How to pause, resume, re-run, read the logs, and recover from the usual failures
 
 - **Before every push** (code or docs): check nothing is running — Activity → Jobs, or `GET /api/jobsbar` returns `{"jobs":[]}`. A push restarts the backend; interrupted ingests resume once on boot, renders don't.
 - CI (`.github/workflows/ci.yml`) runs the Python and web checks on every push and PR. Only push to `main` when it is green.
-- Railway only rebuilds when a runtime path changes (`watchPatterns` in `railway.json`); `docs/`, top-level `*.md`, `work/` and the Vercel-only `manhwa-recap-v1/web/` do not restart the backend. `manhwa-recap-v1/memory.md` still does, because the Work drawer reads the deployed copy.
 - Backend: push to `main` → Railway builds `deploy/Dockerfile`. Roll back: Railway → Deployments → redeploy the previous one, then revert the commit on GitHub (GitHub must match what runs).
 - Frontend: push to `main` → Vercel builds `manhwa-recap-v1/web`. Roll back: `npx vercel rollback` (or Vercel → Deployments → Promote the previous one). Emergency return to the classic site: Vercel → Settings → Root Directory `.` and framework Other, redeploy.
 
