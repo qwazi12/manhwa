@@ -144,7 +144,10 @@ def merged_into_from_history(pdir):
                         gone = json.load(fh) or {}
                 except (OSError, ValueError):
                     gone = {}
-            if into not in gone:
+            # Only a merged video that was POSTED and then cleaned up keeps its
+            # chapters merged; one deleted unposted must not hide them (Fated
+            # Villain 361-362 / Mount Hua 181-183 were deleted, never posted).
+            if not (gone.get(into) or {}).get("posted"):
                 continue
         at = rv.get("merged_at") or 0
         if newest is None or at >= newest[0]:

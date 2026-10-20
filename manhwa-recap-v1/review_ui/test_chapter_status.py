@@ -64,6 +64,9 @@ def main():
     stale = chap("series_2", {"final_b.mp4": {"status": "merged", "merged_into": "deleted_range"}})
     check("a merge into a video that no longer exists does not hide the chapter",
           cs.decide(cs.gather(stale))["key"] == "to_review")
+    json.dump({"deleted_range": {"why": "deleted by you", "posted": None}}, open(os.path.join(root, "_gone.json"), "w"))
+    check("a merged video deleted without being posted does not hide its chapters",
+          cs.decide(cs.gather(stale))["key"] == "to_review")
     json.dump({"deleted_range": {"posted": True}}, open(os.path.join(root, "_gone.json"), "w"))
     check("...unless that merged video was posted and then cleaned up",
           cs.decide(cs.gather(stale))["key"] == "merged")
