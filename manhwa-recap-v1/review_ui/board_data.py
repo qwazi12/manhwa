@@ -84,6 +84,7 @@ def build(pdir, review, junk_reason=None):
                           "sliced": bool(b.get("file"))} for b in s.get("beats", [])],
                "crop": {"status": cst, "keeps": round(crop_area(box) * 100) if cst == "sub" else None,
                         "full_override": s.get("focus_source") == "manual_full",
+                        "auto": s.get("focus_source") in ("auto_subject", "auto_orientation"),
                         "restorable": s.get("crop_bbox_norm_ai") is not None},
                "framing": framing, "flags": [], "clip": s.get("clip")}
         if framing["findings"]:

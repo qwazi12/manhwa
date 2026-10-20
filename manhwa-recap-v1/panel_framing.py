@@ -20,6 +20,8 @@ def rotation(seg):
 def geometry(path, degrees=0):
     """Measured native and display dimensions, including mirrored EXIF cases."""
     rotation({"rotation_deg": degrees})
+    if not path:              # a segment without a picture file is unmeasurable
+        return None
     try:
         with Image.open(path) as im:
             w, h = im.size
@@ -54,7 +56,7 @@ def clear_picture_edits(seg):
     """A new picture cannot inherit another picture's coordinate system."""
     for key in ("crop", "crop_box", "crop_bbox_norm", "crop_bbox_norm_ai",
                 "focus_source", "focus_source_ai", "focus_reason", "focus_confidence",
-                "rotation_deg"):
+                "rotation_deg", "rotation_source", "rotation_reason", "rotation_suggestion"):
         seg.pop(key, None)
 
 
@@ -78,5 +80,12 @@ def inspect(seg, path=None):
         findings.append({"rule": "F2-narrow-card", "msg": "This tall picture will appear as a narrow card. Check the original: choose a detail crop or a reviewed rotation if the artwork is sideways; do not stretch it."})
     if regime == "scroll":
         findings.append({"rule": "F3-scroll-review", "msg": "Tall-picture scroll: inspect the beginning, middle and end so the subject stays visible. Shape alone does not justify rotation."})
+    sug = seg.get("rotation_suggestion")
+    if not deg and isinstance(sug, dict) and sug.get("degrees") in ROTATIONS[1:]:
+        findings.append({"rule": "F5-turn-suggested", "msg": f"Automatic check suggests turning this picture {sug['degrees']}° clockwise ({sug.get('confidence', 0):.0%}): {sug.get('evidence', '')} Compare with the original before applying."})
+    if deg and seg.get("rotation_source") == "auto":
+        findings.append({"rule": "F6-auto-turned", "msg": f"Turned automatically: {seg.get('rotation_reason', '')} Choose 'As source' to undo."})
     return {"rotation_deg": deg, "geometry": g, "regime": regime,
-            "crop_size": [round(cw), round(ch)], "findings": findings}
+            "crop_size": [round(cw), round(ch)], "findings": findings,
+            "suggestion": sug if not deg and isinstance(sug, dict) else None,
+            "rotation_source": seg.get("rotation_source")}

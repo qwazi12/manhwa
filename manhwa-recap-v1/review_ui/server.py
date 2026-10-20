@@ -8413,6 +8413,42 @@ def sb_rotation(body: RotationIn):
         return _sb_op(storyboard_edit.set_rotation, body.seg_index, body.degrees)
 
 
+class AutoFrameIn(BaseModel):
+    project: str
+    dry_run: bool = False
+
+
+@app.post("/api/storyboard/auto_framing")
+def sb_auto_framing(body: AutoFrameIn):
+    """Automatic orientation + subject framing for one named chapter.
+
+    Reframes only default full-panel segments, suggests (or, with
+    AUTO_TURN=apply, applies) turns, and leaves every reviewer decision
+    alone. Vision calls go through the usage gate and are cached per image.
+    One Undo restores the previous board.
+    """
+    import storyboard_edit
+    import auto_framing
+    if not body.project:
+        raise HTTPException(400, "choose the chapter to frame")
+    if auto_framing.default_ask() is None:
+        raise HTTPException(409, "automatic framing is off or the vision key is missing")
+    if any(x.get("project") == body.project
+           and (x.get("type") == "finalize" or "seg_indices" in x)
+           and x.get("status") in ("running", "queued", "paused", "pausing")
+           for x in list(JOBS.values())):
+        raise HTTPException(409, "wait for this chapter's render to finish before reframing")
+    pdir = project_dir_for(body.project)
+    with _bind_project(pdir):
+        if not body.dry_run:
+            _snapshot()
+        try:
+            segs, summary = storyboard_edit.auto_frame(pdir, dry_run=body.dry_run)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    return {"ok": True, "n_segments": len(segs), **summary}
+
+
 @app.post("/api/storyboard/use_full_panel")
 def sb_use_full_panel(body: SegOnlyIn):
     """P3: reviewer overrides a bad planner crop with the whole panel.

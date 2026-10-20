@@ -29,7 +29,9 @@ def build_segments(shots):
     segments = []
     cur = None
     for s in shots:
-        if cur is None or s["panel_id"] != cur["panel_id"] or s.get("crop_bbox_norm") != cur.get("crop_bbox_norm"):
+        if (cur is None or s["panel_id"] != cur["panel_id"]
+                or s.get("crop_bbox_norm") != cur.get("crop_bbox_norm")
+                or s.get("rotation_deg", 0) != cur.get("rotation_deg", 0)):
             if cur is not None:
                 segments.append(cur)
             cur = {
@@ -46,6 +48,12 @@ def build_segments(shots):
                 "end": float(s["end"]),
                 "beats": [],
             }
+            # Automatic framing (auto_framing.py): an applied turn and its
+            # provenance, or a turn suggestion for the board. Absent keys
+            # keep older manifests byte-identical.
+            for k in ("rotation_deg", "rotation_source", "rotation_reason", "rotation_suggestion"):
+                if s.get(k):
+                    cur[k] = s[k]
         beat = {
             "index": s["index"],
             "start": float(s["start"]),

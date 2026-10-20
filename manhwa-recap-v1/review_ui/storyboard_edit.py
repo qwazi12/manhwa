@@ -1223,6 +1223,43 @@ def set_rotation(pdir, si, degrees):
     return segs
 
 
+def auto_frame(pdir, ask=None, dry_run=False):
+    """Run automatic orientation/subject framing over an existing chapter.
+
+    Only default framing changes: segments with a rotation, a reviewer or
+    planner crop, or a manual focus are skipped. Turns are suggested (or
+    applied when AUTO_TURN=apply). One save, so one Undo restores everything.
+    Returns (segs, summary); dry_run proposes without writing.
+    """
+    import copy
+    import auto_framing
+    segs = load(pdir)
+    work = copy.deepcopy(segs)
+    summary = auto_framing.apply_to_segments(
+        work, os.path.join(pdir, "crops"), os.path.join(pdir, "descriptions.json"),
+        ask=ask, cache_path=os.path.join(pdir, "auto_framing_cache.json"))
+    changed = sorted(i for i in summary.pop("changed") if i is not None)
+    summary["changed_segments"] = changed
+    summary["dry_run"] = bool(dry_run)
+    if dry_run:
+        summary["proposals"] = [
+            {k: s.get(k) for k in ("seg_index", "panel_id", "crop_bbox_norm", "focus_reason",
+                                   "rotation_deg", "rotation_suggestion")}
+            for s in work if s.get("seg_index") in changed]
+        return segs, summary
+    if changed:
+        save(pdir, work)
+        # A suggestion alone changes no pixels; only re-render real reframes.
+        old = {s["seg_index"]: s for s in segs}
+        _stale(pdir, [s["seg_index"] for s in work if s.get("seg_index") in changed
+                      and any(s.get(k) != old[s["seg_index"]].get(k)
+                              for k in ("crop_bbox_norm", "rotation_deg"))])
+        _log(pdir, "auto_frame", segs=changed, turned=summary["turned"],
+             suggested=summary["suggested"], framed=summary["framed"],
+             turn_mode=summary["turn_mode"])
+    return work, summary
+
+
 def _misfit(seg, beats):
     """Seconds of `beats` audio falling outside seg's window (0.0 == clean)."""
     out = 0.0

@@ -222,3 +222,9 @@ def test_actual_rendered_clip_is_landscape_and_keeps_clockwise_color_positions(t
     # Quarter-turn makes a wide 900x600 card. Left half is blue; upper-right red.
     assert pixels[400, 650, 2] > 210 and pixels[400, 650, 0] < 30
     assert pixels[400, 1250, 0] > 210 and pixels[400, 1250, 2] < 30
+
+
+def test_segment_without_a_picture_file_is_reported_not_a_crash():
+    assert pf.geometry(None) is None
+    out = pf.inspect({"seg_index": 0, "panel_id": "gone"})
+    assert out["regime"] == "unknown" and out["findings"][0]["rule"] == "F0-unreadable-image"

@@ -16,6 +16,7 @@ except ImportError:
     usage = None
 
 MODEL_NAME = "gemini-2.5-flash"
+LAST_AUTO_FRAMING = None     # summary of the last plan_shots auto-framing pass
 
 # Keywords that trigger a Gemini close-up crop analysis
 _DETAIL_KEYWORDS = [
@@ -475,6 +476,20 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
             except Exception:
                 pass
 
+    # 2b. Automatic orientation + subject positioning (auto_framing.py). Only
+    # default full-panel shots are reframed; planner close-ups are kept. A
+    # failure here must never block an ingest — the shot keeps its framing.
+    global LAST_AUTO_FRAMING
+    try:
+        import auto_framing
+        LAST_AUTO_FRAMING = auto_framing.apply_to_shots(
+            shots, crops_dir, desc_path,
+            cache_path=os.path.join(os.path.dirname(desc_path), "auto_framing_cache.json"))
+        LAST_AUTO_FRAMING.pop("changed", None)
+    except Exception as e:
+        LAST_AUTO_FRAMING = {"skipped": f"auto framing failed: {type(e).__name__}: {e}"[:200]}
+    print(f"Auto framing: {LAST_AUTO_FRAMING}")
+
     # 3. Prevent frozen stills: for panels with multiple beats, introduce dynamic punch-in variation
     for pid, pshots in panel_to_shots.items():
         if len(pshots) > 1:
@@ -485,5 +500,14 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
                     s["focus_source"] = "multi_beat_punchin"
                     s["focus_reason"] = f"dynamic framing variation for beat {idx+1} of multi-beat panel hold"
                     s["focus_confidence"] = 1.0
+                elif idx > 0 and s.get("focus_source") == "auto_subject":
+                    # Same variation inside the automatic subject frame, so a
+                    # long hold still moves and the subject stays centred.
+                    x0, y0, x1, y1 = s["crop_bbox_norm"]
+                    z = 0.06 if idx % 2 == 1 else 0.09
+                    dx, dy = (x1 - x0) * z, (y1 - y0) * z
+                    s["crop_bbox_norm"] = [round(x0 + dx, 4), round(y0 + dy, 4),
+                                           round(x1 - dx, 4), round(y1 - dy, 4)]
+                    s["focus_reason"] += f"; punch-in for beat {idx+1} of this hold"
 
     return shots

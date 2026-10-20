@@ -583,6 +583,13 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     import shot_planner
     progress("match", "Planning precise shot crops…", 96)
     shots = shot_planner.plan_shots(shots, desc_path, crops)
+    af = shot_planner.LAST_AUTO_FRAMING or {}
+    if af.get("skipped"):
+        progress("match", f"Auto framing skipped: {af['skipped']}", 96)
+    else:
+        progress("match", f"Auto framing: {af.get('framed', 0)} shots framed on the subject, "
+                          f"{af.get('turned', 0)} turned, {af.get('suggested', 0)} turn "
+                          f"suggestion(s) for review ({af.get('panels', 0)} panels).", 96)
 
     # 7. segment ----------------------------------------------------------
     progress("segment", "Building render segments…", 97)

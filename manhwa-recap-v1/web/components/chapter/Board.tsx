@@ -74,6 +74,9 @@ export default function Board({ id, onChange, sentBack, builtWith }:
         right={<div className="row">
           <Busy className="sm" onClick={() => run("/api/storyboard/set_included", { all: true, included: true }, "Every segment ticked")}>Tick all</Busy>
           <ConfirmButton quick className="sm" confirm="Untick every segment?" onConfirm={() => run("/api/storyboard/set_included", { all: true, included: false }, "Every segment unticked")}>Tick none</ConfirmButton>
+          <ConfirmButton quick className="sm" title="frame default full-panel shots on their subject and check for sideways pictures"
+            confirm="Automatically frame this chapter? Only shots still showing the default whole panel change; your crops and turns stay. Sideways pictures are suggested for you to check. Uses a few cents of vision calls; Undo restores the board."
+            onConfirm={() => run("/api/storyboard/auto_framing", { project: id }, "Auto framing done — framed shots need rendering again; check 'Needs a look' for suggested turns")}>Auto-frame</ConfirmButton>
           <Busy className="sm" onClick={() => run("/api/storyboard/undo", {}, "Undone")} title="undo the last board change">↶ Undo</Busy>
         </div>}>
         <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", display: "grid", gap: 8 }}>
@@ -157,7 +160,7 @@ function SegRow({ s, b, projectId, stamp, run, canDrag, onDragStart, onDragEnd, 
           <img src={`/thumb/${s.seg_index}?t=${stamp}&project=${encodeURIComponent(PROJECT.id)}`} alt="" loading="lazy" />
         </a>
         <div className="row small" style={{ gap: 4 }}>
-          {s.crop.status === "sub" && <Pill tone={(s.crop.keeps ?? 100) < 30 ? "bad" : (s.crop.keeps ?? 100) < 60 ? "warn" : "muted"}>✂ keeps {s.crop.keeps}%</Pill>}
+          {s.crop.status === "sub" && <Pill tone={(s.crop.keeps ?? 100) < 30 ? "bad" : (s.crop.keeps ?? 100) < 60 ? "warn" : "muted"}>✂ keeps {s.crop.keeps}%{s.crop.auto ? " · auto" : ""}</Pill>}
           {s.crop.status === "tiny" && <Pill tone="bad">crop too small</Pill>}
           {s.crop.status === "full" && <Pill>▣ full panel{s.crop.full_override ? " (yours)" : ""}</Pill>}
         </div>
@@ -185,6 +188,9 @@ function SegRow({ s, b, projectId, stamp, run, canDrag, onDragStart, onDragEnd, 
           {s.framing.geometry && <div>{s.framing.geometry.width}×{s.framing.geometry.height} · {s.framing.regime}</div>}
           <div>Turning resets the crop. Compare the original and preview before rendering.</div>
           {s.framing.findings.map((x: { rule: string; msg: string }) => <div key={x.rule} className="warn">{x.msg}</div>)}
+          {s.framing.suggestion && <Busy className="sm" disabled={!!b.locked || turning}
+            onClick={() => run("/api/storyboard/rotation", { project: projectId, seg_index: s.seg_index, degrees: s.framing.suggestion.degrees }, "Suggested turn applied — crop reset; render this shot again")}>
+            Apply suggested turn ({s.framing.suggestion.degrees}°)</Busy>}
         </details>}
       </div>
       <div className="txt">

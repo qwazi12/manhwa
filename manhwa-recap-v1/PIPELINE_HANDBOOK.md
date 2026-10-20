@@ -326,6 +326,10 @@ end to the next shot's start — exact tiling, no gaps, no overlaps.
 **The ordering matters:** the crop is chosen **after** the script exists and is
 driven by it.
 
+**Then automatic framing** (`auto_framing.py`, step 2b of `plan_shots`): shots
+still on the default whole panel get a subject crop (balloons/gutters out), and
+tall sideways-looking panels get a turn suggestion. See E39.
+
 ## A7. Build segments — `hyperframes/segments.py`
 
 `build_segments` opens a new segment whenever `panel_id` **or**
@@ -1459,3 +1463,7 @@ Fresh final-mediaQA has zero findings/full decode pass. Review includes62MP4midp
 Automatic packaging again inherited old series-template32–33 content/internal variant text despite project.chapter34. Preserve that evidence, correct only the new export's story-grounded title/description/tags/private/no targets/no time and cleanCH34thumbnail; do not rewrite global defaults or older chapters. QA guards block Drive/publish paths; actual approval probe403. Any duplicate-title advisory between preserved QA siblings is not permission to delete a version or invent a different episode number.
 
 The40-row renderqueue history cap again removed an unrelated old completed row. After proving no active work and no changes to remaining old rows, archived post-test queue and new completion in owner_review, then restored exact pre-test bytes. This preserves unrelated history and the new durable job/export, but needs an offline regression-backed QA-retention repair. Independent retained MP4/QA/thumbnail/metadata copies live outside ordinary export cleanup. Final9job/153original/418parent/289edit1/3state hashes exact; fourWaiting/cancelledChapter34 untouched. Full evidence and outstanding research/quality boundaries: docs/FLAMINGO_CH34_FULLER_REVIEW.md.
+
+## E39 — automatic orientation and subject framing
+
+`auto_framing.py` asks one vision question per used panel (subject box without balloons/captions/SFX/gutters) and, for tall panels without translated lettering, a two-order three-copy comparison for sideways art. Answers are cached per image in `<project>/auto_framing_cache.json`. New ingests run it inside `shot_planner.plan_shots` after close-up planning; existing chapters use the board's **Auto-frame** button (`POST /api/storyboard/auto_framing`, named project, refused while that chapter renders, one Undo). Only default full-panel framing is replaced; planner close-ups, composition downgrades, reviewer crops and manual turns stay. Turns are suggestions (F5, *Apply suggested turn*) unless `AUTO_TURN=apply` (F6, `rotation_source: auto`). `build_segments` carries `rotation_deg`/`rotation_source`/`rotation_reason`/`rotation_suggestion`; a suggestion alone never invalidates a clip. Measured on Chapter 34: subject crops mean IoU 0.68 vs reviewer (0.49 whole panel); turns 1/2 found, 0 false in the used panels. Details, settings and cost: docs/FLAMINGO_AUTO_FRAMING.md.
