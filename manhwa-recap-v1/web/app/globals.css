@@ -200,6 +200,9 @@ video { width: 100%; border-radius: 8px; background: #000; display: block; }
 .needcard:hover { border-color: var(--faint); text-decoration: none; }
 .needcard img, .needcard .ph { width: 76px; aspect-ratio: 3/4; object-fit: cover; border-radius: 7px; background: var(--panel2); }
 .needcard .nb { display: grid; gap: 5px; align-content: start; min-width: 0; }
+.needsel { position: relative; display: grid; }
+.needsel > input[type="checkbox"] { position: absolute; top: 6px; left: 6px; width: 22px; height: 22px; z-index: 2; margin: 0; cursor: pointer; }
+.needsel.on .needcard { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue) inset; }
 
 /* ---- desktop layouts (owner, 2026-10-04: make it website-friendly, not just phone-friendly) */
 .vgrid { display: grid; gap: 12px; }

@@ -42,7 +42,7 @@ jobs:
           for t in test_assign test_board_data test_crop_preview test_crop_score \
                    test_fast_render test_hardening test_pacing test_render_epoch \
                    test_storyboard_edit test_undo test_usage_carry test_validator \
-                   test_validator_actions test_lab_ready test_pipeline_strip test_render_queue; do
+                   test_validator_actions test_lab_ready test_pipeline_strip test_render_queue test_chapter_status; do
             echo "::group::$t"
             # full output when a suite fails, a short summary when it passes
             if python "$t.py" > "$RUNNER_TEMP/$t.log" 2>&1; then

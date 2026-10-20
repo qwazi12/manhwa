@@ -116,6 +116,42 @@ def _latest_export(pdir):
     return max(files, key=lambda f: os.path.getmtime(os.path.join(d, f))) if files else None
 
 
+def merged_into_from_history(pdir):
+    """The merged video this chapter went into, from any of its reviews.
+
+    Returns the merged project's id, "" when the review predates merged_into,
+    or None when the chapter was never merged or its merged video no longer
+    exists (deleting/unmerging releases the chapters, but a stale mark must
+    never hide a chapter)."""
+    try:
+        with open(os.path.join(pdir, "reviews.json"), encoding="utf-8") as fh:
+            revs = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(revs, dict):
+        return None
+    root = os.path.dirname(os.path.abspath(pdir))
+    gone = None
+    newest = None
+    for rv in revs.values():
+        if not isinstance(rv, dict) or rv.get("status") != "merged":
+            continue
+        into = rv.get("merged_into") or ""
+        if into and not os.path.isdir(os.path.join(root, into)):
+            if gone is None:                       # posted, then cleaned up?
+                try:
+                    with open(os.path.join(root, "_gone.json"), encoding="utf-8") as fh:
+                        gone = json.load(fh) or {}
+                except (OSError, ValueError):
+                    gone = {}
+            if into not in gone:
+                continue
+        at = rv.get("merged_at") or 0
+        if newest is None or at >= newest[0]:
+            newest = (at, into)
+    return newest[1] if newest else None
+
+
 def gather(pdir, ingest_rec=None, rendering=False, queue_rows=None, review_state=None,
            load_publishes=None, archived=None):
     """Facts for one project folder. Callers pass the live pieces they own
@@ -134,6 +170,17 @@ def gather(pdir, ingest_rec=None, rendering=False, queue_rows=None, review_state
                 f["merged_into"] = _rv.get("merged_into")
         except Exception:
             pass
+    if not name:
+        # Owner, 2026-10-20: merged chapters kept coming back as "Check the
+        # board". Export cleanup deletes a chapter's own MP4 after a week; the
+        # merge is recorded against that file name in reviews.json, so with
+        # the file gone the check above never ran. With no current video, the
+        # chapter's review history decides. (A re-render after a merge has a
+        # current video, so it still shows up as new work.)
+        into = merged_into_from_history(pdir)
+        if into is not None:
+            f["merged"] = True
+            f["merged_into"] = into or None
     if ingest_rec:
         f["ingest_status"] = ingest_rec.get("status")
         f["ingest_stage"] = ingest_rec.get("stage")

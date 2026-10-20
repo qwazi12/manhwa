@@ -46,6 +46,32 @@ def main():
           D({"has_board": True, "board_newer": True, "ingest_status": "running"})["key"] == "making")
     check("every status has a label, tone and plain hint",
           all(len(v) == 3 and v[2] for v in cs.STATUSES.values()))
+    # owner, 2026-10-20: merged chapters came back as "Check the board" once
+    # export cleanup deleted their own MP4 (the merge is recorded per file).
+    root = tempfile.mkdtemp()
+    def chap(name, reviews, video=None):
+        d = os.path.join(root, name); os.makedirs(os.path.join(d, "exports"))
+        open(os.path.join(d, "segments.json"), "w").write("[]")
+        json.dump(reviews, open(os.path.join(d, "reviews.json"), "w"))
+        if video:
+            open(os.path.join(d, "exports", video), "wb").write(b"mp4")
+        return d
+    os.makedirs(os.path.join(root, "series_ch1-3"))
+    gone_v = chap("series_1", {"final_a.mp4": {"status": "merged", "merged_into": "series_ch1-3", "merged_at": 5}})
+    f = cs.gather(gone_v)
+    check("merged chapter whose own video was cleaned up stays Merged (not Check the board)",
+          cs.decide(f)["key"] == "merged" and f["merged_into"] == "series_ch1-3")
+    stale = chap("series_2", {"final_b.mp4": {"status": "merged", "merged_into": "deleted_range"}})
+    check("a merge into a video that no longer exists does not hide the chapter",
+          cs.decide(cs.gather(stale))["key"] == "to_review")
+    json.dump({"deleted_range": {"posted": True}}, open(os.path.join(root, "_gone.json"), "w"))
+    check("...unless that merged video was posted and then cleaned up",
+          cs.decide(cs.gather(stale))["key"] == "merged")
+    rerun = chap("series_3", {"final_c.mp4": {"status": "merged", "merged_into": "series_ch1-3"}}, video="final_d.mp4")
+    check("a re-render after merging is new work (Video ready), not hidden as Merged",
+          cs.decide(cs.gather(rerun))["key"] == "video_ready")
+    old = chap("series_4", {"final_e.mp4": {"status": "merged"}})
+    check("an old merge record without merged_into still counts", cs.decide(cs.gather(old))["key"] == "merged")
 
     import ingest
     import server
