@@ -46,7 +46,10 @@ iCloud-synced Desktop and randomly hangs git/file operations (dataless-file
 materialization) — do not rely on it.
 
 ## Where things live
-- History / decisions: `manhwa-recap-v1/memory.md` (append-only log, read first)
+- History / decisions: `manhwa-recap-v1/memory.md` (append-only log, read first;
+  history before 2026-10-06 is in `manhwa-recap-v1/memory-archive-2026-07-to-10-06.md`)
+- CI: `.github/workflows/ci.yml` (Python + web checks on every push/PR); only
+  release to `main` when it is green
 - Backend: `manhwa-recap-v1/review_ui/` (FastAPI `server.py`, `ingest.py`,
   `autopilot.py`, `watchlist.py`, `chapter_seo.py`, `thumbnail_studio.py`,
   `usage.py` cost guardrails). `static/index.html` is the legacy studio only.

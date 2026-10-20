@@ -3,9 +3,10 @@ import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
 import upload_post
 
-def test_config():
-    os.environ["UPLOAD_POST_API_KEY"] = "test_key_123"
-    os.environ["UPLOAD_POST_PROFILE"] = "my_profile"
+def test_config(monkeypatch):
+    # monkeypatch restores the environment, so later tests see the real defaults.
+    monkeypatch.setenv("UPLOAD_POST_API_KEY", "test_key_123")
+    monkeypatch.setenv("UPLOAD_POST_PROFILE", "my_profile")
     cfg = upload_post.config()
     assert cfg["configured"] == True
     assert cfg["api_key"] == "test_key_123"
@@ -19,8 +20,8 @@ def test_multipart_builder():
     assert b"Awesome Video" in body
     assert "multipart/form-data; boundary=" in ct
 
-def test_upload_post_mock():
-    os.environ["UPLOAD_POST_API_KEY"] = "test_key_123"
+def test_upload_post_mock(monkeypatch):
+    monkeypatch.setenv("UPLOAD_POST_API_KEY", "test_key_123")
     called = []
     def mock_http(method, url, body, cfg):
         called.append((method, url, len(body)))
