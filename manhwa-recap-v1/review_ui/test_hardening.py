@@ -39,9 +39,12 @@ def _mp3(path, secs):
 
 
 def _png(path, w, h):
+    # Pillow, not ffmpeg: some ffmpeg builds round an odd height (811) to an
+    # even one for their default pixel format, so the fixture lied about its
+    # own size on the Linux CI runner.
+    from PIL import Image
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"color=c=gray:s={w}x{h}",
-                    "-frames:v", "1", path], check=True, capture_output=True)
+    Image.new("RGB", (w, h), "gray").save(path)
 
 
 def _project(tmp):
