@@ -44,7 +44,9 @@ jobs:
                    test_storyboard_edit test_undo test_usage_carry test_validator \
                    test_validator_actions test_lab_ready test_pipeline_strip test_render_queue; do
             echo "::group::$t"
-            python "$t.py" | tail -3
+            # full output when a suite fails, a short summary when it passes
+            python "$t.py" > "$RUNNER_TEMP/$t.log" 2>&1 || { cat "$RUNNER_TEMP/$t.log"; exit 1; }
+            tail -3 "$RUNNER_TEMP/$t.log"
             echo "::endgroup::"
           done
         shell: bash -o pipefail {0}
