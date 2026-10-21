@@ -61,6 +61,16 @@ How to pause, resume, re-run, read the logs, and recover from the usual failures
 - Backend: push to `main` → Railway builds `deploy/Dockerfile`. Roll back: Railway → Deployments → redeploy the previous one, then revert the commit on GitHub (GitHub must match what runs).
 - Frontend: push to `main` → Vercel builds `manhwa-recap-v1/web`. Roll back: `npx vercel rollback` (or Vercel → Deployments → Promote the previous one). Emergency return to the classic site: Vercel → Settings → Root Directory `.` and framework Other, redeploy.
 
+## Memory and cost
+
+Railway bills the container's memory **including the Linux file cache**. A render
+reads/writes gigabytes, and with a 32 GB limit the kernel never drops that cache,
+so billed memory used to sit at 2–4 GB for hours after a render. `cache_release.py`
+drops the cache for the data folders every 5 minutes while nothing is running and
+logs `[cache-release] idle: file cache … -> …` in the Railway logs. Turn it off with
+`CACHE_RELEASE=off`. Check: `railway metrics --since 1d --memory` (idle should be
+~0.2 GB).
+
 ## Backups
 
 - Every rendered chapter is copied to the Flamingo Remix Shared Drive (`Series / Ch N`: video, thumbnail, script).

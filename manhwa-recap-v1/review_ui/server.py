@@ -9581,6 +9581,13 @@ def _start_background_work():
     except Exception as e:
         print(f"[boot] startup cleanup failed: {e}", flush=True)
 
+    try:
+        # Railway bills the file cache renders leave behind (see cache_release.py).
+        import cache_release as _cr
+        _cr.start([_ingest_mod.PROJECTS, WORK, "/app/data"], _work_running)
+    except Exception as e:
+        print(f"[boot] cache release failed to start: {e}", flush=True)
+
     # Env switch so a local/dev server never spends money by itself.
     if os.environ.get("AUTOPILOT_SCHEDULER", "1") == "0" or _SCHED["started"]:
         return
@@ -10804,6 +10811,19 @@ def logs_jobs(limit: int = 80):
             groups["earlier"].append(r)
     groups["earlier"] = groups["earlier"][:limit]
     return groups
+
+
+def _work_running():
+    """True while anything is actually working (for idle housekeeping).
+    Paused, held or stopped work is idle: it does no file I/O and may sit
+    for days, so it must not block housekeeping forever."""
+    busy = ("running", "queued", "pausing")
+    if any(x.get("status") in busy for x in list(INGEST.values()) + list(JOBS.values())):
+        return True
+    try:
+        return any(i.get("status") == "rendering" for i in _rq.load(_ingest_mod.PROJECTS)["items"])
+    except Exception:
+        return True                       # unsure -> treat as busy
 
 
 @app.get("/api/jobsbar")

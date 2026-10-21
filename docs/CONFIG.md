@@ -73,6 +73,7 @@ The scheduler checks every **10 minutes** (first check 60 s after boot); `AUTOPI
 | `THUMB_COVER_TRIM_TOP`, `THUMB_COVER_TRIM_BOTTOM` | share of the scraped series cover cut off the top / bottom edge before it's used in a thumbnail, to remove aggregator watermarks (defaults 0.07 / 0.05) |
 | `SPLIT_GUTTER_ROW_STD` | splitter flat-gutter rule (default 6; 0 = off) |
 | `AUTOPILOT_SCHEDULER` | `0` switches the background scheduler off |
+| `CACHE_RELEASE` (`off` disables), `CACHE_RELEASE_SECONDS` (300) | while idle, drop the Linux file cache renders leave behind — Railway bills it as memory (review_ui/cache_release.py) |
 | `AUTO_FRAMING` (`off` disables), `AUTO_TURN` (`suggest` default / `apply` / `off`), `AUTO_TURN_MIN_CONF` (0.8), `AUTO_FRAMING_MODEL` (`gemini-3.8-flash`), `AUTO_FRAMING_WORKERS` (5) | automatic subject framing and sideways-picture turns (docs/FLAMINGO_AUTO_FRAMING.md) |
 | tuning groups `SPLIT_*`, `CROP_*`, `BUBBLE_*`, `VALIDATOR_*`, `PLUS_*`, `LAB_*`, `CLAUDE_TEST_*`, `TTS_*`, `DESCRIBE_*` | defaults in code; change only with a measured reason |
 
