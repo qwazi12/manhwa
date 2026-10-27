@@ -3,6 +3,8 @@
 Reports and manifests live beside exports, never in a shared/global project.
 No function synthesizes, trims, publishes or modifies original media.
 """
+import atexit
+from collections import OrderedDict
 import hashlib
 import json
 import os
@@ -21,7 +23,58 @@ from audio_paths import beat_audio_path
 import media_audio
 
 VERSION = 1
-_HASH_CACHE = {}
+# Digest memo keyed by (path, device, inode, size, mtime, ctime). Bounded LRU:
+# one Home load fingerprints ~9k chapter files, and the old 4,096-entry cap
+# cleared the whole memo twice per load, so every request re-hashed every
+# panel and audio file (7.6 s per /api/home on production, 2026-10-27).
+_HASH_CACHE = OrderedDict()
+_HASH_CACHE_MAX = 100_000
+# The memo is also kept on the persistent volume so a restart or deploy does
+# not re-hash every chapter file (a cold pass took ~150 s on production). Keys
+# include inode, size, mtime and ctime, so a changed file is always re-hashed.
+_MEMO_PATH = os.environ.get("MEDIA_DIGEST_MEMO") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "projects", "_cache", "digest_memo.json")
+_MEMO = {"loaded": False, "dirty": 0, "saved_at": 0.0}
+_MEMO_SAVE_EVERY = 30.0
+
+
+def _memo_load():
+    """Once per process: restore the digest memo from disk (under _LOCK)."""
+    if _MEMO["loaded"]:
+        return
+    _MEMO["loaded"] = True
+    try:
+        with open(_MEMO_PATH, encoding="utf-8") as f:
+            rows = json.load(f)
+        for key, value in rows[-_HASH_CACHE_MAX:]:
+            _HASH_CACHE[tuple(key)] = value
+    except (OSError, ValueError, TypeError):
+        pass
+
+
+def flush_memo():
+    with _LOCK:
+        _memo_save(force=True)
+
+
+atexit.register(flush_memo)
+
+
+def _memo_save(force=False):
+    """Atomic, throttled write of the memo (under _LOCK)."""
+    now = time.time()
+    if not _MEMO["dirty"] or (not force and _MEMO["dirty"] < 500
+                              and now - _MEMO["saved_at"] < _MEMO_SAVE_EVERY):
+        return
+    try:
+        os.makedirs(os.path.dirname(_MEMO_PATH), exist_ok=True)
+        tmp = f"{_MEMO_PATH}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump([[list(k), v] for k, v in _HASH_CACHE.items()], f, separators=(",", ":"))
+        os.replace(tmp, _MEMO_PATH)
+        _MEMO.update(dirty=0, saved_at=now)
+    except OSError:
+        pass
 _LOCK = threading.RLock()
 _RUNNING = set()
 _ANALYSIS_SLOT = threading.Semaphore(1)
@@ -46,7 +99,10 @@ def file_digest(path):
         key = (os.path.realpath(path), st.st_dev, st.st_ino, st.st_size,
                st.st_mtime_ns, st.st_ctime_ns)
         with _LOCK:
+            _memo_load()
             hit = _HASH_CACHE.get(key)
+            if hit:
+                _HASH_CACHE.move_to_end(key)
         if hit:
             return hit
         h = hashlib.sha256()
@@ -58,9 +114,11 @@ def file_digest(path):
             return None  # never associate bytes with a moving file
         value = h.hexdigest()
         with _LOCK:
-            if len(_HASH_CACHE) > 4096:
-                _HASH_CACHE.clear()
             _HASH_CACHE[key] = value
+            while len(_HASH_CACHE) > _HASH_CACHE_MAX:
+                _HASH_CACHE.popitem(last=False)
+            _MEMO["dirty"] += 1
+            _memo_save()
         return value
     except (OSError, TypeError):
         return None

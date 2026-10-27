@@ -311,3 +311,56 @@ def test_renderer_staging_uses_safe_asset_names_and_refuses_missing_audio(tmp_pa
     a.unlink()
     with pytest.raises(RuntimeError, match="audio missing"):
         renderer.audio_plan(seg, str(d / "audio"))
+
+
+def test_digest_memo_survives_a_chapter_sized_pass_and_stays_bounded(tmp_path, monkeypatch):
+    # A Home load fingerprints ~9k files; the old 4,096 cap cleared the memo
+    # mid-pass, so every request re-hashed everything (7.6 s, 2026-10-27).
+    files = []
+    for i in range(5000):
+        p = tmp_path / f"f{i}.bin"
+        p.write_bytes(str(i).encode())
+        files.append(p)
+    qa._HASH_CACHE.clear()
+    first = [qa.file_digest(p) for p in files]
+    hashed = []
+    real = qa.hashlib.sha256
+    monkeypatch.setattr(qa.hashlib, "sha256", lambda *a: hashed.append(1) or real(*a))
+    assert [qa.file_digest(p) for p in files] == first
+    assert hashed == []                                   # second pass: all memo hits
+    files[7].write_bytes(b"edited")                       # a changed file is re-hashed
+    assert qa.file_digest(files[7]) != first[7] and hashed == [1]
+    monkeypatch.setattr(qa, "_HASH_CACHE_MAX", 100)
+    qa.file_digest(files[8].with_name("new.bin")) if files[8].with_name("new.bin").write_bytes(b"x") else None
+    assert len(qa._HASH_CACHE) <= 100                     # bounded, oldest evicted
+
+
+def test_digest_memo_survives_a_restart_without_rehashing(tmp_path, monkeypatch):
+    memo = tmp_path / "memo.json"
+    monkeypatch.setattr(qa, "_MEMO_PATH", str(memo))
+    monkeypatch.setattr(qa, "_MEMO", {"loaded": True, "dirty": 0, "saved_at": 0.0})
+    qa._HASH_CACHE.clear()
+    files = [tmp_path / f"a{i}.png" for i in range(20)]
+    for i, p in enumerate(files): p.write_bytes(bytes([i]) * 100)
+    digests = [qa.file_digest(p) for p in files]
+    qa.flush_memo()
+    assert memo.exists()
+    # "restart": empty memory, memo not yet loaded
+    qa._HASH_CACHE.clear()
+    monkeypatch.setattr(qa, "_MEMO", {"loaded": False, "dirty": 0, "saved_at": 0.0})
+    hashed = []
+    real = qa.hashlib.sha256
+    monkeypatch.setattr(qa.hashlib, "sha256", lambda *a: hashed.append(1) or real(*a))
+    assert [qa.file_digest(p) for p in files] == digests and hashed == []
+    files[3].write_bytes(b"changed after restart")          # still detected
+    assert qa.file_digest(files[3]) != digests[3] and hashed == [1]
+
+
+def test_corrupt_memo_file_is_ignored(tmp_path, monkeypatch):
+    memo = tmp_path / "memo.json"
+    memo.write_text("{not json")
+    monkeypatch.setattr(qa, "_MEMO_PATH", str(memo))
+    monkeypatch.setattr(qa, "_MEMO", {"loaded": False, "dirty": 0, "saved_at": 0.0})
+    qa._HASH_CACHE.clear()
+    f = tmp_path / "x.bin"; f.write_bytes(b"x")
+    assert qa.file_digest(f) == qa.hashlib.sha256(b"x").hexdigest()

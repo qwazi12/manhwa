@@ -6,6 +6,10 @@ see AGENTS.md). Collecting a script suite executes it and its SystemExit
 aborts the whole session, so plain `pytest` only collects real pytest files.
 """
 import os
+import tempfile
+
+# Tests never write the media digest memo into the real projects folder.
+os.environ.setdefault("MEDIA_DIGEST_MEMO", os.path.join(tempfile.mkdtemp(prefix="digest_memo_"), "memo.json"))
 
 
 def pytest_ignore_collect(collection_path, config):
