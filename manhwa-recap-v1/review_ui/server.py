@@ -16,6 +16,7 @@ Everything is deploy-agnostic: put this behind any reverse proxy / subdomain
 (e.g. manhwa.kymediamgmt.com) later without code changes.
 """
 
+import hmac
 import json
 import os
 import re
@@ -58,19 +59,24 @@ if os.environ.get("RAILWAY_ENVIRONMENT") and not os.environ.get("SHARED_SECRET")
     raise RuntimeError("Missing SHARED_SECRET environment variable in production")
 
 
+# Deny by default (2026-10-27): the old allow-list only covered /api, /clip,
+# /thumb, /audio, /panelimg and /export, so the public Railway URL served
+# chapter art (/segimg), the legacy board (/storyboard), /review and the full
+# endpoint map (/docs, /openapi.json) without the secret. The site's proxy
+# adds the secret to every path it forwards; only health probes stay open.
+_OPEN_PATHS = frozenset({"/health", "/ready"})
+
+
 @app.middleware("http")
 async def verify_shared_secret(request: Request, call_next):
-    path = request.url.path
-    protected_prefixes = ("/api", "/clip", "/thumb", "/audio", "/panelimg", "/export")
-    if any(path.startswith(prefix) for prefix in protected_prefixes):
-        expected_secret = os.environ.get("SHARED_SECRET")
-        if expected_secret:
-            auth_header = request.headers.get("x-shared-secret")
-            if auth_header != expected_secret:
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Unauthorized: Invalid or missing shared secret"}
-                )
+    expected_secret = os.environ.get("SHARED_SECRET")
+    if expected_secret and request.url.path not in _OPEN_PATHS:
+        got = request.headers.get("x-shared-secret") or ""
+        if not hmac.compare_digest(got.encode(), expected_secret.encode()):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Unauthorized: Invalid or missing shared secret"}
+            )
     return await call_next(request)
 
 
