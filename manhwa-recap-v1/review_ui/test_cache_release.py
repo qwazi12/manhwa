@@ -96,3 +96,30 @@ def test_idle_check_ignores_paused_and_held_work(monkeypatch):
     monkeypatch.setattr(server, "JOBS", {})
     monkeypatch.setattr(server._rq, "load", lambda root: {"items": [{"status": "rendering"}]})
     assert server._work_running() is True
+
+
+def fake_proc(tmp_path, procs):
+    root = tmp_path / "proc"
+    for pid, (name, ppid, state) in procs.items():
+        d = root / str(pid); d.mkdir(parents=True)
+        (d / "status").write_text(f"Name:\t{name}\nState:\t{state} (x)\nPPid:\t{ppid}\n")
+    return str(root)
+
+
+def test_only_live_orphaned_browsers_are_ended_and_only_when_idle(tmp_path):
+    proc = fake_proc(tmp_path, {
+        1: ("python", 0, "S"),
+        40: ("chrome-headless", 1, "S"),       # orphan, live -> end
+        41: ("chrome-headless", 1, "Z"),       # zombie -> tini reaps, not ours
+        42: ("chrome-headless", 99, "S"),      # still has its render parent
+        43: ("node", 1, "S"),                  # not a browser
+        44: ("chrome", 1, "S"),                # orphan, live -> end
+    })
+    assert sorted(cr.orphan_browsers(proc)) == [40, 44]
+    killed = []
+    assert cr.end_orphan_browsers(lambda: True, proc=proc, kill=lambda p, s: killed.append(p)) == 0
+    assert killed == []                                    # a render is running: hands off
+    logs = []
+    n = cr.end_orphan_browsers(lambda: False, log=lambda *a, **k: logs.append(a[0]), proc=proc,
+                               kill=lambda p, s: killed.append(p))
+    assert n == 2 and sorted(killed) == [40, 44] and "2 leftover" in logs[0]

@@ -96,6 +96,58 @@ def run_once(paths, is_busy, log=print, min_file_cache=MIN_FILE_CACHE):
     return out
 
 
+BROWSER_NAMES = ("chrome", "chrome-headless", "chrome-headless-shell", "chromium")
+
+
+def orphan_browsers(proc="/proc"):
+    """Live Chrome processes whose parent is gone (re-parented to PID 1).
+
+    HyperFrames starts headless Chrome for each render; when its node parent
+    exits early, Chrome can keep running, owned by PID 1. With no render
+    running, every such browser is a leftover.
+    """
+    out = []
+    try:
+        entries = os.listdir(proc)
+    except OSError:
+        return out
+    for pid in entries:
+        if not pid.isdigit() or pid == "1":
+            continue
+        try:
+            with open(os.path.join(proc, pid, "status")) as f:
+                st = dict(line.split(":", 1) for line in f if ":" in line)
+        except (OSError, ValueError):
+            continue
+        name = st.get("Name", "").strip()
+        state = st.get("State", "").strip()[:1]
+        if st.get("PPid", "").strip() == "1" and state != "Z" and name.startswith(BROWSER_NAMES):
+            out.append(int(pid))
+    return out
+
+
+def end_orphan_browsers(is_busy, log=print, proc="/proc", kill=None):
+    """When idle, SIGTERM leftover browsers. Returns how many were ended."""
+    import signal
+    try:
+        if is_busy():
+            return 0
+    except Exception:
+        return 0
+    kill = kill or os.kill
+    pids = orphan_browsers(proc)
+    done = 0
+    for pid in pids:
+        try:
+            kill(pid, signal.SIGTERM)
+            done += 1
+        except OSError:
+            pass
+    if done:
+        log(f"[cache-release] idle: ended {done} leftover browser process(es) from finished renders", flush=True)
+    return done
+
+
 def start(paths, is_busy, interval=None):
     """Background loop (daemon). Returns the thread, or None when disabled."""
     if os.environ.get("CACHE_RELEASE", "on").lower() in ("0", "off", "false") or not supported():
@@ -106,6 +158,7 @@ def start(paths, is_busy, interval=None):
         while True:
             time.sleep(every)
             try:
+                end_orphan_browsers(is_busy)
                 run_once(paths, is_busy)
             except Exception as exc:          # never take the server down
                 print(f"[cache-release] skipped: {exc}", flush=True)
