@@ -146,6 +146,7 @@ CATEGORIES = {
     "description": "Likely description error",
     "ocr": "Likely OCR poison",
     "coverage": "Coverage",
+    "narration": "AI text in narration",
 }
 
 # Scanlation groups stamp credit pages with their own name, a chapter number
@@ -273,6 +274,7 @@ def build_rows(pdir, review=None):
             "desc_ok": bool(d.get("ok", True)),
             "role": d.get("role"),
             "dialogue_orphan": pid in orphan_ids,
+            "spoken": spoken,
             "pix": d.get("pix"),
             "placement": placement,
             "timing": {
@@ -353,8 +355,14 @@ def rule_findings(rows):
     out = []
     last_unit = None
 
+    import narration_guard
     for r in rows:
         t, p = r["timing"], r["placement"]
+        if narration_guard.is_assistant_text(r.get("spoken")):
+            out.append(_finding(r, "Narration", "high",
+                                "Narration contains the AI talking about its task (e.g. offering a summary), not story.",
+                                "Rewrite or delete this line; renders are blocked until it is gone.",
+                                "rules", category="narration"))
         if r.get("dialogue_orphan"):
             out.append(_finding(r, "System OCR", "high",
                                 "Source dialogue has no safe narrative placement and may be absent from the recap.",

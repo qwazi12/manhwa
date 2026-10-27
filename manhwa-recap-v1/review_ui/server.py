@@ -8535,6 +8535,12 @@ def _gate_timeline(seg_indexes, action):
     except storyboard_edit.TimelineNotReady as e:
         raise HTTPException(409, f"{action} blocked — {e}")
     want = set(seg_indexes)
+    import narration_guard
+    bad = narration_guard.assistant_lines(_segments_of(active_project_dir()), want)
+    if bad:
+        detail = "; ".join(f'seg {si}: "{t[:80]}"' for si, _bi, t in bad[:4])
+        raise HTTPException(400, f"{action} blocked — narration contains AI assistant text, not story: "
+                                 f"{detail}. Edit or delete the line on the board.")
     errs = [e for e in v["errors"] if e["seg"] in want]
     framing = [e for e in errs if e["rule"] == "F4-invalid-rotation"]
     if framing:
