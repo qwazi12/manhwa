@@ -1611,6 +1611,17 @@ def api_publish_save(body: PublishIn):
     md["privacy"] = md.get("privacy") or "private"
     store = load_publish(pdir)
     store[name] = md
+    if name == DRAFT:
+        # The chapter page can show the pre-render form while a video exists;
+        # what the owner typed there must reach the video that posts
+        # (Mount Hua 181-184 posted the template title, 2026-10-27).
+        latest = _cs._latest_export(pdir)
+        if latest:
+            rec = {**publish_defaults(pdir), **(store.get(latest) or {})}
+            for k in _DRAFT_FIELDS:
+                if k in (body.metadata or {}):
+                    rec[k] = md[k]
+            store[latest] = rec
     save_publish(pdir, store)
     pid = os.path.basename(pdir.rstrip("/"))
     # Same shape as the GET. Returning a thinner object here emptied the
@@ -2655,17 +2666,47 @@ def _build_chapter_package(pdir, name, api_key=None, competitor=True, lock_overr
     return pkg
 
 
-def _apply_chapter_package(pdir, name, pkg):
+_AUTO_FIELDS = ("title", "description", "tags")
+
+
+def _owner_edited(saved, field, base):
+    """True when the saved value is the owner's, not something the system wrote:
+    non-empty, different from what automation last wrote (saved["_auto"]) and
+    from the plain default. Mount Hua 181-184 and Too Many Heroes 32-33
+    (2026-10-27/28): the every-10-minute prep pass re-applied the series
+    package and replaced titles the owner had typed."""
+    cur = (saved or {}).get(field)
+    if cur in (None, "", []):
+        return False
+    return cur != ((saved or {}).get("_auto") or {}).get(field) and cur != (base or {}).get(field)
+
+
+def _apply_chapter_package(pdir, name, pkg, keep_owner_edits=False):
+    """Write a series package onto a video. keep_owner_edits (automatic
+    callers): fields the owner changed are left alone. Explicit owner actions
+    (the AI button, applying a hook to the series) still replace them.
+    Returns the metadata; md["_applied"] lists the fields actually written."""
     store = load_publish(pdir)
-    md = {**publish_defaults(pdir), **(store.get(name) or {})}
-    md.update(title=pkg["title"], description=pkg["description"], tags=list(pkg["tags"]),
-              seo_v2=True, youtube_playlist_id=pkg.get("playlist_id") or "",
+    saved = store.get(name) or {}
+    md = {**publish_defaults(pdir), **saved}
+    base = _publish_defaults_base(pdir) if keep_owner_edits else {}
+    new = {"title": pkg["title"], "description": pkg["description"], "tags": list(pkg["tags"])}
+    auto = dict(saved.get("_auto") or {})
+    applied = []
+    for field in _AUTO_FIELDS:
+        if keep_owner_edits and _owner_edited(saved, field, base):
+            continue
+        md[field] = new[field]
+        auto[field] = new[field]
+        applied.append(field)
+    md["_auto"] = auto
+    md.update(seo_v2=True, youtube_playlist_id=pkg.get("playlist_id") or "",
               first_comment=pkg.get("first_comment") or "",
               summary_block=(_seo_chapter_rec(pdir).get("hook_beat") or {}).get("tease") or md.get("summary_block"),
               summary_at=time.time())
     store[name] = md
     save_publish(pdir, store)
-    return md
+    return {**md, "_applied": applied}
 
 
 class HookGenIn(BaseModel):
@@ -3484,6 +3525,9 @@ def api_range_build(body: RangeIn):
                 "made_for_kids": kids,
                 "synthetic_disclosure": synth,
             }
+            # System-written: the series package may still replace these.
+            store[name]["_auto"] = {"title": store[name]["title"], "description": store[name]["description"],
+                                    "tags": store[name]["tags"]}
             save_publish(rdir, store)
 
             # Run full publish preparation (Thumbnails options & SEO recommendations)
@@ -4442,12 +4486,23 @@ def _publish_prep_pass(limit=5):
             continue
         pdir = project_dir_for(r["id"])
         name = _cs._latest_export(pdir) or DRAFT
-        need_seo = not (_seo.get(pdir, name) or _seo.get(pdir, DRAFT))
+        # A locked series writes its package, not an seo.json record, so the
+        # seo check alone said "needs SEO" forever and re-prepared these videos
+        # every pass (every ~10 min), re-applying titles (2026-10-28).
+        has_title = bool((load_publish(pdir).get(name) or {}).get("title"))
+        need_seo = not (_seo.get(pdir, name) or _seo.get(pdir, DRAFT)) and not (
+            name != DRAFT and has_title and _series_locked(pdir)[1])
         need_thumb = name != DRAFT and not _tb.path_for(pdir, name)
+        key = (r["id"], name)
+        if time.time() - _PREP_TRIED.get(key, 0) < PREP_RETRY_SECONDS:
+            continue
         if (need_seo and have_budget) or need_thumb:
+            _PREP_TRIED[key] = time.time()
             _prepare_publish(pdir, name, do_seo=need_seo and have_budget)
             n += 1
 _PREP_NOTE = {}        # (pid, name) -> why SEO isn't filled yet, shown on the page
+_PREP_TRIED = {}       # (pid, name) -> last automatic prep attempt (bounds repeats)
+PREP_RETRY_SECONDS = 6 * 3600
 
 
 def _prepare_publish(pdir, name, do_seo=True):
@@ -4472,9 +4527,9 @@ def _prepare_publish(pdir, name, do_seo=True):
             if name != DRAFT and _series_locked(pdir)[1]:
                 # Spec 10 Stage 1-3: the series-locked package (no free-form SEO)
                 import gemini_tts as _gt
-                _apply_chapter_package(pdir, name, _build_chapter_package(
-                    pdir, name, _gt.env_any_case("GEMINI_API_KEY")))
-                filled += ["title", "description", "tags"]
+                done = _apply_chapter_package(pdir, name, _build_chapter_package(
+                    pdir, name, _gt.env_any_case("GEMINI_API_KEY")), keep_owner_edits=True)
+                filled += done.get("_applied") or []
                 raise _SkipSeo()
             if not (_seo.get(pdir, name) or _seo.get(pdir, DRAFT)):
                 api_seo_generate(SeoGenIn(project=pid, name=name))

@@ -96,6 +96,9 @@ def test_hook_pick_lock_package_validate_and_post_fields(tmp_path, monkeypatch):
     monkeypatch.setattr(up.requests, "post", fake_post) if hasattr(up, "requests") else None
     # a new chapter rendered later gets the package automatically (no free-form SEO)
     d47 = _ch(str(tmp_path), 47)
+    # a fresh render has no saved details yet (the _ch fixture seeds "old 47",
+    # which would now count as an owner edit and be kept — test_title_safety)
+    json.dump({}, open(os.path.join(d47, "publish.json"), "w"))
     monkeypatch.setattr(srv, "api_thumbcopilot_generate", lambda b: None)
     srv._prepare_publish(d47, "f47.mp4")
     m47 = {**srv.publish_defaults(d47), **json.load(open(os.path.join(d47, "publish.json")))["f47.mp4"]}
