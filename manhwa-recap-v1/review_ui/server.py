@@ -3657,6 +3657,67 @@ class UnmergeIn(BaseModel):
     project: str
 
 
+class RestitchIn(BaseModel):
+    project: str
+
+
+@app.post("/api/ranges/restitch")
+def api_range_restitch(body: RestitchIn):
+    """Rebuild a merged video's file from the same chapter videos with the
+    current joining rules (owner, 2026-10-28: no "To be continued..." between
+    chapters). Title, description, tags, thumbnail and its posting-queue place
+    are kept: only the MP4 under the same name is replaced. Refused once posted
+    or while uploading."""
+    import ingest as _ing
+    import range_compile as _rc
+    import threading
+    rdir = project_dir_for(body.project)
+    pid = os.path.basename(rdir.rstrip("/"))
+    meta = _read_json(os.path.join(rdir, "project.json")) or {}
+    b = meta.get("build") or {}
+    if meta.get("kind") != "range":
+        raise HTTPException(400, "that isn't a merged video")
+    if b.get("status") != "done" or not b.get("export"):
+        raise HTTPException(409, "it isn't built yet — wait for it to finish")
+    if (_read_json(os.path.join(rdir, UPLOADS_NAME)) or {}) or (_read_json(os.path.join(rdir, "publishes.json")) or {}):
+        raise HTTPException(409, "already posted — rebuilding would not change the posted video")
+    if any(it.get("project") == pid and it.get("status") == "posting" for it in _pq.load(_ing.PROJECTS).get("items", [])):
+        raise HTTPException(409, "it's being posted right now")
+    pieces = meta.get("merged_from") or []
+    chapters = []
+    for n, pc in zip(range(int(meta["chapters_start"]), int(meta["chapters_end"]) + 1), pieces):
+        cp = os.path.join(_ing.PROJECTS, pc["project"])
+        if not os.path.isfile(os.path.join(cp, "exports", pc["name"])):
+            raise HTTPException(409, f"chapter video {pc['project']}/{pc['name']} is gone — re-render it, then rebuild")
+        chapters.append((n, cp, pc["name"]))
+    if len(chapters) != len(pieces) or not chapters:
+        raise HTTPException(409, "can't line the chapter videos up with this merge")
+    name = b["export"]
+
+    def run():
+        try:
+            # built in a sub-folder: an .mp4 directly in exports/ would be
+            # taken for the newest video while it is still being written
+            tmp = os.path.join(rdir, "exports", "_restitch", name)
+            marks = _rc.stitch(chapters, tmp)
+            os.replace(tmp, os.path.join(rdir, "exports", name))
+            shutil.rmtree(os.path.dirname(tmp), ignore_errors=True)
+            m = _read_json(os.path.join(rdir, "project.json")) or {}
+            m["build"] = {**(m.get("build") or {}), "status": "done", "marks": marks, "restitched_at": time.time()}
+            _write_meta_atomic(rdir, m)
+            try:
+                _mqa.start(rdir, name)
+            except Exception:
+                pass
+            _ev("publish", f"{meta.get('series')} {meta.get('chapters_start')}-{meta.get('chapters_end')}: "
+                           "merged video rebuilt without 'To be continued' between chapters (details kept)", "ok")
+        except Exception as e:  # noqa
+            _ev("publish", f"{pid}: rebuild failed — {str(e)[:160]}", "error")
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"ok": True, "project": pid, "export": name, "chapters": [c[0] for c in chapters]}
+
+
 @app.post("/api/ranges/unmerge")
 def api_range_unmerge(body: UnmergeIn):
     """Undo a merge (owner, 2026-10-12): every piece goes back to how it was —

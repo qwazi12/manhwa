@@ -79,20 +79,61 @@ def _probe(path):
     return float(out.strip() or 0)
 
 
-def stitch(chapters, out_path, _run=None, _probe_fn=None):
+OUTRO_SECONDS = 3.0      # render_segments._title_card default length, before speed-up
+CUT_MARGIN = 0.04        # ~1 frame at 30 fps
+
+
+def outro_seconds(pdir, name, _probe_fn=None):
+    """Length of the "To be continued..." card at the end of a chapter export,
+    in the export's own time (after its speed-up). 0 when the export's manifest
+    does not record an outro: never cut story that might not be a card."""
+    for p in (os.path.join(pdir, "exports", "_qa", name + ".manifest.json"),
+              os.path.join(pdir, "exports", name + ".manifest.json")):
+        try:
+            with open(p, encoding="utf-8") as f:
+                ctx = (json.load(f) or {}).get("context") or {}
+        except (OSError, ValueError):
+            continue
+        card = next((c for c in ctx.get("cards") or [] if c.get("role") == "outro"), None)
+        if not card:
+            return 0.0
+        speed = float(ctx.get("speed") or 1.0) or 1.0
+        raw = OUTRO_SECONDS
+        try:
+            if card.get("path") and os.path.exists(card["path"]):
+                raw = (_probe_fn or _probe)(card["path"]) or OUTRO_SECONDS
+        except Exception:
+            raw = OUTRO_SECONDS
+        return round(raw / speed, 3)
+    return 0.0
+
+
+def stitch(chapters, out_path, _run=None, _probe_fn=None, drop_inner_outros=True):
     """Concatenate the chapter exports (same encoder settings, so stream copy)
-    into out_path. Returns [(chapter, start_seconds)] — the arc markers."""
+    into out_path. Returns [(chapter, start_seconds)] — the arc markers.
+
+    drop_inner_outros (owner, 2026-10-28): a merged video doesn't need "To be
+    continued..." between chapters, so every chapter but the last ends where
+    its story ends (concat outpoint; no re-encode)."""
     run = _run or (lambda cmd: subprocess.run(cmd, check=True, capture_output=True))
     probe = _probe_fn or _probe
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     lst = out_path + ".txt"
     marks, t = [], 0.0
     with open(lst, "w", encoding="utf-8") as f:
-        for n, pdir, name in chapters:
+        for i, (n, pdir, name) in enumerate(chapters):
             src = os.path.join(pdir, "exports", name)
             f.write("file '%s'\n" % src.replace("'", "'\\''"))
             marks.append((n, t))
-            t += probe(src)
+            dur = probe(src)
+            cut = outro_seconds(pdir, name, probe) if drop_inner_outros and i < len(chapters) - 1 else 0.0
+            if 0 < cut < dur:
+                # one frame of margin: a stream-copy outpoint keeps the frame
+                # that sits exactly on the cut (the card's first frame)
+                end = dur - cut - CUT_MARGIN
+                f.write("outpoint %.3f\n" % end)
+                dur = end
+            t += dur
     tmp = out_path + ".part.mp4"
     run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lst,
          "-c", "copy", "-movflags", "+faststart", tmp])
