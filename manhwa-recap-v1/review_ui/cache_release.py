@@ -148,6 +148,54 @@ def end_orphan_browsers(is_busy, log=print, proc="/proc", kill=None):
     return done
 
 
+MIN_TRIM_ANON = 512 * 1024 * 1024       # below this, not worth a trim
+
+
+def _malloc_trim():
+    """glibc malloc_trim(0) -> True/False, or None when not glibc (macOS)."""
+    import ctypes
+    import ctypes.util
+    name = ctypes.util.find_library("c")
+    if not name:
+        return None
+    try:
+        fn = getattr(ctypes.CDLL(name), "malloc_trim")
+    except (OSError, AttributeError):
+        return None
+    fn.argtypes = [ctypes.c_size_t]
+    fn.restype = ctypes.c_int
+    return bool(fn(0))
+
+
+def trim_heap(is_busy, log=print, trim=None, memory=None, min_anon=MIN_TRIM_ANON):
+    """When idle, give freed heap back to the OS (owner, 2026-10-31).
+
+    Measured on production 2026-10-31: billed memory sat at 3.5-3.9 GB for
+    days at ~0 CPU, 3.66 GB of it the uvicorn process's own (anon) memory and
+    only 0.08 GB file cache - so the file-cache release above could not help.
+    Ingest threads allocate large numpy/PIL buffers for tall webtoon pages;
+    glibc keeps that freed memory in its arenas instead of returning it.
+    malloc_trim(0) returns it. Nothing in use is touched."""
+    memory = memory or cgroup_memory
+    before = memory()
+    if not before or before.get("anon", 0) < min_anon:
+        return {"acted": False, "reason": "little heap", "before": before}
+    try:
+        if is_busy():
+            return {"acted": False, "reason": "work running", "before": before}
+    except Exception as exc:              # unsure -> do nothing this round
+        return {"acted": False, "reason": f"busy check failed: {exc}", "before": before}
+    trim = trim or _malloc_trim
+    released = trim()
+    if released is None:
+        return {"acted": False, "reason": "not glibc", "before": before}
+    after = memory()
+    gb = lambda b: f"{b / 1e9:.2f}GB"
+    log(f"[cache-release] idle: heap trim {gb(before['anon'])} -> {gb(after.get('anon', 0))}, "
+        f"billed memory {gb(before['current'])} -> {gb(after.get('current', 0))}", flush=True)
+    return {"acted": True, "released": released, "before": before, "after": after}
+
+
 def start(paths, is_busy, interval=None):
     """Background loop (daemon). Returns the thread, or None when disabled."""
     if os.environ.get("CACHE_RELEASE", "on").lower() in ("0", "off", "false") or not supported():
@@ -160,6 +208,7 @@ def start(paths, is_busy, interval=None):
             try:
                 end_orphan_browsers(is_busy)
                 run_once(paths, is_busy)
+                trim_heap(is_busy)
             except Exception as exc:          # never take the server down
                 print(f"[cache-release] skipped: {exc}", flush=True)
 

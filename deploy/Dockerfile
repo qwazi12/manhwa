@@ -8,9 +8,13 @@ FROM python:3.13-slim
 # pins 1 worker, screenshot capture, no auto-worker calibration. Without it,
 # "auto workers" sees the HOST's 48 cores on Railway and over-spawns Chrome
 # (~256MB each) into the container's much smaller cgroup limit.
+# MALLOC_ARENA_MAX=2: glibc otherwise allows 8 arenas per HOST core (48 on
+# Railway -> up to 384) for the server's ~34 threads, and freed memory stays
+# stranded in them; Railway bills it (3.66 GB anon held at idle, 2026-10-31).
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
-    PRODUCER_LOW_MEMORY_MODE=1
+    PRODUCER_LOW_MEMORY_MODE=1 \
+    MALLOC_ARENA_MAX=2
 
 # system deps: ffmpeg + node + fonts + the full Chrome-for-testing shared-lib
 # set (hyperframes downloads its own Chrome; Debian's `chromium` package is NOT

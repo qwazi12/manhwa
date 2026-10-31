@@ -123,3 +123,44 @@ def test_only_live_orphaned_browsers_are_ended_and_only_when_idle(tmp_path):
     n = cr.end_orphan_browsers(lambda: False, log=lambda *a, **k: logs.append(a[0]), proc=proc,
                                kill=lambda p, s: killed.append(p))
     assert n == 2 and sorted(killed) == [40, 44] and "2 leftover" in logs[0]
+
+
+def _mem(seq):
+    it = iter(seq)
+    return lambda: next(it)
+
+
+def test_heap_trim_only_when_idle_and_heap_is_large():
+    calls = []
+    trim = lambda: calls.append(1) or True
+    big = {"current": 3_800_000_000, "anon": 3_660_000_000, "file": 80_000_000}
+    small = {"current": 300_000_000, "anon": 200_000_000, "file": 80_000_000}
+    assert cr.trim_heap(lambda: True, log=lambda *a, **k: None, trim=trim,
+                        memory=_mem([big]))["reason"] == "work running"
+    assert cr.trim_heap(lambda: False, log=lambda *a, **k: None, trim=trim,
+                        memory=_mem([small]))["reason"] == "little heap"
+    assert calls == []
+
+
+def test_heap_trim_acts_when_idle_and_logs_the_saving():
+    logs = []
+    before = {"current": 3_800_000_000, "anon": 3_660_000_000, "file": 80_000_000}
+    after = {"current": 400_000_000, "anon": 300_000_000, "file": 80_000_000}
+    out = cr.trim_heap(lambda: False, log=lambda m, **k: logs.append(m),
+                       trim=lambda: True, memory=_mem([before, after]))
+    assert out["acted"] and out["after"]["anon"] == 300_000_000
+    assert "heap trim 3.66GB -> 0.30GB" in logs[0] and "billed memory 3.80GB -> 0.40GB" in logs[0]
+
+
+def test_heap_trim_is_a_noop_without_glibc_or_when_busy_check_fails():
+    big = {"current": 3_800_000_000, "anon": 3_660_000_000, "file": 0}
+    assert cr.trim_heap(lambda: False, trim=lambda: None, memory=_mem([big]))["reason"] == "not glibc"
+
+    def boom():
+        raise RuntimeError("x")
+    assert cr.trim_heap(boom, trim=lambda: True, memory=_mem([big]))["acted"] is False
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="glibc only")
+def test_real_malloc_trim_on_linux():
+    assert cr._malloc_trim() in (True, False)
