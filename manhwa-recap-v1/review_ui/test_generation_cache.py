@@ -111,6 +111,27 @@ def test_explicit_failed_refresh_cannot_relabel_old_pixels_as_current(descriptio
     assert json_at(str(out) + ".cache.json")["status"] == "incomplete"
 
 
+def test_failed_stale_records_are_redescribed_not_blocked(description_run, monkeypatch):
+    """Owner, 2026-10-31: chapters whose every panel failed (Gemini 402/403)
+    stayed stuck after billing was fixed - failed records whose inputs had
+    changed blocked the merge run, though they hold nothing to preserve."""
+    crops, image, out, calls, fake, run = description_run
+    good = crops / "page001_panel_002.png"
+    Image.new("RGB", (200, 200), "green").save(good)
+    def failed(*a, **k):
+        return {**fake(*a, **k), "ok": False, "error": "HTTPError: HTTP Error 402"}
+    monkeypatch.setattr(describe, "describe_panel", failed)
+    with pytest.raises(SystemExit, match="incomplete"):
+        run()
+    Image.new("RGB", (200, 200), "red").save(image)        # failed record now stale
+    monkeypatch.setattr(describe, "describe_panel", fake)
+    calls.clear()
+    run("--merge")
+    assert sorted(calls) == [image.name, good.name]
+    assert all(r["ok"] for r in json_at(out))
+    assert json_at(str(out) + ".cache.json")["status"] == "current"
+
+
 def test_usage_cap_preserves_existing_merge_records(description_run, monkeypatch):
     crops, _, out, _, fake, run = description_run
     run()

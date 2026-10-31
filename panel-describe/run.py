@@ -100,7 +100,11 @@ def main():
                       for f in files if os.path.splitext(f)[0] in existing}
             # Decide for the whole chapter BEFORE submitting any requests.
             # Legacy/changed evidence must never silently spend on refresh.
-            blocked = {f: state for f, state in states.items() if state != "current"}
+            # A FAILED record (ok=False, e.g. Gemini 402/403) holds no evidence
+            # to preserve and is re-described anyway, so it never blocks
+            # (owner, 2026-10-31: 12 chapters stuck after billing was fixed).
+            blocked = {f: state for f, state in states.items() if state != "current"
+                       and existing[os.path.splitext(f)[0]].get("ok", False)}
             cache.write_json(args.out + ".cache.json", {
                 "status": "needs_review" if blocked else "current", "panels": states})
             if blocked:
