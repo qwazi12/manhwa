@@ -1,6 +1,7 @@
 # Upload-Post Client
 import json
 import os
+import random
 import time
 import urllib.error
 import urllib.parse
@@ -12,6 +13,9 @@ USER_AGENT = "ManhwaRecapStudio/1.0 (+https://manhwa.nodepilot.dev)"
 ACCOUNTS_FILE = "_upload_post_accounts.json"
 TIMEOUT = 30
 UPLOAD_TIMEOUT = 1200
+UPLOAD_ATTEMPTS = 3                 # gateway errors only; see upload_video_post
+GATEWAY_CODES = (502, 503, 504)
+RETRY_WAIT = (30, 90)               # seconds before attempts 2 and 3 (+ jitter)
 
 NETWORKS = (
     "youtube",
@@ -290,10 +294,15 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
     if not platforms:
         raise UploadPostError("No target platforms selected for publishing")
 
+    # Our own request id, also the Idempotency-Key: after a gateway error we
+    # can ask Upload-Post whether it got the upload, and a resend with the same
+    # key can never create a second post (Upload-Post docs, 2026-10-31).
+    request_id = uuid.uuid4().hex
     fields = [
         ("user", user_profile),
         ("title", metadata.get("title") or "Manhwa Recap"),
         ("async_upload", "true"),
+        ("request_id", request_id),
     ]
     for p in platforms:
         fields.append(("platform[]", p))
@@ -379,20 +388,47 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
             "Authorization": f"Apikey {cfg['api_key']}",
             "Content-Type": content_type,
             "User-Agent": USER_AGENT,
+            "Idempotency-Key": request_id,
         },
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=UPLOAD_TIMEOUT) as r:
-            raw = r.read().decode("utf-8")
-            res = json.loads(raw) if raw else {}
-            return res
-    except urllib.error.HTTPError as e:
-        detail = ""
+    # Owner, 2026-10-31: three merged videos never posted after Upload-Post
+    # gateway errors (502/504). A gateway error may still have been accepted,
+    # so check status first; resend only when Upload-Post has no record.
+    for attempt in range(UPLOAD_ATTEMPTS):
         try:
-            detail = e.read().decode("utf-8")[:500]
-        except Exception:
-            pass
-        raise UploadPostError(f"Upload failed ({e.code}): {detail}", e.code)
-    except urllib.error.URLError as e:
-        raise UploadPostError(f"Could not reach Upload-Post: {e.reason}")
+            with urllib.request.urlopen(req, timeout=UPLOAD_TIMEOUT) as r:
+                raw = r.read().decode("utf-8")
+                res = json.loads(raw) if raw else {}
+                return res
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8")[:500]
+            except Exception:
+                pass
+            err = UploadPostError(f"Upload failed ({e.code}): {detail}", e.code)
+            if e.code not in GATEWAY_CODES:
+                raise err
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            err = UploadPostError(f"Could not reach Upload-Post: {getattr(e, 'reason', e)}")
+        if _accepted(request_id, cfg):
+            if on_step:
+                on_step("Upload-Post had received the upload despite the gateway error")
+            return {"success": True, "request_id": request_id, "recovered_after": str(err)}
+        if attempt + 1 == UPLOAD_ATTEMPTS:
+            raise err
+        if on_step:
+            on_step(f"{err} — Upload-Post has no record of it; retrying "
+                    f"(attempt {attempt + 2} of {UPLOAD_ATTEMPTS})")
+        time.sleep(RETRY_WAIT[attempt] + random.uniform(0, 10))
+
+
+def _accepted(request_id, cfg):
+    """Did Upload-Post register this upload? Unknown -> False (resend is safe:
+    the Idempotency-Key stops a duplicate)."""
+    try:
+        st = upload_status(request_id, cfg=cfg)
+    except Exception:
+        return False
+    return bool(st) and bool(st.get("status")) and st.get("status") not in ("not_found",)
