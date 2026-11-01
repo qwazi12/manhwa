@@ -10,6 +10,10 @@ import tempfile
 
 # Tests never write the media digest memo into the real projects folder.
 os.environ.setdefault("MEDIA_DIGEST_MEMO", os.path.join(tempfile.mkdtemp(prefix="digest_memo_"), "memo.json"))
+# Tests change chapter files and read them back at once; the server's
+# few-second shared chapter list (server._chapter_rows) is tested on its own
+# in test_chapter_rows_memo.py.
+os.environ.setdefault("CHAPTER_ROWS_TTL", "0")
 
 
 def pytest_ignore_collect(collection_path, config):

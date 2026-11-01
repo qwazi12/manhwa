@@ -10304,7 +10304,42 @@ def _ingest_by_project():
     return out, by_url
 
 
+# Every page polls endpoints built on _chapter_rows (Home, Shell, Queue,
+# chapter page), and each build walks every chapter folder: ~0.5-1 s of CPU.
+# Five arriving together took 5-13 s each (measured on production
+# 2026-11-01: /api/chapters?status=video_ready 1.0 s alone, 13.4 s with the
+# Queue page's other calls). One build at a time is shared by everyone who
+# asks in the next few seconds; any change (POST/PUT/DELETE) makes the next
+# read rebuild, so a click is never answered with the old state.
+_ROWS_MEMO = {"at": 0.0, "gen": -1, "rows": None}
+_ROWS_LOCK = threading.Lock()
+_ROWS_GEN = [0]
+_ROWS_TTL = float(os.environ.get("CHAPTER_ROWS_TTL", "5"))
+
+
+@app.middleware("http")
+async def _rows_fresh_after_change(request: Request, call_next):
+    response = await call_next(request)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        _ROWS_GEN[0] += 1
+    return response
+
+
 def _chapter_rows():
+    """Every chapter the studio knows, with ONE status each (shared copy,
+    at most _ROWS_TTL seconds old and never older than the last change)."""
+    import copy
+    with _ROWS_LOCK:
+        m = _ROWS_MEMO
+        if m["rows"] is not None and m["gen"] == _ROWS_GEN[0] and time.time() - m["at"] < _ROWS_TTL:
+            return copy.deepcopy(m["rows"])
+        gen = _ROWS_GEN[0]
+        rows = _build_chapter_rows()
+        m.update(at=time.time(), gen=gen, rows=rows)
+        return copy.deepcopy(rows)
+
+
+def _build_chapter_rows():
     """Every chapter the studio knows, with ONE status each."""
     import ingest as _i
     import autopilot as _ap

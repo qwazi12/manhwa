@@ -10,6 +10,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
 os.environ["AUTOPILOT_SCHEDULER"] = "0"
+os.environ.setdefault("CHAPTER_ROWS_TTL", "0")   # reads its own writes at once
 R = []
 URL = "https://asurascans.com/comics/murim-psychopath-6f7fe6eb/chapter/{}"
 
