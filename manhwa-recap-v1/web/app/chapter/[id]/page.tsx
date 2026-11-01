@@ -221,6 +221,11 @@ function ChapterPage({ id }: { id: string }) {
                 <ConfirmButton className="sm danger" confirm="Stop making it?" onConfirm={() => act(async () => { await api("/api/jobs/control", { job_id: c.ingest.job, action: "stop" }); reload(); }, "Stopping")}>■ Stop</ConfirmButton>)}
               {["paused", "pausing"].includes(c.ingest.status) && <Busy className="sm" onClick={() => act(async () => { await api("/api/jobs/control", { job_id: c.ingest.job, action: "resume" }); reload(); }, "Resumed")}>▶ Resume</Busy>}
               {["budget_paused", "interrupted", "error"].includes(c.ingest.status) && <Busy className="sm" onClick={() => act(async () => { await api("/api/jobs/resume", { job_id: c.ingest.job }); reload(); }, "Resumed")}>▶ Resume</Busy>}
+              {/* owner, 2026-11-01: describe stopped because some panels changed (re-cut, new model/prompt) */}
+              {c.changed_panels && <ConfirmButton className="sm" title={c.changed_panels.panels.join(", ")}
+                confirm={`Describe ${c.changed_panels.n} changed panel(s) again (about $${c.changed_panels.est_usd.toFixed(2)})? Their old descriptions are kept in a backup file; the rest of the chapter is reused.`}
+                onConfirm={() => act(async () => { await api("/api/chapter/redescribe-changed", { project: id }); reload(); }, "Re-describing — watch the jobs bar")}>
+                ↻ Re-describe {c.changed_panels.n} changed panel{c.changed_panels.n === 1 ? "" : "s"}</ConfirmButton>}
             </span>
           </div>
           {["queued", "running"].includes(c.ingest.status) && <div className="bar"><i style={{ width: `${c.ingest.pct || 3}%` }} /></div>}

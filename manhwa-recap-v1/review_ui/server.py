@@ -10618,6 +10618,8 @@ def chapter_view(pid: str):
     ij = ing.get(pid)
     if ij and ij.get("status") in ("queued", "running", "paused", "pausing", "budget_paused", "interrupted", "error", "cancelled"):
         out["ingest"] = {k: ij.get(k) for k in ("job", "status", "stage", "pct", "msg", "error", "ts", "source")}
+        if ij.get("status") == "error":
+            out["changed_panels"] = _changed_panels(pdir)
     # a "send back" verdict must reach the board with its notes (classic banner)
     for v in vids:
         if v.get("review") == "sent_back":
@@ -11509,6 +11511,57 @@ def settings_save(body: StudioSettingsIn):
 
 class JobResumeIn(BaseModel):
     job_id: str
+
+
+def _changed_panels(pdir):
+    """Panels the describe safety check stopped on (panel-describe/run.py
+    writes descriptions.json.cache.json "needs_review"): good descriptions
+    whose crop image, model, prompt or code no longer match. None when the
+    chapter is not blocked on that. Owner, 2026-11-01: Dark Mage 110 stuck on
+    2 panels re-cut after a restart, with no way past it from the site."""
+    rep = _read_json(os.path.join(pdir, "descriptions.json.cache.json")) or {}
+    if rep.get("status") != "needs_review":
+        return None
+    recs = {r.get("panel_id"): r for r in (_read_json(os.path.join(pdir, "descriptions.json")) or [])
+            if isinstance(r, dict)}
+    ids = sorted(os.path.splitext(f)[0] for f, st in (rep.get("panels") or {}).items()
+                 if st != "current" and (recs.get(os.path.splitext(f)[0]) or {}).get("ok"))
+    if not ids:
+        return None
+    per = usage._gemini_call_cost(os.environ.get("PIPELINE_MODEL", "gemini-3.8-flash"))
+    return {"panels": ids, "n": len(ids), "est_usd": round(per * len(ids), 3)}
+
+
+class RedescribeIn(BaseModel):
+    project: str
+
+
+@app.post("/api/chapter/redescribe-changed")
+def chapter_redescribe_changed(body: RedescribeIn):
+    """Owner-confirmed: drop the descriptions of the panels the safety check
+    stopped on (old file kept as descriptions.json.previous-<id>.json) and
+    resume the chapter, so only those panels are described again."""
+    import uuid
+    pdir = project_dir_for(body.project)
+    ch = _changed_panels(pdir)
+    if not ch:
+        raise HTTPException(409, "this chapter is not waiting on changed panels")
+    ing, _u = _ingest_by_project()
+    ij = ing.get(body.project) or {}
+    if ij.get("status") != "error" or not ij.get("job"):
+        raise HTTPException(409, f"the chapter is {ij.get('status') or 'not being made'} — nothing to re-describe")
+    path = os.path.join(pdir, "descriptions.json")
+    recs = _read_json(path) or []
+    backup = f"{path}.previous-{uuid.uuid4().hex}.json"
+    shutil.copy2(path, backup)
+    drop = set(ch["panels"])
+    keep = [r for r in recs if not (isinstance(r, dict) and r.get("panel_id") in drop)]
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(keep, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
+    r = jobs_resume(JobResumeIn(job_id=ij["job"]))
+    return {**r, "panels": ch["panels"], "est_usd": ch["est_usd"], "backup": os.path.basename(backup)}
 
 
 @app.post("/api/jobs/resume")
