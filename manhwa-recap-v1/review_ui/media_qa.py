@@ -218,18 +218,25 @@ def capture_export(pdir, name, speed=1.0, cards=(), components=None):
     events, cursor, errors = [], 0.0, []
     if components is not None:
         context["components"] = []
-        for cp, cn in components:
-            cn = os.path.basename(cn)
+        for comp in components:
+            # (project, name) or (project, name, seconds kept in the merge):
+            # stitching cuts each inner chapter's outro, so the full export
+            # length over-counts (2026-11-01 audit: QA timings drifted by one
+            # card per join and expected_duration was too long).
+            cp, cn = comp[0], os.path.basename(comp[1])
+            keep = float(comp[2]) if len(comp) > 2 and comp[2] is not None else None
             child = _read(_paths(cp, cn)[0], {}) or {}
-            context["components"].append({"project": str(cp), "name": cn})
+            context["components"].append({"project": str(cp), "name": cn, **({"keep": keep} if keep is not None else {})})
             for event in child.get("events", []):
+                if keep is not None and event["start"] >= keep:
+                    continue
                 e = dict(event)
                 e.update(start=event["start"] + cursor, end=event["end"] + cursor,
                          source_project=event.get("source_project") or str(cp))
                 events.append(e)
             if not child or child.get("capture_errors"):
                 errors.append(f"component {cn} lacks a complete render manifest")
-            cursor += media_audio.duration(Path(cp) / "exports" / cn)
+            cursor += keep if keep is not None else media_audio.duration(Path(cp) / "exports" / cn)
     else:
         for card in context["cards"]:
             if card["role"] == "intro":

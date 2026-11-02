@@ -94,6 +94,11 @@ def outro_seconds(pdir, name, _probe_fn=None):
                 ctx = (json.load(f) or {}).get("context") or {}
         except (OSError, ValueError):
             continue
+        if ctx.get("kind") == "range":
+            # a merged video ends with its LAST chapter's card (2026-11-01:
+            # merging a merge left its "To be continued" mid-video)
+            last = (ctx.get("components") or [None])[-1]
+            return outro_seconds(last["project"], last["name"], _probe_fn) if last else 0.0
         card = next((c for c in ctx.get("cards") or [] if c.get("role") == "outro"), None)
         if not card:
             return 0.0
@@ -140,6 +145,13 @@ def stitch(chapters, out_path, _run=None, _probe_fn=None, drop_inner_outros=True
     os.replace(tmp, out_path)
     os.remove(lst)
     return marks
+
+
+def kept_seconds(marks, total):
+    """How much of each piece is in the stitched file (its outro cut off),
+    from stitch()'s markers and the finished file's length."""
+    starts = [t for _n, t in marks] + [float(total)]
+    return [round(starts[i + 1] - starts[i], 3) for i in range(len(marks))]
 
 
 def arcs(marks, every=5):

@@ -3236,6 +3236,33 @@ def _latest_rendered_export(pdir):
         return None
 
 
+def _export_or_drive(pdir):
+    """The video a merge uses for this piece: its export here, else the copy
+    recorded in Drive (owner, 2026-11-01: Drive is the archive; the build
+    fetches it back first)."""
+    name = _latest_rendered_export(pdir)
+    if name:
+        return name
+    rec = _drive.record(pdir) or {}
+    if rec.get("video") and ((rec.get("files") or {}).get("video") or {}).get("id"):
+        return rec["video"]
+    return None
+
+
+def _restore_from_drive(pdir, name):
+    """Make exports/<name> exist again, from its verified Drive copy."""
+    dest = os.path.join(pdir, "exports", name)
+    if os.path.isfile(dest):
+        return dest
+    rec = _drive.record(pdir) or {}
+    vid = (rec.get("files") or {}).get("video") or {}
+    if rec.get("video") != name or not vid.get("id"):
+        raise RuntimeError(f"{os.path.basename(pdir.rstrip('/'))}/{name} is gone and has no Drive copy")
+    _drive.download(vid["id"], dest)
+    _ev("drive", f"{_pretty(os.path.basename(pdir.rstrip('/')))}: fetched {name} back from Drive for a merge", "ok")
+    return dest
+
+
 class RangeIn(BaseModel):
     project: str = ""          # any chapter of the series
     chapters_start: int = 0
@@ -3300,7 +3327,7 @@ def _range_ctx(body):
         pack = _series_pack(primary_pdir) or {}
         got, missing = [], []
         for n, pd, _p in ch_list:
-            name = _latest_rendered_export(pd)
+            name = _export_or_drive(pd)
             if name:
                 got.append((n, pd, name))
             else:
@@ -3315,7 +3342,7 @@ def _range_ctx(body):
         pack = _series_pack(pdir) or {}
         start = int(body.chapters_start)
         end = int(body.chapters_end)
-        pl = _rc.plan(_ing.PROJECTS, sid, start, end, _latest_rendered_export)
+        pl = _rc.plan(_ing.PROJECTS, sid, start, end, _export_or_drive)
         return pdir, sid, (pack.get("title_en") or series), pack, pl, start, end
 
 
@@ -3408,8 +3435,11 @@ def api_range_build(body: RangeIn):
 
     def run():
         try:
+            for _n, cp, cn in pl["chapters"]:
+                _restore_from_drive(cp, cn)
             marks = _rc.stitch(pl["chapters"], os.path.join(rdir, "exports", name))
             secs = _rc._probe(os.path.join(rdir, "exports", name))
+            kept = _rc.kept_seconds(marks, secs)
             # a merged video inside this one: its own chapter markers, shifted
             spans_ = pl.get("spans") or {}
             if spans_:
@@ -3539,8 +3569,9 @@ def api_range_build(body: RangeIn):
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "done", "at": time.time(), "export": name, "marks": marks}
             _write_meta_atomic(rdir, m)
-            _record_export_media(rdir, name, components=[(cp, cn) for _n, cp, cn in pl["chapters"]])
+            _record_export_media(rdir, name, components=[(cp, cn, k) for (_n, cp, cn), k in zip(pl["chapters"], kept)])
             _mqa.start(rdir, name)
+            _drive_copy_later(rdir, name)      # compilations are archived too
             _ev("publish", f"{series} chapters {a}-{b}: long-form compilation video built with series defaults applied — ready in studio", "ok")
         except Exception as e:
             m = _read_json(os.path.join(rdir, "project.json"))
@@ -3702,6 +3733,12 @@ def api_range_restitch(body: RestitchIn):
             marks = _rc.stitch(chapters, tmp)
             os.replace(tmp, os.path.join(rdir, "exports", name))
             shutil.rmtree(os.path.dirname(tmp), ignore_errors=True)
+            # QA must check the file as stitched (outros cut), not as before
+            try:
+                kept = _rc.kept_seconds(marks, _rc._probe(os.path.join(rdir, "exports", name)))
+                _record_export_media(rdir, name, components=[(cp, cn, k) for (_n, cp, cn), k in zip(chapters, kept)])
+            except Exception as e:  # noqa — QA then reports the manifest as incomplete
+                _mqa.record_incomplete(rdir, name, e)
             m = _read_json(os.path.join(rdir, "project.json")) or {}
             m["build"] = {**(m.get("build") or {}), "status": "done", "marks": marks, "restitched_at": time.time()}
             _write_meta_atomic(rdir, m)
@@ -9478,11 +9515,46 @@ def _demand_pass():
     return out
 
 
+def _drive_archive_pass(limit=3):
+    """Owner, 2026-11-01 (approved retention): Drive is the video archive.
+    A POSTED video is copied to Drive if it is not there yet, and its copy
+    here is deleted only once Drive holds the same bytes (size + MD5).
+    Unposted, queued or posting videos are never touched. Bounded per pass."""
+    import ingest as _i
+    if not _drive.configured():
+        return 0
+    keep = _pq.protected(_i.PROJECTS)
+    done = 0
+    for pid, d in _all_export_dirs():
+        if done >= limit:
+            break
+        pdir = os.path.dirname(d)
+        pubs = load_publishes(pdir)
+        for f in sorted(os.listdir(d)):
+            if not f.endswith(".mp4") or (pid, f) in keep:
+                continue
+            if not any(r.get("status") == "published" for r in (pubs.get(f) or {}).get("results") or []):
+                continue
+            if not _drive.verify(pdir, f):     # older copies are checked, not re-sent
+                done += 1
+                if not _drive_copy(pdir, f):
+                    continue
+            if _drive.verify(pdir, f):
+                mb = round(os.path.getsize(os.path.join(d, f)) / 1e6)
+                os.remove(os.path.join(d, f))
+                _ev("drive", f"{_pretty(pid)}: posted video {f} is safe in Drive (checksum matched) — "
+                             f"removed from Railway, {mb} MB freed", "ok")
+            if done >= limit:
+                break
+    return done
+
+
 def _scheduler_pass():
     _SCHED["last_run"] = time.time()
     for name, fn in (("budget", _resume_budget_paused), ("archive", _archive_sweep),
                      ("posting", _schedule_post_pass), ("demand", _demand_pass),
                      ("new sources", _check_new_sources), ("publish prep", _publish_prep_pass),
+                     ("drive archive", _drive_archive_pass),
                      ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps())),
                      ("backup", lambda: __import__("backup").maybe_run_nightly_backup())):
         try:

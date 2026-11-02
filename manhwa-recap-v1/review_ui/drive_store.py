@@ -17,6 +17,7 @@ Once a copy is confirmed, the chapter's render clips are deleted to free disk
 still uploads from it, and the 7-day rule applies as before.
 """
 
+import hashlib
 import json
 import mimetypes
 import os
@@ -163,7 +164,7 @@ def upload(path, name, parent, stop=None, _open=None):
         _request("PATCH", f"{API}/files/{fid}", body={"trashed": True}, _open=_open)
     size = os.path.getsize(path)
     mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-    _, hdr = _request("POST", UPLOAD, {"uploadType": "resumable", "fields": "id,webViewLink"},
+    _, hdr = _request("POST", UPLOAD, {"uploadType": "resumable", "fields": "id,webViewLink,size,md5Checksum"},
                       body={"name": name, "parents": [parent]},
                       headers={"X-Upload-Content-Type": mime, "X-Upload-Content-Length": str(size)},
                       _open=_open, want_headers=True)
@@ -204,12 +205,102 @@ def copy_chapter(pdir, video_name, series, chapter, thumb_path=None, stop=None, 
         files["script"] = upload(script, "script.txt", c_id, stop=stop, _open=_open)
     rec = {"at": time.time(), "video": video_name, "folder_id": c_id,
            "folder_link": f"https://drive.google.com/drive/folders/{c_id}",
-           "files": {k: {"id": v.get("id"), "link": v.get("webViewLink")} for k, v in files.items()}}
+           "files": {k: {"id": v.get("id"), "link": v.get("webViewLink"),
+                         "size": v.get("size"), "md5": v.get("md5Checksum")} for k, v in files.items()},
+           # the video's bytes in Drive match ours (size + MD5) — the only
+           # evidence that lets the studio ever drop its own copy
+           "verified": _same(vid, files["video"])}
     tmp = os.path.join(pdir, RECORD + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(rec, f, indent=1)
     os.replace(tmp, os.path.join(pdir, RECORD))
     return rec
+
+
+def _md5(path):
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(CHUNK), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _same(path, remote):
+    """remote = Drive metadata with size + md5Checksum."""
+    try:
+        return (int(remote.get("size") or -1) == os.path.getsize(path)
+                and (remote.get("md5Checksum") or remote.get("md5")) == _md5(path))
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def meta(file_id, _open=None):
+    return _request("GET", f"{API}/files/{file_id}", {"fields": "id,name,size,md5Checksum,trashed"}, _open=_open)
+
+
+def download(file_id, dest, stop=None, _open=None):
+    """Fetch a Drive file to dest (Scrapper's drive_sync lessons: stream to a
+    private .part file, never trust the remote name as a path, and only a
+    complete, checked file takes the real name). Size and MD5 must match
+    Drive's own record. Returns dest."""
+    m = meta(file_id, _open=_open)
+    if m.get("trashed"):
+        raise DriveError("that Drive copy is in the bin")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    part = f"{dest}.{os.getpid()}.part"
+    url = f"{API}/files/{file_id}?alt=media&supportsAllDrives=true"
+    last = ""
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {_token()}"})
+            opener = _open or (lambda r: urllib.request.urlopen(r, timeout=120, context=_ctx()))
+            with opener(req) as r, open(part, "wb") as f:
+                while True:
+                    if stop and stop():
+                        raise DriveError("stopped")
+                    block = r.read(CHUNK)
+                    if not block:
+                        break
+                    f.write(block)
+                f.flush()
+                os.fsync(f.fileno())
+            if not _same(part, m):
+                raise DriveError("the downloaded copy does not match Drive's size/checksum")
+            os.replace(part, dest)
+            return dest
+        except urllib.error.HTTPError as e:
+            last = f"{e.code}"
+            if e.code not in (429, 500, 502, 503, 504):
+                break
+        except (urllib.error.URLError, TimeoutError, ConnectionError, DriveError) as e:
+            last = str(e)[:300]
+            if "stopped" in last:
+                break
+        finally:
+            if os.path.exists(part):
+                os.remove(part)
+        time.sleep(min(20, 2 ** attempt))
+    raise DriveError(f"could not download from Drive ({last})")
+
+
+def verify(pdir, name, _open=None):
+    """True only when drive.json names this video AND Drive still holds the
+    same bytes as the local file (or, with the local file gone, it holds a
+    copy whose checksum we recorded)."""
+    rec = record(pdir) or {}
+    vid = (rec.get("files") or {}).get("video") or {}
+    if rec.get("video") != name or not vid.get("id"):
+        return False
+    try:
+        m = meta(vid["id"], _open=_open)
+    except DriveError:
+        return False
+    if m.get("trashed"):
+        return False
+    local = os.path.join(pdir, "exports", name)
+    if os.path.exists(local):
+        return _same(local, m)
+    return bool(vid.get("md5")) and m.get("md5Checksum") == vid.get("md5")
 
 
 def record(pdir):
