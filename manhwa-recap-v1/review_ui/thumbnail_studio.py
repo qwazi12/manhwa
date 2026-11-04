@@ -1665,10 +1665,12 @@ def badge_colour(img, box, accent):
     return best, best_d
 
 
-def draw_badge(img, label, accent, cap=None):
+def draw_badge(img, label, accent, cap=None, keep_colour=False):
     """Rounded rect r8, 3 px black outline + drop shadow, 'CH N' at a 38 px
     cap height, padding 20/12, at (28, 28). ~150x62. Its colour is the accent
-    unless that blends into the art behind it (badge_colour)."""
+    unless that blends into the art behind it (badge_colour). keep_colour:
+    re-badging a posted thumbnail over its own old badge, which is the same
+    colour by definition, so the contrast check would wrongly reject it."""
     from PIL import Image, ImageDraw, ImageFilter
     cap = int(cap or BADGE["cap"])
     f = font_for_cap(cap)
@@ -1677,7 +1679,9 @@ def draw_badge(img, label, accent, cap=None):
     pad = max(1.0, cap / float(BADGE["cap"]))
     bw, bh = tw + int(2 * BADGE["pad_x"] * pad), cap + int(2 * BADGE["pad_y"] * pad)
     x0, y0 = BADGE["origin"]
-    accent, _de = badge_colour(img, (x0, y0, x0 + bw, y0 + bh), accent)
+    if not keep_colour:
+        accent, _de = badge_colour(img, (x0, y0, x0 + bw, y0 + bh), accent)
+    accent = tuple(accent)
     sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ImageDraw.Draw(sh).rounded_rectangle([x0, y0 + 4, x0 + bw, y0 + bh + 4], BADGE["radius"], fill=(0, 0, 0, 140))
     img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(6)))

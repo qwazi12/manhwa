@@ -3269,6 +3269,9 @@ class RangeIn(BaseModel):
     chapters_end: int = 0
     projects: list[str] | None = None
     chapters: list[int] | None = None
+    # set by the auto-append pass only: {"base_project", "base_name",
+    # "video_id", "retire": [...]} — prior SEO + thumbnail come from the base
+    append: dict | None = None
 
 
 def _range_ctx(body):
@@ -3414,6 +3417,8 @@ def api_range_build(body: RangeIn):
         pass
     m0 = _read_json(os.path.join(rdir, "project.json")) or {}
     m0["merged_from"] = before
+    if body.append:
+        m0["append"] = body.append
     with open(os.path.join(rdir, "project.json"), "w", encoding="utf-8") as mf:
         json.dump(m0, mf, indent=2)
 
@@ -3566,6 +3571,13 @@ def api_range_build(body: RangeIn):
             except Exception:
                 pass
 
+            if body.append:
+                try:
+                    _apply_prior_seo(rdir, name, body.append, marks, a, b)
+                except Exception as e:  # noqa — the video is still fine; say so
+                    _ev("publish", f"{series} chapters {a}-{b}: couldn't copy the posted video's "
+                                   f"title/tags/thumbnail — {str(e)[:160]}", "warn")
+
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "done", "at": time.time(), "export": name, "marks": marks}
             _write_meta_atomic(rdir, m)
@@ -3573,6 +3585,14 @@ def api_range_build(body: RangeIn):
             _mqa.start(rdir, name)
             _drive_copy_later(rdir, name)      # compilations are archived too
             _ev("publish", f"{series} chapters {a}-{b}: long-form compilation video built with series defaults applied — ready in studio", "ok")
+            for old in (body.append or {}).get("retire") or []:
+                # the waiting merge this one replaces (owner, 2026-11-04): moved aside, not deleted
+                try:
+                    api_range_unmerge(UnmergeIn(project=old))
+                    _ev("publish", f"{_pretty(old)}: replaced by chapters {a}-{b} (kept aside)", "ok")
+                except Exception as e:  # noqa
+                    _ev("publish", f"{_pretty(old)}: couldn't move aside after {a}-{b} was built — "
+                                   f"{getattr(e, 'detail', e)}", "warn")
         except Exception as e:
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "error", "at": time.time(), "error": str(e)[:300]}
@@ -3784,6 +3804,208 @@ def api_range_unmerge(body: UnmergeIn):
     _ev("publish", f"unmerged {meta.get('series')} {meta.get('chapters_start')}-{meta.get('chapters_end')}: "
                    f"{len(restored)} piece(s) back as they were; the merged video was kept aside", "ok")
     return {"ok": True, "restored": restored, "kept_as": os.path.basename(aside)}
+
+
+# --- Auto-append new chapters onto the last posted video (owner, 2026-11-04) ---
+# See auto_append.py for the rules. AUTO_APPEND=0 on Railway turns it off.
+_AUTO_APPEND = {"last_run": None, "seen": {}, "lock": threading.Lock()}
+
+
+def _auto_append_enabled():
+    return os.environ.get("AUTO_APPEND", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _posted_names(pdir):
+    out = {}
+    for name, rec in (load_publishes(pdir) or {}).items():
+        ok = [r for r in (rec or {}).get("results") or [] if r.get("status") == "published"]
+        if ok:
+            yt = next((r for r in ok if (r.get("network") or "youtube") == "youtube"), ok[0])
+            out[name] = {"at": max((r.get("published_at") or 0) for r in ok) or rec.get("ended_at") or 0,
+                         "video_id": _yt_id(yt.get("url")) or yt.get("platform_post_id")}
+    return out
+
+
+def _auto_append_inputs():
+    """{series_id: (posted, singles, pending)} for auto_append.decide."""
+    import ingest as _i
+    series = {}
+    chapters = {}
+    for pid in sorted(os.listdir(_i.PROJECTS)):
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(pdir):
+            continue
+        try:
+            sid, _s, n, meta = _series_ident(pdir)
+        except Exception:
+            continue
+        if not sid:
+            continue
+        posted, _singles, pending = series.setdefault(sid, ([], {}, []))
+        pubs = _posted_names(pdir)
+        if meta.get("kind") == "range":
+            b = meta.get("build") or {}
+            try:
+                a_, e_ = int(meta["chapters_start"]), int(meta["chapters_end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if pubs:
+                name, p = max(pubs.items(), key=lambda kv: kv[1]["at"])
+                posted.append({"project": pid, "name": name, "start": a_, "end": e_, **p})
+            elif b.get("status") == "done":
+                ex = b.get("export") or ""
+                q_active = any(it.get("project") == pid and it.get("status") in _pq.ACTIVE
+                               for it in _pq.load(_i.PROJECTS).get("items", []))
+                pending.append({"project": pid, "start": a_, "end": e_, "building": False,
+                                "approved": q_active or (bool(ex) and review_state(pdir, ex)["status"] == "approved"),
+                                "pieces": meta.get("merged_from") or []})
+            elif b.get("status") != "error":
+                pending.append({"project": pid, "start": a_, "end": e_, "building": True,
+                                "approved": False, "pieces": []})
+        elif n is not None:
+            if pubs:
+                name, p = max(pubs.items(), key=lambda kv: kv[1]["at"])
+                posted.append({"project": pid, "name": name, "start": int(n), "end": int(n), **p})
+            else:
+                chapters[(sid, int(n))] = pdir
+    # chapter details only where they can matter: after the series' last posted chapter
+    for (sid, n), pdir in chapters.items():
+        posted, singles, _p = series[sid]
+        if not posted or n <= max(int(p["end"]) for p in posted):
+            continue
+        name = _export_or_drive(pdir)
+        rv = review_state(pdir, name) if name else {"status": None, "superseded": False}
+        rec = (load_reviews(pdir).get(name) or {}) if name else {}
+        singles[n] = {"project": os.path.basename(pdir), "name": name, "has_video": bool(name),
+                      "status": rv["status"], "superseded": rv["superseded"],
+                      "merged_into": rec.get("merged_into")}
+    return series
+
+
+def _auto_append_pass(apply=True, limit=1):
+    """Scheduler step + after every chapter export. Builds at most `limit`
+    merges per pass; logs each series' decision once, when it changes."""
+    import auto_append as _aa
+    if not _auto_append_enabled():
+        return []
+    if not _AUTO_APPEND["lock"].acquire(blocking=False):
+        return []
+    try:
+        _AUTO_APPEND["last_run"] = time.time()
+        out, started = [], 0
+        for sid, (posted, singles, pending) in sorted(_auto_append_inputs().items()):
+            d = _aa.decide(posted, singles, pending)
+            d["series"] = sid
+            out.append(d)
+            if not apply:
+                continue
+            key = (d["action"], d.get("why") or (d.get("start"), d.get("end")))
+            if d["action"] == "wait" and _AUTO_APPEND["seen"].get(sid) != key:
+                _ev("publish", f"{_pretty(sid)}: new chapter waiting to join the posted video — {d['why']}", "info")
+            if d["action"] == "build" and started < limit:
+                base = d["base"]
+                try:
+                    r = api_range_build(RangeIn(projects=d["projects"], append={
+                        "base_project": base["project"], "base_name": base["name"],
+                        "video_id": base.get("video_id") or "", "retire": d["retire"]}))
+                    started += 1
+                    d["started"] = r.get("project")
+                    _ev("publish", f"{_pretty(sid)}: adding chapter(s) to the posted video {base['start']}-"
+                                   f"{base['end']} → building {d['start']}-{d['end']} for Needs review", "ok")
+                except Exception as e:  # noqa — e.g. the posted video has no copy here or in Drive
+                    d["error"] = str(getattr(e, "detail", e))[:200]
+                    key = ("error", d["error"])
+                    if _AUTO_APPEND["seen"].get(sid) != key:
+                        _ev("publish", f"{_pretty(sid)}: couldn't add the new chapter(s) to the posted video — "
+                                       f"{d['error']}", "warn")
+            _AUTO_APPEND["seen"][sid] = key
+        return out
+    finally:
+        _AUTO_APPEND["lock"].release()
+
+
+@app.get("/api/auto-append")
+def api_auto_append():
+    """What auto-append would do right now, per series (dry run), and when it last ran."""
+    plans = _auto_append_pass(apply=False) if _auto_append_enabled() else []
+    for d in plans:
+        if d.get("base"):
+            d["base"] = {k: d["base"].get(k) for k in ("project", "name", "start", "end")}
+    return {"enabled": _auto_append_enabled(), "last_run": _AUTO_APPEND["last_run"],
+            "undo": "set AUTO_APPEND=0 on Railway to stop; Unmerge on a merged video puts its chapters back",
+            "series": plans}
+
+
+def _apply_prior_seo(rdir, name, ap, marks, a, b):
+    """Title, tags and thumbnail from the posted video this merge extends —
+    as they are on YouTube now (the owner edits there), else as saved here —
+    plus chapter timestamps in the posted style. Saved like an owner edit
+    (the build's `_auto` record is left alone) so the 10-minute prep pass
+    keeps it."""
+    import auto_append as _aa
+    import yt_api
+    bdir = project_dir_for(ap["base_project"])
+    bname = ap["base_name"]
+    saved = load_publish(bdir).get(bname) or {}
+    live = {}
+    if ap.get("video_id") and yt_api.configured():
+        try:
+            live = yt_api.Client().video_snippet(ap["video_id"])
+        except Exception as e:  # noqa
+            _ev("publish", f"{_pretty(ap['base_project'])}: YouTube lookup failed, using the saved title — {e}", "warn")
+    bmeta = _read_json(os.path.join(bdir, "project.json")) or {}
+    if bmeta.get("kind") == "range":
+        plabel = f"{bmeta.get('chapters_start')}-{bmeta.get('chapters_end')}"
+    else:
+        plabel = str(_series_ident(bdir)[2] or "")
+    store = load_publish(rdir)
+    md = {**publish_defaults(rdir), **(store.get(name) or {})}
+    title = live.get("title") or saved.get("title") or ""
+    if title:
+        md["title"] = _aa.relabel_title(title, a, b, YT_TITLE_MAX)
+    md["tags"] = _aa.merge_tags(md.get("tags"), live.get("tags") or saved.get("tags") or [], a, b, plabel)
+    md["description"] = _aa.with_timestamps(md.get("description"), marks)[:YT_DESC_MAX]
+    md["prior_seo_from"] = {"project": ap["base_project"], "name": bname,
+                            "source": "youtube" if live.get("title") else "studio", "at": time.time()}
+    store[name] = md
+    save_publish(rdir, store)
+    _prior_thumbnail(rdir, name, bdir, bname, live.get("thumbnail") or "", a, b)
+
+
+def _prior_thumbnail(rdir, name, bdir, bname, url, a, b):
+    """The posted video's thumbnail art with a new 'CH a-b' badge drawn over
+    its old one, in the same colour."""
+    import io
+    import urllib.request
+    import certifi
+    import ssl
+    from PIL import Image, ImageStat
+    import thumbnail as _tb
+    import thumbnail_studio as _ts
+    data = None
+    src = _tb.path_for(bdir, bname)
+    if src and os.path.exists(src):
+        with open(src, "rb") as f:
+            data = f.read()
+    elif url.startswith("https://i.ytimg.com/"):
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(url, timeout=30, context=ctx) as r:
+            data = r.read()
+    if not data:
+        _ev("publish", f"{_pretty(os.path.basename(rdir))}: the posted video's thumbnail wasn't found — "
+                       "the generated one is kept; check it in 🖼 Thumbnails", "warn")
+        return False
+    im = Image.open(io.BytesIO(data)).convert("RGBA")
+    if im.size != (_ts.W, _ts.H):
+        im = im.resize((_ts.W, _ts.H))
+    st = ImageStat.Stat(im.convert("RGB").crop((36, 36, 60, 60)))
+    colour = tuple(int(v) for v in st.mean)
+    old_badge = max(st.stddev) < 14          # a flat patch where the posted badge sits
+    _ts.draw_badge(im, f"CH {a}-{b}", colour, keep_colour=old_badge)
+    buf = io.BytesIO()
+    im.convert("RGB").save(buf, "JPEG", quality=92)
+    _tb.save(rdir, name, buf.getvalue())
+    return True
 
 
 @app.post("/api/seo/apply")
@@ -4703,6 +4925,10 @@ def _after_export(pdir, name):
     import qa_project_policy as policy
     if name and not policy.restricted(pdir) and _drive.configured():
         _drive_copy(pdir, name)
+    try:
+        _auto_append_pass()          # a finished chapter joins the series' last posted video
+    except Exception as e:  # noqa
+        _ev("publish", f"auto-append after export failed — {str(e)[:160]}", "warn")
 
 
 class PrepareIn(BaseModel):
@@ -9555,6 +9781,7 @@ def _scheduler_pass():
                      ("posting", _schedule_post_pass), ("demand", _demand_pass),
                      ("new sources", _check_new_sources), ("publish prep", _publish_prep_pass),
                      ("drive archive", _drive_archive_pass),
+                     ("auto append", _auto_append_pass),
                      ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps())),
                      ("backup", lambda: __import__("backup").maybe_run_nightly_backup())):
         try:

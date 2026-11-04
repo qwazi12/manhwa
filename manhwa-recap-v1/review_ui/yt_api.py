@@ -170,3 +170,15 @@ class Client:
                 "tags": (it.get("snippet") or {}).get("tags") or [],
             }
         return out
+
+    def video_snippet(self, video_id):
+        """Title, tags and best thumbnail URL as they are on YouTube NOW (the
+        owner edits titles there after posting). 1 unit."""
+        if not video_id:
+            return {}
+        d = self._get("/videos", part="snippet", id=video_id)
+        sn = ((d.get("items") or [{}])[0]).get("snippet") or {}
+        th = sn.get("thumbnails") or {}
+        best = next((th[k]["url"] for k in ("maxres", "standard", "high") if (th.get(k) or {}).get("url")), "")
+        return {"title": sn.get("title") or "", "tags": sn.get("tags") or [],
+                "description": sn.get("description") or "", "thumbnail": best}

@@ -1,0 +1,117 @@
+"""Auto-append end to end on a temp library: posted 20-21 + rendered 22, 23
+→ 20-23 in Needs review with the posted title/tags/thumbnail; then 24
+finishes → 20-24 replaces the waiting 20-23."""
+import io
+import json
+import os
+import time
+
+import pytest
+from PIL import Image
+
+import ingest
+import range_compile as rc
+import server
+import thumbnail as tb
+import yt_api
+
+
+def _wait(root, pid):
+    for _ in range(200):
+        try:
+            m = json.load(open(os.path.join(root, pid, "project.json")))
+        except OSError:
+            m = {}
+        if (m.get("build") or {}).get("status") in ("done", "error"):
+            return m
+        time.sleep(0.05)
+    raise AssertionError(f"{pid} never finished")
+
+
+def _chapter(tmp_path, n):
+    d = tmp_path / f"hound_{n}"
+    (d / "exports").mkdir(parents=True)
+    (d / "exports" / "final.mp4").write_bytes(b"v")
+    (d / "project.json").write_text(json.dumps({"id": f"hound_{n}", "series": "Hound", "series_id": "hound",
+                                                "chapter": str(n)}))
+
+
+@pytest.fixture
+def lib(tmp_path, monkeypatch):
+    root = str(tmp_path)
+    monkeypatch.setattr(ingest, "PROJECTS", root)
+    monkeypatch.setattr(server, "_yt_root", lambda: os.path.join(root, "_yt"))
+    monkeypatch.setattr(server, "_prepare_publish", lambda *a, **k: None)
+    monkeypatch.setattr(server, "api_thumbcopilot_generate", lambda *a, **k: None)
+    monkeypatch.setattr(server, "_drive_copy_later", lambda *a, **k: None)
+    monkeypatch.setattr(server._mqa, "start", lambda *a, **k: None)
+    monkeypatch.setattr(yt_api, "configured", lambda: False)
+    monkeypatch.setattr(rc, "stitch", lambda chs, out: (open(out, "wb").write(b"v"),
+                                                         [(n, 600.0 * i) for i, (n, _p, _x) in enumerate(chs)])[1])
+    monkeypatch.setattr(rc, "_probe", lambda path: 600.0)
+    monkeypatch.setenv("AUTO_APPEND", "1")
+    # the posted merged video 20-21
+    p = tmp_path / "hound_ch20-21"
+    (p / "exports").mkdir(parents=True)
+    (p / "exports" / "final_range_20-21.mp4").write_bytes(b"v")
+    (p / "project.json").write_text(json.dumps({
+        "id": "hound_ch20-21", "kind": "range", "series": "Hound", "series_id": "hound",
+        "chapters_start": 20, "chapters_end": 21, "chapter": "20-21",
+        "build": {"status": "done", "export": "final_range_20-21.mp4", "marks": [[20, 0.0], [21, 300.0]]}}))
+    (p / "publishes.json").write_text(json.dumps({"final_range_20-21.mp4": {"results": [
+        {"status": "published", "network": "youtube", "url": "https://www.youtube.com/watch?v=abcdefghijk",
+         "published_at": 100}]}}))
+    (p / server.PUBLISH_NAME).write_text(json.dumps({"final_range_20-21.mp4": {
+        "title": "[20-21] Hound Returns For VENGEANCE | Flamingo Recap",
+        "tags": ["hound chapter 20-21", "hound chapters 20 to 21", "hound chapter 3", "manhwa recap"]}}))
+    art = Image.new("RGB", (1280, 720), (20, 40, 200))
+    art.paste((255, 182, 57), (28, 28, 220, 90))               # the posted "CH 20-21" badge
+    buf = io.BytesIO()
+    art.save(buf, "JPEG")
+    tb.save(str(p), "final_range_20-21.mp4", buf.getvalue())
+    for n in (22, 23):
+        _chapter(tmp_path, n)
+    return root, tmp_path
+
+
+def test_new_chapters_join_the_posted_video_with_its_seo(lib):
+    root, tmp_path = lib
+    plans = server._auto_append_pass()
+    d = next(x for x in plans if x["series"] == "hound")
+    assert d["action"] == "build" and (d["start"], d["end"]) == (20, 23), d
+    m = _wait(root, "hound_ch20-23")
+    assert m["build"]["status"] == "done", m
+    md = server.load_publish(os.path.join(root, "hound_ch20-23"))["final_range_20-23.mp4"]
+    assert md["title"] == "[20-23] Hound Returns For VENGEANCE | Flamingo Recap"
+    tags = [x.lower() for x in md["tags"]]
+    assert "hound chapter 20-23" in tags and "hound chapters 20 to 23" in tags
+    assert "hound chapter 3" not in tags and len(tags) == len(set(tags))
+    assert "• 0:00 - Chapter 20\n• 5:00 - Chapter 21\n• 10:00 - Chapter 22\n• 20:00 - Chapter 23" in md["description"]
+    thumb = tb.path_for(os.path.join(root, "hound_ch20-23"), "final_range_20-23.mp4")
+    im = Image.open(thumb).convert("RGB")
+    r, g, b = im.getpixel((40, 45))
+    assert r > 200 and 140 < g < 220 and b < 120        # badge kept the posted colour
+    # chapters are now inside the merge, and nothing more to do
+    assert server.load_reviews(os.path.join(root, "hound_22"))["final.mp4"]["merged_into"] == "hound_ch20-23"
+    again = next(x for x in server._auto_append_pass() if x["series"] == "hound")
+    assert again["action"] == "none"
+
+    # chapter 24 finishes: 20-24 replaces the waiting 20-23, which is moved aside
+    _chapter(tmp_path, 24)
+    d2 = next(x for x in server._auto_append_pass() if x["series"] == "hound")
+    assert d2["action"] == "build" and (d2["start"], d2["end"]) == (20, 24) and d2["retire"] == ["hound_ch20-23"]
+    m2 = _wait(root, "hound_ch20-24")
+    assert m2["build"]["status"] == "done"
+    for _ in range(100):
+        if not os.path.isdir(os.path.join(root, "hound_ch20-23")):
+            break
+        time.sleep(0.05)
+    assert not os.path.isdir(os.path.join(root, "hound_ch20-23"))
+    assert any(x.startswith("_unmerged_hound_ch20-23") for x in os.listdir(root))
+    for n in (22, 23, 24):
+        assert server.load_reviews(os.path.join(root, f"hound_{n}"))["final.mp4"]["merged_into"] == "hound_ch20-24"
+
+
+def test_off_switch(lib, monkeypatch):
+    monkeypatch.setenv("AUTO_APPEND", "0")
+    assert server._auto_append_pass() == []
