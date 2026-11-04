@@ -1703,3 +1703,9 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   - Fog Land needs no Drive (43 re-exported): built fog-land-9299_ch43-45 (plan ready, 1688.8 s).
   - Fog Land 43-45 built (fog-land-9299_ch43-45/final_range_43-45.mp4, marks 0:00/8:46/18:09). SEO set to match last posted FL43/38-41: title "[43-45] A Genius DOCTOR Uses An OP SYSTEM To Survive Prison" (build had added " | Flamingo Recap"), Timestamps block added (build omitted it), series tags from FL43 adapted (26 tags, 477 chars). Thumbnail = same art/layout as posted FL43, badge "CH 43-45". Privacy public, nothing scheduled, review_pending.
   - Media QA on the merge: export-broken "non monotonically increasing dts" at frames 15807/32697 = exactly the two joins (stream-copy outpoint). Same warning judged invisible on 11-01 (strict -xerror decode passed); QA rule over-reports it. Not re-verified on this file (server shell blocked) — flagged to owner.
+
+### 2026-11-04 — Deployed Drive-archive + "No." splitter fix to main
+- Owner said "Deploy". /api/jobsbar empty before push. Pushed dev/flamingo-merge-no-outro (d33a3f6) to main (was 8093837); Railway SUCCESS on d33a3f6, /health ok.
+- Live now: 02503fd (merges fetch posted chapter videos back from Drive) and 4326901 (beat splitter keeps "No. 182" in one line).
+- Verified: merge dry-runs for the 10 pending series show every chapter ready, missing=[], when listed chapter by chapter. Posted *range* videos (e.g. _ch152-156) still show missing; they never got a Drive copy, so merges list the single chapters.
+- Started sequential builds of the 10 merges (Murim 48-49, Regressor 34-36, DK 92-94, MH 181-185, FS 19-22, Indomitable 152-158, Merc 100-102, Stellar 133-135, TMH 32-34, Bountiful 90-91). SEO from each series' last posted video to follow.
