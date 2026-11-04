@@ -1686,3 +1686,11 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Resumed Indomitable 158 first via POST /api/jobs/resume (reuses cached stages) as a billing check: it passed describe and reached narrate in ~2.5 min → Gemini billing confirmed working. Then resumed the other 3: Sword Hound queued, Fated Villain + Fog Land held (LINE_MAX 2), they start on their own.
 - No code change. Not yet verified: that all 4 finish (only Indomitable 158 was watched past describe).
 - Earlier the same day (question only, nothing changed): cost-reduction options reviewed — Flex tier for manual ingests (manual runs use Standard, server.py:6749), TTS_MODEL → flash-lite-tts (-33% audio), SEO_MODEL/DESCRIBE_MODEL still default to gemini-3.5-flash (2x the 3.8-flash price), validator on claude-opus-5; 3.8-flash + TTS prices double 2027-01-01. Awaiting owner's pick.
+
+### 2026-11-04 — Owner: monitor renders → merge → SEO per last posted video (in progress)
+- Render queue: DK 94 exporting; queued MH 185, FS 22, Indomitable 157+158, Merc 102, Stellar 135, TMH 34, Bountiful 91. Already rendered (Needs review): Murim 49, Regressor 36, Fog Land 44, 45.
+- Re-described the stale panels on FV 367 (1 panel) and DM 110 (2 panels) via POST /api/chapter/redescribe-changed (~$0.015); both resumed → will land at "Check the board" (not owner-reviewed).
+- Media QA (/api/media-qa): Murim 49, Regressor 36, Fog Land 44 passed. Fog Land 45 FAILED (voice-overlap + voice-unconfirmed at seg 8/10).
+- Root cause FL45: narration sentence splitter breaks after the abbreviation "No." in the name "No.182" → 10 lines end in "No." and the next starts "182 …" (TTS says "no" + pause); twice (beats 7/8, 9/10) the fragment AND the full sentence are both voiced → repeated audio. Same split exists in POSTED Fog Land 43 (beats start "182 …"). Fog Land 44 + the 11 other in-scope boards scanned clean. Pipeline bug, not fixed yet — asked owner.
+- SEO vs last posted: Murim 49 title hook differs from posted 48 ("Modern Psycho As A Noble Heir" vs "This OP Psychopath TRANSMIGRATES…"); Regressor 36 title lacks " | Flamingo Recap"; some generic tags of the posted videos missing. Not changed yet.
+- Planned merges after renders: Fog Land 44-45 (blocked on FL45), Indomitable 157-158; others stay singles (one new chapter each after last posted).
