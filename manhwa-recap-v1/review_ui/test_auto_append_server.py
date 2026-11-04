@@ -115,3 +115,26 @@ def test_new_chapters_join_the_posted_video_with_its_seo(lib):
 def test_off_switch(lib, monkeypatch):
     monkeypatch.setenv("AUTO_APPEND", "0")
     assert server._auto_append_pass() == []
+
+
+def test_restore_a_posted_video_file(lib, tmp_path):
+    import shutil
+    import subprocess
+    from fastapi.testclient import TestClient
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    root, _ = lib
+    clip = tmp_path / "in.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=64x36:d=1",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip)], check=True)
+    c = TestClient(server.app)
+    url = "/api/export/restore?project=hound_ch20-21&name=final_range_20-21_yt.mp4"
+    r = c.post(url, content=clip.read_bytes())
+    assert r.status_code == 200, r.text
+    assert os.path.getsize(os.path.join(root, "hound_ch20-21", "exports", "final_range_20-21_yt.mp4")) > 0
+    assert c.post(url, content=clip.read_bytes()).status_code == 409            # never overwrites
+    assert c.post("/api/export/restore?project=hound_22&name=x.mp4",
+                  content=clip.read_bytes()).status_code == 409                  # not posted
+    assert c.post("/api/export/restore?project=hound_ch20-21&name=y.mp4",
+                  content=b"not a video").status_code == 422
+    assert not os.path.exists(os.path.join(root, "hound_ch20-21", "exports", "y.mp4"))

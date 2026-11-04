@@ -4098,6 +4098,49 @@ async def thumbnail_upload(request: Request, project: str = "", name: str = ""):
     return {"ok": True, "thumbnail": rec, "note": _tb.publish_note(True)}
 
 
+@app.post("/api/export/restore")
+async def export_restore(request: Request, project: str = "", name: str = ""):
+    """Put a POSTED video's file back (owner, 2026-11-04: old merged videos had
+    been cleared from Railway before Drive archiving existed; they're pulled
+    back from YouTube via Scrapper and re-encoded to the studio's settings so a
+    new merge can extend them). Raw mp4 bytes in the body, streamed to disk.
+    Refused for an unposted project, an existing file or a non-video."""
+    import subprocess
+    pdir = project_dir_for(project)
+    name = os.path.basename(name or "")
+    if not re.fullmatch(r"[A-Za-z0-9_.\-]+\.mp4", name):
+        raise HTTPException(400, "name must be a plain .mp4 file name")
+    if not _posted_names(pdir):
+        raise HTTPException(409, "only a posted video's file can be put back this way")
+    dest = os.path.join(pdir, "exports", name)
+    if os.path.exists(dest):
+        raise HTTPException(409, f"{name} already exists")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    tmp = dest + ".part.mp4"
+    size, cap = 0, 6 * 1024 ** 3
+    try:
+        with open(tmp, "wb") as f:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > cap:
+                    raise HTTPException(413, "file is larger than 6 GB")
+                f.write(chunk)
+        p = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                            "stream=codec_name,width,height", "-of", "json", tmp],
+                           capture_output=True, text=True, timeout=120)
+        st = ((json.loads(p.stdout or "{}").get("streams")) or [{}])[0]
+        if st.get("codec_name") != "h264":
+            raise HTTPException(422, f"not an H.264 video ({st.get('codec_name') or 'unreadable'})")
+        os.replace(tmp, dest)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    _ev("drive", f"{_pretty(os.path.basename(pdir.rstrip('/')))}: posted video {name} put back "
+                 f"({round(size / 1e6)} MB, {st.get('width')}x{st.get('height')}) so it can be merged", "ok")
+    _drive_copy_later(pdir, name)            # and archived, so it's never lost again
+    return {"ok": True, "project": os.path.basename(pdir.rstrip("/")), "name": name, "bytes": size}
+
+
 @app.get("/thumbnail")
 def thumbnail_get(project: str = "", name: str = ""):
     import thumbnail as _tb
