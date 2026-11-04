@@ -19,6 +19,10 @@ _ABBREV = {"mr", "mrs", "ms", "dr", "st", "vs", "etc", "e.g", "i.e"}
 def _protect_abbreviations(text: str) -> str:
     for a in _ABBREV:
         text = re.sub(rf"\b{re.escape(a)}\.", a + "<DOT>", text, flags=re.IGNORECASE)
+    # Number-style abbreviations ("No. 182", "Ch. 5", "Lv. 99") only when a
+    # number follows, so "He said no." still ends a sentence (Fog Land 43/45
+    # voiced "No." and "182 ..." as two lines, 2026-11-04).
+    text = re.sub(r"\b(No|Vol|Ch|Lv|Lvl|Ep|Pt)\.(?=\s*\d)", r"\1<DOT>", text, flags=re.IGNORECASE)
     return text
 
 
