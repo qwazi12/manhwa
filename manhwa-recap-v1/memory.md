@@ -1680,3 +1680,9 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Fix is billing: top up the Gemini key's project in AI Studio (https://ai.studio/projects) as on 10-31. Same 402 also blocks describe/narrate for new chapters. Live jobs check via railway ssh returned nothing (timed out) — not verified.
 - Not changed: crop/duration/swap/order edits need no TTS and still work.
 - 2026-11-02 (owner: "Already?"): test call from server (gemini-3.5-flash, text-only) → still HTTP 402 "prepayment credits are depleted". Top-up not reflected on the key's project yet.
+
+### 2026-11-03 — Gemini funded; retried the 4 chapters that failed on 402
+- Owner: "google gemini is funded retry all the failed chapters". /api/autopilot listed 4 failed chapters, all describe-step HTTP 402 (credits depleted): Indomitable 158 (a27964e317dd), Sword Hound 187 (0a850c4d72a5), Fated Villain 367 (25b1aa6ba4ea), Fog Land 45 (5f771441c22a). Nothing was live; no budget_paused/interrupted jobs; today's spend $0.00 of $7.50.
+- Resumed Indomitable 158 first via POST /api/jobs/resume (reuses cached stages) as a billing check: it passed describe and reached narrate in ~2.5 min → Gemini billing confirmed working. Then resumed the other 3: Sword Hound queued, Fated Villain + Fog Land held (LINE_MAX 2), they start on their own.
+- No code change. Not yet verified: that all 4 finish (only Indomitable 158 was watched past describe).
+- Earlier the same day (question only, nothing changed): cost-reduction options reviewed — Flex tier for manual ingests (manual runs use Standard, server.py:6749), TTS_MODEL → flash-lite-tts (-33% audio), SEO_MODEL/DESCRIBE_MODEL still default to gemini-3.5-flash (2x the 3.8-flash price), validator on claude-opus-5; 3.8-flash + TTS prices double 2027-01-01. Awaiting owner's pick.
