@@ -138,3 +138,29 @@ def test_restore_a_posted_video_file(lib, tmp_path):
     assert c.post("/api/export/restore?project=hound_ch20-21&name=y.mp4",
                   content=b"not a video").status_code == 422
     assert not os.path.exists(os.path.join(root, "hound_ch20-21", "exports", "y.mp4"))
+
+
+def test_restore_a_posted_chapter_whose_folder_is_gone(lib, tmp_path):
+    import shutil
+    import subprocess
+    from fastapi.testclient import TestClient
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    root, _ = lib
+    clip = tmp_path / "in19.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=64x36:d=1",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip)], check=True)
+    c = TestClient(server.app)
+    base = "/api/export/restore?name=final_range_19_yt.mp4&series_id=hound&chapter=19"
+    assert c.post(base, content=clip.read_bytes()).status_code == 400                    # no video id
+    assert c.post(base.replace("hound", "nope") + "&video_id=abcdefghijk",
+                  content=clip.read_bytes()).status_code == 404                          # unknown series
+    assert c.post(base + "&video_id=abcdefghijk", content=b"junk").status_code == 422
+    assert not os.path.exists(os.path.join(root, "hound_ch19-19"))                       # nothing half-made
+    r = c.post(base + "&video_id=abcdefghijk", content=clip.read_bytes())
+    assert r.status_code == 200, r.text
+    pdir = os.path.join(root, "hound_ch19-19")
+    m = json.load(open(os.path.join(pdir, "project.json")))
+    assert m["kind"] == "range" and m["series"] == "Hound" and m["build"]["marks"] == [[19, 0.0]]
+    assert server._posted_names(pdir)["final_range_19_yt.mp4"]["video_id"] == "abcdefghijk"
+    assert c.post(base + "&video_id=abcdefghijk", content=clip.read_bytes()).status_code == 409

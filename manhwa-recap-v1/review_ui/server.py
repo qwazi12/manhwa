@@ -4099,18 +4099,42 @@ async def thumbnail_upload(request: Request, project: str = "", name: str = ""):
 
 
 @app.post("/api/export/restore")
-async def export_restore(request: Request, project: str = "", name: str = ""):
+async def export_restore(request: Request, project: str = "", name: str = "",
+                         series_id: str = "", chapter: int = 0, video_id: str = ""):
     """Put a POSTED video's file back (owner, 2026-11-04: old merged videos had
     been cleared from Railway before Drive archiving existed; they're pulled
     back from YouTube via Scrapper and re-encoded to the studio's settings so a
     new merge can extend them). Raw mp4 bytes in the body, streamed to disk.
-    Refused for an unposted project, an existing file or a non-video."""
+    Refused for an unposted project, an existing file or a non-video.
+
+    A posted single chapter whose folder was purged from Deleted (e.g. Murim
+    45, Mount Hua 180) has no project to restore into: with series_id +
+    chapter + video_id (its YouTube id) and no project, a one-chapter posted
+    project <series>_ch<N>-<N> is created for it first."""
     import subprocess
-    pdir = project_dir_for(project)
+    import ingest as _ing
+    import range_compile as _rc
     name = os.path.basename(name or "")
     if not re.fullmatch(r"[A-Za-z0-9_.\-]+\.mp4", name):
         raise HTTPException(400, "name must be a plain .mp4 file name")
-    if not _posted_names(pdir):
+    created = None
+    if not project and series_id:
+        if not re.fullmatch(r"[A-Za-z0-9_\-]{11}", video_id or "") or chapter <= 0:
+            raise HTTPException(400, "a new posted chapter needs chapter and its 11-character YouTube video_id")
+        known = None
+        for pid in os.listdir(_ing.PROJECTS):
+            m = _read_json(os.path.join(_ing.PROJECTS, pid, "project.json")) or {}
+            if m.get("series_id") == series_id and m.get("series"):
+                known = m["series"]
+                break
+        if not known:
+            raise HTTPException(404, f"no series {series_id} in the studio")
+        project = _rc.project_id(series_id, chapter, chapter)
+        if os.path.exists(os.path.join(_ing.PROJECTS, project)):
+            raise HTTPException(409, f"{project} already exists")
+        created = (series_id, known, chapter, video_id)
+    pdir = project_dir_for(project) if not created else os.path.join(_ing.PROJECTS, project)
+    if not created and not _posted_names(pdir):
         raise HTTPException(409, "only a posted video's file can be put back this way")
     dest = os.path.join(pdir, "exports", name)
     if os.path.exists(dest):
@@ -4131,10 +4155,22 @@ async def export_restore(request: Request, project: str = "", name: str = ""):
         st = ((json.loads(p.stdout or "{}").get("streams")) or [{}])[0]
         if st.get("codec_name") != "h264":
             raise HTTPException(422, f"not an H.264 video ({st.get('codec_name') or 'unreadable'})")
+        if created:
+            sid, series, n, vid = created
+            _rc.write_project(_ing.PROJECTS, sid, series, n, n, url=f"https://www.youtube.com/watch?v={vid}")
+            meta = _read_json(os.path.join(pdir, "project.json")) or {}
+            meta["build"] = {"status": "done", "export": name, "marks": [[n, 0.0]], "imported": "youtube"}
+            with open(os.path.join(pdir, "project.json"), "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=2)
+            save_publishes(pdir, {name: {"results": [{"status": "published", "network": "youtube",
+                                                      "url": f"https://www.youtube.com/watch?v={vid}",
+                                                      "published_at": time.time(), "imported": True}]}})
         os.replace(tmp, dest)
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
+        if created and not os.path.exists(dest):
+            shutil.rmtree(pdir, ignore_errors=True)       # nothing half-made is left behind
     _ev("drive", f"{_pretty(os.path.basename(pdir.rstrip('/')))}: posted video {name} put back "
                  f"({round(size / 1e6)} MB, {st.get('width')}x{st.get('height')}) so it can be merged", "ok")
     _drive_copy_later(pdir, name)            # and archived, so it's never lost again
