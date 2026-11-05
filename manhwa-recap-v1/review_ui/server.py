@@ -3882,6 +3882,40 @@ def _auto_append_inputs():
     return series
 
 
+def _expand_gone_merges(projects):
+    """A posted merge whose file is gone (cleared before Drive archiving, no
+    Drive copy) is replaced by the chapters it was built from, which have
+    their own Drive copies (2026-11-05: Fated Villain 364-365 and Sword Hound
+    185-186 couldn't be extended)."""
+    def _has_video(pid):
+        try:
+            return bool(_export_or_drive(project_dir_for(pid)))
+        except Exception:  # noqa — a piece whose folder is gone
+            return False
+    out = []
+    for pid in projects:
+        pdir = project_dir_for(pid)
+        meta = _read_json(os.path.join(pdir, "project.json")) or {}
+        pieces = [p.get("project") for p in meta.get("merged_from") or [] if p.get("project")]
+        if meta.get("kind") == "range" and not _export_or_drive(pdir) and pieces \
+                and all(_has_video(p) for p in pieces):
+            out.extend(pieces)
+        else:
+            out.append(pid)
+    return out
+
+
+def _series_label(sid, pid):
+    """The series' readable name for Logs (was 'ch.i (am-the-fated-villain)')."""
+    if not pid:
+        return sid
+    try:
+        m = _read_json(os.path.join(project_dir_for(pid), "project.json")) or {}
+    except Exception:  # noqa
+        m = {}
+    return m.get("series") or sid
+
+
 def _auto_append_pass(apply=True, limit=1):
     """Scheduler step + after every chapter export. Builds at most `limit`
     merges per pass; logs each series' decision once, when it changes."""
@@ -3901,22 +3935,22 @@ def _auto_append_pass(apply=True, limit=1):
                 continue
             key = (d["action"], d.get("why") or (d.get("start"), d.get("end")))
             if d["action"] == "wait" and _AUTO_APPEND["seen"].get(sid) != key:
-                _ev("publish", f"{_pretty(sid)}: new chapter waiting to join the posted video — {d['why']}", "info")
+                _ev("publish", f"{_series_label(sid, posted[-1]['project'] if posted else '')}: new chapter waiting to join the posted video — {d['why']}", "info")
             if d["action"] == "build" and started < limit:
                 base = d["base"]
                 try:
-                    r = api_range_build(RangeIn(projects=d["projects"], append={
+                    r = api_range_build(RangeIn(projects=_expand_gone_merges(d["projects"]), append={
                         "base_project": base["project"], "base_name": base["name"],
                         "video_id": base.get("video_id") or "", "retire": d["retire"]}))
                     started += 1
                     d["started"] = r.get("project")
-                    _ev("publish", f"{_pretty(sid)}: adding chapter(s) to the posted video {base['start']}-"
+                    _ev("publish", f"{_series_label(sid, base['project'])}: adding chapter(s) to the posted video {base['start']}-"
                                    f"{base['end']} → building {d['start']}-{d['end']} for Needs review", "ok")
                 except Exception as e:  # noqa — e.g. the posted video has no copy here or in Drive
                     d["error"] = str(getattr(e, "detail", e))[:200]
                     key = ("error", d["error"])
                     if _AUTO_APPEND["seen"].get(sid) != key:
-                        _ev("publish", f"{_pretty(sid)}: couldn't add the new chapter(s) to the posted video — "
+                        _ev("publish", f"{_series_label(sid, d['base']['project'])}: couldn't add the new chapter(s) to the posted video — "
                                        f"{d['error']}", "warn")
             _AUTO_APPEND["seen"][sid] = key
         return out

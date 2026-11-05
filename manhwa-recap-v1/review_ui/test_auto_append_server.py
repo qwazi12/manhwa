@@ -164,3 +164,19 @@ def test_restore_a_posted_chapter_whose_folder_is_gone(lib, tmp_path):
     assert m["kind"] == "range" and m["series"] == "Hound" and m["build"]["marks"] == [[19, 0.0]]
     assert server._posted_names(pdir)["final_range_19_yt.mp4"]["video_id"] == "abcdefghijk"
     assert c.post(base + "&video_id=abcdefghijk", content=clip.read_bytes()).status_code == 409
+
+
+def test_posted_merge_whose_file_is_gone_is_built_from_its_chapters(lib, tmp_path):
+    root, tmp_path = lib
+    p = tmp_path / "hound_ch20-21"
+    os.remove(p / "exports" / "final_range_20-21.mp4")          # cleared before Drive archiving
+    for n in (20, 21):
+        _chapter(tmp_path, n)
+    m = json.loads((p / "project.json").read_text())
+    m["merged_from"] = [{"project": "hound_20", "name": "final.mp4"}, {"project": "hound_21", "name": "final.mp4"}]
+    (p / "project.json").write_text(json.dumps(m))
+    d = next(x for x in server._auto_append_pass() if x["series"] == "hound")
+    assert d["action"] == "build" and not d.get("error"), d
+    m2 = _wait(root, "hound_ch20-23")
+    assert m2["build"]["status"] == "done"
+    assert [x["project"] for x in m2["merged_from"]] == ["hound_20", "hound_21", "hound_22", "hound_23"]
