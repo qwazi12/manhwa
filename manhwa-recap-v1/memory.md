@@ -1746,3 +1746,13 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Owner corrected: "This OP Psychopath Welcomes A Deadly TRAP" (mUEMbhWHL6E) IS Murim ch.44 (intro card verified) → Murim merge = 44-49.
 - 29cacab (branch, not yet deployed): auto-append builds from a posted merge's chapters (merged_from) when the merge's file is gone (FV 364-365 / SH 185-186 failed with "no rendered video yet for chapter 364"); Logs show the series name instead of "ch.i (am-the-fated-villain)". Test fails without fix; suite 380 passed.
 - Owner asked to track 8 returning series: added via /api/watchlist/quick (tier greenlight, nothing queued): Solo Leveling: Ragnarok, Murim Login, Magic Academy's Genius Blinker, Talent-Swallowing Magician, The Heavenly Demon Can't Live a Normal Life, Omniscient Reader's Viewpoint, Damn Reincarnation (Asura …-ab39de10), Doom Breaker (WEBTOON 3197). Start chapter not chosen yet.
+
+### 2026-11-05 — Merger wave 1: 10 of 13 built; server disk full blocks the last 3
+- Built + in Needs review with live-YouTube SEO, chapter timestamps, badge thumbnail (verified via /api/publish):
+  FS 16-22, DK 88-94, TMH 28-34, Merc 96-102, Murim 44-49, Mount Hua 180-185, Stellar 129-135,
+  Regressor 30-36, Sword Hound 181-187, Fated Villain 361-367. Site (/api/chapters) no longer lists the superseded waiting merges.
+- FAILED: Dark Mage 104-110 (ffmpeg concat error), Extras 114-119 + Fog Land 38-45 (upload write timeouts).
+  Root cause: Railway volume full — /api/space 45.5/45.8 GB used (99.5%, 0.21 GB free). Nothing purges the
+  `_unmerged_*` set-aside folders that retire creates; Deleted bin is empty.
+- Freeing space needs the owner's OK (agent denied: railway ssh du, /api/space/cleanup). Options: grow the volume, or delete superseded set-aside merges.
+- Deployed 29cacab (auto-append rebuilds from a posted merge's chapters when its file is gone) → main f0df8c2; jobs idle at push.
