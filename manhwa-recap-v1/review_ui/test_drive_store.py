@@ -142,6 +142,12 @@ def main():
         server._drive_copy(q, "new.mp4")
         check("copying the newest video frees the clips", not os.path.exists(os.path.join(q, "clips", "seg_000.mp4")))
         check("the Drive folder uses the clean series name", calls[-1] == ("new.mp4", "Fog Land", "2"))
+        # a merge carrying the YouTube spelling still lands in the series' one folder (owner, 2026-11-05)
+        json.dump({"series": "Revenge of the Baskerville Bloodhound", "series_id": "revenge-of-the-iron-blooded-sword-hound",
+                   "chapter": "181-187", "kind": "range"}, open(os.path.join(q, "project.json"), "w"))
+        server._drive_copy(q, "new.mp4")
+        check("a merge goes to the same series folder as its chapters",
+              calls[-1] == ("new.mp4", "Revenge Of The Iron Blooded Sword Hound", "181-187"))
     finally:
         server._drive.copy_chapter = saved
 

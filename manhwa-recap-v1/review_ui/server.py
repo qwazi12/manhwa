@@ -11161,8 +11161,15 @@ def _drive_copy(pdir, name):
         return None
     _DRIVE_RUNNING.add(pid)
     try:
+        import ingest as _ingd
         lab = _project_label(pdir)
-        series = _cs.clean_title(lab["series"] or "", _cs.project_meta(pdir).get("url"))
+        pmeta = _cs.project_meta(pdir)
+        # owner, 2026-11-05: one Drive folder per series — named from the series id, so a
+        # merge whose project carries the YouTube spelling ("Revenge of the Baskerville
+        # Bloodhound") lands beside its chapters, not in a second folder
+        sid = (pmeta.get("series_id") or "").strip()
+        named = _ingd.to_title_case(_ingd.clean_series_slug(sid)) if sid else (lab["series"] or "")
+        series = _cs.clean_title(named, pmeta.get("url"))
         try:
             thumb = _tb.path_for(pdir, name) or None
         except Exception:
