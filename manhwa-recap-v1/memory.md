@@ -1786,3 +1786,10 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   start from newest workbook, save new dated file, never overwrite). Handoff page updated (v2).
 - Pending: importer that reads the newest workbook in Researcher → Library (owner OK per change); switching off built-in research.
 - DK 95: two "description cache stale" stops after the Gemini 504; re-described 8 then 3 flagged panels ($0.04 + $0.015).
+
+### 2026-11-05 — Reviewed the outside research agent's workbook (Drive › Researcher)
+- Agent overwrote `flamingo_research_2026-11-05.xlsx` in place (103 KB → 165 KB) instead of saving a new dated copy; AGENT_PROMPT.txt unchanged. Nothing applied to the studio (no importer yet).
+- Added sheets: Posted_Videos (100 public uploads + SEO flags), Competitor_SEO (13), Recommendations (6). Filled SEO_Hooks (69, all ≤72 chars, no blacklisted words) and SEO_Tags (343 with <a>/<b>/<N> placeholders).
+- Problems: dropped Series.drive_folder column; Series rows reordered; Characters 180→128 (Regressor's Tale 9→1, Former Supreme 11→1, Dark Mage 7→1); Sources 896→237; Change_Log left empty despite changes; Releases stale/conflicting (Fog Land latest 44 vs made 45; Extras 119 though WEBTOON shows 121; Mount Hua/Stellar/DK 95-136-186 already made); demand not re-measured ("Mac locked"), uses Nov 4 numbers; spent ~25 vidIQ credits.
+- Useful catches verified: posted TMH titles say "DEMOND" (scheduled 28-34 merge is already spelled DEMON — OK); scheduled Murim 44-49 title has "To Destroy To SLAY" (inherited from posted 48) — needs owner OK to fix since it is approved/scheduled; 62 older uploads have >60 hashtags (YouTube ignores all).
+- MH 186 / Stellar 136 / DK 95 are at "Check the board" — waiting on owner board approval, not on a deploy (586b780 already live, no jobs running).
