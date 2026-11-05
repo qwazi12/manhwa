@@ -66,3 +66,48 @@ def test_merge_piece_comes_back_from_drive(tmp_path, monkeypatch):
     assert got == [("v9", os.path.join(str(p), "exports", "old.mp4"))]
     with pytest.raises(RuntimeError, match="no Drive copy"):
         srv._restore_from_drive(str(p), "other.mp4")
+
+
+def _merged(p, hours_ago):
+    import time
+    (p / "reviews.json").write_text(json.dumps(
+        {"v.mp4": {"status": "merged", "merged_into": "s_ch1-5", "merged_at": time.time() - hours_ago * 3600}}))
+
+
+def test_chapter_inside_a_merge_leaves_after_a_day(proj, monkeypatch):
+    # owner, 2026-11-05: merged chapters live in Drive, not on Railway
+    _merged(proj, 25)
+    monkeypatch.setattr(srv._drive, "verify", lambda d, n: True)
+    srv._drive_archive_pass()
+    assert not (proj / "exports" / "v.mp4").exists()
+
+
+def test_fresh_merge_or_unverified_copy_keeps_the_chapter(proj, monkeypatch):
+    _merged(proj, 2)
+    monkeypatch.setattr(srv._drive, "verify", lambda d, n: True)
+    srv._drive_archive_pass()
+    assert (proj / "exports" / "v.mp4").exists()                 # still within the day
+    _merged(proj, 25)
+    monkeypatch.setattr(srv._drive, "verify", lambda d, n: False)
+    monkeypatch.setattr(srv, "_drive_copy", lambda d, n: None)  # Drive copy failed
+    srv._drive_archive_pass()
+    assert (proj / "exports" / "v.mp4").exists()
+
+
+def test_unmerge_fetches_a_piece_back_from_drive(tmp_path, monkeypatch):
+    import ingest
+    root = tmp_path / "projects"
+    cp = root / "s_5"
+    (cp / "exports").mkdir(parents=True)
+    (cp / "reviews.json").write_text(json.dumps({"v.mp4": {"status": "merged", "merged_into": "s_ch4-5"}}))
+    monkeypatch.setattr(ingest, "PROJECTS", str(root))
+    monkeypatch.setattr(srv, "_ev", lambda *a, **k: None)
+    got = []
+    monkeypatch.setattr(srv, "_restore_from_drive", lambda d, n: got.append((os.path.basename(d), n)))
+    srv._release_merge_pieces(str(root / "s_ch4-5"), {"merged_from": [{"project": "s_5", "name": "v.mp4", "review": None}]})
+    import time
+    for _ in range(50):
+        if got:
+            break
+        time.sleep(0.02)
+    assert got == [("s_5", "v.mp4")]

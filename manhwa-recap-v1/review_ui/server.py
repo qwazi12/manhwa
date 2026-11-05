@@ -5269,8 +5269,19 @@ def _release_merge_pieces(rdir, meta):
             json.dump(revs, rf, indent=2)
         for qid in pc.get("queue_ids") or []:
             _pq.requeue(_ing.PROJECTS, qid)
+        if not os.path.isfile(os.path.join(cp, "exports", pc["name"])):
+            # its video went to Drive while it was inside the merge: bring it back
+            threading.Thread(target=_restore_piece_quietly, args=(cp, pc["name"]), daemon=True).start()
         restored.append(pc["project"])
     return pieces, restored
+
+
+def _restore_piece_quietly(cp, name):
+    try:
+        _restore_from_drive(cp, name)
+        _ev("drive", f"{_pretty(os.path.basename(cp))}: video {name} fetched back from Drive after unmerge", "ok")
+    except Exception as e:  # noqa
+        _ev("drive", f"{_pretty(os.path.basename(cp))}: couldn't fetch {name} back from Drive — {str(e)[:160]}", "warn")
 
 
 def _remerge_pieces(rdir, meta):
@@ -9861,6 +9872,18 @@ def _demand_pass():
     return out
 
 
+MERGED_KEEP_HOURS = float(os.environ.get("MERGED_KEEP_HOURS", "24"))
+
+
+def _inside_a_merge(rv, now=None):
+    """Owner, 2026-11-05: a chapter's video that is inside a merged video has
+    done its job here — after MERGED_KEEP_HOURS it lives in Drive only (a
+    rebuild or an Unmerge fetches it back)."""
+    if not isinstance(rv, dict) or rv.get("status") != "merged" or not rv.get("merged_into"):
+        return False
+    return (now or time.time()) - float(rv.get("merged_at") or 0) > MERGED_KEEP_HOURS * 3600
+
+
 def _drive_archive_pass(limit=3):
     """Owner, 2026-11-01 (approved retention): Drive is the video archive.
     A POSTED video is copied to Drive if it is not there yet, and its copy
@@ -9876,10 +9899,12 @@ def _drive_archive_pass(limit=3):
             break
         pdir = os.path.dirname(d)
         pubs = load_publishes(pdir)
+        revs = _read_json(os.path.join(pdir, "reviews.json")) or {}
         for f in sorted(os.listdir(d)):
             if not f.endswith(".mp4") or (pid, f) in keep:
                 continue
-            if not any(r.get("status") == "published" for r in (pubs.get(f) or {}).get("results") or []):
+            posted = any(r.get("status") == "published" for r in (pubs.get(f) or {}).get("results") or [])
+            if not (posted or _inside_a_merge(revs.get(f))):
                 continue
             if not _drive.verify(pdir, f):     # older copies are checked, not re-sent
                 done += 1
@@ -9888,8 +9913,8 @@ def _drive_archive_pass(limit=3):
             if _drive.verify(pdir, f):
                 mb = round(os.path.getsize(os.path.join(d, f)) / 1e6)
                 os.remove(os.path.join(d, f))
-                _ev("drive", f"{_pretty(pid)}: posted video {f} is safe in Drive (checksum matched) — "
-                             f"removed from Railway, {mb} MB freed", "ok")
+                _ev("drive", f"{_pretty(pid)}: {'posted' if posted else 'merged'} video {f} is safe in Drive "
+                             f"(checksum matched) — removed from Railway, {mb} MB freed", "ok")
             if done >= limit:
                 break
     return done
