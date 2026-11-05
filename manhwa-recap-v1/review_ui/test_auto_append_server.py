@@ -107,7 +107,9 @@ def test_new_chapters_join_the_posted_video_with_its_seo(lib):
             break
         time.sleep(0.05)
     assert not os.path.isdir(os.path.join(root, "hound_ch20-23"))
-    assert any(x.startswith("_unmerged_hound_ch20-23") for x in os.listdir(root))
+    assert not any(x.startswith("_unmerged_") for x in os.listdir(root))          # nothing hidden fills the disk
+    assert any(x.startswith("hound_ch20-23__") for x in os.listdir(os.path.join(root, server.TRASH_DIR)))
+    assert any(i["name"].startswith("hound_ch20-23__") for i in server.api_trash()["items"])
     for n in (22, 23, 24):
         assert server.load_reviews(os.path.join(root, f"hound_{n}"))["final.mp4"]["merged_into"] == "hound_ch20-24"
 

@@ -3586,10 +3586,17 @@ def api_range_build(body: RangeIn):
             _drive_copy_later(rdir, name)      # compilations are archived too
             _ev("publish", f"{series} chapters {a}-{b}: long-form compilation video built with series defaults applied — ready in studio", "ok")
             for old in (body.append or {}).get("retire") or []:
-                # the waiting merge this one replaces (owner, 2026-11-04): moved aside, not deleted
+                # the waiting merge this one replaces (owner, 2026-11-04): moved aside, not deleted.
+                # Owner, 2026-11-05: aside = the Deleted bin, so it empties itself (14 days, or
+                # sooner when the disk is low) instead of filling the volume.
                 try:
-                    api_range_unmerge(UnmergeIn(project=old))
-                    _ev("publish", f"{_pretty(old)}: replaced by chapters {a}-{b} (kept aside)", "ok")
+                    kept = api_range_unmerge(UnmergeIn(project=old)).get("kept_as")
+                    if kept:
+                        binned = f"{old}__{int(time.time())}"
+                        os.replace(os.path.join(_ing.PROJECTS, kept), os.path.join(_trash_root(), binned))
+                        os.utime(os.path.join(_trash_root(), binned))
+                        _purge_trash()
+                    _ev("publish", f"{_pretty(old)}: replaced by chapters {a}-{b} (in Deleted for 14 days)", "ok")
                 except Exception as e:  # noqa
                     _ev("publish", f"{_pretty(old)}: couldn't move aside after {a}-{b} was built — "
                                    f"{getattr(e, 'detail', e)}", "warn")
