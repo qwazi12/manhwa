@@ -1756,3 +1756,16 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   `_unmerged_*` set-aside folders that retire creates; Deleted bin is empty.
 - Freeing space needs the owner's OK (agent denied: railway ssh du, /api/space/cleanup). Options: grow the volume, or delete superseded set-aside merges.
 - Deployed 29cacab (auto-append rebuilds from a posted merge's chapters when its file is gone) → main f0df8c2; jobs idle at push.
+
+### 2026-11-05 — Merger wave 1 complete (13/13); replaced merges now go to the Deleted bin
+- Owner chose "Both" (bigger volume + clean-up). Deleted 14 unposted `_unmerged_*` replaced merges via railway ssh
+  (5.9 GB + 1.6 GB); none had publishes.json; content is inside the new merges. Disk now 43/46 GB (3.5 GB free).
+- Volume resize is NOT possible from the Railway CLI (volume update = name/mount only) — owner to do it in the dashboard.
+- Rebuilt: Dark Mage 104-110 (71.6 min), Extras 114-119, Fog Land 38-45 (~76 min). SEO/timestamps/thumbnail verified via /api/publish.
+  The earlier DM "write timeout" was the server refusing an already-restored piece (409); scratch chain.py now has SKIP_UPLOAD.
+- Fix 93fa79f (deployed, live): range build's `retire` moves the replaced merge into `_trash` as `<pid>__<ts>` and runs
+  _purge_trash, so it's restorable for 14 days and purged sooner when free < 1.5 GB. Manual Unmerge unchanged (still kept aside).
+  Tests: 380 passed, 2 skipped.
+- Source check (refresh_all, 23 series): behind by one — Mount Hua 186, Murim 50, FV 368, DK 95, Merc 103, Stellar 136, DM 111;
+  Extras 120 (stopped) + 121 on WEBTOON; Fog Land WEBTOON 45 (a fan mirror lists 59). Autopilot is OFF, so nothing makes these
+  automatically. Awaiting owner OK (~$10-15, over the $7.50/day cap → two days) and start points for the 8 new series.
