@@ -1769,3 +1769,10 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Source check (refresh_all, 23 series): behind by one — Mount Hua 186, Murim 50, FV 368, DK 95, Merc 103, Stellar 136, DM 111;
   Extras 120 (stopped) + 121 on WEBTOON; Fog Land WEBTOON 45 (a fan mirror lists 59). Autopilot is OFF, so nothing makes these
   automatically. Awaiting owner OK (~$10-15, over the $7.50/day cap → two days) and start points for the 8 new series.
+
+### 2026-11-05 — Research/SEO/demand handoff to an outside agent (doc only, no code change)
+- Owner wants an outside agent to do story research, release tracking, demand research, SEO research and a Library plan, output as one Excel workbook.
+- Published a private handoff page (history, what series_research / demand_research / seo_research / series_hooks / chapter_seo do, today's 23 series with demand, workbook spec, full prompt).
+- Built-in research jobs are still ON. Pending owner decisions: switch them off; build a workbook importer (Library applies nothing without OK).
+- Also on branch, not yet deployed (waiting for idle): 3f6805a merged-chapter videos → Drive after 24h; 4c39349 one Drive folder per series.
+  Drive consolidated (20 Ch folders moved into canonical series folders, 8 empty duplicates trashed). DK 95 resumed after Gemini 504.
