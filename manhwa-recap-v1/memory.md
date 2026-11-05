@@ -1776,3 +1776,13 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Built-in research jobs are still ON. Pending owner decisions: switch them off; build a workbook importer (Library applies nothing without OK).
 - Also on branch, not yet deployed (waiting for idle): 3f6805a merged-chapter videos → Drive after 24h; 4c39349 one Drive folder per series.
   Drive consolidated (20 Ch folders moved into canonical series folders, 8 empty duplicates trashed). DK 95 resumed after Gemini 504.
+
+### 2026-11-05 — Drive: a folder for every tracked series + Researcher workbook
+- Created the 8 missing series folders (Damn Reincarnation, Doom Breaker, Magic Academys Genius Blinker, Murim Login,
+  Omniscient Readers Viewpoint, Solo Leveling Ragnarok, Talent Swallowing Magician, The Heavenly Demon Cant Live A Normal Life),
+  named exactly as _drive_copy will name them (slug → title case, WEBTOON number stripped). 23 series + Merger + Researcher.
+- Researcher folder (owner-created, was empty): uploaded flamingo_research_2026-11-05.xlsx (pre-filled from studio bibles,
+  watchlist, demand: 23 series, 180 characters, 896 graded sources, 45 competitor videos) and AGENT_PROMPT.txt (Drive workflow:
+  start from newest workbook, save new dated file, never overwrite). Handoff page updated (v2).
+- Pending: importer that reads the newest workbook in Researcher → Library (owner OK per change); switching off built-in research.
+- DK 95: two "description cache stale" stops after the Gemini 504; re-described 8 then 3 flagged panels ($0.04 + $0.015).
