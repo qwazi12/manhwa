@@ -196,3 +196,19 @@ def test_fl1_hold_keeps_chapters_as_singles(lib, monkeypatch):
     d = next(x for x in server._auto_append_pass() if x["series"] == "hound")
     assert d["action"] == "build" and (d["start"], d["end"]) == (20, 22), d
     assert _wait(root, "hound_ch20-22")["build"]["status"] == "done"
+
+
+def test_growth_snapshot_is_read_only(lib):
+    """F-02 exports: series/queue/posted from files only; nothing changes on disk."""
+    from fastapi.testclient import TestClient
+    root, _ = lib
+    def tree():
+        return sorted((dp, f, os.path.getmtime(os.path.join(dp, f))) for dp, _d, fs in os.walk(root) for f in fs)
+    before = tree()
+    os.environ.pop("SHARED_SECRET", None)
+    d = TestClient(server.app).get("/api/growth/snapshot?days=100000").json()
+    assert tree() == before
+    assert d["read_only"] is True and isinstance(d["queue"], list)
+    p = next(x for x in d["posted"] if x["project"] == "hound_ch20-21")
+    assert p["video_id"] == "abcdefghijk" and p["kind"] == "merge" and p["range"] == "20-21"
+    assert p["title"].startswith("[20-21] Hound")

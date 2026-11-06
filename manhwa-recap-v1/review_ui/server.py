@@ -4017,6 +4017,94 @@ def api_growth_analytics_video(video_id: str, start: str, end: str, by_day: int 
         raise HTTPException(502, str(e))
 
 
+@app.get("/api/growth/snapshot")
+def api_growth_snapshot(days: int = 14):
+    """F-02 daily exports, read-only (no sync, no prune, no saves): series,
+    the posting queue in order with planned slots, and YouTube posts in the
+    last `days` days. Several other GETs write; this one only reads files."""
+    import ingest as _i
+    import series_pack as _spk
+    now = time.time()
+    rows, posted = {}, []
+    for pid in sorted(os.listdir(_i.PROJECTS)) if os.path.isdir(_i.PROJECTS) else []:
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(pdir):
+            continue
+        try:
+            sid, series, n, meta = _series_ident(pdir)
+        except Exception:  # noqa — one bad folder must not stop the export
+            continue
+        rng = (f"{meta.get('chapters_start')}-{meta.get('chapters_end')}" if meta.get("kind") == "range"
+               else (str(n) if n is not None else ""))
+        end = meta.get("chapters_end") if meta.get("kind") == "range" else n
+        r = rows.setdefault(sid, {"made_through": None, "posted_through": None})
+        if (meta.get("build") or {}).get("status") == "done" or (meta.get("kind") != "range" and end is not None):
+            r["made_through"] = max(x for x in (r["made_through"], end) if x is not None) if end is not None else r["made_through"]
+        md_store = load_publish(pdir)
+        for name, rec in (load_publishes(pdir) or {}).items():
+            for res in (rec or {}).get("results") or []:
+                if res.get("status") != "published" or res.get("network") != "youtube":
+                    continue
+                if end is not None:
+                    r["posted_through"] = max(x for x in (r["posted_through"], end) if x is not None)
+                at = res.get("published_at") or 0
+                if now - at > days * 86400:
+                    continue
+                m = re.search(r"(?:v=|youtu\.be/|shorts/)([\w-]{11})", res.get("url") or "")
+                b = meta.get("build") or {}
+                posted.append({"video_id": m.group(1) if m else "", "url": res.get("url"), "series_id": sid,
+                               "series": series, "range": rng,
+                               "kind": "merge" if meta.get("kind") == "range" and (meta.get("chapters_start") != meta.get("chapters_end")) else "single",
+                               "published_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)) if at else "",
+                               "title": (md_store.get(name) or {}).get("title") or "", "project": pid, "name": name,
+                               "duration_s": b.get("duration") or meta.get("duration")})
+    import watchlist as _wlm
+    view = (_wlm.load(_wl_root()) or {}).get("series") or []    # raw file: _wl_view backfills project.json
+    series_out = []
+    for sx in view:
+        ms = sx.get("mirrors") or []
+        key = sx.get("preferred_mirror") or next((x.get("series_key") for x in ms if x.get("status") == "ok"), None)
+        m = next((x for x in ms if x.get("series_key") == key), None) or {}
+        chs = [c for c in m.get("chapters") or []]
+        latest = max((float(c) for c in chs if re.fullmatch(r"\d+(\.\d+)?", str(c))), default=None)
+        pack = _spk.load(_yt_root(), sx["id"]) or {}
+        lock = pack.get("title_lock") or {}
+        mine = rows.get(sx["id"]) or {}
+        series_out.append({"series_id": sx["id"], "title": sx.get("title"), "tier": sx.get("tier"),
+                           "production_source": key, "latest_source_chapter": latest,
+                           "latest_source_date": ((m.get("release_dates") or {}).get(str(int(latest)) if latest is not None else "") or [None])[0],
+                           "made_through": mine.get("made_through"), "posted_through": mine.get("posted_through"),
+                           "hook_locked": bool(lock.get("approved_by_user")), "hook_text": lock.get("series_hook") or "",
+                           "hook_mechanic": lock.get("hook_mechanic") or "", "playlist_id": pack.get("playlist_id") or ""})
+    q = _pq.load(_i.PROJECTS)
+    sched = _studio.load().get("schedule") or {}
+    try:
+        plan = _pq.planned(sched, q, now, _targets_of)
+    except Exception:  # noqa
+        plan = {}
+    queue, pos = [], 0
+    for x in q["items"]:
+        if x["status"] not in _pq.ACTIVE:
+            continue
+        pos += 1
+        try:
+            pdir = project_dir_for(x["project"])
+            md = {**publish_defaults(pdir), **(load_publish(pdir).get(x["name"]) or {})}
+            sid, series, n, meta = _series_ident(pdir)
+        except Exception:  # noqa
+            md, sid, series, n, meta = {}, "", "", None, {}
+        desc = (md.get("description") or "").strip().splitlines()
+        queue.append({"position": pos, "status": x["status"], "project": x["project"], "name": x["name"],
+                      "series": series, "range": (f"{meta.get('chapters_start')}-{meta.get('chapters_end')}" if meta.get("kind") == "range" else str(n or "")),
+                      "title": md.get("title") or "", "description_first_2_lines": "\n".join(desc[:2]),
+                      "tags": md.get("tags") or [], "hashtags": md.get("hashtags") or re.findall(r"#\w+", md.get("description") or ""),
+                      "thumbnail_text": md.get("thumbnail_text") or "",
+                      "planned_slot": (plan.get(x["id"]) or {}).get("label") or "",
+                      "planned_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(plan[x["id"]]["at"])) if x["id"] in plan else ""})
+    return {"generated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "read_only": True,
+            "series": series_out, "queue": queue, "posted": sorted(posted, key=lambda r: r["published_at_utc"], reverse=True)}
+
+
 def _apply_prior_seo(rdir, name, ap, marks, a, b):
     """Title, tags and thumbnail from the posted video this merge extends —
     as they are on YouTube now (the owner edits there), else as saved here —
