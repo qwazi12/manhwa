@@ -184,6 +184,10 @@ def detect(pdir, panels, bible=None, api_key=None, _post=None, batch=BATCH):
             r = by.get(n) or {}
             faces = []
             for fc in r.get("faces") or []:
+                if isinstance(fc, (list, tuple)):      # bare [ymin,xmin,ymax,xmax] (Murim Login 252, 2026-11-06)
+                    fc = {"box_2d": fc}
+                if not isinstance(fc, dict):
+                    continue
                 b = _box_from(fc, "box_2d", "box")
                 if b:
                     faces.append({"box": b, "name": str(fc.get("name") or "")[:60], "is_mc": bool(fc.get("is_mc"))})
