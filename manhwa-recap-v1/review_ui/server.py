@@ -3822,6 +3822,20 @@ def _auto_append_enabled():
     return os.environ.get("AUTO_APPEND", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
+def _auto_append_holds():
+    """FL-1 test (owner, 2026-11-06): {series_id: N}. Chapters N and later of
+    these series post as singles instead of joining the posted video.
+    AUTO_APPEND_HOLD="series-id:N,series-id:N"; unset it to end the test."""
+    out = {}
+    for part in os.environ.get("AUTO_APPEND_HOLD", "").split(","):
+        sid, _sep, n = part.strip().partition(":")
+        try:
+            out[sid.strip()] = int(n)
+        except ValueError:
+            continue
+    return out
+
+
 def _posted_names(pdir):
     out = {}
     for name, rec in (load_publishes(pdir) or {}).items():
@@ -3934,7 +3948,10 @@ def _auto_append_pass(apply=True, limit=1):
     try:
         _AUTO_APPEND["last_run"] = time.time()
         out, started = [], 0
+        holds = _auto_append_holds()
         for sid, (posted, singles, pending) in sorted(_auto_append_inputs().items()):
+            if sid in holds:                          # FL-1: these chapters post as singles
+                singles = {n: x for n, x in singles.items() if n < holds[sid]}
             d = _aa.decide(posted, singles, pending)
             d["series"] = sid
             out.append(d)
@@ -3973,8 +3990,31 @@ def api_auto_append():
         if d.get("base"):
             d["base"] = {k: d["base"].get(k) for k in ("project", "name", "start", "end")}
     return {"enabled": _auto_append_enabled(), "last_run": _AUTO_APPEND["last_run"],
+            "holds": _auto_append_holds(),
             "undo": "set AUTO_APPEND=0 on Railway to stop; Unmerge on a merged video puts its chapters back",
             "series": plans}
+
+
+@app.get("/api/growth/analytics/status")
+def api_growth_analytics_status():
+    """F3: is the read-only YouTube Analytics grant set? No network, no writes."""
+    import yt_analytics as _yta
+    return _yta.status()
+
+
+@app.get("/api/growth/analytics/video")
+def api_growth_analytics_video(video_id: str, start: str, end: str, by_day: int = 0):
+    """F3: one video's YouTube Analytics for start..end (Pacific dates, inclusive).
+    Read-only: nothing is saved on the server."""
+    import yt_analytics as _yta
+    try:
+        return _yta.video_report(video_id, start, end, by_day=bool(by_day))
+    except _yta.InputError as e:
+        raise HTTPException(400, str(e))
+    except _yta.NotConfigured as e:
+        raise HTTPException(503, str(e))
+    except _yta.AnalyticsError as e:
+        raise HTTPException(502, str(e))
 
 
 def _apply_prior_seo(rdir, name, ap, marks, a, b):

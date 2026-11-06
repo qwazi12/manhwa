@@ -182,3 +182,17 @@ def test_posted_merge_whose_file_is_gone_is_built_from_its_chapters(lib, tmp_pat
     m2 = _wait(root, "hound_ch20-23")
     assert m2["build"]["status"] == "done"
     assert [x["project"] for x in m2["merged_from"]] == ["hound_20", "hound_21", "hound_22", "hound_23"]
+
+
+def test_fl1_hold_keeps_chapters_as_singles(lib, monkeypatch):
+    """FL-1 (owner, 2026-11-06): held series post new chapters as singles."""
+    root, _ = lib
+    monkeypatch.setenv("AUTO_APPEND_HOLD", "hound:22, bad, other:x")
+    assert server._auto_append_holds() == {"hound": 22}
+    d = next(x for x in server._auto_append_pass() if x["series"] == "hound")
+    assert d["action"] == "none", d
+    assert not os.path.isdir(os.path.join(root, "hound_ch20-22")) and not os.path.isdir(os.path.join(root, "hound_ch20-23"))
+    monkeypatch.setenv("AUTO_APPEND_HOLD", "hound:23")             # chapters before the hold still join
+    d = next(x for x in server._auto_append_pass() if x["series"] == "hound")
+    assert d["action"] == "build" and (d["start"], d["end"]) == (20, 22), d
+    assert _wait(root, "hound_ch20-22")["build"]["status"] == "done"
