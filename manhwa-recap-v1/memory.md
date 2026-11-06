@@ -1862,3 +1862,16 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Three dot routes re-checked on the deployed code: unchanged by this push. /api/space (disk usage only), /api/drive/status (in-memory 10-min cache + one Drive GET), /api/demand (reads _demand.json). No side effects.
 - Drive for Desktop path confirmed: ~/Library/CloudStorage/GoogleDrive-kyeboah@kymediamgmt.com/Shared drives/Flamingo Recap/Researcher/ops (Shared drive, not My Drive).
 - This entry is pushed as the F10 test: a memory-only push must NOT trigger a deploy.
+
+### 2026-11-06 — F10 verified, first exports, F-10 started, RESULT 1542Z
+- F10 VERIFIED: memory-only push c50c5db → Railway deployment 7c3de01a SKIPPED. Railway warns that railway.json config-as-code is deprecated and works until 2026-12-01; it needs migrating (owner OK).
+- F-02 first export run (test), written locally then moved into the Drive for Desktop folder (mv -n) and read back by name via the connector:
+  - FLAMINGO_SERIES_20261106.csv: 23 rows
+  - FLAMINGO_QUEUE_20261106.csv: 11 rows
+  - FLAMINGO_POSTED_20261106.csv: 29 rows
+
+  All 8 stored playlist_ids are series NAMES (the broken-link cause).
+- F-10 STARTED: Railway var AUTO_APPEND_HOLD=fog-land-9299:46,the-stellar-swordmaster-5988:137. Redeploy 281e910d SUCCESS; holds live at 15:41 UTC.
+- F-03: mgeko has English Murim Login 251 and 252 (page checked); Asura still ends at 250. HOLD until HEAD demand confirmation + owner source OK.
+- RESULT_FLAMINGO_20261106T1542Z.md is in ops/results (Drive id 1cKvC0FlAH-4h_jP7IvB7uhhL4f4zHG-U), confirmed via the connector.
+- Not pushed: d4fff70 (description template fix, branch fix/desc-template), and this memory commit plus 724b771.
