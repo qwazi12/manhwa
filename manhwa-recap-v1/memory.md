@@ -1897,3 +1897,5 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Queued descriptions: replaced only the @flamingoremix subscribe URL with https://www.youtube.com/@flamingorecap in all 10 queued items (1 occurrence each); every other field read back identical. Death Knight 88-94 had already posted 19:13Z (AqFMbNFiN2A) with the old link.
 - Drive folder renamed "Researcher" → "**Researcher**" (same id); ops.py DRIVE_OPS accepts either. Processed INSTR_FLAMINGO_20261106T1620Z (last_instr updated). RESULT_FLAMINGO_20261106T2017Z uploaded via ops.py.
 - Waiting: owner approval of Murim 251/252 (then 251 → Sat Nov 7 10:00 ET ahead of the compilation, 252 next slot), owner's `railway config migrate` output, F-12 "Chapter None", F-13 numbering report.
+
+- 2026-11-06 ~20:25Z: owner confirmed the Drive folder rename (**Researcher**). ops.py now finds it ignoring asterisks/case; folder ids unchanged, so API listing and connector reads are unaffected.
