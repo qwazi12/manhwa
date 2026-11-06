@@ -1820,3 +1820,15 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Autopilot is paused (R3), and autopilot.tick returns before its 6-hour source refresh, so nothing will detect 251 on its own. It needs a manual check.
 - Timing once English 251–252 appear on Asura (T0): production about 15–50 min of model calls per chapter (recent jobs) plus render, about 1.5–3 h for both plus the merge. Then owner review. Then "Post next" (publish_queue.to_top) takes the next 10:00, 14:00 or 22:00 ET slot (≤12 h). Total about 4–16 h after T0 plus owner review time. Cost about $2.50 (2 × $1.26 average). Today's spend is $0.
 - The three Experiments rows' prerequisites were reported to the owner. No sheet, studio or schedule change. Not pushed (R11).
+
+### 2026-11-06 — Owner decisions: Murim Login wait, FL-1 pilot, F3 build
+- Murim Login: wait for English 251 on the production source (no KakaoPage). Checked by hand twice daily (session reminder 08:07/20:07 local, job c4e5ce5f; it ends with the session). When 251 appears: post it as a single with a short "story so far" opener from the series bible. The bible has research.story_so_far, but story_verified=false. Bring 2–3 title options. Production held until dot confirms demand (Log request written to the GROWTH sheet).
+- FL-1 pilot (2 weeks, results DIRECTIONAL):
+  - Series: The Stellar Swordmaster from studio ch 137 (WEBTOON, weekly Tue, offset 0) and Fog Land from studio ch 46 (WEBTOON, weekly Mon, offset −1). Chosen because they have exact official WEBTOON dates with 7-day gaps for 8 weeks; Asura dates are partly approximate.
+  - Recorded as a new Experiments row FL1-PILOT-SINGLES-01. Dot's rows were not edited. Log lines were read back OK.
+- Code on local branch growth/fl1-f3, commit 4f8880f, NOT pushed (R11):
+  - AUTO_APPEND_HOLD="series-id:N,…" in _auto_append_pass. Held series' chapters N+ are dropped from the auto-append inputs, so they post as singles. The hold also shows in the /api/auto-append dry run.
+  - yt_analytics.py and GET /api/growth/analytics/status and /api/growth/analytics/video. Read-only, no disk writes. Same env var and authorized_user grant format as Scrapper's editorial/audience.py.
+  - tools/yt_analytics_signin.py: the owner's one-time sign-in (stdlib, PKCE).
+  - Tests: 6 new. Full review_ui suite 389 passed, 2 skipped.
+- F3/S2 coordination note uploaded to Researcher: F3_S2_YT_ANALYTICS_COORDINATION_2026-11-06.md (1BeAMoIfUBFDi_Q0uRvUeESUOZ2ChALdF, md5 verified). There's no Scrapper session to message (ListAgents), and S2's own text isn't in Researcher. The design matches Scrapper's existing adapter; the note asks whether S2 differs.
