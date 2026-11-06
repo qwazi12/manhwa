@@ -1854,3 +1854,11 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - No new INSTR (newest is still INSTR_FLAMINGO_20261106T1500Z). No APPLY_FLAMINGO_* requests.
 - F-03 source-check: Asura (production source) still ends at Murim Login ch 250. The mgeko mirror now lists up to 252 (it was 250 at 14:07Z). Not checked whether those pages are real English. Production HOLD unchanged.
 - Uploaded RESULT_FLAMINGO_20261106T1526Z.md. OPS_PROTOCOL can't be read via `ops.py get` (outside Researcher/ops/).
+
+### 2026-11-06 — Pushed growth/fl1-f3 (owner OK); deploy verified
+- Guards (owner): waited out the 10:00 ET Murim [44-49] upload. It had an auto-retry at 10:23 after an Upload-Post timeout ("no record of it"), then published as pSGdIZE99PY, PUBLIC (oEmbed 200), with the corrected title "[44-49] This OP Psychopath TRANSMIGRATES To SLAY MURIM MASTERS — Murim Psychopath". Next posting-clock slot was 14:00 ET (runway planner 16:43 UTC), both more than 30 min away. Jobs bar empty.
+- Pushed 47cbde6..29a30b1 to main at ~15:31 UTC. Railway deploy 6d77985e SUCCESS.
+- Live: /health ok; /api/growth/analytics/status = not configured (expected); /api/growth/snapshot read_only 23 series / 11 queued / 29 posted; /api/auto-append holds {}.
+- Three dot routes re-checked on the deployed code: unchanged by this push. /api/space (disk usage only), /api/drive/status (in-memory 10-min cache + one Drive GET), /api/demand (reads _demand.json). No side effects.
+- Drive for Desktop path confirmed: ~/Library/CloudStorage/GoogleDrive-kyeboah@kymediamgmt.com/Shared drives/Flamingo Recap/Researcher/ops (Shared drive, not My Drive).
+- This entry is pushed as the F10 test: a memory-only push must NOT trigger a deploy.
