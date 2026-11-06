@@ -1848,3 +1848,9 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   - GET /api/publishing/publish/status resolves in-progress uploads.
 - Commit 29a30b1 (local, growth/fl1-f3): read-only GET /api/growth/snapshot for the F-02 exports (test proves no disk change), and railway.json watchPatterns so memory-only commits don't deploy (F10).
 - F-10 is PENDING_OWNER in the INSTR file but was approved in chat. Flagged to HEAD; not started.
+
+
+### 2026-11-06 — ops poll (headless) 20261106T1526Z
+- No new INSTR (newest is still INSTR_FLAMINGO_20261106T1500Z). No APPLY_FLAMINGO_* requests.
+- F-03 source-check: Asura (production source) still ends at Murim Login ch 250. The mgeko mirror now lists up to 252 (it was 250 at 14:07Z). Not checked whether those pages are real English. Production HOLD unchanged.
+- Uploaded RESULT_FLAMINGO_20261106T1526Z.md. OPS_PROTOCOL can't be read via `ops.py get` (outside Researcher/ops/).
