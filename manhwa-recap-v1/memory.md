@@ -1832,3 +1832,19 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   - tools/yt_analytics_signin.py: the owner's one-time sign-in (stdlib, PKCE).
   - Tests: 6 new. Full review_ui suite 389 passed, 2 skipped.
 - F3/S2 coordination note uploaded to Researcher: F3_S2_YT_ANALYTICS_COORDINATION_2026-11-06.md (1BeAMoIfUBFDi_Q0uRvUeESUOZ2ChALdF, md5 verified). There's no Scrapper session to message (ListAgents), and S2's own text isn't in Researcher. The design matches Scrapper's existing adapter; the note asks whether S2 differs.
+
+### 2026-11-06 — Ops protocol adopted; INSTR_FLAMINGO_20261106T1445Z processed
+- Owner: instructions now come from Researcher/ops/instructions/INSTR_FLAMINGO_*. Results go to ops/results/RESULT_FLAMINGO_*. The GROWTH_ sheets are archived; I don't write to them any more. "check ops" means: read the newest INSTR and act on anything new. The F-08 poller is proposed only.
+- RESULT_FLAMINGO_20261106T1450Z.md uploaded to ops/results (md5 verified).
+- F-01: the three studio fixes are in place and not yet posted. Live with errors:
+  - 2i-77WVNEjc and Hega8b2iQhM (Murim, "To Destroy To SLAY")
+  - Lg_dmwH_B0U (Fog Land 43, "Genius DOCTOR")
+  - 3LOkuJyXjEw (TMH 32-33 "DEMOND", PUBLIC) and bMEj19NzMmI (private copy)
+
+  HEAD fixes these via vidIQ with owner OK.
+- New side-effect findings:
+  - GET /api/watchlist → ingest.list_projects back-fills project.json (engine/series fields; usually a no-op).
+  - GET /api/publish trims over-limit tags.
+  - GET /api/publishing/publish/status resolves in-progress uploads.
+- Commit 29a30b1 (local, growth/fl1-f3): read-only GET /api/growth/snapshot for the F-02 exports (test proves no disk change), and railway.json watchPatterns so memory-only commits don't deploy (F10).
+- F-10 is PENDING_OWNER in the INSTR file but was approved in chat. Flagged to HEAD; not started.
