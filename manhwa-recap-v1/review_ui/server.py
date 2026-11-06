@@ -1558,8 +1558,8 @@ def api_publish_series_defaults(body: SeriesDefaultsIn):
     if md.get("tags"):
         tags = md["tags"] if isinstance(md["tags"], list) else [t.strip() for t in str(md["tags"]).split(",") if t.strip()]
         pack["default_tags"] = list(dict.fromkeys(tags))
-    if md.get("playlist"):
-        pack["playlist_id"] = str(md["playlist"]).strip()
+    if md.get("playlist") and re.fullmatch(r"(PL|UU|OL|FL)[\w-]{10,}", str(md["playlist"]).strip()):
+        pack["playlist_id"] = str(md["playlist"]).strip()           # only a real ID, never the series name
     if md.get("privacy"):
         pack["default_privacy"] = str(md["privacy"])
     if md.get("targets"):
@@ -3194,6 +3194,8 @@ def _description_from_blocks(pdir, md, rec, variant=""):
     if not summ:
         summ = _db.summary_from(rec.get("description_short" if variant == "short" else "description") or "")
     pl = pack.get("playlist_id") or ""
+    if not re.fullmatch(r"(PL|UU|OL|FL)[\w-]{10,}", pl):      # a series NAME made "list=Fog Land" (2026-11-06)
+        pl = ""
     text = _db.build(hook=hook, series=pack.get("title_en") or series, chapter=n if n is not None else "",
                      summary=summ, pack=pack,
                      playlist_url=f"https://www.youtube.com/playlist?list={pl}" if pl else "",

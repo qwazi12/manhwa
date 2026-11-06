@@ -31,7 +31,7 @@ CHANNEL = "Flamingo Recap"
 KOFI = ("❤️ Support the channel — Ko-fi: https://ko-fi.com/flamingorecap\n"
         "Your support keeps the grind alive and the recaps coming. Drop a comment with any recaps "
         "you'd love to see — we're always listening!")
-SUBSCRIBE = "🔥 New recaps every week! Subscribe: https://youtube.com/@flamingoremix?si=iE3SIai9AooDNePA"
+SUBSCRIBE = "🔥 New recaps every week! Subscribe: https://www.youtube.com/@flamingorecap"
 MUSIC = "🎵 Background music: {music_credit}\nLicensed under Creative Commons Attribution License (reuse allowed)"
 DISCLAIMER = ("© Disclaimer:\n"
               "The content on Flamingo Recap is created to share and promote stories and creators through "

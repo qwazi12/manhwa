@@ -120,3 +120,9 @@ def test_tags_are_counted_the_way_youtube_counts_them():
     tags = cs.build_tags("The Regressed Mercenary Has a Plan", "96-99", {"series_name_en": "x" * 5,
                                                                          "characters": ["cecil perdium"]})
     assert cs.tag_chars(tags) <= 500
+
+
+def test_subscribe_link_is_the_real_channel():
+    """2026-11-06: the subscribe line pointed at @flamingoremix."""
+    import chapter_seo as cs
+    assert "@flamingorecap" in cs.SUBSCRIBE and "flamingoremix" not in cs.SUBSCRIBE

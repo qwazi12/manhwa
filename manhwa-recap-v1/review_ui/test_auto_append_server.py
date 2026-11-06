@@ -212,3 +212,15 @@ def test_growth_snapshot_is_read_only(lib):
     p = next(x for x in d["posted"] if x["project"] == "hound_ch20-21")
     assert p["video_id"] == "abcdefghijk" and p["kind"] == "merge" and p["range"] == "20-21"
     assert p["title"].startswith("[20-21] Hound")
+
+
+def test_playlist_link_needs_a_real_playlist_id(lib, monkeypatch):
+    """2026-11-06: a series NAME stored as playlist_id made 'list=Hound' links."""
+    root, _ = lib
+    pdir = os.path.join(root, "hound_22")
+    for pl, want in (("Hound", False), ("PLabcdefghijkl123", True)):
+        monkeypatch.setattr(server, "_series_pack", lambda *a, **k: {"playlist_id": pl, "title_en": "Hound"})
+        text, _s = server._description_from_blocks(pdir, {"title": "[22] Hook | Flamingo Recap"},
+                                                   {"summary": "A thing happens."})
+        assert ("Full series playlist" in text) is want, text
+        assert "list=Hound" not in text

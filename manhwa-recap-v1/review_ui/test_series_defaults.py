@@ -25,7 +25,7 @@ def test_save_as_series_defaults_no_longer_500s_and_applies_to_the_series(tmp_pa
         (d / "publish.json").write_text(json.dumps({f"final_{n}.mp4": {"title": "old", "tags": ["old"]}}))
     monkeypatch.setattr(srv, "_rerender_chosen_thumbnails", lambda **kw: None)
     md = {"title": f"He Returns - {S} Chapter 32 Manhwa Recap", "description": "Chapter 32 recap",
-          "tags": ["rtoc"], "playlist": "PL-rtoc", "privacy": "private", "targets": ["mk:youtube"]}
+          "tags": ["rtoc"], "playlist": "PLrtoc0123456789", "privacy": "private", "targets": ["mk:youtube"]}
     r = srv.api_publish_series_defaults(srv.SeriesDefaultsIn(project=f"{slug}_32", name="final_32.mp4", metadata=md))
     assert r["ok"] and r["applied"] == 2
     p31 = json.loads((tmp_path / f"{slug}_31" / "publish.json").read_text())["final_31.mp4"]
@@ -33,7 +33,7 @@ def test_save_as_series_defaults_no_longer_500s_and_applies_to_the_series(tmp_pa
     assert p31["description"] == "Chapter 31 recap"
     # the series tags carry over, with the chapter tag adapted to ch.31
     assert "rtoc" in p31["tags"] and not any("32" in t for t in p31["tags"])
-    assert p31["playlist"] == "PL-rtoc" and p31["privacy"] == "private"
+    assert p31["playlist"] == "PLrtoc0123456789" and p31["privacy"] == "private"
 
 
 def test_a_new_chapter_keeps_the_series_title_with_its_own_number(tmp_path, monkeypatch):
