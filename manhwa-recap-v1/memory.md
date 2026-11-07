@@ -1937,3 +1937,9 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Masters built locally (scratchpad/sd, not in Drive yet): Baskerville + Death Knight from current art with old badge inpainted; Stellar from the 480px series cover (soft, chin clipped — weak). Renders shown to owner; awaiting OK to switch.
 - Murim 251-252 (murim-login_ch251-252, review_pending): thumbnail replaced with style D — 251 page001_panel_007 leap crop, no hook/arrow, face centred, "CH 251-252" badge #F07D19 (Murim colour picked, not yet fixed in a BADGE file). md5 84c202f4850c3c1930031844efced143 read back.
 - Murim face candidates: studio has only ch 251-252 panels; 9 face picks, 7 were already in candidates/, 2 new added (252_page007_006, 252_page007_002), md5-verified in Drive.
+
+
+### 2026-11-07 — Library covers showed Asura's share card (owner report) — FLAMINGO
+- Root cause: Asura's og:image is now a generated 1200x630 card (/og/comics/<slug>.jpg: title, rating, chapter count). providers.release_info and thumbnail_studio._pick_cover_url took og:image, so Library covers (and any NEW cover-based thumbnail) used the card. Real cover is in the same page (data-full-src / JSON-LD image, 720x1030).
+- Fix on branch fix/real-covers 3a97e1b (NOT pushed): cover_from_html prefers data-full-src/JSON-LD, skips /og/ cards; cover route refreshes its 7-day cache when the source URL changes (.src sidecar) and reads the real cover from the page while the stored URL is still a card. 396 passed + test_real_cover 3 + release_calendar 16/16. Live check: Murim -> covers/murim-login.626801.webp; WEBTOON Doom Breaker unchanged.
+- Queued video thumbnails checked: they use the real art (made before the change). Baskerville/DK style-D masters are crops of the real covers. Stellar's only source is WEBTOON's 480x623 poster. Murim cover doesn't make a good 16:9 face master (small figure, logo) -> HEAD pick from candidates.
