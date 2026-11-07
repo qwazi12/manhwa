@@ -1988,3 +1988,13 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 
 ### 2026-11-07T13:37Z — Murim Login source check (FLAMINGO, read-only)
 - Asura max ch 252, mgeko max ch 252 (ops.py source-check). No chapter above 252; 251-252 already made as the merged video (in Video review). Nothing started.
+
+
+### 2026-11-07 14:00Z — Posting rule: live at HH:00 ET via YouTube scheduled publish (owner, HEAD_RULES_20261107T1345Z)
+- Pushed a409d74 (owner approved in chat; jobs bar empty, nothing uploading). Railway b5f26a1b SUCCESS 08:51 ET.
+- Schedule now starts each upload 90 min before its HH:00 slot with Upload-Post youtube_publish_at = HH:00:00Z (private until then). Under 45 min ahead = slot recorded "missed", nothing posts between slots, video takes the next free HH:00 slot. One upload per channel at a time. Posting times must be HH:00. Snapshot "published_at_utc" = the scheduled live time.
+- Tests: full suite 406 passed / 2 skipped; test_posting_schedule.py (script) 34/34; new test_top_of_hour.py 2/2.
+- Verified live: Martial King 152-158 upload started 13:59:26Z with publish_at 2026-11-07T15:00:00Z. Upload-Post's youtube_publish_at was not tested before this; the watcher flags it at 15:10Z if the video isn't public.
+- Watcher: reports studio "missed" events, ignores videos not yet live, retry-upload now requeues for the next HH:00 slot (no post-now). Fixed a launchd hang: ops.py no longer lists the Drive for Desktop folder at import; watch.py has a 10-min alarm.
+- OPEN (owner): macOS blocks launchd jobs from ~/Library/CloudStorage — the 13:10Z watcher run hung, and com.flamingo.daily-exports hangs at the Drive move. Needs Full Disk Access for the launchd python/zsh, or the owner's OK to switch exports to the Drive API.
+- Not changed: queue_manager.py's /api/schedule display still shows interval-based off-hour times (16:43, 18:26); posting doesn't use it.
