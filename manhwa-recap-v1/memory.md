@@ -1976,3 +1976,11 @@ b5bbf03 is the same patch as c025466, already on main since Nov 6 19:10 ET (depl
 
 ## F-02 Daily exports
 FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok). Now automatic: launchd com.flamingo.daily-exports at 05:45 ET daily runs ~/dev/manhwa-ops/bin/exports.py (plain Python, no chat session). Log: ~/dev/manhwa-ops/exports.log. Needs the Mac awake/logged in with Drive for Desktop running; a missed run (asleep) fires on wake.
+
+
+### 2026-11-07 13:00Z — FLAMINGO watcher replaces the 06/12/18 poller (owner setup, approved in chat)
+- launchd com.flamingo.watch at :10 and :40 runs bin/watch.sh → bin/watch.py (plain checks: new INSTR_FLAMINGO_/HEAD_RULES_ in ops/instructions + ops/; failed queue item; posting 45+ min past slot; queued 20+ min past slot; posted ≤14 days: YouTube upload failed/rejected/deleted, processing 2h+, region-blocked, age-restricted, gone; Railway latest deploy FAILED/CRASHED). Quiet = one line in watch.log. New finding → headless claude -p with bin/WATCH_PROMPT.md, lock file, macOS notification when RESULT says NEEDS OWNER: yes.
+- Pre-approved actions only through bin/act.py (apply-approved Posting Review rows marked Approve, move within the queue, swap-master from Drive, retry-upload once; refuses uncertain uploads per R9). Permission rules in ~/dev/manhwa/.claude/settings.json (untracked, not committed), passed with --settings because the workspace isn't trusted.
+- Smoke test: allowed act.py ran, git push refused. com.flamingo.ops-poll booted out; plist moved to manhwa-ops/retired/.
+- First run baseline: Fog Land 42 single (Xz1_49YM46I) and Too Many Heroes 32-33 (bMEj19NzMmI) not visible on YouTube — recorded as known, not acted on.
+- Hashtag rule (feat/hashtags-10 ed1aaf5 on top of 048412d) still waiting for the owner's go; not pushed, queue not changed.
