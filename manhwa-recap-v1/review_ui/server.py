@@ -2014,13 +2014,59 @@ def thumbconcept(project: str = "", name: str = "", concept_id: str = ""):
                         headers={"Cache-Control": "no-store"})
 
 
+def _thumb_keep_reason(pdir, name, masters):
+    """Why a bulk redraw must leave this video's thumbnail alone, or None.
+    Owner, 2026-11-07 (Murim 251-252 lost its approved cover master to "Save as
+    series defaults"): a redraw only replaces thumbnails the studio made itself.
+      - the series has a master in Drive (style D): the master is the thumbnail
+      - a person uploaded it, or picked it from the concepts
+    Thumbnails saved before the source was recorded count as the studio's own
+    only when they were saved together with a concept the copilot applied."""
+    import thumbnail as _tb
+    import thumbnail_studio as tstudio
+    try:
+        sid = _series_ident(pdir)[0] or ""
+    except Exception:
+        sid = ""
+    if sid and masters(sid):
+        return "series master"
+    rec = _tb.get(pdir, name)
+    if not rec:
+        return None
+    src = rec.get("source")
+    if src:
+        return None if src == "auto" else ("uploaded by hand" if src == "upload" else "picked by hand")
+    chosen = ((tstudio.load_concepts(pdir).get(name) or {}).get("chosen") or {})
+    if chosen.get("at") and abs((rec.get("uploaded_at") or 0) - chosen["at"]) < 30:
+        return None
+    return "uploaded by hand"
+
+
+def _master_lookup():
+    """series_id -> bool (MASTER_<sid>.png in Drive), one Drive lookup per series per run.
+    If Drive can't be asked, every series counts as having one: nothing is overwritten."""
+    cache = {}
+
+    def has(sid):
+        if sid not in cache:
+            try:
+                import drive_store as _ds
+                import series_master as _sm
+                cache[sid] = bool(_sm.enabled() and _ds.configured() and _sm.lookup(sid, _ds))
+            except Exception:
+                cache[sid] = True
+        return cache[sid]
+    return has
+
+
 def _rerender_chosen_thumbnails(force_cover_default=True):
     """Redraw every video's thumbnail with the approved series style (or latest layout).
     When force_cover_default=True, it applies the series approved cover composition
     (cover-badge / cover-center) to every chapter that has an export."""
     import ingest as _i
     import thumbnail_studio as tstudio
-    n, skipped = 0, 0
+    n, skipped, kept = 0, 0, 0
+    masters = _master_lookup()
     for pid in sorted(os.listdir(_i.PROJECTS)):
         pdir = os.path.join(_i.PROJECTS, pid)
         if pid.startswith("_") or not os.path.isdir(os.path.join(pdir, "exports")):
@@ -2033,6 +2079,9 @@ def _rerender_chosen_thumbnails(force_cover_default=True):
         for name in sorted(os.listdir(os.path.join(pdir, "exports"))):
             if not name.endswith(".mp4"):
                 continue
+            if _thumb_keep_reason(pdir, name, masters):
+                kept += 1
+                continue
             try:
                 # Regenerate concepts with fresh cover and new options
                 api_thumbcopilot_generate(ThumbGenIn(project=pid, name=name))
@@ -2044,14 +2093,15 @@ def _rerender_chosen_thumbnails(force_cover_default=True):
                     rec_c = next((c for c in cs if c.get("recommended")), cs[0] if cs else None)
                     cid = rec_c["id"] if rec_c else None
                 if cid:
-                    api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=cid))
+                    _thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=cid))
                     n += 1
                 else:
                     skipped += 1
             except Exception as e:
                 print(f"[rerender] error on {pid}/{name}: {e}", flush=True)
                 skipped += 1
-    _ev("publish", f"thumbnails updated retroactively with series style: {n}" + (f" ({skipped} skipped)" if skipped else ""), "ok")
+    _ev("publish", f"thumbnails updated retroactively with series style: {n}" + (f" ({skipped} skipped)" if skipped else "")
+        + (f"; {kept} kept (series master or picked by hand)" if kept else ""), "ok")
     return n
 
 
@@ -2069,6 +2119,11 @@ def api_thumbcopilot_apply_retroactive():
 
 @app.post("/api/thumbcopilot/apply")
 def api_thumbcopilot_apply(body: ThumbApplyIn):
+    """A person chose this concept (the page's Apply)."""
+    return _thumbcopilot_apply(body, source="picked")
+
+
+def _thumbcopilot_apply(body: ThumbApplyIn, source="auto"):
     """Render the chosen concept and hand it to the EXISTING thumbnail store.
 
     This is the only bridge between the copilot and the publish workflow: the
@@ -2100,7 +2155,7 @@ def api_thumbcopilot_apply(body: ThumbApplyIn):
     with open(tmp, "rb") as f:
         data = f.read()
     try:
-        saved = _tb.save(pdir, name, data)      # the existing store, unchanged
+        saved = _tb.save(pdir, name, data, source=source)   # the existing store
     except _tb.ThumbnailError as e:
         raise HTTPException(422, str(e))
 
@@ -2149,9 +2204,13 @@ def _series_exports(key):
 def _apply_look_to_series(key, composition, skip=None):
     """Redraw every UNPOSTED video of the series in this composition."""
     import thumbnail_studio as tstudio
-    done = failed = 0
+    done = failed = kept = 0
+    masters = _master_lookup()
     for pid, d, name, posted in _series_exports(key):
         if posted or (pid, name) == skip:
+            continue
+        if _thumb_keep_reason(d, name, masters):
+            kept += 1
             continue
         try:
             cs = (tstudio.get_concepts(d, name) or {}).get("concepts") or []
@@ -2160,12 +2219,13 @@ def _apply_look_to_series(key, composition, skip=None):
                 cs = (tstudio.get_concepts(d, name) or {}).get("concepts") or []
             c = next((c for c in cs if c.get("composition") == composition), None)
             if c:
-                api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=c["id"]))
+                _thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=c["id"]))
                 done += 1
         except Exception as e:  # noqa — one video failing must not stop the rest
             failed += 1
             print(f"[series look] {pid}/{name}: {e}", flush=True)
     _ev("publish", f"{key}: series look ({composition}) applied to {done} unposted video(s)"
+                   + (f", {kept} kept (series master or picked by hand)" if kept else "")
                    + (f", {failed} failed" if failed else ""), "ok" if not failed else "warn")
 
 
@@ -3537,7 +3597,7 @@ def api_range_build(body: RangeIn):
                 if not chosen_c:
                     chosen_c = next((c for c in cs if c.get("recommended")), cs[0] if cs else None)
                 if chosen_c:
-                    api_thumbcopilot_apply(ThumbApplyIn(project=range_pid, name=name, concept_id=chosen_c["id"]))
+                    _thumbcopilot_apply(ThumbApplyIn(project=range_pid, name=name, concept_id=chosen_c["id"]))
                     copied_thumb = True
             except Exception as e:
                 print(f"[range_build] thumbnail copilot note: {e}", flush=True)
@@ -4175,7 +4235,7 @@ def _prior_thumbnail(rdir, name, bdir, bname, url, a, b):
     _ts.draw_badge(im, f"CH {a}-{b}", colour, keep_colour=old_badge)
     buf = io.BytesIO()
     im.convert("RGB").save(buf, "JPEG", quality=92)
-    _tb.save(rdir, name, buf.getvalue())
+    _tb.save(rdir, name, buf.getvalue(), source="auto")
     return True
 
 
@@ -5173,7 +5233,7 @@ def _prepare_publish(pdir, name, do_seo=True):
                 best = (next((c for c in cs if look and c.get("composition") == look), None)
                         or next((c for c in cs if c.get("recommended")), cs[0] if cs else None))
                 if best:
-                    api_thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=best["id"]))
+                    _thumbcopilot_apply(ThumbApplyIn(project=pid, name=name, concept_id=best["id"]))
                     filled.append("thumbnail")
         except _SkipSeo:
             pass

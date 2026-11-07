@@ -103,8 +103,12 @@ def _safe(name):
     return os.path.basename(name or "").replace("/", "")
 
 
-def save(pdir, export_name, data):
+def save(pdir, export_name, data, source="upload"):
     """Validate and store one thumbnail for one export. Replaces any previous.
+
+    source: "upload" (a person uploaded it), "picked" (a person chose a
+    generated concept) or "auto" (the studio generated and applied it). Bulk
+    redraws only ever replace "auto" thumbnails (owner, 2026-11-07).
 
     Written to a temp file and renamed so a failed or half-finished upload can
     never leave a truncated image where a valid one used to be.
@@ -131,7 +135,7 @@ def save(pdir, export_name, data):
         except OSError:
             pass
     rec = {"file": fname, "format": fmt, "width": w, "height": h,
-           "bytes": len(data), "uploaded_at": time.time(),
+           "bytes": len(data), "uploaded_at": time.time(), "source": source,
            "advisories": advisories(w, h)}
     idx[name] = rec
     _save_index(pdir, idx)
