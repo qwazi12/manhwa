@@ -208,7 +208,8 @@ def build_tags(series, n, pack, limit=TAGS_MAX):
 # ------------------------------------------------------------------ hashtags
 HASHTAG_MAX = 10                  # owner, 2026-11-07: up to 10 on YouTube, all directly relevant
 PLATFORM_HASHTAG_MAX = {"youtube": 10, "instagram": 5, "facebook": 3, "twitter": 2, "x": 2}
-HASHTAG_EVERGREEN = ("#Manhwa", "#Webtoon", HASHTAGS_LAST)
+HASHTAG_FORMAT = ("#Manhwa", HASHTAGS_LAST, "#WebtoonRecap")   # format tags, after the genre
+HASHTAG_BRAND = "#FlamingoRecap"                                 # always last, always kept
 _NAME_TAG_MAX = 30                # a longer CamelCase name reads as noise, not a tag
 
 
@@ -217,12 +218,18 @@ def _tag(name):
     return "#" + body if body and not body.isdigit() and len(body) < _NAME_TAG_MAX else ""
 
 
+def _clean_tag(h):
+    return "#" + re.sub(r"[^\w]", "", str(h or "").lstrip("#"))
+
+
 def hashtags(series, pack=None, extra=(), shorts=False, limit=HASHTAG_MAX):
-    """Owner rule, 2026-11-07: up to 10, in this order:
-    1 the series name, 2 the niche tag (#ManhwaRecap), 3 an alternate title
-    or else the main character, then the rest (main character, evergreen
-    niche tags, the series' genres, then `extra`). Shorts keep #shorts inside
-    the 10. Only the series' own names and genres are used: no other channels."""
+    """HEAD_RULES_20261107 (owner, Nov 7): up to 10, in this order:
+    #SeriesName #ManhwaRecap #AltTitle #AltTitle2 #MainCharacter #Genre
+    #Manhwa #MangaRecap #WebtoonRecap #FlamingoRecap. With no English
+    alternate title the main character is third. Further genres and `extra`
+    fill any room before the brand tag, which is always kept last. Shorts keep
+    #shorts inside the 10 (fourth). Only the series' own names and genres:
+    never another channel's name."""
     pack = pack or {}
     first = "#" + hashtag_for(pack.get("series_name_en") or series)
     own = {w for w in re.findall(r"[a-z]{3,}", (pack.get("series_name_en") or series or "").lower())}
@@ -233,17 +240,21 @@ def hashtags(series, pack=None, extra=(), shorts=False, limit=HASHTAG_MAX):
     alts = [_tag(a) for a in pack.get("series_name_alt") or [] if re.search(r"[A-Za-z]", a or "") and english(a)]
     mcs = [_tag(re.split(r"\s*[/(]", c if isinstance(c, str) else (c or {}).get("name", ""))[0])
            for c in (pack.get("characters_main") or pack.get("characters") or [])[:1]]
-    alts, mcs = [a for a in alts if a], [m for m in mcs if m]
-    order = [first, HASHTAGS_FIRST] + (alts[:1] or mcs[:1]) + (["#shorts"] if shorts else [])
-    order += (mcs[:1] if alts else []) + list(HASHTAG_EVERGREEN)
-    order += [_tag(g) for g in (pack.get("genres") or pack.get("genre") or [])] + list(extra or [])
-    out, seen = [], set()
+    genres = [_tag(g) for g in (pack.get("genres") or pack.get("genre") or [])]
+    alts, mcs, genres = [a for a in alts if a], [m for m in mcs if m], [g for g in genres if g]
+    order = [first, HASHTAGS_FIRST] + alts[:2] + mcs[:1] + genres[:1] + list(HASHTAG_FORMAT) \
+        + genres[1:] + list(extra or [])
+    reserved = {HASHTAG_BRAND.lower(), "#shorts"}
+    out, seen = [], set(reserved)
     for h in order:
-        h = "#" + re.sub(r"[^\w]", "", str(h or "").lstrip("#"))
-        if len(h) > 1 and h.lower() not in seen and (shorts or h.lower() != "#shorts"):
+        h = _clean_tag(h)
+        if len(h) > 1 and h.lower() not in seen:
             seen.add(h.lower())
             out.append(h)
-    return out[:limit]
+    out = out[:limit - 1 - (1 if shorts else 0)]
+    if shorts:
+        out.insert(min(3, len(out)), "#shorts")
+    return out + [HASHTAG_BRAND]
 
 
 def cap_hashtags(text, n):

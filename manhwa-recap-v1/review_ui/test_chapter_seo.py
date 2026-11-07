@@ -40,9 +40,9 @@ def test_description_lines_frozen_blocks_and_hashtags():
     for blk in (cs.KOFI, cs.SUBSCRIBE, cs.DISCLAIMER, cs.FAIR_USE):
         assert blk in d                                            # D3: byte-identical
     assert "kymedia.mgmt@gmail.com" in d and "🎵" not in d          # no music credit -> no music block
-    # owner, 2026-11-07: up to 10 — series, niche, alternate title, then the rest
-    assert d.rstrip().split("\n")[-1] == ("#MurimPsychopath #ManhwaRecap #PsychopathInMurim #DongBongsu #Manhwa "
-                                         "#Webtoon #MangaRecap #Murim #MartialArts #Action")
+    # HEAD_RULES_20261107: up to 10 in the example order, brand tag last
+    assert d.rstrip().split("\n")[-1] == ("#MurimPsychopath #ManhwaRecap #PsychopathInMurim #MurimSociopath #DongBongsu "
+                                         "#Murim #Manhwa #MangaRecap #WebtoonRecap #FlamingoRecap")
     assert "📖 Series: Murim Psychopath (Psychopath in Murim, Murim Sociopath, Welcome to Murim Online / 싸이코패스 in 무림)" in d
     assert cs.validate({"title": cs.build_title(45, LOCK, S), "description": d,
                         "tags": cs.build_tags(S, 45, PACK)}, S, 45) == []
@@ -133,7 +133,11 @@ def test_subscribe_link_is_the_real_channel():
 def test_hashtag_rule_order_cap_shorts_and_platforms():
     # no alternate title -> main character third; no genres -> fewer than 10, nothing invented
     fog = {"series_name_en": "Fog Land", "series_name_alt": [], "characters_main": ["Dante Kang", "No. 182"]}
-    assert cs.hashtags("Fog Land", fog) == ["#FogLand", "#ManhwaRecap", "#DanteKang", "#Manhwa", "#Webtoon", "#MangaRecap"]
+    assert cs.hashtags("Fog Land", fog) == ["#FogLand", "#ManhwaRecap", "#DanteKang", "#Manhwa", "#MangaRecap",
+                                            "#WebtoonRecap", "#FlamingoRecap"]
+    # HEAD_RULES_20261107 example order, exactly
+    assert cs.hashtags(S, PACK) == ["#MurimPsychopath", "#ManhwaRecap", "#PsychopathInMurim", "#MurimSociopath",
+                                    "#DongBongsu", "#Murim", "#Manhwa", "#MangaRecap", "#WebtoonRecap", "#FlamingoRecap"]
     # an over-long alternate title is skipped, not mangled
     rm = {"series_name_alt": ["The Regressed Mercenary's Machinations"], "characters_main": ["Cecil Perdium"]}
     assert cs.hashtags("The Regressed Mercenary Has a Plan", rm)[:3] == [
@@ -144,8 +148,9 @@ def test_hashtag_rule_order_cap_shorts_and_platforms():
     assert cs.hashtags("What a Bountiful Harvest, Demon Lord!", bh)[2:4] == ["#ItsABountifulHarvestDemonLord", "#KimJangcheol"]
     full = cs.hashtags(S, PACK, extra=["#extra%d" % i for i in range(9)])
     assert len(full) == 10 and full[:3] == ["#MurimPsychopath", "#ManhwaRecap", "#PsychopathInMurim"]
+    assert full[-1] == "#FlamingoRecap" and not any(h.startswith("#extra") for h in full)   # brand never pushed out
     sh = cs.hashtags(S, PACK, shorts=True)
-    assert len(sh) == 10 and "#shorts" in sh                     # Shorts keep #shorts inside the 10
+    assert len(sh) == 10 and sh[3] == "#shorts" and sh[-1] == "#FlamingoRecap"  # Shorts keep #shorts inside the 10
     assert "#shorts" not in cs.hashtags(S, PACK, extra=["#shorts"])
     d = "Line one\n\n" + " ".join(full)
     assert cs.cap_hashtags(d, 3) == "Line one\n\n#MurimPsychopath #ManhwaRecap #PsychopathInMurim"
