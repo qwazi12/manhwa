@@ -4717,6 +4717,21 @@ def _resolve_upload_results(mod, results):
     return results
 
 
+def _series_master_thumb(pdir, fallback):
+    """series_master.upload_thumbnail for this video: its series id and its
+    chapter label ("251" or "251-252" for a merged video)."""
+    import series_master as _sm
+    sid, _series, n, meta = _series_ident(pdir)
+    if meta.get("kind") == "range" and meta.get("chapters_start") is not None:
+        a_, b_ = meta.get("chapters_start"), meta.get("chapters_end")
+        label = f"{a_}-{b_}" if b_ not in (None, a_) else f"{a_}"
+    else:
+        label = n
+    pid = os.path.basename(pdir.rstrip("/"))
+    return _sm.upload_thumbnail(sid, label, fallback, os.path.join(pdir, "exports", "_thumbs"),
+                                log=lambda msg, level="ok": _ev("publish", f"{_pretty(pid)}: {msg}", level))
+
+
 def _run_publish_job(job_id, pdir, name):
     backend_name, mod = _get_publish_backend()
     try:
@@ -4739,6 +4754,9 @@ def _run_publish_job(job_id, pdir, name):
         # The custom thumbnail saved for this export (exports/_thumbs/), if any.
         import thumbnail as _tb
         thumb_file = _tb.path_for(pdir, name) or None
+        # HEAD's series master + this video's CH badge replaces it when the
+        # series has one in Drive (owner, 2026-11-07); otherwise unchanged.
+        thumb_file = _series_master_thumb(pdir, thumb_file)
 
         # One Upload-Post request carries ONE profile ("user"). Targets on
         # different profiles (mk:youtube + default:youtube) must be separate
