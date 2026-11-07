@@ -1998,3 +1998,12 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Watcher: reports studio "missed" events, ignores videos not yet live, retry-upload now requeues for the next HH:00 slot (no post-now). Fixed a launchd hang: ops.py no longer lists the Drive for Desktop folder at import; watch.py has a 10-min alarm.
 - OPEN (owner): macOS blocks launchd jobs from ~/Library/CloudStorage — the 13:10Z watcher run hung, and com.flamingo.daily-exports hangs at the Drive move. Needs Full Disk Access for the launchd python/zsh, or the owner's OK to switch exports to the Drive API.
 - Not changed: queue_manager.py's /api/schedule display still shows interval-based off-hour times (16:43, 18:26); posting doesn't use it.
+
+
+### 2026-11-07 ~14:50Z — Murim 251-252 thumbnail reverted after approval: root cause + restore (FLAMINGO)
+- Owner (chat, phone screenshot): thumbnail reverted after approving; "this isn't what I chose".
+- Cause: 14:37:32Z approved; 14:38:38Z POST /api/publish/series_defaults ("Save as series defaults") for Log-in Murim → _propagate_series_defaults → _rerender_chosen_thumbnails(), which regenerates + applies a thumbcopilot concept for EVERY export of EVERY series ("thumbnails updated retroactively with series style: 12"). It replaced the approved cover master (c01c4a7f) with an auto "IMPOVERISHED" hook concept (38e8fbc7). The redraw-all behaviour was kept at the owner's request earlier (memory: "thumbnails redraw for all series").
+- Restored: re-uploaded sd/thumb_251-252_D.jpg, read-back md5 c01c4a7fba722ca4e963e4840eedcfc6. At upload, _series_master_thumb stamps the Drive master anyway for Murim/Baskerville/Death Knight, so YouTube gets the master regardless.
+- Same save also re-templated title/description of Murim's 3 projects (title now "[251-252] Impoverished Hunter Logs Into Murim To BECOME Strongest - Murim Login | Flamingo Recap"); not changed back.
+- act.py swap-master failed (series_master not in ~/dev/manhwa's ops branch): now imports from new worktree ~/dev/manhwa-main (detached at origin/main, refreshed on each swap).
+- Proposed, NOT done (needs owner OK + push): the redraw skips videos with a series master and hand-uploaded thumbnails.
