@@ -1899,3 +1899,12 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - Waiting: owner approval of Murim 251/252 (then 251 → Sat Nov 7 10:00 ET ahead of the compilation, 252 next slot), owner's `railway config migrate` output, F-12 "Chapter None", F-13 numbering report.
 
 - 2026-11-06 ~20:25Z: owner confirmed the Drive folder rename (**Researcher**). ops.py now finds it ignoring asterisks/case; folder ids unchanged, so API listing and connector reads are unaffected.
+
+### 2026-11-07 00:20Z — face-check fix pushed + queued thumbnail recheck (FLAMINGO)
+- Owner approved push of b5bbf03. Pre-checks: jobs bar empty; next slot Fog Land 38-45 at 03:00Z (169 min away).
+- Cherry-picked onto origin/main as c025466 (face_boxes.py +4, test_face_boxes_shape.py); test passed; pushed 677e6c0..c025466.
+- Railway 682f9aee SUCCESS 19:10 ET; ~1 min of 502 while the container started, then the safe routes all OK (queue 10, series 23).
+- Recheck of the 10 queued thumbnails: every stored thumbcopilot concept set has face=null and focal=null (built before the fix). The applied picks are the recommended cover-badge or cover-center with empty overlay_text.
+  Against spec 07, all 10 have no yellow hook and no arrow. Pillarboxed: Too Many Heroes 28-34, Stellar 129-135, Former Supreme 16-22, Extras 114-119.
+  Face off the right 45% or small: Fog Land 38-45, Indomitable 152-158, Regressed Mercenary 96-102, Dark Mage 104-110, Fated Villain 361-367. Bountiful Harvest 85-91 has its face right but no hook or arrow.
+  Not regenerated; that needs the owner's OK. Live face detection after the deploy is not yet exercised (needs a thumbcopilot/generate call).
