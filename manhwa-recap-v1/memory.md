@@ -1958,3 +1958,21 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 ### 2026-11-07 — Murim Login master from the real cover, logo removed (owner: pip install simple-lama-inpainting)
 - LaMa installed in scratchpad venv with --no-deps (its pins Pillow<10/numpy<2 don't build on py3.13); model big-lama.pt in ~/.cache/torch (download needed SSL_CERT_FILE=certifi). Logo + glow masked in box (340,25)-(690,305) of the 720x1030 Asura cover, 2 LaMa passes: clean background. Master = crop x0..620, centred on the face (y 352), finish applied: scratchpad/sd/MASTER_murim-login.png. Auto neon = cyan #00F5FF.
 - murim-login_ch251-252 thumbnail replaced (leap panel -> cover master, CH 251-252 cyan); md5 c01c4a7fba722ca4e963e4840eedcfc6 read back. Still review_pending. Local tool only, not in the studio.
+
+
+### 2026-11-07 — FLAMINGO: style D + real covers pushed (048412d), masters in Drive, daily exports launchd job
+
+## Pushed with owner OK (chat, 2026-11-07)
+- main 048412d (auto-deployed, Railway SUCCESS 12:17 UTC). Jobs bar empty and next slot 15:00 UTC before push. Tests 404 passed / 2 skipped.
+  - Thumbnail style D "Clean+" series masters with a neon chapter badge (auto-picked to contrast the art; BADGE_<sid>.json can override). Off switch SERIES_MASTER_OFF=1.
+  - Library covers: the real cover art again (Asura's og:image became a 1200x630 share card). Live check: murim-login 720x1030, baskerville 720x1030, death knight 894x1280.
+- Masters in research/flamingo/thumbnails/<sid>/MASTER_<sid>.png (md5 verified with the studio's own lookup): revenge-of-the-iron-blooded-sword-hound, return-of-the-apocalypse-class-death-knight (new folder), murim-login (real cover, logo removed). Stellar not uploaded (only a 480 px cover). None of the 9 queued videos are from these series, so no queued thumbnail changes.
+
+## F-03 Murim Login 251-252
+Built (murim-login_ch251-252, final_range_251-252.mp4) and in Video review, NOT approved, so not queued. Thumbnail = cover master + "CH 251-252" neon badge. Sat 10:00 ET went to Martial King 152-158. Approving puts it at the end of the queue: projected Tue Nov 10 10:00 ET (after 9 queued). Earlier needs an owner queue move.
+
+## F-16 Face-check fix
+b5bbf03 is the same patch as c025466, already on main since Nov 6 19:10 ET (deployed). Nothing to push. Recheck of queued thumbnails for blind picks: still open.
+
+## F-02 Daily exports
+FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok). Now automatic: launchd com.flamingo.daily-exports at 05:45 ET daily runs ~/dev/manhwa-ops/bin/exports.py (plain Python, no chat session). Log: ~/dev/manhwa-ops/exports.log. Needs the Mac awake/logged in with Drive for Desktop running; a missed run (asleep) fires on wake.
