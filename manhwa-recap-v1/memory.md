@@ -1925,3 +1925,8 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - HEAD thumbnails (2): branch feat/series-master (b7abee4), NOT pushed; 400 tests pass.
   series_master.py plus a hook in _run_publish_job: MASTER_<sid>.png with a BADGE_<sid>.json stamp, else unchanged; falls back on any error; SERIES_MASTER_OFF=1.
   Live read-only lookup verified (folders found, no masters yet -> own thumbnail).
+
+
+### 2026-11-07 — Murim Login source check (FLAMINGO, read-only)
+- ops.py source-check: Asura max ch 252, mgeko max ch 252 (no change; nothing past 252).
+- 251 + 252 are already produced as merged video murim-login_ch251-252 (in Video review, awaiting owner approval for Sat 10:00 ET), so no new titles/opener drafted. No production started.
