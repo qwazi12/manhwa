@@ -1984,3 +1984,7 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Smoke test: allowed act.py ran, git push refused. com.flamingo.ops-poll booted out; plist moved to manhwa-ops/retired/.
 - First run baseline: Fog Land 42 single (Xz1_49YM46I) and Too Many Heroes 32-33 (bMEj19NzMmI) not visible on YouTube — recorded as known, not acted on.
 - Hashtag rule (feat/hashtags-10 ed1aaf5 on top of 048412d) still waiting for the owner's go; not pushed, queue not changed.
+
+
+### 2026-11-07T13:37Z — Murim Login source check (FLAMINGO, read-only)
+- Asura max ch 252, mgeko max ch 252 (ops.py source-check). No chapter above 252; 251-252 already made as the merged video (in Video review). Nothing started.
