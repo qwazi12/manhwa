@@ -1776,6 +1776,17 @@ def api_thumbcopilot(project: str = "", name: str = ""):
     return _thumb_state(pdir, name)
 
 
+def _is_share_card_image(path):
+    """A landscape 'cover' is a site's generated share card (title + rating drawn
+    on it), never a series cover, which is portrait (owner, 2026-11-07)."""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            return im.width > im.height * 1.3
+    except Exception:
+        return False
+
+
 def _ensure_project_cover(pdir):
     """Put the series' real cover (the one Library shows) into this chapter as
     pages/_cover.<ext>, so "Cover art + chapter number" is the actual cover
@@ -1786,8 +1797,13 @@ def _ensure_project_cover(pdir):
     import shutil as _sh
     import thumbnail_studio as tstudio
     have = _g.glob(os.path.join(pdir, "pages", tstudio.COVER_NAME + ".*"))
-    if have:
+    if have and not _is_share_card_image(have[0]):
         return have[0]
+    for old in have:          # Asura's 1200x630 share card, cached before 2026-11-07: fetch the real cover
+        try:
+            os.remove(old)
+        except OSError:
+            pass
     try:
         import watchlist as _wl
         meta = _read_json(os.path.join(pdir, "project.json")) or {}
@@ -1818,7 +1834,8 @@ def _ensure_project_cover(pdir):
             if os.path.isdir(p_root):
                 for sib in os.listdir(p_root):
                     if sib != os.path.basename(pdir) and (sib.startswith(sid) or sid in sib):
-                        sib_cov = _g.glob(os.path.join(p_root, sib, "pages", tstudio.COVER_NAME + ".*"))
+                        sib_cov = [c for c in _g.glob(os.path.join(p_root, sib, "pages", tstudio.COVER_NAME + ".*"))
+                                   if not _is_share_card_image(c)]     # never spread a share card
                         if sib_cov:
                             os.makedirs(os.path.join(pdir, "pages"), exist_ok=True)
                             dst = os.path.join(pdir, "pages", f"{tstudio.COVER_NAME}{os.path.splitext(sib_cov[0])[1]}")
