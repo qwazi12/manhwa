@@ -84,14 +84,19 @@ def test_badge_geometry_follows_the_spec():
     assert wide[2] - wide[0] > x1 - x0                         # the box grows with the label
 
 
-def test_colour_comes_from_badge_file_then_spec_table(tmp_path):
-    assert sm.series_colour("the-stellar-swordmaster") == "#1E6EE6"
-    assert sm.series_colour("the-stellar-swordmaster", {"fill": "#00FF00"}) == "#00FF00"
-    ds = FakeDrive(str(tmp_path), badge=None)                  # master, no BADGE file, no spec colour
-    logs = []
+def test_colour_is_badge_override_else_contrasting_neon(tmp_path):
+    assert sm.series_colour("the-stellar-swordmaster") is None
+    assert sm.series_colour("x", {"fill": "#00FF00"}) == "#00FF00"
+    red = Image.new("RGB", (1280, 720), (190, 40, 30))
+    blue = Image.new("RGB", (1280, 720), (20, 60, 200))
+    assert sm.pick_neon(red) in sm.NEON and sm.pick_neon(red) not in ("#FF5F1F", "#FF10F0")
+    assert sm.pick_neon(blue) not in ("#1F51FF", "#B026FF", "#00F5FF")
+    ds, logs = FakeDrive(str(tmp_path), badge=None), []     # master, no BADGE file
     got = sm.upload_thumbnail("murim-login", "251", "/x/own.jpg", str(tmp_path / "w"), ds=ds,
                               log=lambda m, level="ok": logs.append((level, m)))
-    assert got == "/x/own.jpg" and logs[0][0] == "warn" and "colour" in logs[0][1]
+    assert got != "/x/own.jpg" and logs[0][0] == "ok"
+    fill = logs[0][1].split("(")[-1].rstrip(")")
+    assert fill in sm.NEON and _near(Image.open(got).convert("RGB").getpixel((37, 70)), sm._colour(fill))
 
 
 def test_problems_fall_back_and_say_why(tmp_path):

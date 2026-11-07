@@ -9,11 +9,14 @@ the export's own thumbnail is uploaded, exactly as before.
 
 Badge (fixed by the spec): "CH <n>" / "CH <a>-<b>", Anton 78 px white with a
 3 px black stroke, rounded box (radius 16, 20 px side padding, height 104),
-series-colour fill, 6 px black outline, black shadow box at (+6, +7), box
+neon fill, 6 px black outline, black shadow box at (+6, +7), box
 origin x=26, y=22.
 
-Series colour: BADGE_<series_id>.json next to the master ({"fill": "#RRGGBB"})
-or, failing that, SERIES_COLOURS below.
+Badge colour (owner, 2026-11-07: "neon colours so they contrast the
+thumbnails"): picked from NEON, the one whose hue is furthest from the
+art's colours around the badge and across the image. Since a series reuses one
+master, its badge colour stays the same upload to upload. A HEAD override is
+still possible: BADGE_<series_id>.json next to the master ({"fill": "#RRGGBB"}).
 
 Any problem (Drive down, no colour, an unreadable master) falls back to the
 export's own thumbnail and says why; it never blocks an upload.
@@ -36,12 +39,8 @@ BADGE_X, BADGE_Y = 26, 22
 FONT_PX, TEXT_STROKE = 78, 3
 PAD_X, BOX_H, RADIUS = 20, 78 + 26, 16
 OUTLINE, SHADOW = 6, (6, 7)
-# Spec colours so far; other series get theirs from BADGE_<series_id>.json.
-SERIES_COLOURS = {
-    "revenge-of-the-iron-blooded-sword-hound": "#D61E2D",      # Baskerville
-    "return-of-the-apocalypse-class-death-knight": "#28AADC",
-    "the-stellar-swordmaster": "#1E6EE6",
-}
+NEON = ("#39FF14", "#00F5FF", "#FF10F0", "#FFF000", "#B026FF", "#FF5F1F", "#1F51FF")
+BADGE_AREA = (0, 0, 480, 170)        # where the badge sits, with a margin
 
 
 def enabled():
@@ -86,12 +85,45 @@ def _colour(v):
 
 
 def series_colour(series_id, spec=None):
-    v = (spec or {}).get("fill") or SERIES_COLOURS.get(series_id)
-    if not v:
-        raise ValueError(f"no badge colour for {series_id}: add BADGE_{series_id}.json "
-                         '({"fill": "#RRGGBB"}) next to the master')
-    _colour(v)
-    return v
+    """HEAD's override from BADGE_<series_id>.json, or None (= pick a neon)."""
+    v = (spec or {}).get("fill")
+    if v:
+        _colour(v)
+    return v or None
+
+
+def _hue_weights(im):
+    """Hue (0-360) of each pixel and its weight = saturation x value, so grey,
+    black and white parts of the art count for little."""
+    import numpy as np
+    hsv = np.asarray(im.convert("HSV")).reshape(-1, 3).astype(float) / 255.0
+    return hsv[:, 0] * 360.0, hsv[:, 1] * hsv[:, 2]
+
+
+def pick_neon(im):
+    """The NEON colour whose hue is furthest from the art's colours: around
+    the badge (weight 0.65) and across the whole image (0.35)."""
+    import colorsys
+    import numpy as np
+    from PIL import Image
+    im = im.convert("RGB")
+    sx, sy = im.width / SIZE[0], im.height / SIZE[1]
+    a = BADGE_AREA
+    parts = ((im.crop((int(a[0] * sx), int(a[1] * sy), int(a[2] * sx), int(a[3] * sy))).resize((96, 34)), 0.65),
+             (im.resize((128, 72), Image.BILINEAR), 0.35))
+    best, score = NEON[0], -1.0
+    for n in NEON:
+        r, g, b = _colour(n)
+        h = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)[0] * 360
+        s_ = 0.0
+        for part, w in parts:
+            hue, wt = _hue_weights(part)
+            d = np.abs(hue - h)
+            d = np.minimum(d, 360 - d) / 180
+            s_ += w * float((d * wt).sum() / max(wt.sum(), 1e-6))
+        if s_ > score:
+            best, score = n, s_
+    return best
 
 
 def _font_path():
@@ -128,21 +160,23 @@ def draw_badge(im, text, fill):
 
 
 def stamp(master_path, fill, text, out_path):
-    """Master + style-D badge -> a 1280x720 JPEG under YouTube's 2 MB limit."""
+    """Master + style-D badge -> a 1280x720 JPEG under YouTube's 2 MB limit.
+    fill None = the contrasting neon (pick_neon). Returns (path, fill used)."""
     from PIL import Image
-    _colour(fill)
     im = Image.open(master_path).convert("RGB")
     if abs(im.width / im.height - SIZE[0] / SIZE[1]) > 0.02:
         raise ValueError(f"master is {im.width}x{im.height}, not 16:9")
     if im.size != SIZE:
         im = im.resize(SIZE, Image.LANCZOS)
+    fill = fill or pick_neon(im)
+    _colour(fill)
     draw_badge(im, text, fill)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     for q in (92, 85, 78, 70):
         im.save(out_path, "JPEG", quality=q)
         if os.path.getsize(out_path) <= MAX_BYTES:
             break
-    return out_path
+    return out_path, fill
 
 
 def upload_thumbnail(series_id, label, fallback, work_dir, ds=None, log=None):
@@ -174,7 +208,7 @@ def upload_thumbnail(series_id, label, fallback, work_dir, ds=None, log=None):
             spec = json.load(open(bp, encoding="utf-8"))
         fill = series_colour(series_id, spec)
         text = badge_text(label)
-        out = stamp(mp, fill, text, os.path.join(work_dir, f"series_master_{re.sub(r'[^0-9A-Za-z-]', '_', str(label))}.jpg"))
+        out, fill = stamp(mp, fill, text, os.path.join(work_dir, f"series_master_{re.sub(r'[^0-9A-Za-z-]', '_', str(label))}.jpg"))
         say(f"thumbnail = series master {series_id} + “{text}” style-D badge ({fill})", "ok")
         return out
     except Exception as e:      # never block an upload on the master
