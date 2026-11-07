@@ -225,8 +225,13 @@ def hashtags(series, pack=None, extra=(), shorts=False, limit=HASHTAG_MAX):
     the 10. Only the series' own names and genres are used: no other channels."""
     pack = pack or {}
     first = "#" + hashtag_for(pack.get("series_name_en") or series)
-    alts = [_tag(a) for a in pack.get("series_name_alt") or [] if re.search(r"[A-Za-z]", a or "")]
-    mcs = [_tag(c if isinstance(c, str) else (c or {}).get("name", ""))
+    own = {w for w in re.findall(r"[a-z]{3,}", (pack.get("series_name_en") or series or "").lower())}
+    # an alternate title searchers type in English: it shares a word with the
+    # series name or has an English function word ("Pungjag-ieyo, Mawangnim!" doesn't)
+    english = lambda a: bool(own & set(re.findall(r"[a-z]{3,}", a.lower()))) or bool(
+        re.search(r"\b(the|a|an|of|is|it's|its|and|to|in|for|with|my|me|i'm|by)\b", a.lower()))
+    alts = [_tag(a) for a in pack.get("series_name_alt") or [] if re.search(r"[A-Za-z]", a or "") and english(a)]
+    mcs = [_tag(re.split(r"\s*[/(]", c if isinstance(c, str) else (c or {}).get("name", ""))[0])
            for c in (pack.get("characters_main") or pack.get("characters") or [])[:1]]
     alts, mcs = [a for a in alts if a], [m for m in mcs if m]
     order = [first, HASHTAGS_FIRST] + (alts[:1] or mcs[:1]) + (["#shorts"] if shorts else [])

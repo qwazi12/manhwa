@@ -138,6 +138,10 @@ def test_hashtag_rule_order_cap_shorts_and_platforms():
     rm = {"series_name_alt": ["The Regressed Mercenary's Machinations"], "characters_main": ["Cecil Perdium"]}
     assert cs.hashtags("The Regressed Mercenary Has a Plan", rm)[:3] == [
         "#TheRegressedMercenaryHasAPlan", "#ManhwaRecap", "#CecilPerdium"]
+    # a romanized alias isn't an English alternate title; "Name / Title" keeps the name
+    bh = {"series_name_alt": ["Pungjag-ieyo, Mawangnim!", "It's a Bountiful Harvest, Demon Lord!"],
+          "characters_main": ["Kim Jangcheol / Demon Lord Credos"]}
+    assert cs.hashtags("What a Bountiful Harvest, Demon Lord!", bh)[2:4] == ["#ItsABountifulHarvestDemonLord", "#KimJangcheol"]
     full = cs.hashtags(S, PACK, extra=["#extra%d" % i for i in range(9)])
     assert len(full) == 10 and full[:3] == ["#MurimPsychopath", "#ManhwaRecap", "#PsychopathInMurim"]
     sh = cs.hashtags(S, PACK, shorts=True)
