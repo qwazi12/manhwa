@@ -1949,3 +1949,7 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 - feat/series-master cea90d4 (local, NOT pushed): badge fill = the NEON colour (#39FF14 #00F5FF #FF10F0 #FFF000 #B026FF #FF5F1F #1F51FF) whose hue is furthest from the art around the badge and across the image; BADGE json fill still overrides; spec's fixed series colours dropped. 401 passed.
 - Murim 251-252 thumbnail re-uploaded with neon orange #FF5F1F badge; md5 9bc47ef9562273a0dc784bd935cec234 read back.
 - Owner: masters = cover art without logos/text. Baskerville + Death Knight masters re-cut straight from the real Asura covers (16:9 crop between watermarks and title; no text). Stellar: a 16:9 crop of the 480x623 poster cuts the face -> keeps the blurred-sides version (no text). Murim cover logo overlaps the art: needs a real AI inpaint; installing LaMa (simple-lama-inpainting) was blocked by the permission classifier -> owner decision.
+
+
+### 2026-11-07 — Owner chose the look: Baskerville (cyan) + Death Knight (green) renders
+- Masters restored to the wider cover-art versions (old current art, old badge painted out, finish applied); re-stamped output is byte-identical to the renders the owner approved. Cyan/green come from the auto neon pick, so no BADGE file needed. Local only: scratchpad/sd/MASTER_*.png; not in Drive, branches not pushed — waiting for push OK.
