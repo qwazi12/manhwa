@@ -315,6 +315,11 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
         fields.append(("youtube_title", metadata.get("title") or "Manhwa Recap"))
         fields.append(("youtube_description", desc))
         privacy = metadata.get("privacy") or "private"
+        if metadata.get("youtube_publish_at"):
+            # YouTube's own scheduled publish (Upload-Post docs: RFC3339, forces
+            # private until then): the video goes live at exactly that time
+            privacy = "private"
+            fields.append(("youtube_publish_at", str(metadata["youtube_publish_at"])))
         fields.append(("privacyStatus", privacy))
         fields.append(("categoryId", str(metadata.get("category_id") or "22")))
         fields.append(("selfDeclaredMadeForKids", "true" if metadata.get("made_for_kids") else "false"))

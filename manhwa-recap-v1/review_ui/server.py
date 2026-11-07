@@ -4049,7 +4049,7 @@ def api_growth_snapshot(days: int = 14):
                     continue
                 if end is not None:
                     r["posted_through"] = max(x for x in (r["posted_through"], end) if x is not None)
-                at = res.get("published_at") or 0
+                at = (rec or {}).get("publish_at") or res.get("published_at") or 0
                 if now - at > days * 86400:
                     continue
                 m = re.search(r"(?:v=|youtu\.be/|shorts/)([\w-]{11})", res.get("url") or "")
@@ -4732,7 +4732,7 @@ def _series_master_thumb(pdir, fallback):
                                 log=lambda msg, level="ok": _ev("publish", f"{_pretty(pid)}: {msg}", level))
 
 
-def _run_publish_job(job_id, pdir, name):
+def _run_publish_job(job_id, pdir, name, publish_at=None):
     backend_name, mod = _get_publish_backend()
     try:
         def step(msg, n):
@@ -4748,6 +4748,8 @@ def _run_publish_job(job_id, pdir, name):
 
         store = load_publish(pdir)
         md = {**publish_defaults(pdir), **(store.get(name) or {})}
+        if publish_at:     # private now, public on YouTube at exactly HH:00:00 (owner, 2026-11-07)
+            md["youtube_publish_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(publish_at))
         targets = list(md.get("targets") or [])
         video = os.path.join(pdir, "exports", os.path.basename(name))
 
@@ -4827,6 +4829,7 @@ def _run_publish_job(job_id, pdir, name):
 class PublishNowIn(BaseModel):
     project: str = ""
     name: str = ""
+    publish_at: float | None = None     # epoch: YouTube's scheduled publish time (HH:00:00)
 
 
 @app.post("/api/publishing/publish")
@@ -4848,9 +4851,11 @@ def os_publish(body: PublishNowIn):
                     "type": "publish", "stage": "queued", "project": pid,
                     "export": name, "ts": time.time(), "control": "run"}
     _persist_job(job_id)
+    if body.publish_at is not None and body.publish_at < time.time() + 15 * 60:
+        raise HTTPException(409, "the scheduled publish time is less than 15 minutes away")
     _publish_record(pdir, name, status="in_progress", job=job_id,
-                    stage="queued", started_at=time.time(), results=[])
-    threading.Thread(target=_run_publish_job, args=(job_id, pdir, name),
+                    stage="queued", started_at=time.time(), results=[], publish_at=body.publish_at)
+    threading.Thread(target=_run_publish_job, args=(job_id, pdir, name, body.publish_at),
                      daemon=True).start()
     try:                     # every publish is a queue row, wherever it was pressed
         import ingest as _ing
@@ -9978,6 +9983,12 @@ def _schedule_post_pass(now=None):
     dec = None
     for _try in range(SCHEDULE_MAX_TRIES):
         dec = _pq.decide(sched, _pq.load(_i.PROJECTS), now or time.time(), _targets_of)
+        if dec["action"] == "missed":
+            # owner rule 2026-11-07: no catch-up bursts; the slot is recorded as
+            # missed and the next video takes the next free top-of-hour slot
+            _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], "missed: " + dec["why"])
+            _ev("publish", f"schedule {dec['slot']}: missed — {dec['why']}", "warn")
+            continue
         if dec["action"] == "skip":
             why = dec["why"] + (f" (could not post: {', '.join(refused)})" if refused else "")
             _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], "skipped: " + why)
@@ -9990,11 +10001,12 @@ def _schedule_post_pass(now=None):
         try:
             if blockers:
                 raise HTTPException(409, "; ".join(blockers))
-            r = studio_queue_post(StudioItemIn(id=it["id"]))
-            _pq.mark(_i.PROJECTS, it["id"], posted_day=dec["day"])
-            _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], f"posted {it['project']} ({r.get('privacy')})"
-                          + (f" after skipping {', '.join(refused)}" if refused else ""))
-            _ev("publish", f"schedule {dec['slot']}: posting {_pretty(it['project'])}", "ok")
+            r = studio_queue_post(StudioItemIn(id=it["id"]), publish_at=dec.get("publish_at"))
+            _pq.mark(_i.PROJECTS, it["id"], posted_day=dec["day"], publish_at=dec.get("publish_at"))
+            _pq.slot_done(_i.PROJECTS, dec["day"], dec["slot"], f"uploading {it['project']} to go live at "
+                          f"{dec['slot']} ({r.get('privacy')})" + (f" after skipping {', '.join(refused)}" if refused else ""))
+            _ev("publish", f"schedule {dec['slot']}: uploading {_pretty(it['project'])} ahead — "
+                           f"YouTube publishes it at {dec['slot']}:00", "ok")
             break
         except HTTPException as e:
             _pq.mark(_i.PROJECTS, it["id"], status="failed", error=str(e.detail)[:300])
@@ -11933,15 +11945,16 @@ def studio_queue_reorder(body: StudioOrderIn):
 
 
 @app.post("/api/studio/queue/post")
-def studio_queue_post(body: StudioItemIn):
-    """Post one queued video now (the same checked publish job as Video review)."""
+def studio_queue_post(body: StudioItemIn, publish_at: float | None = None):
+    """Post one queued video now (the same checked publish job as Video review).
+    The schedule passes publish_at: uploaded now as private, live on YouTube at that time."""
     import ingest as _i
     it = next((x for x in _pq.load(_i.PROJECTS)["items"] if x["id"] == body.id), None)
     if it is None:
         raise HTTPException(404, "no such queue item")
     if it["status"] not in ("queued", "failed"):
         raise HTTPException(409, f"this item is {it['status']}")
-    r = os_publish(PublishNowIn(project=it["project"], name=it["name"]))
+    r = os_publish(PublishNowIn(project=it["project"], name=it["name"], publish_at=publish_at))
     sched = _studio.load().get("schedule") or {}
     _pq.ensure_posting(_i.PROJECTS, it["project"], it["name"], r.get("job"),
                        day=_pq._local(time.time(), sched.get("tz")).strftime("%Y-%m-%d"))

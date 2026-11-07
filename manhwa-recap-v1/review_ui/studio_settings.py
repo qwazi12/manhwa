@@ -139,8 +139,9 @@ def update(patch):
             if sch.get("times") is not None:
                 times = sch["times"]
                 if (not isinstance(times, list) or not 1 <= len(times) <= 6
-                        or not all(isinstance(t, str) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t) for t in times)):
-                    raise ValueError("posting times must be 1-6 times like 12:00 (24-hour)")
+                        or not all(isinstance(t, str) and re.fullmatch(r"([01]\d|2[0-3]):00", t) for t in times)):
+                    # owner rule 2026-11-07: every post goes live at HH:00 ET
+                    raise ValueError("posting times must be 1-6 times on the hour like 10:00 (24-hour)")
                 cur["schedule"]["times"] = sorted(set(times))
             if sch.get("per_channel_per_day") is not None:
                 n = int(sch["per_channel_per_day"])

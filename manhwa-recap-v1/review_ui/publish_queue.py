@@ -248,47 +248,93 @@ def _local(now, tz):
     return datetime.fromtimestamp(now, ZoneInfo(tz or "America/New_York"))
 
 
+# Owner rule, 2026-11-07 (HEAD_RULES_20261107T1345Z): every video goes live at
+# HH:00 ET. Uploads are 1 GB+, so the upload starts UPLOAD_LEAD_MIN before the
+# slot as private with YouTube's scheduled publish time set to exactly HH:00:00.
+# A slot whose upload can't start UPLOAD_MIN_LEAD_MIN ahead is missed: nothing
+# posts between slots and there are no catch-up bursts; the video simply takes
+# the next free top-of-hour slot. One upload per channel at a time.
+UPLOAD_LEAD_MIN = 90
+UPLOAD_MIN_LEAD_MIN = 45
+
+
+def _slot_epoch(day, t, tz):
+    from datetime import datetime
+    h, m = (int(v) for v in t.split(":"))
+    return datetime(day.year, day.month, day.day, h, m, tzinfo=tz).timestamp()
+
+
+def _hour_times(sched):
+    """Only on-the-hour times are posting slots (a stored 10:30 never fires)."""
+    return sorted(t for t in (sched or {}).get("times") or [] if str(t).endswith(":00"))
+
+
+def _leads(sched):
+    lead = int((sched or {}).get("upload_lead_min") or UPLOAD_LEAD_MIN)
+    return lead * 60, min(int((sched or {}).get("upload_min_lead_min") or UPLOAD_MIN_LEAD_MIN), lead) * 60
+
+
 def decide(sched, d, now, targets_of):
     """What the schedule should do right now. Pure: no writes.
 
-    sched: {"enabled", "times": ["12:00", ...], "tz", "per_channel_per_day"}
+    sched: {"enabled", "times": ["10:00", ...], "tz", "per_channel_per_day"}
     d: the queue file; targets_of(item) -> its channel ids.
-    Returns {"action": "off"|"wait"|"post"|"skip", "slot", "item", "why", "day"}.
+    Returns {"action": "off"|"wait"|"post"|"skip"|"missed", "slot", "day",
+             "publish_at" (epoch of the slot, for "post"), "item", "why"}.
     """
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
     if not (sched or {}).get("enabled"):
         return {"action": "off", "why": "the posting schedule is off"}
+    tz = ZoneInfo(sched.get("tz") or "America/New_York")
     loc = _local(now, sched.get("tz"))
-    day, hm = loc.strftime("%Y-%m-%d"), loc.strftime("%H:%M")
-    done = set((d.get("slots_done") or {}).get(day, {}))
-    # slots that had already passed when the schedule was switched on don't
-    # fire that day (owner, 2026-10-04: switching on at 15:51 fired 11:00)
-    since = ""
-    if sched.get("enabled_at"):
-        on = _local(sched["enabled_at"], sched.get("tz"))
-        if on.strftime("%Y-%m-%d") == day:
-            since = on.strftime("%H:%M")
-    due = [t for t in sorted(sched.get("times") or []) if t <= hm and t not in done and t >= since]
-    if not due:
-        return {"action": "wait", "day": day, "why": "no posting time is due"}
-    slot = due[0]
+    lead, min_lead = _leads(sched)
+    # slots that had already passed when the schedule was switched on never fire
+    since = float(sched.get("enabled_at") or 0)
+    open_slots = []
+    for add in (-1, 0, 1):
+        day = (loc + timedelta(days=add)).date()
+        dstr = day.strftime("%Y-%m-%d")
+        done = set((d.get("slots_done") or {}).get(dstr, {}))
+        for t in _hour_times(sched):
+            at = _slot_epoch(day, t, tz)
+            if t in done or at <= since or now < at - lead or now >= at:
+                continue            # not open yet, or already gone by: never posted late
+            open_slots.append((at, dstr, t))
+    if not open_slots:
+        return {"action": "wait", "day": loc.strftime("%Y-%m-%d"), "why": "no posting time is due"}
+    at, day, slot = min(open_slots)
+    if now > at - min_lead:
+        return {"action": "missed", "slot": slot, "day": day, "publish_at": at,
+                "why": f"too late to upload ahead for {slot}; the next video takes the next top-of-hour slot"}
     cap = int(sched.get("per_channel_per_day") or 1)
-    used = {}
+    used, busy = {}, set()
     for x in d["items"]:
         if x["status"] in ("posted", "posting") and x.get("posted_day") == day:
             for t in targets_of(x):
                 used[t] = used.get(t, 0) + 1
+        if x["status"] == "posting":
+            busy.update(targets_of(x))
     queued = [x for x in d["items"] if x["status"] == "queued"]
     if not queued:
         return {"action": "skip", "slot": slot, "day": day, "why": "the queue is empty"}
+    waiting = False
     for x in queued:
         # Chapter Sequential Guard: Chapter 25 cannot be posted before Chapter 23 or 24
         blocked, earlier = has_unposted_earlier_chapter(x, d["items"])
         if blocked:
             continue
         tg = targets_of(x)
-        if tg and all(used.get(t, 0) < cap for t in tg):
-            return {"action": "post", "slot": slot, "day": day, "item": x,
-                    "why": f"{slot} slot: next in the queue"}
+        if not tg or not all(used.get(t, 0) < cap for t in tg):
+            continue
+        if any(t in busy for t in tg):
+            waiting = True          # one video per channel at a time
+            continue
+        return {"action": "post", "slot": slot, "day": day, "item": x, "publish_at": at,
+                "why": f"{slot} slot: next in the queue, uploading ahead to go live at {slot}:00"}
+    if waiting:
+        return {"action": "wait", "slot": slot, "day": day,
+                "why": f"{slot} slot: another video is still uploading to this channel"}
     return {"action": "skip", "slot": slot, "day": day,
             "why": f"every queued video would go over {cap} post(s) per channel today"}
 
@@ -346,14 +392,18 @@ def planned(sched, d, now, targets_of, days=21):
             since = on.strftime("%H:%M")
     remaining = [x for x in d["items"] if x["status"] == "queued"]
     tg_cache = {x["id"]: targets_of(x) for x in remaining}
+    _lead, min_lead = _leads(sched)
     out = {}
     for add in range(days):
         day = (loc + timedelta(days=add)).date()
         dstr = day.strftime("%Y-%m-%d")
         done = set((d.get("slots_done") or {}).get(dstr, {}))
-        for t in sorted(sched["times"]):
+        for t in _hour_times(sched):
             if t in done or (add == 0 and t < since):
                 continue
+            at = _slot_epoch(day, t, tz)
+            if now > at - min_lead:
+                continue            # too late to upload ahead: never posts between slots
             for x in remaining:
                 # Chapter Sequential Guard
                 blocked, _ = has_unposted_earlier_chapter(x, remaining)
@@ -362,11 +412,9 @@ def planned(sched, d, now, targets_of, days=21):
                 tg = tg_cache[x["id"]]
                 if tg and all(used.get((dstr, c), 0) < cap for c in tg):
                     h, m = (int(v) for v in t.split(":"))
-                    at = datetime(day.year, day.month, day.day, h, m, tzinfo=tz).timestamp()
                     hh = h % 12 or 12
-                    nice = f"{day.strftime('%a, %b')} {day.day} at {hh}:{m:02d} {'AM' if h < 12 else 'PM'} ET"
-                    out[x["id"]] = {"at": max(at, now), "label": nice if at >= now
-                                    else f"at the next check ({t} slot)"}
+                    out[x["id"]] = {"at": at, "label": f"{day.strftime('%a, %b')} {day.day} at {hh}:{m:02d} "
+                                                       f"{'AM' if h < 12 else 'PM'} ET"}
                     for c in tg:
                         used[(dstr, c)] = used.get((dstr, c), 0) + 1
                     remaining.remove(x)
