@@ -1908,3 +1908,20 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
   Against spec 07, all 10 have no yellow hook and no arrow. Pillarboxed: Too Many Heroes 28-34, Stellar 129-135, Former Supreme 16-22, Extras 114-119.
   Face off the right 45% or small: Fog Land 38-45, Indomitable 152-158, Regressed Mercenary 96-102, Dark Mage 104-110, Fated Villain 361-367. Bountiful Harvest 85-91 has its face right but no hook or arrow.
   Not regenerated; that needs the owner's OK. Live face detection after the deploy is not yet exercised (needs a thumbcopilot/generate call).
+
+### 2026-11-07 ~00:40Z — Murim 251-252 merged; hashtag rule drafted; HEAD thumbnail candidates exported; series-master mode drafted (FLAMINGO)
+- F-03 change (owner): merged Murim Login 251+252 via /api/ranges/build into murim-login_ch251-252 / final_range_251-252.mp4 (15.4 min; 252 starts 7:18; 251's outro cut; the opener sits at the start of 251's export).
+  Title "[251-252] Murim Login Season 4: He Leaps From A Plane Into A Monster-Overrun Airport" (84 chars; "| Flamingo Recap" dropped because it made 101).
+  Description in the Spec 10 shape, with 8 hashtags under the new rule. Read-back: only title/description/tags changed.
+  Thumbnail = 251's hand-made one re-stamped "CH 251-252" (md5 855cd58d, read back). Status review_pending.
+  Singles 251/252 show status "merged" (unpublished, restorable via Unmerge). Not queued; waits for owner approval, then the Sat 10:00 ET slot.
+- Hashtag rule (owner, Nov 7): branch feat/hashtags-10 (a536e0a, 357ea73), NOT pushed; 394 tests pass.
+  chapter_seo.hashtags = series, #ManhwaRecap, English alt title or main character, then main character, #Manhwa #Webtoon #MangaRecap, genres, extras; up to 10.
+  #shorts kept inside the 10. Facebook description cut to 3. Validation flags more than 10. Queued descriptions untouched. Brands other than manhwa aren't produced by this studio.
+- HEAD thumbnails (1): 79 files staged and moved with mv -n into Researcher/research/flamingo/thumbnails/<series_id>/candidates/.
+  That is 10-11 panels per series plus <series_id>_current_thumbnail.jpg, for 7 series. All 79 verified in Drive by name + md5.
+  Current thumbnails for Baskerville / Mount Hua / Murim Psychopath came from the live YouTube thumbnails (the studio export copies are gone).
+  "The rest" of the series not done yet.
+- HEAD thumbnails (2): branch feat/series-master (b7abee4), NOT pushed; 400 tests pass.
+  series_master.py plus a hook in _run_publish_job: MASTER_<sid>.png with a BADGE_<sid>.json stamp, else unchanged; falls back on any error; SERIES_MASTER_OFF=1.
+  Live read-only lookup verified (folders found, no masters yet -> own thumbnail).
