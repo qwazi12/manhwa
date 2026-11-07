@@ -351,7 +351,8 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
 
     if "facebook" in platforms:
         fields.append(("facebook_title", metadata.get("title") or "Manhwa Recap"))
-        fields.append(("facebook_description", desc))
+        import chapter_seo as _cseo      # owner, 2026-11-07: Facebook keeps 3 hashtags
+        fields.append(("facebook_description", _cseo.cap_hashtags(desc, _cseo.PLATFORM_HASHTAG_MAX["facebook"])))
 
     if "twitter" in platforms or "x" in platforms:
         fields.append(("twitter_text", (metadata.get("title") or "")[:280]))

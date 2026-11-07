@@ -265,7 +265,7 @@ def main():
     check("the description is clamped to 5000", len(big["description"]) <= 5000)
     check("tags are clamped to 500 chars total",
           len(",".join(big["tags"])) <= 500)
-    check("hashtags are capped at 6", len(big["hashtags"]) <= 6)
+    check("hashtags are capped at 10", len(big["hashtags"]) <= 10)
 
     # ==================== 5b. the copilot must not invent links or timecodes
     # Measured against the real channel this was NOT theoretical: the model

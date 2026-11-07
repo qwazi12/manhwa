@@ -40,7 +40,9 @@ def test_description_lines_frozen_blocks_and_hashtags():
     for blk in (cs.KOFI, cs.SUBSCRIBE, cs.DISCLAIMER, cs.FAIR_USE):
         assert blk in d                                            # D3: byte-identical
     assert "kymedia.mgmt@gmail.com" in d and "🎵" not in d          # no music credit -> no music block
-    assert d.rstrip().endswith("#ManhwaRecap #MurimPsychopath #MangaRecap")
+    # owner, 2026-11-07: up to 10 — series, niche, alternate title, then the rest
+    assert d.rstrip().split("\n")[-1] == ("#MurimPsychopath #ManhwaRecap #PsychopathInMurim #DongBongsu #Manhwa "
+                                         "#Webtoon #MangaRecap #Murim #MartialArts #Action")
     assert "📖 Series: Murim Psychopath (Psychopath in Murim, Murim Sociopath, Welcome to Murim Online / 싸이코패스 in 무림)" in d
     assert cs.validate({"title": cs.build_title(45, LOCK, S), "description": d,
                         "tags": cs.build_tags(S, 45, PACK)}, S, 45) == []
@@ -75,7 +77,7 @@ def test_validation_catches_the_rule_breaks():
 
     # Non-strict mode allows legacy/custom titles up to 100 chars, custom descriptions & up to 15 hashtags
     assert cs.validate(bad, S, 45, strict=False) == []
-    assert cs.validate(walled, S, 45, strict=False) == []
+    assert any("H3" in p for p in cs.validate(walled, S, 45, strict=False))   # >10 is never allowed (owner, 2026-11-07)
     assert cs.validate(edited, S, 45, strict=False) == []
     # But hard errors still trigger in non-strict mode
     assert any("T2" in p for p in cs.validate(dict(good, title="A" * 105), S, 45, strict=False))
@@ -126,3 +128,23 @@ def test_subscribe_link_is_the_real_channel():
     """2026-11-06: the subscribe line pointed at @flamingoremix."""
     import chapter_seo as cs
     assert "@flamingorecap" in cs.SUBSCRIBE and "flamingoremix" not in cs.SUBSCRIBE
+
+
+def test_hashtag_rule_order_cap_shorts_and_platforms():
+    # no alternate title -> main character third; no genres -> fewer than 10, nothing invented
+    fog = {"series_name_en": "Fog Land", "series_name_alt": [], "characters_main": ["Dante Kang", "No. 182"]}
+    assert cs.hashtags("Fog Land", fog) == ["#FogLand", "#ManhwaRecap", "#DanteKang", "#Manhwa", "#Webtoon", "#MangaRecap"]
+    # an over-long alternate title is skipped, not mangled
+    rm = {"series_name_alt": ["The Regressed Mercenary's Machinations"], "characters_main": ["Cecil Perdium"]}
+    assert cs.hashtags("The Regressed Mercenary Has a Plan", rm)[:3] == [
+        "#TheRegressedMercenaryHasAPlan", "#ManhwaRecap", "#CecilPerdium"]
+    full = cs.hashtags(S, PACK, extra=["#extra%d" % i for i in range(9)])
+    assert len(full) == 10 and full[:3] == ["#MurimPsychopath", "#ManhwaRecap", "#PsychopathInMurim"]
+    sh = cs.hashtags(S, PACK, shorts=True)
+    assert len(sh) == 10 and "#shorts" in sh                     # Shorts keep #shorts inside the 10
+    assert "#shorts" not in cs.hashtags(S, PACK, extra=["#shorts"])
+    d = "Line one\n\n" + " ".join(full)
+    assert cs.cap_hashtags(d, 3) == "Line one\n\n#MurimPsychopath #ManhwaRecap #PsychopathInMurim"
+    assert cs.PLATFORM_HASHTAG_MAX == {"youtube": 10, "instagram": 5, "facebook": 3, "twitter": 2, "x": 2}
+    walled = "x\n\n" + " ".join(full) + " #more"
+    assert any("H3" in p for p in cs.validate({"title": "[45] t", "description": walled, "tags": []}, S, 45))

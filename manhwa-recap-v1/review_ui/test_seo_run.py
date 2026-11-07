@@ -50,7 +50,7 @@ def test_seo_button_researches_then_fills_title_description_and_tags(tmp_path, m
     assert md["title"] == "He Learns Regression Can't Save Them - A Regressors Tale Of Cultivation Chapter 31 Manhwa Recap"
     blocks = md["description"].split("\n\n")
     assert blocks[0].startswith("He Learns Regression Can't Save Them | A Regressors Tale Of Cultivation Chapter 31")
-    assert blocks[1].startswith("Seo Eunhyun wins") and blocks[-1].startswith("#manhwa")
+    assert blocks[1].startswith("Seo Eunhyun wins") and blocks[-1].startswith("#ARegressorsTaleOfCultivation #ManhwaRecap ")
     assert md["tags"][:2] == ["rtoc", "seo eunhyun"]
     assert r["ran"]["web"]["detail"] == "7 sources" and r["problems"] == []
     saved = json.loads((d / "publish.json").read_text())["final_31.mp4"]

@@ -2729,7 +2729,7 @@ def _build_chapter_package(pdir, name, api_key=None, competitor=True, lock_overr
                                    tease=beat.get("tease") or "", prev_n=first - 1, prev_link=prev_link,
                                    playlist_link=pl_link, timecodes=timecodes, music_credit=_music_credit_for(pdir))
     pkg = {"title": _cseo.build_title(n, lock, series), "description": desc,
-           "tags": _cseo.build_tags(series, n, pack), "hashtags": _cseo.hashtags(series),
+           "tags": _cseo.build_tags(series, n, pack), "hashtags": _cseo.hashtags(series, pack),
            "first_comment": " | ".join(x for x in ([f"Start from Chapter 1: {pl_link}"] if pl_link else [])
                                        + ([f"Chapter {first - 1}: {prev_link}"] if prev_link else [])),
            "playlist_id": pl}
@@ -3261,6 +3261,7 @@ def _description_from_blocks(pdir, md, rec, variant=""):
     """B2: the description in the fixed block order, built on the SEO record.
     Returns (text, summary_block)."""
     import chapter_title as _ct
+    import chapter_seo as _cseo
     import description_blocks as _db
     import series_pack as _sp
     sid, series, n, meta = _series_ident(pdir)
@@ -3279,7 +3280,8 @@ def _description_from_blocks(pdir, md, rec, variant=""):
                      prev_url=_published_video_url(_chapter_project(sid, n - 1) if n else None),
                      next_url=_published_video_url(_chapter_project(sid, n + 1) if n is not None else None),
                      footer=_studio.load().get("description_footer") or "",
-                     hashtags=rec.get("hashtags") or [], limit=YT_DESC_MAX)
+                     hashtags=_cseo.hashtags(pack.get("title_en") or series, pack, extra=rec.get("hashtags") or []),
+                     limit=YT_DESC_MAX)
     return text, _db.summary_from(summ)
 
 
@@ -3560,11 +3562,13 @@ def api_range_build(body: RangeIn):
                 base_desc = _apply_desc_template(sp["description_template"], f"{a}-{b}")
                 desc = f"{base_desc}\n\nTimestamps:\n{timestamps_block}"
             else:
+                import chapter_seo as _cseo
                 import description_blocks as _db
                 desc = _db.build(hook=f"Full recap of {series} chapters {a} to {b}", series=series,
                                  chapter=f"{a}-{b}", summary="", pack={**pack, **sp}, arcs=_rc.arcs(marks),
                                  footer=sp.get("description_footer") or _studio.load().get("description_footer") or "",
-                                 hashtags=["#manhwa", "#manhwarecap"], limit=YT_DESC_MAX)
+                                 hashtags=_cseo.hashtags(series, {**pack, **sp}),
+                                 limit=YT_DESC_MAX)
 
             # 3. Tags: Apply user's saved series default tags
             base_tags = [series, "manhwa recap", f"{series} full recap", f"{series} chapter {a}-{b}"]

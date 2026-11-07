@@ -714,7 +714,7 @@ RULES
 - Titles must be <= {tmax} characters.
 - No clickbait that the recap does not deliver.
 - Tags: total length under {tagmax} characters across all tags.
-- Hashtags: 3-6, relevant, not stuffed.
+- Hashtags: up to 10, all directly relevant to this series; never another channel's name.
 - NEVER write a URL, a donation link, a social handle, or a timecode. You do
   not know the channel's real links and you cannot see where anything happens
   in the video, so any you produce would be wrong. The publisher adds those
@@ -869,7 +869,7 @@ def _clamp(out, card, style=None, patterns=None):
         total += cost
 
     hashtags, seen_h = [], set()
-    for h in (out.get("hashtags") or [])[:8]:
+    for h in (out.get("hashtags") or [])[:10]:
         h = str(h).strip()
         h = h if h.startswith("#") else "#" + h.lstrip("#")
         h = re.sub(r"[^#\w]", "", h)
@@ -888,7 +888,7 @@ def _clamp(out, card, style=None, patterns=None):
         "description_short": short[:YT_DESC_MAX],
         "sanitized": sorted(set(dropped + dropped2)),
         "tags": tags,
-        "hashtags": hashtags[:6],
+        "hashtags": hashtags[:10],
         "reasoning": (out.get("reasoning") or "").strip(),
         # The model may only REPORT identity; the project is the authority, so
         # series/chapter are overwritten from the truth card, never taken.

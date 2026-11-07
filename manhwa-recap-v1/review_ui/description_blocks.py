@@ -7,7 +7,7 @@
   4. playlist link + previous + next (only links that really exist)
   5. series info: title, ALL aliases (series pack), status, chapter count, credit
   6. the fixed footer, identical on every video (⚙️ Settings: description_footer)
-  7. 3-5 hashtags
+  7. up to 10 hashtags, in the order given (owner, 2026-11-07)
 
 Block 2 is the inauthentic-content signal YouTube looks for when it repeats, so
 `block2_overlap` compares it with the previous chapter's: word 3-gram overlap
@@ -88,7 +88,7 @@ def block7(hashtags):
         if len(h) > 1 and h.lower() not in seen:
             seen.add(h.lower())
             tags.append(h)
-    return " ".join(tags[:5])
+    return " ".join(tags[:10])
 
 
 def build(*, hook, series, chapter, summary, pack=None, arcs=None, playlist_url="", prev_url="",

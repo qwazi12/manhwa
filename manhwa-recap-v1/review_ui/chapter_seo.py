@@ -9,7 +9,7 @@ did neither well.
 
 Pure functions only (no network, no model): title skeleton (§4.1, T1/T2),
 description template with the frozen boilerplate (§4.2, §1.1, D1-D5), hidden
-tags in three blocks (§4.3, H1/H2), exactly three hashtags (§4.4, H3/H4) and
+tags in three blocks (§4.3, H1/H2), up to ten ordered hashtags (owner 2026-11-07; was §4.4's three) and
 the validation suite run before approval. Thumbnails are out of scope
 (owner, 2026-10-08: "no need to thumbnails").
 """
@@ -206,9 +206,50 @@ def build_tags(series, n, pack, limit=TAGS_MAX):
 
 
 # ------------------------------------------------------------------ hashtags
-def hashtags(series):
-    """H3: exactly three, #ManhwaRecap first."""
-    return [HASHTAGS_FIRST, "#" + hashtag_for(series), HASHTAGS_LAST]
+HASHTAG_MAX = 10                  # owner, 2026-11-07: up to 10 on YouTube, all directly relevant
+PLATFORM_HASHTAG_MAX = {"youtube": 10, "instagram": 5, "facebook": 3, "twitter": 2, "x": 2}
+HASHTAG_EVERGREEN = ("#Manhwa", "#Webtoon", HASHTAGS_LAST)
+_NAME_TAG_MAX = 30                # a longer CamelCase name reads as noise, not a tag
+
+
+def _tag(name):
+    body = hashtag_for(name)
+    return "#" + body if body and not body.isdigit() and len(body) < _NAME_TAG_MAX else ""
+
+
+def hashtags(series, pack=None, extra=(), shorts=False, limit=HASHTAG_MAX):
+    """Owner rule, 2026-11-07: up to 10, in this order:
+    1 the series name, 2 the niche tag (#ManhwaRecap), 3 an alternate title
+    or else the main character, then the rest (main character, evergreen
+    niche tags, the series' genres, then `extra`). Shorts keep #shorts inside
+    the 10. Only the series' own names and genres are used: no other channels."""
+    pack = pack or {}
+    first = "#" + hashtag_for(pack.get("series_name_en") or series)
+    alts = [_tag(a) for a in pack.get("series_name_alt") or [] if re.search(r"[A-Za-z]", a or "")]
+    mcs = [_tag(c if isinstance(c, str) else (c or {}).get("name", ""))
+           for c in (pack.get("characters_main") or pack.get("characters") or [])[:1]]
+    alts, mcs = [a for a in alts if a], [m for m in mcs if m]
+    order = [first, HASHTAGS_FIRST] + (alts[:1] or mcs[:1]) + (["#shorts"] if shorts else [])
+    order += (mcs[:1] if alts else []) + list(HASHTAG_EVERGREEN)
+    order += [_tag(g) for g in (pack.get("genres") or pack.get("genre") or [])] + list(extra or [])
+    out, seen = [], set()
+    for h in order:
+        h = "#" + re.sub(r"[^\w]", "", str(h or "").lstrip("#"))
+        if len(h) > 1 and h.lower() not in seen and (shorts or h.lower() != "#shorts"):
+            seen.add(h.lower())
+            out.append(h)
+    return out[:limit]
+
+
+def cap_hashtags(text, n):
+    """Keep the first n hashtags in a text, drop the rest (Facebook 3, X 2 …)."""
+    seen = [0]
+
+    def keep(m):
+        seen[0] += 1
+        return m.group(0) if seen[0] <= n else ""
+    out = re.sub(r"(?<![\w#])#\w+", keep, text or "")
+    return re.sub(r"[ \t]+(\n|$)", r"\1", re.sub(r"[ \t]{2,}", " ", out))
 
 
 # ------------------------------------------------------------------ timecodes
@@ -295,7 +336,7 @@ def build_description(series, n, pack, *, chapter_title="", tease="", prev_n=Non
     body.append(KOFI)
     if music_credit:                       # C2: only when the render used music
         body.append(MUSIC.format(music_credit=music_credit))
-    body += [DISCLAIMER, FAIR_USE, " ".join(hashtags(series))]
+    body += [DISCLAIMER, FAIR_USE, " ".join(hashtags(series, pack))]
     return "\n\n".join(body)
 
 
@@ -313,7 +354,7 @@ def validate(pkg, series, n, strict=False):
       - D3/C1: does not block if frozen blocks were edited or omitted
       - D5: warns only in strict mode
       - H1: checks tags <= 500 characters; does not block if exact chapter tag differs
-      - H3/H4: allows up to 15 hashtags (YouTube max); does not block on hashtag order
+      - H3/H4: allows up to 10 hashtags (owner, 2026-11-07); does not block on hashtag order
     When strict=True: enforces exact Spec 10 rules.
     """
     out = []
@@ -355,10 +396,11 @@ def validate(pkg, series, n, strict=False):
         out.append("The chapter tag block is missing (H1).")
 
     hs = re.findall(r"(?<![\w#])#\w+", d)
-    if len(hs) > 15:
-        out.append(f"Too many hashtags: found {len(hs)}, YouTube ignores tags beyond 15 (H3/H4).")
-    elif strict and (len(hs) != 3 or hs[0] != HASHTAGS_FIRST):
-        out.append(f"Exactly 3 hashtags, #ManhwaRecap first — found {len(hs)} (H3/H4).")
+    if len(hs) > HASHTAG_MAX:
+        out.append(f"Too many hashtags: found {len(hs)}, the limit is {HASHTAG_MAX} (H3/H4).")
+    elif strict and (len(hs) < 2 or hs[0].lower() != ("#" + hashtag_for(series)).lower()
+                     or hs[1] != HASHTAGS_FIRST):
+        out.append(f"Hashtags must start with the series name, then {HASHTAGS_FIRST} (H3/H4).")
 
     return out
 
