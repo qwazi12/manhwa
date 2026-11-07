@@ -1953,3 +1953,8 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 
 ### 2026-11-07 — Owner chose the look: Baskerville (cyan) + Death Knight (green) renders
 - Masters restored to the wider cover-art versions (old current art, old badge painted out, finish applied); re-stamped output is byte-identical to the renders the owner approved. Cyan/green come from the auto neon pick, so no BADGE file needed. Local only: scratchpad/sd/MASTER_*.png; not in Drive, branches not pushed — waiting for push OK.
+
+
+### 2026-11-07 — Murim Login master from the real cover, logo removed (owner: pip install simple-lama-inpainting)
+- LaMa installed in scratchpad venv with --no-deps (its pins Pillow<10/numpy<2 don't build on py3.13); model big-lama.pt in ~/.cache/torch (download needed SSL_CERT_FILE=certifi). Logo + glow masked in box (340,25)-(690,305) of the 720x1030 Asura cover, 2 LaMa passes: clean background. Master = crop x0..620, centred on the face (y 352), finish applied: scratchpad/sd/MASTER_murim-login.png. Auto neon = cyan #00F5FF.
+- murim-login_ch251-252 thumbnail replaced (leap panel -> cover master, CH 251-252 cyan); md5 c01c4a7fba722ca4e963e4840eedcfc6 read back. Still review_pending. Local tool only, not in the studio.
