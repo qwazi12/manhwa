@@ -1,4 +1,4 @@
-"""Series master thumbnails (owner, 2026-11-07). A fake Drive only: no network.
+"""Series master thumbnails, style D (owner, 2026-11-07). A fake Drive only: no network.
 Run: python3 -m pytest test_series_master.py -q"""
 import hashlib
 import json
@@ -11,8 +11,7 @@ sys.path.insert(0, HERE)
 import series_master as sm  # noqa: E402
 from PIL import Image  # noqa: E402
 
-BADGE = {"box": [40, 30, 300, 90], "fill": "#1E90FF", "text": "#FFFFFF", "stroke": "#000000",
-         "font": "Anton", "radius": 14, "prefix": "CH "}
+BADGE = {"fill": "#1E90FF"}
 
 
 class FakeDrive:
@@ -54,35 +53,54 @@ def test_no_master_keeps_todays_thumbnail(tmp_path):
     assert sm.upload_thumbnail("other-series", "5", "/x/own.jpg", str(tmp_path / "w"), ds=ds) == "/x/own.jpg"
 
 
-def test_master_gets_the_badge_stamped(tmp_path):
+def _near(p, q, tol=30):
+    return sum(abs(a - b) for a, b in zip(p, q)) < tol
+
+
+def test_master_gets_the_style_d_badge(tmp_path):
     ds, logs = FakeDrive(str(tmp_path)), []
     out = sm.upload_thumbnail("murim-login", "251-252", None, str(tmp_path / "w"), ds=ds,
                               log=lambda m, level="ok": logs.append((level, m)))
-    im = Image.open(out)
+    im = Image.open(out).convert("RGB")
     assert im.size == (1280, 720) and os.path.getsize(out) <= sm.MAX_BYTES
-    assert im.getpixel((45, 100)) == (30, 144, 255) or sum(abs(a - b) for a, b in zip(im.getpixel((48, 100)), (30, 144, 255))) < 30
-    box = im.crop((40, 30, 340, 120)).convert("RGB")
-    whites = sum(1 for p in box.getdata() if min(p) > 230)
-    assert whites > 300                                    # the "CH 251-252" text is drawn
-    assert im.getpixel((900, 500)) == (90, 140, 60) or sum(abs(a - b) for a, b in zip(im.getpixel((900, 500)), (90, 140, 60))) < 12
+    assert _near(im.getpixel((28, 70)), (0, 0, 0))            # 6 px black outline at x=26
+    assert _near(im.getpixel((37, 70)), (30, 144, 255))       # series fill inside it
+    assert _near(im.getpixel((100, 24)), (0, 0, 0))           # top outline at y=22
+    assert _near(im.getpixel((100, 18)), (90, 140, 60), 12)   # art above the box is untouched
+    box = im.crop((46, 30, 300, 118))
+    assert sum(1 for p in box.getdata() if min(p) > 230) > 800   # white "CH 251-252" text
+    assert _near(im.getpixel((900, 500)), (90, 140, 60), 12)  # the rest of the master is untouched
     assert logs and logs[0][0] == "ok" and "CH 251-252" in logs[0][1]
 
 
-def test_box_scales_with_a_larger_master(tmp_path):
-    ds = FakeDrive(str(tmp_path), master_size=(2560, 1440),
-                   badge=dict(BADGE, box=[80, 60, 600, 180]))
-    out = sm.upload_thumbnail("murim-login", "7", None, str(tmp_path / "w"), ds=ds)
-    im = Image.open(out)
-    assert im.size == (1280, 720)
-    assert sum(abs(a - b) for a, b in zip(im.getpixel((48, 100)), (30, 144, 255))) < 30
+def test_badge_geometry_follows_the_spec():
+    im = Image.new("RGB", (1280, 720), (90, 140, 60))
+    x0, y0, x1, y1 = sm.draw_badge(im, "CH 46", "#D61E2D")
+    assert (x0, y0, y1 - y0) == (26, 22, 104)
+    assert _near(im.getpixel((x1 - 30, y1 + 5)), (0, 0, 0))   # shadow box at (+6, +7): below
+    assert _near(im.getpixel((x1 + 4, y0 + 40)), (0, 0, 0))   # and to the right
+    assert _near(im.getpixel((x1 + 4, y0 + 2)), (90, 140, 60), 12)
+    wide = sm.draw_badge(Image.new("RGB", (1280, 720)), "CH 251-252", "#D61E2D")
+    assert wide[2] - wide[0] > x1 - x0                         # the box grows with the label
+
+
+def test_colour_comes_from_badge_file_then_spec_table(tmp_path):
+    assert sm.series_colour("the-stellar-swordmaster") == "#1E6EE6"
+    assert sm.series_colour("the-stellar-swordmaster", {"fill": "#00FF00"}) == "#00FF00"
+    ds = FakeDrive(str(tmp_path), badge=None)                  # master, no BADGE file, no spec colour
+    logs = []
+    got = sm.upload_thumbnail("murim-login", "251", "/x/own.jpg", str(tmp_path / "w"), ds=ds,
+                              log=lambda m, level="ok": logs.append((level, m)))
+    assert got == "/x/own.jpg" and logs[0][0] == "warn" and "colour" in logs[0][1]
 
 
 def test_problems_fall_back_and_say_why(tmp_path):
-    for bad in (None, "{not json", dict(BADGE, box=[1, 2]), dict(BADGE, fill="red"), dict(BADGE, font="Comic")):
+    cases = (("{not json", (1280, 720)), (dict(fill="red"), (1280, 720)), (BADGE, (1000, 1000)))
+    for i, (bad, size) in enumerate(cases):
         logs = []
-        d = tmp_path / str(abs(hash(str(bad))))
+        d = tmp_path / str(i)
         d.mkdir()
-        ds = FakeDrive(str(d), badge=bad)
+        ds = FakeDrive(str(d), badge=bad, master_size=size)
         got = sm.upload_thumbnail("murim-login", "251", "/x/own.jpg", str(d / "w"), ds=ds,
                                   log=lambda m, level="ok": logs.append((level, m)))
         assert got == "/x/own.jpg" and logs and logs[0][0] == "warn", bad
