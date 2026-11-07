@@ -8098,17 +8098,30 @@ def api_watchlist_cover(series_id: str):
         raise HTTPException(404, "not found")
     d = os.path.join(_wl_root(), "_covers")
     os.makedirs(d, exist_ok=True)
+    srs = _wl.find(_wl.load(_wl_root()), series_id)
+    m = next((x for x in (srs or {}).get("mirrors", []) if x.get("cover")), None)
+    cover, page = (m["cover"], m["series_url"]) if m else ("", "")
+    src_file = os.path.join(d, f"{series_id}.src")
+    cached_src = open(src_file).read().strip() if os.path.exists(src_file) else ""
+    if cover and _pv.is_share_card(cover) and cached_src and not _pv.is_share_card(cached_src):
+        cover = cached_src                       # real cover already found and cached
+    if cover and _pv.is_share_card(cover):
+        # A generated share card (Asura, Nov 2026), not the art: read the real
+        # cover from the series page until the next watchlist check stores it.
+        try:
+            h = _pv.fetch(page)
+            cover = _pv.cover_from_html(h if isinstance(h, str) else h.decode("utf-8", "ignore")) or ""
+        except Exception:
+            cover = ""
     for ext, mt in (("jpg", "image/jpeg"), ("png", "image/png"), ("webp", "image/webp")):
         p = os.path.join(d, f"{series_id}.{ext}")
-        if os.path.exists(p) and time.time() - os.path.getmtime(p) < 7 * 86400:
+        if os.path.exists(p) and time.time() - os.path.getmtime(p) < 7 * 86400 \
+                and (not cover or cached_src == cover):
             return FileResponse(p, media_type=mt, headers={"Cache-Control": "public, max-age=86400"})
-    srs = _wl.find(_wl.load(_wl_root()), series_id)
     if srs is None:
         raise HTTPException(404, "not on the watchlist")
-    m = next((x for x in srs.get("mirrors", []) if x.get("cover")), None)
-    if m is None:
+    if not cover:
         raise HTTPException(404, "no cover yet — check the series first")
-    cover, page = m["cover"], m["series_url"]
     ch, ph = _up.urlparse(cover).hostname or "", _up.urlparse(page).hostname or ""
     same_site = ".".join(ch.split(".")[-2:]) == ".".join(ph.split(".")[-2:])
     if _up.urlparse(cover).scheme != "https" or not (same_site or ch.endswith(".pstatic.net")):
@@ -8120,8 +8133,13 @@ def api_watchlist_cover(series_id: str):
     except Exception:
         raise HTTPException(502, "could not fetch the cover")
     ext = {"image/png": "png", "image/webp": "webp"}.get(mt, "jpg")
+    for old_ext in ("jpg", "png", "webp"):           # one cached cover per series
+        if old_ext != ext and os.path.exists(os.path.join(d, f"{series_id}.{old_ext}")):
+            os.remove(os.path.join(d, f"{series_id}.{old_ext}"))
     with open(os.path.join(d, f"{series_id}.{ext}"), "wb") as f:
         f.write(data)
+    with open(src_file, "w") as f:                   # which URL this file came from
+        f.write(cover)
     return Response(data, media_type=mt, headers={"Cache-Control": "public, max-age=86400"})
 
 

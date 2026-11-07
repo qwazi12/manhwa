@@ -2102,11 +2102,19 @@ def _pick_cover_url(html_text, base):
     that series — and falls back to an image whose URL says it is a cover.
     """
     import urllib.parse
+    import providers as _pv
+    real = _pv.cover_from_html(html_text)       # never a generated share card
+    if real:
+        return urllib.parse.urljoin(base, real)
     m = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)',
                   html_text, re.I)
+    if m and _pv.is_share_card(m.group(1)):
+        m = None
     if not m:
         m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image',
                       html_text, re.I)
+        if m and _pv.is_share_card(m.group(1)):
+            m = None
     if m:
         return urllib.parse.urljoin(base, m.group(1))
     for pat in (r'src=["\']([^"\']*(?:cover|thumbnail)[^"\']*\.(?:jpe?g|png|webp))',

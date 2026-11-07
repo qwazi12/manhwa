@@ -401,12 +401,34 @@ def _parse_date(text, today=None):
     return None
 
 
+def is_share_card(url):
+    """A site-generated social card (title, rating and chapter count drawn over
+    a small cover), not the cover art. Asura's og:image became one in Nov 2026:
+    https://asurascans.com/og/comics/<slug>.jpg"""
+    return "/og/" in (urllib.parse.urlparse(url or "").path or "")
+
+
+def cover_from_html(html):
+    """The series' real cover art from its page, full size, or None.
+    Order: the page's full-size cover (data-full-src), the JSON-LD image,
+    then og:image unless it is a generated share card (owner, 2026-11-07:
+    Library covers and cover thumbnails showed Asura's share card)."""
+    html = html or ""
+    for pat in (r'data-full-src="(https?://[^"]+/covers?/[^"]+)"',
+                r'"image"\s*:\s*\{\s*"@type"\s*:\s*"ImageObject"\s*,\s*"url"\s*:\s*"(https?://[^"]+)"',
+                r'"image"\s*:\s*"(https?://[^"]+\.(?:webp|jpe?g|png)[^"]*)"'):
+        m = re.search(pat, html)
+        if m and not is_share_card(m.group(1)):
+            return m.group(1).replace("&amp;", "&")
+    m = re.search(r'<meta (?:property|name)="og:image" content="([^"]+)"', html)
+    if m and not is_share_card(m.group(1)):
+        return m.group(1).replace("&amp;", "&")
+    return None
+
+
 def release_info(prov, html, today=None):
     """-> {"cover": url|None, "dates": {chapter_id: [YYYY-MM-DD, approx]}}"""
-    cover = None
-    m = re.search(r'<meta (?:property|name)="og:image" content="([^"]+)"', html)
-    if m:
-        cover = m.group(1).replace("&amp;", "&")
+    cover = cover_from_html(html)
     dates = {}
     if prov.name == "webtoon":
         marks = list(re.finditer(r'data-episode-no="(\d+)"', html))
