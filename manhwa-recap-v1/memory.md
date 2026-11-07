@@ -1930,3 +1930,10 @@ Plan items 1–4 were OK'd earlier ("yes"). Items 5–9 were added and the whole
 ### 2026-11-07 — Murim Login source check (FLAMINGO, read-only)
 - ops.py source-check: Asura max ch 252, mgeko max ch 252 (no change; nothing past 252).
 - 251 + 252 are already produced as merged video murim-login_ch251-252 (in Video review, awaiting owner approval for Sat 10:00 ET), so no new titles/opener drafted. No production started.
+
+
+### 2026-11-07 — Thumbnail style D (owner choice; spec THUMBNAIL_STYLE_D_SPEC.md) — FLAMINGO
+- feat/series-master d731211 (local, NOT pushed): style-D badge per spec (Anton 78 white/3px stroke, box r16 pad20 h104, series colour, 6px outline, shadow +6,+7, origin 26,22); colour from BADGE_<sid>.json {"fill"} or spec table (Baskerville #D61E2D, Death Knight #28AADC, Stellar #1E6EE6); finish_art() for new masters; non-16:9 master or missing colour -> falls back to export thumbnail with warning. 401 passed, 2 skipped.
+- Masters built locally (scratchpad/sd, not in Drive yet): Baskerville + Death Knight from current art with old badge inpainted; Stellar from the 480px series cover (soft, chin clipped — weak). Renders shown to owner; awaiting OK to switch.
+- Murim 251-252 (murim-login_ch251-252, review_pending): thumbnail replaced with style D — 251 page001_panel_007 leap crop, no hook/arrow, face centred, "CH 251-252" badge #F07D19 (Murim colour picked, not yet fixed in a BADGE file). md5 84c202f4850c3c1930031844efced143 read back.
+- Murim face candidates: studio has only ch 251-252 panels; 9 face picks, 7 were already in candidates/, 2 new added (252_page007_006, 252_page007_002), md5-verified in Drive.
