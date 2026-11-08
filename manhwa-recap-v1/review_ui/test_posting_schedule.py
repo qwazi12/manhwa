@@ -14,6 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
 os.environ["AUTOPILOT_SCHEDULER"] = "0"
+os.environ["SHEET_GATE_OFF"] = "1"     # posting-time schedule checks; the sheet gate is test_sheet_gate.py
 R = []
 ET = ZoneInfo("America/New_York")
 

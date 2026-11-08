@@ -274,11 +274,64 @@ def _leads(sched):
     return lead * 60, min(int((sched or {}).get("upload_min_lead_min") or UPLOAD_MIN_LEAD_MIN), lead) * 60
 
 
-def decide(sched, d, now, targets_of):
+def _decide_pinned(sched, d, now, targets_of, pins):
+    """Posting gate on (sheet_gate.py, owner 2026-11-07): only videos the Posting Review
+    sheet lets post, each at ITS sheet slot. pins: {item_id: slot epoch}. No catch-up:
+    a pinned slot too close to upload ahead is recorded missed and the video waits for
+    a new slot in the sheet."""
+    lead, min_lead = _leads(sched)
+    since = float(sched.get("enabled_at") or 0)
+    tzname = sched.get("tz") or "America/New_York"
+    by_id = {x["id"]: x for x in d["items"] if x["status"] == "queued"}
+    due = []
+    for iid, at in pins.items():
+        x = by_id.get(iid)
+        if not x or at <= since or now < at - lead or now >= at:
+            continue
+        loc = _local(at, tzname)
+        day, slot = loc.strftime("%Y-%m-%d"), loc.strftime("%H:%M")
+        if slot in set((d.get("slots_done") or {}).get(day, {})):
+            continue
+        due.append((at, day, slot, x))
+    if not due:
+        return {"action": "wait", "day": _local(now, tzname).strftime("%Y-%m-%d"),
+                "why": "no sheet-approved video is due"}
+    at, day, slot, x = min(due, key=lambda t: t[0])
+    if now > at - min_lead:
+        return {"action": "missed", "slot": slot, "day": day, "publish_at": at, "item": x,
+                "why": f"too late to upload {x['project']} ahead for {slot}; it needs a new slot in the sheet"}
+    blocked, earlier = has_unposted_earlier_chapter(x, d["items"])
+    if blocked:
+        return {"action": "skip", "slot": slot, "day": day,
+                "why": f"{x['project']} waits for the earlier chapter {earlier.get('project')}"}
+    cap = int(sched.get("per_channel_per_day") or 1)
+    used, busy = {}, set()
+    for y in d["items"]:
+        if y["status"] in ("posted", "posting") and y.get("posted_day") == day:
+            for t in targets_of(y):
+                used[t] = used.get(t, 0) + 1
+        if y["status"] == "posting":
+            busy.update(targets_of(y))
+    tg = targets_of(x)
+    if not tg:
+        return {"action": "skip", "slot": slot, "day": day, "why": f"{x['project']} has no channel to post to"}
+    if not all(used.get(t, 0) < cap for t in tg):
+        return {"action": "skip", "slot": slot, "day": day,
+                "why": f"{x['project']} would go over {cap} post(s) per channel on {day}"}
+    if any(t in busy for t in tg):
+        return {"action": "wait", "slot": slot, "day": day,
+                "why": f"{slot} slot: another video is still uploading to this channel"}
+    return {"action": "post", "slot": slot, "day": day, "item": x, "publish_at": at,
+            "why": f"{slot} slot from the Posting Review sheet, uploading ahead to go live at {slot}:00"}
+
+
+def decide(sched, d, now, targets_of, pins=None):
     """What the schedule should do right now. Pure: no writes.
 
     sched: {"enabled", "times": ["10:00", ...], "tz", "per_channel_per_day"}
     d: the queue file; targets_of(item) -> its channel ids.
+    pins: None = posting gate off (posting times + queue order); else {item_id: slot epoch}
+    from the Posting Review sheet, and only those videos post, each at its own slot.
     Returns {"action": "off"|"wait"|"post"|"skip"|"missed", "slot", "day",
              "publish_at" (epoch of the slot, for "post"), "item", "why"}.
     """
@@ -286,6 +339,8 @@ def decide(sched, d, now, targets_of):
     from zoneinfo import ZoneInfo
     if not (sched or {}).get("enabled"):
         return {"action": "off", "why": "the posting schedule is off"}
+    if pins is not None:
+        return _decide_pinned(sched, d, now, targets_of, pins)
     tz = ZoneInfo(sched.get("tz") or "America/New_York")
     loc = _local(now, sched.get("tz"))
     lead, min_lead = _leads(sched)
@@ -369,13 +424,27 @@ def next_slot(sched, now):
 # SocialPilot — each video's planned post time, Mix & Shuffle with Undo,
 # "Post next".
 
-def planned(sched, d, now, targets_of, days=21):
+def _label(at, tz):
+    loc = _local(at, tz)
+    h = loc.hour
+    return f"{loc.strftime('%a, %b')} {loc.day} at {h % 12 or 12}:{loc.minute:02d} {'AM' if h < 12 else 'PM'} ET"
+
+
+def planned(sched, d, now, targets_of, days=21, pins=None):
     """{item_id: {"at": epoch, "label": "Tue 11:00"}} for every queued video:
     the slot the schedule will give it, in queue order, honouring the
-    per-channel-per-day cap and slots already used. Same rules as decide()."""
+    per-channel-per-day cap and slots already used. Same rules as decide().
+    pins (posting gate on): each sheet-approved video's own slot; others get none."""
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
-    if not (sched or {}).get("enabled") or not sched.get("times"):
+    if not (sched or {}).get("enabled"):
+        return {}
+    if pins is not None:
+        _lead, min_lead = _leads(sched)
+        q = {x["id"] for x in d["items"] if x["status"] == "queued"}
+        return {i: {"at": at, "label": _label(at, sched.get("tz"))} for i, at in pins.items()
+                if i in q and now <= at - min_lead}
+    if not sched.get("times"):
         return {}
     tz = ZoneInfo(sched.get("tz") or "America/New_York")
     loc = _local(now, sched.get("tz"))

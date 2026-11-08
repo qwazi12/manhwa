@@ -4141,7 +4141,7 @@ def api_growth_snapshot(days: int = 14):
     q = _pq.load(_i.PROJECTS)
     sched = _studio.load().get("schedule") or {}
     try:
-        plan = _pq.planned(sched, q, now, _targets_of)
+        plan = _pq.planned(sched, q, now, _targets_of, pins=_gate_display()[0])
     except Exception:  # noqa
         plan = {}
     queue, pos = [], 0
@@ -4163,8 +4163,27 @@ def api_growth_snapshot(days: int = 14):
                       "thumbnail_text": md.get("thumbnail_text") or "",
                       "planned_slot": (plan.get(x["id"]) or {}).get("label") or "",
                       "planned_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(plan[x["id"]]["at"])) if x["id"] in plan else ""})
+    # Owner, 2026-11-07: Video-review videos go in the exports (FLAMINGO_PENDING) so they reach the sheet
+    pending = []
+    for pid, p in sorted(_pending_exports().items()):
+        try:
+            pdir = project_dir_for(pid)
+            md = {**publish_defaults(pdir), **(load_publish(pdir).get(p["name"]) or {})}
+            sid, series, n, meta = _series_ident(pdir)
+        except Exception:  # noqa
+            md, sid, series, n, meta = {}, "", "", None, {}
+        desc = (md.get("description") or "").strip().splitlines()
+        b = meta.get("build") or {}
+        pending.append({"project": pid, "name": p["name"], "series_id": sid, "series": series,
+                        "range": (f"{meta.get('chapters_start')}-{meta.get('chapters_end')}" if meta.get("kind") == "range" else str(n or "")),
+                        "review_status": p["review_status"], "title": md.get("title") or "",
+                        "description_first_2_lines": "\n".join(desc[:2]),
+                        "hashtags": md.get("hashtags") or re.findall(r"#\w+", md.get("description") or ""),
+                        "duration_s": b.get("duration") or meta.get("duration") or "",
+                        "exported_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(p["mtime"]))})
     return {"generated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "read_only": True,
-            "series": series_out, "queue": queue, "posted": sorted(posted, key=lambda r: r["published_at_utc"], reverse=True)}
+            "series": series_out, "queue": queue, "pending": pending,
+            "posted": sorted(posted, key=lambda r: r["published_at_utc"], reverse=True)}
 
 
 def _apply_prior_seo(rdir, name, ap, marks, a, b):
@@ -10039,10 +10058,19 @@ def _schedule_post_pass(now=None):
     if not sched.get("enabled"):
         return None
     _pq.sync(_i.PROJECTS, _pub_status)
+    # Owner, 2026-11-07: the Posting Review sheet gates every post (sheet_gate.py)
+    try:
+        pins = _gate_for_schedule(now or time.time())
+    except Exception as e:
+        if time.time() - _SG_CACHE["warned"] > 3600:
+            _SG_CACHE["warned"] = time.time()
+            _ev("publish", "posting gate: the Posting Review sheet can't be read — nothing posts until it can "
+                           f"({_SG_CACHE.get('err') or str(e)[:200]})", "error")
+        return {"action": "wait", "why": "the Posting Review sheet can't be read"}
     refused = []
     dec = None
     for _try in range(SCHEDULE_MAX_TRIES):
-        dec = _pq.decide(sched, _pq.load(_i.PROJECTS), now or time.time(), _targets_of)
+        dec = _pq.decide(sched, _pq.load(_i.PROJECTS), now or time.time(), _targets_of, pins=pins)
         if dec["action"] == "missed":
             # owner rule 2026-11-07: no catch-up bursts; the slot is recorded as
             # missed and the next video takes the next free top-of-hour slot
@@ -11827,6 +11855,239 @@ def _pub_status(project, name):
         return None
 
 
+# ---------------------------------------------- Posting gate + sheet control (sheet_gate.py)
+# Owner, 2026-11-07: a video publishes only if the Posting Review sheet (Flamingo tab)
+# lets it, with the sheet's text, at the sheet's slot. Off: POST /api/sheet_gate {"on": false}
+# or SHEET_GATE_OFF=1.
+import sheet_gate as _sg
+
+_SG_CACHE = {"at": 0.0, "rows": None, "err": None, "warned": 0.0}
+
+
+def _sheet_rows(max_age=60):
+    """The sheet's Flamingo rows (Drive API export, cached max_age seconds). Raises when unreadable."""
+    now = time.time()
+    if _SG_CACHE["rows"] is not None and now - _SG_CACHE["at"] < max_age:
+        return _SG_CACHE["rows"]
+    try:
+        if not _drive.configured():
+            raise RuntimeError("Drive is not configured (GOOGLE_SERVICE_ACCOUNT_JSON / folder)")
+        grid = _sg.xlsx_tabs(_sg.fetch_xlsx(_drive)).get(_sg.TAB)
+        if grid is None:
+            raise RuntimeError(f"the Posting Review sheet has no {_sg.TAB} tab")
+        rows = _sg.parse_rows(grid)
+    except Exception as e:
+        _SG_CACHE["err"] = f"{type(e).__name__}: {str(e)[:200]}"
+        raise
+    _SG_CACHE.update(at=now, rows=rows, err=None)
+    return rows
+
+
+def _pending_exports():
+    """Read-only: the newest not-yet-queued, not-posted export of each project that is in
+    Video review (or approved but not queued). {project: {name, review_status, mtime}}."""
+    import ingest as _i
+    active = {(x["project"], x["name"]) for x in _pq.load(_i.PROJECTS)["items"]
+              if x["status"] in _pq.ACTIVE + ("posted",)}
+    out = {}
+    for pid, d in _all_export_dirs():
+        pdir = os.path.dirname(d)
+        pubs = load_publishes(pdir)
+        for f in os.listdir(d):
+            if not f.endswith(".mp4") or (pid, f) in active:
+                continue
+            if any(r.get("status") == "published" for r in (pubs.get(f) or {}).get("results") or []):
+                continue
+            try:
+                rv = review_state(pdir, f)
+            except Exception:  # noqa
+                continue
+            if rv["status"] in ("merged", "sent_back"):
+                continue
+            mt = os.path.getmtime(os.path.join(d, f))
+            if pid not in out or mt > out[pid]["mtime"]:
+                out[pid] = {"name": f, "mtime": mt,
+                            "review_status": "approved" if rv["status"] == "approved" and not rv["superseded"]
+                            else "review_pending"}
+    return out
+
+
+def _sheet_videos(q, now=None):
+    """{project: {lane, name, qid, publish_at}}: queued, uploaded (posting/posted through the
+    queue in the last 14 days) and pending (Video review) videos, for sheet_gate.evaluate."""
+    now = now or time.time()
+    vids = {}
+    for x in q["items"]:
+        if x["status"] in ("posting", "posted") and now - float(x.get("updated_at") or 0) < 14 * 86400:
+            vids[x["project"]] = {"lane": "uploaded", "name": x["name"], "qid": x["id"],
+                                  "publish_at": x.get("publish_at")}
+    for x in q["items"]:
+        if x["status"] == "queued":
+            vids[x["project"]] = {"lane": "queued", "name": x["name"], "qid": x["id"]}
+    for pid, p in _pending_exports().items():
+        vids.setdefault(pid, {"lane": "pending", "name": p["name"], "review_status": p["review_status"]})
+    return vids
+
+
+def _sheet_sync(apply=True, now=None, rows=None):
+    """Read the sheet and apply it: Approve -> the sheet's text on the queued video and its
+    slot; Approve on a Video-review video -> approved + queued at that slot. Never touches an
+    uploaded video. Returns {rows, changes, needs_owner, pins}. pins = {queue item id: slot}
+    of the videos the gate lets post."""
+    import ingest as _i
+    now = now or time.time()
+    root = _i.PROJECTS
+    rows = rows if rows is not None else _sheet_rows()
+    st = _sg.load(root)
+    by_row = {r["queue_id"]: r for r in rows}
+    changes, extra_needs, text_preview = [], [], {}
+
+    def evaluate():
+        q = _pq.load(root)
+        v = _sheet_videos(q, now)
+        return v, _sg.evaluate(rows, v, st.get("slots") or {}, now)
+
+    vids, ev = evaluate()
+    _lead, min_lead = _pq._leads(_studio.load().get("schedule") or {})
+    approved_now = False
+    for er in ev["rows"]:
+        pid, r, v = er["queue_id"], by_row.get(er["queue_id"]), vids.get(er["queue_id"])
+        if not r or not v or (r["decision"] or "").strip().lower() != "approve":
+            continue
+        pdir = project_dir_for(pid)
+        md = {**publish_defaults(pdir), **(load_publish(pdir).get(v["name"]) or {})}
+        new, changed, probs = _sg.sheet_text(md, r)
+        text_preview[pid] = {"changed": changed, "problems": probs,
+                             "title": new.get("title"), "title_before": md.get("title")}
+        if v["lane"] == "uploaded":
+            if changed:
+                extra_needs.append(f"{pid}: already uploaded; the sheet's {'/'.join(changed)} differs from what was "
+                                   "uploaded — changing it needs the owner's OK in chat")
+            continue
+        if probs:
+            extra_needs.append(f"{pid}: sheet text not applied — {'; '.join(probs)}")
+            continue
+        if v["lane"] == "pending":
+            at = ev["slots"].get(pid)
+            if not at or at - now < min_lead:
+                extra_needs.append(f"{pid}: Approve on a Video-review video, but it has no usable slot "
+                                   "(needs an on-the-hour slot at least 45 min ahead)")
+                continue
+            if apply:
+                try:
+                    if v.get("review_status") == "approved":
+                        _pq.add(root, [{"project": pid, "name": v["name"]}])
+                    else:
+                        api_review_save(ReviewIn(project=pid, name=v["name"], status="approved",
+                                                 notes="Approved in the Posting Review sheet"))
+                except HTTPException as e:
+                    extra_needs.append(f"{pid}: could not be approved from the sheet — {e.detail}")
+                    continue
+                changes.append({"queue_id": pid, "action": "approved from the sheet, queued",
+                                "slot": _sg.label(at), "slot_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)),
+                                "fields": "", "title": new.get("title") or ""})
+                _ev("publish", f"{_pretty(pid)}: approved in the Posting Review sheet → queued for {_sg.label(at)} ET", "ok")
+                approved_now = True
+        if changed and apply:
+            api_publish_save(PublishIn(project=pid, name=v["name"], metadata=new))
+            back = {**publish_defaults(pdir), **(load_publish(pdir).get(v["name"]) or {})}
+            ok = all(back.get(k) == new.get(k) for k in ("title", "description"))
+            changes.append({"queue_id": pid, "action": "sheet text applied" + ("" if ok else " (READ-BACK MISMATCH)"),
+                            "slot": _sg.label(ev["slots"][pid]) if ev["slots"].get(pid) else "",
+                            "slot_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ev["slots"][pid]))
+                            if ev["slots"].get(pid) else "", "fields": "+".join(changed), "title": new.get("title") or ""})
+            _ev("publish", f"{_pretty(pid)}: {', '.join(changed)} set from the Posting Review sheet", "ok" if ok else "error")
+            if not ok:
+                extra_needs.append(f"{pid}: sheet text saved but did not read back the same")
+    if approved_now:
+        vids, ev = evaluate()          # the newly queued videos get their queue ids
+    old = st.get("slots") or {}
+    for pid, at in ev["slots"].items():
+        if vids.get(pid, {}).get("lane") == "queued" and old.get(pid) and int(old[pid]) != int(at):
+            changes.append({"queue_id": pid, "action": "slot moved from the sheet", "slot": _sg.label(at),
+                            "slot_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)),
+                            "fields": f"slot (was {_sg.label(old[pid])})", "title": ""})
+    pins = {vids[pid]["qid"]: at for pid, at in ev["slots"].items()
+            if vids.get(pid, {}).get("lane") == "queued"
+            and next((x["gate"] for x in ev["rows"] if x["queue_id"] == pid), "") == "post"}
+    needs = ev["needs_owner"] + extra_needs
+    for x in ev["rows"]:
+        x["text"] = text_preview.get(x["queue_id"])
+    if apply:
+        logged = _sg.add_log(root, changes)
+        with _sg._lock:
+            d = _sg.load(root)
+            d["slots"] = {k: v for k, v in ev["slots"].items() if v > now - 86400}
+            d["last_sync"] = {"at": now, "rows": len(rows), "needs_owner": needs, "pins": pins,
+                              "holds": {vids[x["queue_id"]]["qid"]: x["why"] for x in ev["rows"]
+                                        if vids.get(x["queue_id"], {}).get("lane") == "queued" and x["gate"] != "post"}}
+            _sg._save(root, d)
+        changes = logged
+    return {"ok": True, "applied": bool(apply), "rows": ev["rows"], "changes": changes,
+            "needs_owner": needs, "pins": pins}
+
+
+def _gate_display():
+    """(pins, holds) from the last sheet check for the studio page and exports, or (None, {})
+    when the gate is off. No sheet read here."""
+    import ingest as _i
+    if not _sg.enabled(_i.PROJECTS):
+        return None, {}
+    ls = _sg.load(_i.PROJECTS).get("last_sync") or {}
+    return dict(ls.get("pins") or {}), dict(ls.get("holds") or {})
+
+
+def _gate_for_schedule(now):
+    """None (gate off) or the pins for decide(). Unreadable sheet -> raises."""
+    import ingest as _i
+    if not _sg.enabled(_i.PROJECTS):
+        return None
+    return _sheet_sync(apply=True, now=now)["pins"]
+
+
+class SheetGateIn(BaseModel):
+    on: bool
+
+
+class SheetSyncIn(BaseModel):
+    apply: bool = False
+
+
+@app.get("/api/sheet_gate")
+def api_sheet_gate():
+    """Read-only: the gate switch, the last sheet check and the change log."""
+    import ingest as _i
+    d = _sg.load(_i.PROJECTS)
+    return {"on": _sg.enabled(_i.PROJECTS), "env_off": _sg.env_off(), "stored_on": d.get("on", True) is not False,
+            "set_at": d.get("set_at"), "set_by": d.get("set_by"), "sheet_id": _sg.SHEET_ID, "tab": _sg.TAB,
+            "last_sync": d.get("last_sync"), "last_error": _SG_CACHE.get("err"),
+            "log_seq": d.get("log_seq", 0), "log": (d.get("log") or [])[-100:],
+            "how_to_turn_off": 'POST /api/sheet_gate {"on": false}  (or SHEET_GATE_OFF=1 on Railway)'}
+
+
+@app.post("/api/sheet_gate")
+def api_sheet_gate_set(body: SheetGateIn):
+    import ingest as _i
+    _sg.set_on(_i.PROJECTS, body.on, by="api")
+    _ev("publish", "posting gate (Posting Review sheet) switched " + ("ON" if body.on else
+        "OFF — the schedule posts by posting times and queue order again"), "warn")
+    return api_sheet_gate()
+
+
+@app.post("/api/sheet_gate/sync")
+def api_sheet_gate_sync(body: SheetSyncIn):
+    """Check the sheet now. apply=false: what would happen (no writes). apply=true (gate on):
+    apply Approve rows and slots, as the scheduler does on every pass."""
+    import ingest as _i
+    if body.apply and not _sg.enabled(_i.PROJECTS):
+        raise HTTPException(409, "the posting gate is off; only a dry run (apply=false) is possible")
+    try:
+        rows = _sheet_rows(max_age=0)
+    except Exception as e:
+        raise HTTPException(502, f"could not read the Posting Review sheet: {_SG_CACHE.get('err') or e}")
+    return {"gate_on": _sg.enabled(_i.PROJECTS), **_sheet_sync(apply=body.apply, rows=rows)}
+
+
 @app.get("/api/studio")
 def studio_overview():
     """Every export sorted into the studio's lanes: waiting for review, ready to
@@ -11869,7 +12130,11 @@ def studio_overview():
     # A queued video that would be refused gets no planned time and says why,
     # so the schedule shows it before its slot comes (owner, 2026-10-07).
     blocked = {}
+    pins, holds = _gate_display()
     for x in q["items"]:
+        if x["status"] == "queued" and x["id"] in holds:
+            blocked[x["id"]] = "held by the Posting Review sheet: " + holds[x["id"]]
+            continue
         if x["status"] == "queued":
             try:
                 b = _local_post_blockers(x["project"], x["name"])
@@ -11882,7 +12147,7 @@ def studio_overview():
                 blocked[x["id"]] = "; ".join(b)
     try:
         plan = _pq.planned(sched, q, time.time(),
-                           lambda x: [] if x["id"] in blocked else _targets_of(x))
+                           lambda x: [] if x["id"] in blocked else _targets_of(x), pins=pins)
     except Exception:
         plan = {}
     for x in q["items"]:
