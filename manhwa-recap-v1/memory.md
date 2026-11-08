@@ -2035,3 +2035,13 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 
 ### 2026-11-08T01:37Z — Murim Login source check (FLAMINGO, read-only)
 - Asura max ch 252, mgeko max ch 252 (ops.py source-check). No change since the 13:37Z check; 251-252 is already the merged video (uploaded, Sat 2 PM ET slot). Nothing started.
+
+
+### 2026-11-08 ~03:06Z — Posting gate LIVE + missed-slot auto-move; 8b6ce73 + 10-hashtag rule pushed; Fog Land 45 skipped (FLAMINGO)
+- Owner (chat): "push. Also push 8b6ce73. go on the 10-hashtag branch." Missed sheet slot: follow HEAD_RULES_20261107T1345Z rule 3 — move to the next free top-of-hour slot automatically, note it in the RESULT. Fog Land 45: Skip (38-45 merge already posted). FDA: owner grants at the Mac; do NOT switch uploads to the Drive API.
+- New 685a19e: sheet_gate.next_free/auto_move — a queued, gate-approved video whose slot is <45 min ahead (or passed) moves to the next free posting time (schedule times 10/14/22 ET), no shared hour, within per_channel_per_day. Move kept while the sheet shows the old slot; a new sheet slot wins. Logged as change "missed slot, moved to the next free slot" (APPLIED csv + studio event). _sheet_gate.json now stores sheet slots + "moves". Tests: suite 431 passed / 2 skipped (on the release stack); test_sheet_gate 18; schedule script 34/34.
+- Pushed release/20261108 -> main 8e9e6e3 = 3a8b6a1 (gate) + 685a19e (auto-move) + 8b6ce73 (cover cache, as 3ac00e1) + feat/hashtags-10 (2cb9b37, cc82c33, 8e9e6e3). Jobs bar empty, nothing uploading, next upload ~13:30Z. Railway e97550dd built ~19 min; /api/sheet_gate live 03:05:29Z.
+- Live check: gate ON; studio's own sync 03:05:52Z; sheet-sync --dry then apply: 7 queued videos POST at their sheet slots (Sun 10/14/22, Mon 10/14/22, Tue 10), text matches, "no new changes". NEEDS OWNER: murim-login_ch251-252 already uploaded and its sheet text differs — left alone (posted titles are HEAD's via vidIQ).
+- Hashtags: queued videos keep the sheet's hashtags as written (Approve rows); the 10-tag generator applies to new packages; Facebook capped at 3 at upload.
+- Fog Land 45: both exports (final_Nov07_08.35PM_1.15x.mp4, final_Nov04_01.13PM_1.15x.mp4) set sent_back with note "Skip (owner…)"; gone from PENDING. APPLIED_FLAMINGO_20261108T0306Z.csv (md5 ok); re-export EXPORTS_DONE_FLAMINGO_20261108T0306Z.md (PENDING 3: Death Knight 88-95, Mount Hua 180-186, Stellar 136; POSTED 34).
+- Ops (local, ~/dev/manhwa-ops/bin): act.sheet_sync returns the change log and prints "MISSED SLOT MOVED"; watch.py adds a sheet_moved finding per move so the RESULT notes it. Backups in scratchpad ops_bak_0020/*.0250.
