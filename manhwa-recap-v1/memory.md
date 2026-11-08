@@ -2055,3 +2055,9 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Done live: DK 88-95 and Mount Hua 180-186 set sent_back with the reason; off PENDING. APPLIED_FLAMINGO_20261108T0407Z.csv (md5 ok); EXPORTS_DONE_FLAMINGO_20261108T0407Z.md (PENDING 1: Stellar 136).
 - Sources: DK latest 95, Mount Hua latest 186 -> 1 new chapter each; at 7 per merge the re-cuts are ~6 releases away.
 - Until the branch is deployed the old auto-append still runs; it only acts after a chapter render, which needs the owner's Render.
+
+### 2026-11-08 12:30Z — FLAMINGO: merge rule pushed, Stellar 136 approved, fill plan for Nov 10–15
+- Owner (chat): "push ed9f13c. AUTO_APPEND_MIN=7 is fine. Approve Stellar Swordmaster 136." Jobs bar empty, next upload 13:30Z -> pushed rebased 5f632a6 to main 12:30Z (Railway build ~19 min). AUTO_APPEND_MIN left unset (default 7).
+- Stellar 136 approved via POST /api/review -> queued (qid 202e8c767f). Gate holds it: sheet row has no Decision/slot ("Not scheduled (Video review)"). Needs Approve + a slot in the sheet (next free: Tue Nov 10, 2:00 PM). APPLIED_FLAMINGO_20261108T1231Z.csv + EXPORTS_DONE_FLAMINGO_20261108T1231Z.md (PENDING 0) in Drive, md5 ok.
+- Live source check (read-only, 12:32Z): no active series has 7+ chapters after its last posted/queued video. Most have 0-1; Extra's Academy has 2 (120-121). Live > snapshot for Former Supreme 23, Bountiful Harvest 92, Too Many Heroes 35, Regressor 37, Murim Login 252. Only never-posted Library series have 7+.
+- Plan sent to owner; nothing rendered (owner: "Don't render until I approve the list").
