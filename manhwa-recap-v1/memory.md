@@ -2069,3 +2069,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 
 ### 2026-11-08 13:37Z — FLAMINGO: Murim Login source check (cron)
 - ops.py source-check: Asura max 252, mgeko max 252. No chapter beyond 252. 251-252 were already produced and posted as the 251-252 merge (2026-11-07), so the check's "ch 251 appeared" branch no longer applies; no titles/opener drafted, no production.
+
+### 2026-11-08 ~14:15Z — FLAMINGO: render guard live; merge audit (owner: "make sure things that should be merged are being merged")
+- 56092b1 pushed 13:59Z after the TMH 28-34 upload finished (safe in Drive 13:58Z); live 14:03Z (openapi RenderQueueIn has allow_posted). Queue intact.
+- Found: DK 88-95 and MH 180-186 were edited + approved in Video review 12:37–12:43Z (not this session; caller not logged) -> back in queue, no sheet slot so gate holds them; asked owner whether to send back again.
+- Audit via /api/auto-append dry run + snapshot: no rendered chapter is left unmerged. Every series is either "no new rendered chapter after its last posted video" or waiting on an approved merge to post. PENDING has 0 rows. FL-1 holds still set (AUTO_APPEND_HOLD fog-land-9299:46, the-stellar-swordmaster-5988:137 -> those chapters post as singles). Queued merges built under the 11-04 rule overlap posted single videos: Bountiful 85-91 (90), Stellar 129-135 (129, 133-134), Dark Mage 104-110 (109), Former Supreme 16-22 (19-21), Extras 114-119 (114), Fated Villain 361-367 (364-365). Reported to owner; nothing changed.
