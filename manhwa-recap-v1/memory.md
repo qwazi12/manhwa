@@ -2031,3 +2031,7 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Ops (local, ~/dev/manhwa-ops/bin): act.py sheet-sync [--dry] (apply-approved = alias) and gate status|on|off; watch.py check 6 "sheet" each :10/:40 (skips until the studio has /api/sheet_gate); exports.py adds FLAMINGO_PENDING_<stamp>.csv; ops.py allows PENDING + /api/sheet_gate; WATCH_PROMPT updated; .claude/settings.json allows act.py sheet-sync, act.py gate status, exports.py --change (gate on/off not allowed headless).
 - Re-export: EXPORTS_DONE_FLAMINGO_20261108T0018Z.md (SERIES 23 / QUEUE 8 / POSTED 33 / PENDING 1, md5 ok). Bug fixed: --change stamps used the ET date + UTC time; the set stamped 20261107T0017Z was actually written 2026-11-08 00:17Z (left in Drive, never overwritten/deleted).
 - Still blocked: launchd jobs can't move files into the Drive for Desktop folder (macOS privacy) — the watcher's APPLIED upload + re-export happen in a session, which also runs under launchd.
+
+
+### 2026-11-08T01:37Z — Murim Login source check (FLAMINGO, read-only)
+- Asura max ch 252, mgeko max ch 252 (ops.py source-check). No change since the 13:37Z check; 251-252 is already the merged video (uploaded, Sat 2 PM ET slot). Nothing started.
