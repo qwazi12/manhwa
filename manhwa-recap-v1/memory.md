@@ -2045,3 +2045,13 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Hashtags: queued videos keep the sheet's hashtags as written (Approve rows); the 10-tag generator applies to new packages; Facebook capped at 3 at upload.
 - Fog Land 45: both exports (final_Nov07_08.35PM_1.15x.mp4, final_Nov04_01.13PM_1.15x.mp4) set sent_back with note "Skip (owner…)"; gone from PENDING. APPLIED_FLAMINGO_20261108T0306Z.csv (md5 ok); re-export EXPORTS_DONE_FLAMINGO_20261108T0306Z.md (PENDING 3: Death Knight 88-95, Mount Hua 180-186, Stellar 136; POSTED 34).
 - Ops (local, ~/dev/manhwa-ops/bin): act.sheet_sync returns the change log and prints "MISSED SLOT MOVED"; watch.py adds a sheet_moved finding per move so the RESULT notes it. Backups in scratchpad ops_bak_0020/*.0250.
+
+
+### 2026-11-08 ~04:07Z — No overlapping merges (owner rule); DK 88-95 + Mount Hua 180-186 withdrawn; memory pushed (FLAMINGO)
+- Owner (chat): leave Murim 251-252 as is (sheet text differs from upload; not changed). Future merges start at the chapter after the last posted video (no overlapping ranges). DK 88-95 / Mount Hua 180-186 overlap posted videos -> re-cut as 95+ / 186+ when there are enough new chapters. Memory commits: push is fine.
+- Pushed memory commits to main (rebased growth/fl1-f3 onto origin/main, memory.md only; railway.json watchPatterns excludes memory.md -> no deploy): 0a5db81.
+- Source of the overlaps: auto-append (owner rule 2026-11-04) extended posted 88-94 -> 88-95 and 180-185 -> 180-186 at ~01:23Z.
+- Branch feat/merge-after-posted ed9f13c (NOT pushed, needs owner "push"): auto_append.decide starts at posted end + 1, builds once AUTO_APPEND_MIN new chapters are ready (default 7, Railway env), waiting merge still grows until approved, overlapping waiting merges are retired (moved to Deleted, 14 days) by the re-cut. Prior SEO/thumbnail still borrowed from the posted video. Tests rewritten for the new rule; suite 433 passed / 2 skipped; schedule script 34/34.
+- Done live: DK 88-95 and Mount Hua 180-186 set sent_back with the reason; off PENDING. APPLIED_FLAMINGO_20261108T0407Z.csv (md5 ok); EXPORTS_DONE_FLAMINGO_20261108T0407Z.md (PENDING 1: Stellar 136).
+- Sources: DK latest 95, Mount Hua latest 186 -> 1 new chapter each; at 7 per merge the re-cuts are ~6 releases away.
+- Until the branch is deployed the old auto-append still runs; it only acts after a chapter render, which needs the owner's Render.
