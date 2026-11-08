@@ -3939,6 +3939,53 @@ def _posted_names(pdir):
     return out
 
 
+def _posted_spans():
+    """{series_id: [(start, end, project)]} of every posted video, chapter or merge."""
+    import ingest as _i
+    out = {}
+    try:
+        pids = os.listdir(_i.PROJECTS)
+    except OSError:
+        return out
+    for pid in pids:
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(pdir):
+            continue
+        try:
+            if not _posted_names(pdir):
+                continue
+            sid, _s, n, meta = _series_ident(pdir)
+            if meta.get("kind") == "range":
+                a_, e_ = int(meta["chapters_start"]), int(meta["chapters_end"])
+            elif n is not None:
+                a_ = e_ = int(n)
+            else:
+                continue
+        except Exception:  # noqa — an unreadable folder is not a posted video
+            continue
+        if sid:
+            out.setdefault(sid, []).append((a_, e_, pid))
+    return out
+
+
+def _posted_cover(pdir, spans=None):
+    """The posted video that already holds this single chapter -> {project, start, end, why}
+    or None. Owner, 2026-11-08: Fog Land 45 was rendered again after the 38-45 merge had
+    posted; such a chapter is not rendered or shown for review unless asked (allow_posted)."""
+    try:
+        sid, _s, n, meta = _series_ident(pdir)
+    except Exception:  # noqa
+        return None
+    if not sid or n is None or meta.get("kind") == "range":
+        return None
+    for a_, e_, pid in (spans if spans is not None else _posted_spans()).get(sid, []):
+        if a_ <= int(n) <= e_:
+            rng = f"{a_}" if a_ == e_ else f"{a_}-{e_}"
+            return {"project": pid, "start": a_, "end": e_,
+                    "why": f"{_pretty(os.path.basename(pdir.rstrip('/')))} is already in the posted video {rng}"}
+    return None
+
+
 def _auto_append_inputs():
     """{series_id: (posted, singles, pending)} for auto_append.decide."""
     import ingest as _i
@@ -9390,6 +9437,7 @@ class ApproveIn(BaseModel):
     rerender_all: bool = False   # force: rebuild every ticked clip
     keep_voice: bool = False     # render in the chapter's own voice, no re-voice
     force_start: bool = False    # internal: queue worker starting the single allowed render
+    allow_posted: bool = False   # render a chapter that is already in a posted video
 
 
 class DelLineIn(BaseModel):
@@ -9437,6 +9485,10 @@ def storyboard_undo_stack():
 @app.post("/api/storyboard/approve")
 def storyboard_approve(body: ApproveIn):
     import time
+    if body.approved and not body.allow_posted:
+        cover = _posted_cover(active_project_dir())
+        if cover:
+            raise HTTPException(409, cover["why"] + " — not rendered (allow_posted renders it anyway)")
     json.dump({"approved": body.approved, "ts": time.time()},
               open(_approval_path(), "w"))
     if not body.approved:
@@ -9466,7 +9518,8 @@ def storyboard_approve(body: ApproveIn):
         active_other = _render_lock(except_pid=curr_pid)
         is_running = any(j.get("type") == "finalize" and j.get("status") in ("queued", "running") for j in JOBS.values())
         if active_other or is_running:
-            it, why = _rq.add(_ingest_mod.PROJECTS, curr_pid, keep_voice=bool(body.keep_voice))
+            it, why = _rq.add(_ingest_mod.PROJECTS, curr_pid, keep_voice=bool(body.keep_voice),
+                              allow_posted=bool(body.allow_posted))
             _rq_kick()
             pos = _rq.position(_ingest_mod.PROJECTS, curr_pid) or {}
             return {"ok": True, "approved": True, "job": None, "queued": True, "render_queue": pos,
@@ -10865,7 +10918,8 @@ def _rq_worker():
         try:
             # bound, not activated: the owner's open chapter stays theirs (2026-10-13)
             with _bind_project(os.path.join(root, it["project"])):
-                r = storyboard_approve(ApproveIn(approved=True, keep_voice=it.get("keep_voice", True), force_start=True))
+                r = storyboard_approve(ApproveIn(approved=True, keep_voice=it.get("keep_voice", True), force_start=True,
+                                                         allow_posted=bool(it.get("allow_posted"))))
             job = r.get("job")
             if not job:
                 raise RuntimeError(r.get("note") or "nothing to render")
@@ -10888,6 +10942,7 @@ def _rq_worker():
 class RenderQueueIn(BaseModel):
     projects: list[str] = []
     keep_voice: bool = True       # the queue never re-voices unless asked
+    allow_posted: bool = False    # also render chapters already in a posted video
 
 
 class RenderQueueItemIn(BaseModel):
@@ -10932,6 +10987,7 @@ def render_queue_add(body: RenderQueueIn):
     import ingest as _i
     import pipeline_steps as _ps
     added, skipped = [], []
+    spans = None if body.allow_posted else _posted_spans()
     for pid in dict.fromkeys(p for p in body.projects if p):
         pdir = os.path.join(_i.PROJECTS, pid)
         why = None
@@ -10939,10 +10995,12 @@ def render_queue_add(body: RenderQueueIn):
             why = "not found"
         elif next((s for s in _ps.status(pdir) if s["key"] == "match"), {}).get("state") != "done":
             why = "its board isn't finished yet"
+        elif spans is not None and _posted_cover(pdir, spans):
+            why = _posted_cover(pdir, spans)["why"]
         else:
             why = _chapter_busy(pdir)
         if not why:
-            it, why = _rq.add(_i.PROJECTS, pid, keep_voice=body.keep_voice)
+            it, why = _rq.add(_i.PROJECTS, pid, keep_voice=body.keep_voice, allow_posted=body.allow_posted)
         if why:
             skipped.append({"id": pid, "name": _pretty(pid), "reason": why})
         else:
@@ -11097,6 +11155,7 @@ def _build_chapter_rows():
     except Exception:
         auto = set()
     rows, seen = [], set()
+    spans = None
     try:
         pids = sorted(p for p in os.listdir(_i.PROJECTS) if not p.startswith("_")
                       and os.path.isdir(os.path.join(_i.PROJECTS, p)))
@@ -11111,6 +11170,12 @@ def _build_chapter_rows():
         f = _cs.gather(pdir, ingest_rec=ing.get(pid), rendering=pid in rendering, queue_rows=qby.get(pid),
                        review_state=review_state, load_publishes=load_publishes, archived=arch)
         st = _cs.decide(f)
+        if st.get("key") == "video_ready":          # owner 2026-11-08: not Video review when already posted
+            if spans is None:
+                spans = _posted_spans()
+            cover = _posted_cover(pdir, spans)
+            if cover:
+                st = _cs.view("posted", note=cover["why"])
         lab = _project_label(pdir)
         ij = ing.get(pid) or {}
         if not (lab.get("title") or "").strip() or not meta.get("url"):
@@ -11920,8 +11985,13 @@ def _pending_exports():
     active = {(x["project"], x["name"]) for x in _pq.load(_i.PROJECTS)["items"]
               if x["status"] in _pq.ACTIVE + ("posted",)}
     out = {}
+    spans = None
     for pid, d in _all_export_dirs():
         pdir = os.path.dirname(d)
+        if spans is None:
+            spans = _posted_spans()
+        if _posted_cover(pdir, spans):          # owner 2026-11-08: already in a posted video
+            continue
         pubs = load_publishes(pdir)
         for f in os.listdir(d):
             if not f.endswith(".mp4") or (pid, f) in active:

@@ -55,14 +55,14 @@ def _save(root, d):
     os.replace(tmp, _path(root))
 
 
-def add(root, project, keep_voice=True):
+def add(root, project, keep_voice=True, allow_posted=False):
     """Queue one chapter. Returns (item, None) or (None, reason)."""
     with _LOCK:
         d = load(root)
         if any(i["project"] == project and i["status"] in ("waiting", "rendering") for i in d["items"]):
             return None, "already in the render queue"
         it = {"id": uuid.uuid4().hex[:10], "project": project, "status": "waiting",
-              "keep_voice": bool(keep_voice), "added": time.time(), "started": None,
+              "keep_voice": bool(keep_voice), "allow_posted": bool(allow_posted), "added": time.time(), "started": None,
               "ended": None, "job": None, "error": None, "attempts": 0}
         d["items"].append(it)
         _save(root, d)
