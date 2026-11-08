@@ -3905,6 +3905,15 @@ def _auto_append_enabled():
     return os.environ.get("AUTO_APPEND", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
+def _auto_append_min():
+    """New chapters needed before the next merge is built (owner, 2026-11-08: "when
+    there are enough new chapters"). AUTO_APPEND_MIN on Railway; default 7."""
+    try:
+        return max(1, int(os.environ.get("AUTO_APPEND_MIN", "7")))
+    except ValueError:
+        return 7
+
+
 def _auto_append_holds():
     """FL-1 test (owner, 2026-11-06): {series_id: N}. Chapters N and later of
     these series post as singles instead of joining the posted video.
@@ -4035,14 +4044,14 @@ def _auto_append_pass(apply=True, limit=1):
         for sid, (posted, singles, pending) in sorted(_auto_append_inputs().items()):
             if sid in holds:                          # FL-1: these chapters post as singles
                 singles = {n: x for n, x in singles.items() if n < holds[sid]}
-            d = _aa.decide(posted, singles, pending)
+            d = _aa.decide(posted, singles, pending, min_new=_auto_append_min())
             d["series"] = sid
             out.append(d)
             if not apply:
                 continue
             key = (d["action"], d.get("why") or (d.get("start"), d.get("end")))
             if d["action"] == "wait" and _AUTO_APPEND["seen"].get(sid) != key:
-                _ev("publish", f"{_series_label(sid, posted[-1]['project'] if posted else '')}: new chapter waiting to join the posted video — {d['why']}", "info")
+                _ev("publish", f"{_series_label(sid, posted[-1]['project'] if posted else '')}: new chapters waiting for the next merge — {d['why']}", "info")
             if d["action"] == "build" and started < limit:
                 base = d["base"]
                 try:
@@ -4051,7 +4060,7 @@ def _auto_append_pass(apply=True, limit=1):
                         "video_id": base.get("video_id") or "", "retire": d["retire"]}))
                     started += 1
                     d["started"] = r.get("project")
-                    _ev("publish", f"{_series_label(sid, base['project'])}: adding chapter(s) to the posted video {base['start']}-"
+                    _ev("publish", f"{_series_label(sid, base['project'])}: next merge after the posted video {base['start']}-"
                                    f"{base['end']} → building {d['start']}-{d['end']} for Needs review", "ok")
                 except Exception as e:  # noqa — e.g. the posted video has no copy here or in Drive
                     d["error"] = str(getattr(e, "detail", e))[:200]

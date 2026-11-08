@@ -1,6 +1,6 @@
-"""Auto-append end to end on a temp library: posted 20-21 + rendered 22, 23
-→ 20-23 in Needs review with the posted title/tags/thumbnail; then 24
-finishes → 20-24 replaces the waiting 20-23."""
+"""Auto-append end to end on a temp library (owner rule 2026-11-08, no overlaps):
+posted 20-21 + rendered 22, 23 → 22-23 in Needs review with the posted video's
+title hook / tags / thumbnail art; then 24 finishes → 22-24 replaces the waiting 22-23."""
 import io
 import json
 import os
@@ -50,6 +50,7 @@ def lib(tmp_path, monkeypatch):
                                                          [(n, 600.0 * i) for i, (n, _p, _x) in enumerate(chs)])[1])
     monkeypatch.setattr(rc, "_probe", lambda path: 600.0)
     monkeypatch.setenv("AUTO_APPEND", "1")
+    monkeypatch.setenv("AUTO_APPEND_MIN", "2")
     # the posted merged video 20-21
     p = tmp_path / "hound_ch20-21"
     (p / "exports").mkdir(parents=True)
@@ -74,44 +75,57 @@ def lib(tmp_path, monkeypatch):
     return root, tmp_path
 
 
-def test_new_chapters_join_the_posted_video_with_its_seo(lib):
+def test_next_merge_starts_after_the_posted_video_with_its_seo(lib):
     root, tmp_path = lib
     plans = server._auto_append_pass()
     d = next(x for x in plans if x["series"] == "hound")
-    assert d["action"] == "build" and (d["start"], d["end"]) == (20, 23), d
-    m = _wait(root, "hound_ch20-23")
+    assert d["action"] == "build" and (d["start"], d["end"]) == (22, 23), d
+    m = _wait(root, "hound_ch22-23")
     assert m["build"]["status"] == "done", m
-    md = server.load_publish(os.path.join(root, "hound_ch20-23"))["final_range_20-23.mp4"]
-    assert md["title"] == "[20-23] Hound Returns For VENGEANCE | Flamingo Recap"
+    assert [x["project"] for x in m["merged_from"]] == ["hound_22", "hound_23"]      # no posted chapters inside
+    md = server.load_publish(os.path.join(root, "hound_ch22-23"))["final_range_22-23.mp4"]
+    assert md["title"] == "[22-23] Hound Returns For VENGEANCE | Flamingo Recap"
     tags = [x.lower() for x in md["tags"]]
-    assert "hound chapter 20-23" in tags and "hound chapters 20 to 23" in tags
+    assert "hound chapter 22-23" in tags and "hound chapters 22 to 23" in tags
     assert "hound chapter 3" not in tags and len(tags) == len(set(tags))
-    assert "• 0:00 - Chapter 20\n• 5:00 - Chapter 21\n• 10:00 - Chapter 22\n• 20:00 - Chapter 23" in md["description"]
-    thumb = tb.path_for(os.path.join(root, "hound_ch20-23"), "final_range_20-23.mp4")
+    assert "• 0:00 - Chapter 22\n• 10:00 - Chapter 23" in md["description"]
+    thumb = tb.path_for(os.path.join(root, "hound_ch22-23"), "final_range_22-23.mp4")
     im = Image.open(thumb).convert("RGB")
     r, g, b = im.getpixel((40, 45))
     assert r > 200 and 140 < g < 220 and b < 120        # badge kept the posted colour
-    # chapters are now inside the merge, and nothing more to do
-    assert server.load_reviews(os.path.join(root, "hound_22"))["final.mp4"]["merged_into"] == "hound_ch20-23"
+    assert server.load_reviews(os.path.join(root, "hound_22"))["final.mp4"]["merged_into"] == "hound_ch22-23"
     again = next(x for x in server._auto_append_pass() if x["series"] == "hound")
     assert again["action"] == "none"
 
-    # chapter 24 finishes: 20-24 replaces the waiting 20-23, which is moved aside
+    # chapter 24 finishes: 22-24 replaces the waiting 22-23, which is moved aside
     _chapter(tmp_path, 24)
     d2 = next(x for x in server._auto_append_pass() if x["series"] == "hound")
-    assert d2["action"] == "build" and (d2["start"], d2["end"]) == (20, 24) and d2["retire"] == ["hound_ch20-23"]
-    m2 = _wait(root, "hound_ch20-24")
+    assert d2["action"] == "build" and (d2["start"], d2["end"]) == (22, 24) and d2["retire"] == ["hound_ch22-23"]
+    m2 = _wait(root, "hound_ch22-24")
     assert m2["build"]["status"] == "done"
     for _ in range(100):
-        if not os.path.isdir(os.path.join(root, "hound_ch20-23")):
+        if not os.path.isdir(os.path.join(root, "hound_ch22-23")):
             break
         time.sleep(0.05)
-    assert not os.path.isdir(os.path.join(root, "hound_ch20-23"))
+    assert not os.path.isdir(os.path.join(root, "hound_ch22-23"))
     assert not any(x.startswith("_unmerged_") for x in os.listdir(root))          # nothing hidden fills the disk
-    assert any(x.startswith("hound_ch20-23__") for x in os.listdir(os.path.join(root, server.TRASH_DIR)))
-    assert any(i["name"].startswith("hound_ch20-23__") for i in server.api_trash()["items"])
+    assert any(x.startswith("hound_ch22-23__") for x in os.listdir(os.path.join(root, server.TRASH_DIR)))
+    assert any(i["name"].startswith("hound_ch22-23__") for i in server.api_trash()["items"])
     for n in (22, 23, 24):
-        assert server.load_reviews(os.path.join(root, f"hound_{n}"))["final.mp4"]["merged_into"] == "hound_ch20-24"
+        assert server.load_reviews(os.path.join(root, f"hound_{n}"))["final.mp4"]["merged_into"] == "hound_ch22-24"
+
+
+def test_waits_for_auto_append_min(lib, monkeypatch):
+    root, _ = lib
+    monkeypatch.setenv("AUTO_APPEND_MIN", "7")
+    assert server._auto_append_min() == 7
+    d = next(x for x in server._auto_append_pass() if x["series"] == "hound")
+    assert d["action"] == "wait" and "starts at 22 once 7" in d["why"], d
+    assert not os.path.isdir(os.path.join(root, "hound_ch22-23"))
+    monkeypatch.setenv("AUTO_APPEND_MIN", "x")
+    assert server._auto_append_min() == 7
+    monkeypatch.delenv("AUTO_APPEND_MIN")
+    assert server._auto_append_min() == 7
 
 
 def test_off_switch(lib, monkeypatch):
@@ -168,20 +182,15 @@ def test_restore_a_posted_chapter_whose_folder_is_gone(lib, tmp_path):
     assert c.post(base + "&video_id=abcdefghijk", content=clip.read_bytes()).status_code == 409
 
 
-def test_posted_merge_whose_file_is_gone_is_built_from_its_chapters(lib, tmp_path):
+def test_posted_merge_whose_file_is_gone_does_not_matter(lib, tmp_path):
     root, tmp_path = lib
     p = tmp_path / "hound_ch20-21"
     os.remove(p / "exports" / "final_range_20-21.mp4")          # cleared before Drive archiving
-    for n in (20, 21):
-        _chapter(tmp_path, n)
-    m = json.loads((p / "project.json").read_text())
-    m["merged_from"] = [{"project": "hound_20", "name": "final.mp4"}, {"project": "hound_21", "name": "final.mp4"}]
-    (p / "project.json").write_text(json.dumps(m))
     d = next(x for x in server._auto_append_pass() if x["series"] == "hound")
     assert d["action"] == "build" and not d.get("error"), d
-    m2 = _wait(root, "hound_ch20-23")
+    m2 = _wait(root, "hound_ch22-23")
     assert m2["build"]["status"] == "done"
-    assert [x["project"] for x in m2["merged_from"]] == ["hound_20", "hound_21", "hound_22", "hound_23"]
+    assert [x["project"] for x in m2["merged_from"]] == ["hound_22", "hound_23"]
 
 
 def test_fl1_hold_keeps_chapters_as_singles(lib, monkeypatch):
@@ -191,11 +200,12 @@ def test_fl1_hold_keeps_chapters_as_singles(lib, monkeypatch):
     assert server._auto_append_holds() == {"hound": 22}
     d = next(x for x in server._auto_append_pass() if x["series"] == "hound")
     assert d["action"] == "none", d
-    assert not os.path.isdir(os.path.join(root, "hound_ch20-22")) and not os.path.isdir(os.path.join(root, "hound_ch20-23"))
-    monkeypatch.setenv("AUTO_APPEND_HOLD", "hound:23")             # chapters before the hold still join
+    assert not os.path.isdir(os.path.join(root, "hound_ch22-22")) and not os.path.isdir(os.path.join(root, "hound_ch22-23"))
+    monkeypatch.setenv("AUTO_APPEND_HOLD", "hound:23")             # chapters before the hold still merge
+    monkeypatch.setenv("AUTO_APPEND_MIN", "1")
     d = next(x for x in server._auto_append_pass() if x["series"] == "hound")
-    assert d["action"] == "build" and (d["start"], d["end"]) == (20, 22), d
-    assert _wait(root, "hound_ch20-22")["build"]["status"] == "done"
+    assert d["action"] == "build" and (d["start"], d["end"]) == (22, 22), d
+    assert _wait(root, "hound_ch22-22")["build"]["status"] == "done"
 
 
 def test_growth_snapshot_is_read_only(lib):

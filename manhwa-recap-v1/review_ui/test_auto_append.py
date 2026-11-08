@@ -1,4 +1,4 @@
-"""Auto-append (owner, 2026-11-04): new chapters join the last posted video."""
+"""Auto-append. Owner 2026-11-08: the next merge starts after the last posted video (no overlaps)."""
 import auto_append as aa
 
 
@@ -10,12 +10,21 @@ def _single(pid, status="review_pending", merged_into=None, has_video=True, supe
 POSTED = [{"project": "s_ch20-30", "name": "final_range_20-30.mp4", "start": 20, "end": 30, "at": 5}]
 
 
-def test_owner_example_20_30_plus_31_32():
+def test_owner_rule_20261108_next_merge_starts_after_the_posted_video():
     d = aa.decide(POSTED, {31: _single("s_31"), 32: _single("s_32")}, [])
     assert d["action"] == "build"
-    assert (d["start"], d["end"]) == (20, 32)
-    assert d["projects"] == ["s_ch20-30", "s_31", "s_32"]
-    assert d["retire"] == []
+    assert (d["start"], d["end"]) == (31, 32)
+    assert d["projects"] == ["s_31", "s_32"]          # the posted 20-30 is not re-used
+    assert d["base"]["project"] == "s_ch20-30" and d["retire"] == []
+
+
+def test_waits_for_enough_new_chapters():
+    singles = {n: _single(f"s_{n}") for n in range(31, 37)}
+    d = aa.decide(POSTED, singles, [], min_new=7)
+    assert d["action"] == "wait" and "6 new chapter(s) after 30" in d["why"] and "starts at 31" in d["why"]
+    singles[37] = _single("s_37")
+    d = aa.decide(POSTED, singles, [], min_new=7)
+    assert d["action"] == "build" and (d["start"], d["end"]) == (31, 37)
 
 
 def test_nothing_posted_or_nothing_new():
@@ -23,43 +32,43 @@ def test_nothing_posted_or_nothing_new():
     assert aa.decide(POSTED, {}, [])["action"] == "none"
 
 
-def test_waiting_merge_is_replaced_and_keeps_its_earlier_pieces():
-    pend = [{"project": "s_ch20-31", "start": 20, "end": 31, "building": False, "approved": False,
-             "pieces": [{"project": "s_ch20-30", "name": "x"}, {"project": "s_31", "name": "y"}]}]
-    singles = {31: _single("s_31", "merged", "s_ch20-31"), 32: _single("s_32")}
+def test_overlapping_waiting_merge_is_recut_from_the_next_chapter():
+    # Death Knight: posted 88-94, waiting 88-95 (overlaps); 96..101 render -> 95-101 replaces 88-95
+    posted = [{"project": "dk_ch88-94", "name": "a", "start": 88, "end": 94, "at": 1}]
+    pend = [{"project": "dk_ch88-95", "start": 88, "end": 95, "building": False, "approved": False,
+             "pieces": [{"project": "dk_ch88-94"}, {"project": "dk_95"}]}]
+    singles = {95: _single("dk_95", "merged", "dk_ch88-95")}
+    d = aa.decide(posted, singles, pend, min_new=7)
+    assert d["action"] == "wait" and "starts at 95" in d["why"]
+    singles.update({n: _single(f"dk_{n}") for n in range(96, 102)})
+    d = aa.decide(posted, singles, pend, min_new=7)
+    assert d["action"] == "build" and (d["start"], d["end"]) == (95, 101)
+    assert d["projects"] == [f"dk_{n}" for n in range(95, 102)] and d["retire"] == ["dk_ch88-95"]
+
+
+def test_waiting_merge_grows_until_approved():
+    pend = [{"project": "s_ch31-32", "start": 31, "end": 32, "building": False, "approved": False, "pieces": []}]
+    singles = {31: _single("s_31", "merged", "s_ch31-32"), 32: _single("s_32", "merged", "s_ch31-32"),
+               33: _single("s_33")}
     d = aa.decide(POSTED, singles, pend)
-    assert d["action"] == "build" and (d["start"], d["end"]) == (20, 32)
-    assert d["projects"] == ["s_ch20-30", "s_31", "s_32"]
-    assert d["retire"] == ["s_ch20-31"]
-
-
-def test_waiting_merge_that_reaches_further_back_is_kept_whole():
-    # Murim: posted 48, waiting 47-49 (47 posted earlier); 50 finishes
-    posted = [{"project": "m_47", "name": "a", "start": 47, "end": 47, "at": 1},
-              {"project": "m_48", "name": "b", "start": 48, "end": 48, "at": 2}]
-    pend = [{"project": "m_ch47-49", "start": 47, "end": 49, "building": False, "approved": False,
-             "pieces": [{"project": "m_47"}, {"project": "m_48"}, {"project": "m_49"}]}]
-    singles = {49: _single("m_49", "merged", "m_ch47-49"), 50: _single("m_50")}
-    d = aa.decide(posted, singles, pend)
-    assert (d["start"], d["end"]) == (47, 50)
-    assert d["projects"] == ["m_47", "m_48", "m_49", "m_50"]
+    assert d["action"] == "build" and (d["start"], d["end"]) == (31, 33) and d["retire"] == ["s_ch31-32"]
 
 
 def test_already_covered_is_a_no_op():
-    pend = [{"project": "s_ch20-32", "start": 20, "end": 32, "building": False, "approved": False, "pieces": []}]
-    singles = {31: _single("s_31", "merged", "s_ch20-32"), 32: _single("s_32", "merged", "s_ch20-32")}
+    pend = [{"project": "s_ch31-32", "start": 31, "end": 32, "building": False, "approved": False, "pieces": []}]
+    singles = {31: _single("s_31", "merged", "s_ch31-32"), 32: _single("s_32", "merged", "s_ch31-32")}
     assert aa.decide(POSTED, singles, pend)["action"] == "none"
 
 
 def test_approved_merge_is_never_replaced():
-    pend = [{"project": "s_ch20-31", "start": 20, "end": 31, "building": False, "approved": True, "pieces": []}]
-    singles = {31: _single("s_31", "merged", "s_ch20-31"), 32: _single("s_32")}
+    pend = [{"project": "s_ch31-31", "start": 31, "end": 31, "building": False, "approved": True, "pieces": []}]
+    singles = {31: _single("s_31", "merged", "s_ch31-31"), 32: _single("s_32")}
     d = aa.decide(POSTED, singles, pend)
     assert d["action"] == "wait" and "approved" in d["why"]
 
 
 def test_building_waits():
-    pend = [{"project": "s_ch20-31", "start": 20, "end": 31, "building": True, "approved": False, "pieces": []}]
+    pend = [{"project": "s_ch31-31", "start": 31, "end": 31, "building": True, "approved": False, "pieces": []}]
     assert aa.decide(POSTED, {31: _single("s_31")}, pend)["action"] == "wait"
 
 
@@ -75,7 +84,7 @@ def test_run_stops_at_gap_unrendered_approved_or_edited_chapter():
 def test_base_is_the_posted_video_reaching_furthest():
     posted = POSTED + [{"project": "s_31", "name": "z", "start": 31, "end": 31, "at": 9}]
     d = aa.decide(posted, {32: _single("s_32")}, [])
-    assert d["projects"] == ["s_31", "s_32"] and (d["start"], d["end"]) == (31, 32)
+    assert d["projects"] == ["s_32"] and (d["start"], d["end"]) == (32, 32) and d["base"]["project"] == "s_31"
 
 
 def test_relabel_title():

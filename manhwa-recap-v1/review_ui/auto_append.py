@@ -15,6 +15,13 @@ Owner's choices (same day):
   * a merge the owner already approved / queued is never replaced: the
     series waits until it posts.
 
+Owner, 2026-11-08, replaces "added to the prior videos": no overlapping ranges.
+Each new merge starts at the chapter after the series' last posted video (posted
+88-94 -> the next merge is 95+) and is built once `min_new` new chapters are
+ready (AUTO_APPEND_MIN on Railway, default 7). A waiting merge that overlaps a
+posted video (Death Knight 88-95, Mount Hua 180-186) is replaced by that re-cut.
+The posted video still lends its title hook, tags and thumbnail art.
+
 This module is pure decision logic and text helpers over plain data; the
 server gathers the inputs and does the building (server._auto_append_pass).
 """
@@ -25,7 +32,7 @@ import re
 ELIGIBLE = ("review_pending",)
 
 
-def decide(posted, singles, pending):
+def decide(posted, singles, pending, min_new=1):
     """What to build for one series, or why not.
 
     posted:  [{"project", "name", "start", "end", "at"}] — videos of the series
@@ -35,17 +42,20 @@ def decide(posted, singles, pending):
     pending: [{"project", "start", "end", "building", "approved",
                "pieces": [{"project", "name"}]}] — merged videos of the
              series that are NOT posted.
+    min_new: new chapters needed before a merge is built.
 
     Returns {"action": "build", "base", "start", "end", "projects", "retire"}
-    or {"action": "none" | "wait", "why"}.
+    or {"action": "none" | "wait", "why"}. "base" is the posted video whose
+    title / tags / thumbnail the new merge borrows; it is not part of it.
     """
     if not posted:
         return {"action": "none", "why": "nothing posted yet"}
     base = max(posted, key=lambda p: (int(p["end"]), float(p.get("at") or 0)))
-    b_start, b_end = int(base["start"]), int(base["end"])
+    b_end = int(base["end"])
+    start = b_end + 1
     pend = {p["project"]: p for p in pending}
 
-    run, n = [], b_end + 1
+    run, n = [], start
     while n in singles:
         s = singles[n]
         if not s.get("has_video") or s.get("superseded"):
@@ -65,24 +75,17 @@ def decide(posted, singles, pending):
     if any(p.get("building") for p in pending):
         return {"action": "wait", "why": "a merged video of this series is still being built"}
     for p in pending:
-        if int(p["start"]) <= b_start and int(p["end"]) >= last:
-            return {"action": "none", "why": f"{p['project']} already has chapters up to {last}"}
-    stale = [p for p in pending if int(p["end"]) >= b_end + 1 and int(p["start"]) <= last]
+        if int(p["start"]) == start and int(p["end"]) >= last:
+            return {"action": "none", "why": f"{p['project']} already has chapters {start}-{last}"}
+    stale = [p for p in pending if int(p["end"]) >= start and int(p["start"]) <= last]
     held = [p for p in stale if p.get("approved")]
     if held:
         return {"action": "wait", "why": f"{held[0]['project']} is approved — waiting for it to post"}
-
-    run_projects = [singles[c]["project"] for c in run]
-    # the waiting merge may already reach back further than the posted video
-    # (Murim 47-49 on posted 48): keep its earlier pieces, add the new chapters
-    reach = min(stale, key=lambda p: int(p["start"])) if stale else None
-    if reach and int(reach["start"]) <= b_start:
-        pieces = [pc["project"] for pc in reach.get("pieces") or [] if pc["project"] not in run_projects]
-        start = int(reach["start"])
-    else:
-        pieces, start = [base["project"]], b_start
+    if len(run) < min_new:
+        return {"action": "wait", "why": f"{len(run)} new chapter(s) after {b_end}; the next merge starts at "
+                                         f"{start} once {min_new} are ready"}
     return {"action": "build", "base": base, "start": start, "end": last,
-            "projects": list(dict.fromkeys(pieces + run_projects)),
+            "projects": [singles[c]["project"] for c in run],
             "retire": [p["project"] for p in stale]}
 
 
