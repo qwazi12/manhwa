@@ -1007,11 +1007,64 @@ def api_review(project: str = "", name: str = ""):
             "qc": _qc_bundle(pdir, name), "media_qa": _mqa.status(pdir, name)}
 
 
+def _single_should_merge(pdir):
+    """Why this single chapter should not be approved to post on its own, or None.
+    Owner, 2026-11-08: Stellar 136 was approved as a single right after the
+    not-yet-posted 129-135 merge instead of joining it. A chapter of a series that
+    is posted as merges joins the unposted merge it follows, or waits for the next
+    merge; ReviewIn.allow_single (or an AUTO_APPEND_HOLD test) posts it alone."""
+    import ingest as _i
+    try:
+        sid, _s, n, meta = _series_ident(pdir)
+    except Exception:  # noqa
+        return None
+    if not sid or n is None or meta.get("kind") == "range":
+        return None
+    n = int(n)
+    hold = _auto_append_holds().get(sid)
+    if hold is not None and n >= hold:
+        return None
+    posted = _posted_spans().get(sid, [])
+    if any(a_ <= n <= e_ for a_, e_, _p in posted):
+        return None                                   # the render guard's case, not this one
+    unposted = []
+    for pid in os.listdir(_i.PROJECTS):
+        rd = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(rd):
+            continue
+        try:
+            rsid, _x, _y, rm = _series_ident(rd)
+            if rsid != sid or rm.get("kind") != "range" or _posted_names(rd):
+                continue
+            b_ = rm.get("build") or {}
+            if b_.get("status") != "done":
+                continue
+            ex = b_.get("export") or ""
+            if ex and review_state(rd, ex)["status"] in ("sent_back", "merged"):
+                continue
+            unposted.append((int(rm["chapters_start"]), int(rm["chapters_end"])))
+        except Exception:  # noqa — an unreadable folder is not a merge
+            continue
+    if not unposted and not any(a_ != e_ for a_, e_, _p in posted):
+        return None                                   # this series isn't posted as merges
+    name = _pretty(os.path.basename(pdir.rstrip("/")))
+    adj = next(((a_, e_) for a_, e_ in sorted(unposted) if a_ <= n - 1 <= e_), None)
+    if adj:
+        return (f"{name} belongs in the merge {adj[0]}-{adj[1]}, which hasn't posted yet — rebuild it as "
+                f"{adj[0]}-{n} instead of posting this chapter on its own (allow_single posts it alone)")
+    end = max((e_ for _a, e_, _p in posted), default=None)
+    if end is not None and n > end:
+        return (f"{name} waits for the next merge, which starts at {end + 1} once "
+                f"{_auto_append_min()} chapters are ready (allow_single posts it alone)")
+    return None
+
+
 class ReviewIn(BaseModel):
     project: str = ""
     name: str
     status: str = ""       # approved | sent_back | review_pending ("" = notes only)
     notes: str = ""
+    allow_single: bool = False   # approve a chapter on its own though its series merges
 
 
 @app.post("/api/review")
@@ -1029,6 +1082,10 @@ def api_review_save(body: ReviewIn):
     import qa_project_policy as policy
     if status == "approved" and policy.restricted(pdir):
         raise HTTPException(403, policy.REASON)
+    if status == "approved" and not body.allow_single:
+        why = _single_should_merge(pdir)
+        if why:
+            raise HTTPException(409, why)
     pid = os.path.basename(pdir.rstrip("/"))
     name = os.path.basename(body.name)
     if not name.endswith(".mp4"):

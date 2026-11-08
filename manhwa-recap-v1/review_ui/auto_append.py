@@ -80,7 +80,13 @@ def decide(posted, singles, pending, min_new=1):
     stale = [p for p in pending if int(p["end"]) >= start and int(p["start"]) <= last]
     held = [p for p in stale if p.get("approved")]
     if held:
-        return {"action": "wait", "why": f"{held[0]['project']} is approved — waiting for it to post"}
+        h = held[0]
+        why = f"{h['project']} is approved — waiting for it to post"
+        if last > int(h["end"]):                  # owner 2026-11-08 (Stellar 136 after 129-135)
+            nxt = f"ch {int(h['end']) + 1}" + (f"-{last}" if last > int(h["end"]) + 1 else "")
+            why += (f"; {nxt} ready right after it — rebuild {int(h['start'])}-{last} before it uploads "
+                    f"to include {'it' if last == int(h['end']) + 1 else 'them'}, otherwise the next merge starts there")
+        return {"action": "wait", "why": why}
     if len(run) < min_new:
         return {"action": "wait", "why": f"{len(run)} new chapter(s) after {b_end}; the next merge starts at "
                                          f"{start} once {min_new} are ready"}
