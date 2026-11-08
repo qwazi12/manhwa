@@ -12002,11 +12002,26 @@ def _sheet_sync(apply=True, now=None, rows=None):
     if approved_now:
         vids, ev = evaluate()          # the newly queued videos get their queue ids
     old = st.get("slots") or {}
-    for pid, at in ev["slots"].items():
+    sheet_slots = dict(ev["slots"])
+    for pid, at in sheet_slots.items():
         if vids.get(pid, {}).get("lane") == "queued" and old.get(pid) and int(old[pid]) != int(at):
             changes.append({"queue_id": pid, "action": "slot moved from the sheet", "slot": _sg.label(at),
                             "slot_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)),
                             "fields": f"slot (was {_sg.label(old[pid])})", "title": ""})
+    # missed slot -> next free top-of-hour posting time (HEAD_RULES_20261107T1345Z rule 3, owner 2026-11-08)
+    sched = _studio.load().get("schedule") or {}
+    ev["slots"], moves, moved, move_needs = _sg.auto_move(
+        ev, vids, st.get("moves") or {}, now, min_lead, sched.get("times") or [],
+        int(sched.get("per_channel_per_day") or 0) or None)
+    extra_needs += move_needs
+    for m in moved:
+        changes.append({"queue_id": m["queue_id"], "action": "missed slot, moved to the next free slot",
+                        "slot": _sg.label(m["to"]), "slot_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(m["to"])),
+                        "fields": f"slot (missed {_sg.label(m['from'])}; sheet shows {_sg.label(m['sheet'])})",
+                        "title": ""})
+        if apply:
+            _ev("publish", f"{_pretty(m['queue_id'])}: missed {_sg.label(m['from'])} ET → moved to the next free "
+                f"slot {_sg.label(m['to'])} ET", "warn")
     pins = {vids[pid]["qid"]: at for pid, at in ev["slots"].items()
             if vids.get(pid, {}).get("lane") == "queued"
             and next((x["gate"] for x in ev["rows"] if x["queue_id"] == pid), "") == "post"}
@@ -12017,7 +12032,8 @@ def _sheet_sync(apply=True, now=None, rows=None):
         logged = _sg.add_log(root, changes)
         with _sg._lock:
             d = _sg.load(root)
-            d["slots"] = {k: v for k, v in ev["slots"].items() if v > now - 86400}
+            d["slots"] = {k: v for k, v in sheet_slots.items() if v > now - 86400}
+            d["moves"] = moves
             d["last_sync"] = {"at": now, "rows": len(rows), "needs_owner": needs, "pins": pins,
                               "holds": {vids[x["queue_id"]]["qid"]: x["why"] for x in ev["rows"]
                                         if vids.get(x["queue_id"], {}).get("lane") == "queued" and x["gate"] != "post"}}

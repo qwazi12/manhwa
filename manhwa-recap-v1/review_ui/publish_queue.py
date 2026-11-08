@@ -299,7 +299,7 @@ def _decide_pinned(sched, d, now, targets_of, pins):
     at, day, slot, x = min(due, key=lambda t: t[0])
     if now > at - min_lead:
         return {"action": "missed", "slot": slot, "day": day, "publish_at": at, "item": x,
-                "why": f"too late to upload {x['project']} ahead for {slot}; it needs a new slot in the sheet"}
+                "why": f"too late to upload {x['project']} ahead for {slot}; it moves to the next free slot"}
     blocked, earlier = has_unposted_earlier_chapter(x, d["items"])
     if blocked:
         return {"action": "skip", "slot": slot, "day": day,

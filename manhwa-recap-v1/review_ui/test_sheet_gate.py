@@ -282,3 +282,67 @@ def test_approve_on_a_video_review_item_queues_it_at_its_slot(tmp_path, monkeypa
     assert srv.load_publish(os.path.join(root, "pn"))["n.mp4"]["title"] == "N | Series"
     assert [c["action"] for c in r["changes"]] == ["approved from the sheet, queued", "sheet text applied"]
     assert srv._pending_exports() == {}
+
+
+TIMES = ["10:00", "14:00", "22:00"]
+
+
+def _ev(rows, vids, now=NOW):
+    return sg.evaluate([sg.parse_rows([HDR] + rows)[i] for i in range(len(rows))], vids, {}, now)
+
+
+def test_missed_slot_moves_to_the_next_free_slot():
+    # Sat 7 PM: a's 7:30 PM slot can't be uploaded 45 min ahead; 10 PM is b's -> Sun 10 AM
+    rows = [row("a", "Sat Nov 7, 8:00 PM"), row("b", "Sat Nov 7, 10:00 PM")]
+    vids = {"a": {"lane": "queued"}, "b": {"lane": "queued"}}
+    now = T(2026, 11, 7, 19, 30)
+    ev = _ev(rows, vids, now)
+    slots, moves, moved, needs = sg.auto_move(ev, vids, {}, now, 45 * 60, TIMES)
+    assert slots == {"a": T(2026, 11, 8, 10), "b": T(2026, 11, 7, 22)} and not needs
+    assert moved == [{"queue_id": "a", "from": T(2026, 11, 7, 20), "to": T(2026, 11, 8, 10),
+                      "sheet": T(2026, 11, 7, 20)}]
+    assert "moved to the next free slot" in next(x for x in ev["rows"] if x["queue_id"] == "a")["why"]
+    # next pass: the move is kept and not logged again
+    ev = _ev(rows, vids, now + 600)
+    slots2, moves2, moved2, _ = sg.auto_move(ev, vids, moves, now + 600, 45 * 60, TIMES)
+    assert slots2["a"] == T(2026, 11, 8, 10) and moved2 == [] and moves2 == moves
+    # the owner puts a new slot in the sheet: the sheet wins, the move is dropped
+    rows[0] = row("a", "Sun Nov 8, 2:00 PM")
+    ev = _ev(rows, vids, now + 1200)
+    slots3, moves3, moved3, _ = sg.auto_move(ev, vids, moves, now + 1200, 45 * 60, TIMES)
+    assert slots3["a"] == T(2026, 11, 8, 14) and moves3 == {} and moved3 == []
+
+
+def test_auto_move_respects_cap_and_leaves_uploaded_and_held_alone():
+    rows = [row("a", "Sat Nov 7, 7:00 PM"), row("b", "Sat Nov 7, 6:00 PM", decision="Edit"),
+            row("c", "Sun Nov 8, 10:00 AM")]
+    vids = {"a": {"lane": "queued"}, "b": {"lane": "queued"}, "c": {"lane": "queued"}}
+    now = T(2026, 11, 7, 19, 30)
+    ev = _ev(rows, vids, now)
+    # cap 1 a day: Sat has b, Sun has c -> a goes to Mon 10 AM; the Edit row b is not moved
+    slots, moves, moved, _ = sg.auto_move(ev, vids, {}, now, 45 * 60, TIMES, cap=1)
+    assert slots["a"] == T(2026, 11, 9, 10) and list(moves) == ["a"]
+    assert sg.next_free(now, 45 * 60, [], [], None) is None
+
+
+def test_sync_moves_a_missed_slot_and_logs_it(tmp_path, monkeypatch):
+    import server as s
+    monkeypatch.setattr(s._sg, "load", lambda root: {})
+    saved = {}
+    monkeypatch.setattr(s._sg, "_save", lambda root, d: saved.update(d))
+    monkeypatch.setattr(s._sg, "add_log", lambda root, ch: ch)
+    q = {"items": [{"id": "q1", "status": "queued", "project": "p_ch1", "name": "v.mp4"}]}
+    monkeypatch.setattr(s._pq, "load", lambda root: q)
+    monkeypatch.setattr(s, "_pending_exports", lambda: {})
+    monkeypatch.setattr(s, "project_dir_for", lambda pid: str(tmp_path))
+    monkeypatch.setattr(s, "publish_defaults", lambda pdir: {})
+    monkeypatch.setattr(s, "load_publish", lambda pdir: {})
+    monkeypatch.setattr(s, "_ev", lambda *a, **k: None)
+    real = s._studio.load()
+    monkeypatch.setattr(s._studio, "load", lambda: {**real, "schedule": {"times": TIMES, "tz": "America/New_York",
+                                                                         "per_channel_per_day": 3}})
+    rows = sg.parse_rows([HDR, row("p_ch1", "Sat Nov 7, 8:00 PM")])
+    r = s._sheet_sync(apply=True, now=T(2026, 11, 7, 19, 30), rows=rows)
+    assert r["pins"] == {"q1": T(2026, 11, 7, 22)}
+    assert [c["action"] for c in r["changes"] if "slot" in c["action"]] == ["missed slot, moved to the next free slot"]
+    assert saved["moves"]["p_ch1"]["to"] == T(2026, 11, 7, 22) and saved["slots"]["p_ch1"] == T(2026, 11, 7, 20)

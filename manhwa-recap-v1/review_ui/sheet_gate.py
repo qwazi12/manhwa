@@ -319,9 +319,6 @@ def evaluate(rows, videos, prev_slots, now, tz=TZ):
                 needs.append(f"{pid}: Decision is Edit — held" + (f" (notes: {r['notes']})" if r["notes"] else ""))
             elif g == "hold" and (r["decision"] or "").strip() and "not Approve" in why:
                 needs.append(f"{pid}: {why}")
-            if at and g in ("post", "hold") and at <= now and lane == "queued":
-                needs.append(f"{pid}: its sheet slot {label(at, tz)} has passed and it was not uploaded — "
-                             "give it a new slot in the sheet")
         if pid in refused:
             needs.append(f"{pid}: slot refused — {refused[pid]}"
                          + (f"; keeps {label(slots[pid], tz)}" if slots.get(pid) and lane != "uploaded" else ""))
@@ -335,6 +332,69 @@ def evaluate(rows, videos, prev_slots, now, tz=TZ):
                              "slot_at": None, "slot_label": "", "refused": None, "gate": "hold",
                              "why": "not in the Posting Review sheet"})
     return {"slots": slots, "rows": out_rows, "needs_owner": needs}
+
+
+def next_free(now, min_lead, times, taken, cap=None, tz=TZ, days=14):
+    """The first posting time (times: ["10:00", ...], local tz) at least min_lead seconds
+    ahead whose hour no other video holds and whose day is under cap. taken: slot epochs
+    of the other videos. -> epoch or None."""
+    from datetime import timedelta
+    z = ZoneInfo(tz)
+    hours = {int(t // 3600) for t in taken}
+    per_day = {}
+    for t in taken:
+        k = datetime.fromtimestamp(t, z).strftime("%Y-%m-%d")
+        per_day[k] = per_day.get(k, 0) + 1
+    hm = sorted({(int(x.split(":")[0]), int(x.split(":")[1])) for x in times or []})
+    d0 = datetime.fromtimestamp(now, z).date()
+    for i in range(days + 1):
+        day = d0 + timedelta(days=i)
+        for h, m in hm:
+            at = datetime(day.year, day.month, day.day, h, m, tzinfo=z).timestamp()
+            if at - now < min_lead or int(at // 3600) in hours:
+                continue
+            if cap and per_day.get(day.isoformat(), 0) >= cap:
+                continue
+            return at
+    return None
+
+
+def auto_move(ev, videos, moves, now, min_lead, times, cap=None, tz=TZ):
+    """HEAD_RULES_20261107T1345Z rule 3 (owner, 2026-11-08): a queued video the gate lets
+    post whose slot is too close to upload ahead (or has passed) moves to the next free
+    top-of-hour posting time — never doubling up, never between slots. A move is kept
+    while the sheet still shows the slot it was moved from; a new slot in the sheet wins.
+    Pure. -> (slots, moves, moved [{queue_id, from, to}], needs_owner [text])."""
+    slots, new_moves, moved, needs = dict(ev["slots"]), {}, [], []
+    post = [x["queue_id"] for x in ev["rows"] if x["gate"] == "post"
+            and (videos.get(x["queue_id"]) or {}).get("lane") == "queued" and slots.get(x["queue_id"])]
+    for pid in sorted(post, key=lambda p: (slots[p], p)):
+        at = slots[pid]
+        m = moves.get(pid)
+        cur = m["to"] if m and int(m["from"]) == int(at) else at
+        if cur == at and at - now >= min_lead:
+            continue                                   # its own sheet slot, still in time
+        others = [v for p, v in slots.items() if p != pid]
+        day = datetime.fromtimestamp(cur, ZoneInfo(tz)).date()
+        day_n = sum(1 for v in others if datetime.fromtimestamp(v, ZoneInfo(tz)).date() == day)
+        ok = (cur != at and cur - now >= min_lead and int(cur // 3600) not in {int(v // 3600) for v in others}
+              and not (cap and day_n >= cap))
+        to = cur if ok else next_free(now, min_lead, times, others, cap, tz)
+        if to is None:
+            needs.append(f"{pid}: missed {label(at, tz)} and there is no free posting time in the next "
+                         "14 days — held")
+            slots.pop(pid)
+            continue
+        if int(to) != int(cur) or not m or int(m["from"]) != int(at):
+            moved.append({"queue_id": pid, "from": cur, "to": to, "sheet": at})
+        slots[pid] = to
+        new_moves[pid] = {"from": at, "to": to}
+    for x in ev["rows"]:
+        if x["queue_id"] in new_moves:
+            to = new_moves[x["queue_id"]]["to"]
+            x["slot_at"], x["slot_label"] = to, label(to, tz)
+            x["why"] += f" — missed {label(new_moves[x['queue_id']]['from'], tz)}, moved to the next free slot"
+    return slots, new_moves, moved, needs
 
 
 # ------------------------------------------------------------------ text
