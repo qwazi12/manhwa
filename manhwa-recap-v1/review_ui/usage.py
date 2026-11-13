@@ -41,6 +41,7 @@ import json
 import os
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -318,8 +319,9 @@ def _load_counts():
             life[k] = life.get(k, 0) + d.get(k, 0)
         life["est_cost_usd"] = round(life.get("est_cost_usd", 0.0) + d.get("est_cost_usd", 0.0), 6)
         d = dict(_zero_counts(), date=_today(), est_cost_usd=0.0,
-                 jobs={}, lifetime=life)
+                 jobs={}, lifetime=life, reserved=d.get("reserved") or {})
     d.setdefault("jobs", {})
+    d.setdefault("reserved", {})
     # A counters.json written before a provider existed has no key for it.
     for k in _CALL_COUNTERS:
         d.setdefault(k, 0)
@@ -629,6 +631,7 @@ def parse_gemini_usage(res):
         out["tier"] = str(res.get("service_tier") or "standard").lower()
         _tier_local.tier = out["tier"]
         _tier_local.thoughts = out["thoughts"]
+        _tier_local.seen = dict(out)     # read by gate() when the caller fails before reporting
         return out
     except Exception:
         return {}
@@ -715,59 +718,119 @@ def _est_cost(kind, units, model=""):
     return units / 1000.0 * EST_COST_PER_TTS_1K_CHARS_USD
 
 
+# Money held for calls that are running right now (2026-11-13). The gate used
+# to compare the cap with money already SPENT, so two calls that started
+# together both passed a cap only one of them fitted under. Each call now
+# holds its estimate in counters.json from the moment it is let through until
+# it is settled; the cap check counts spent + held. A hold whose process died
+# is dropped after RESERVE_TTL_S.
+RESERVE_TTL_S = float(os.environ.get("USAGE_RESERVE_TTL_S", 1800))
+_UNIT_KEY = {"claude": "claude_calls", "gemini": "gemini_calls"}
+
+
+def _held(d, now=None):
+    """Live holds; expired ones are removed from d."""
+    now = now or time.time()
+    res = d.setdefault("reserved", {})
+    for rid in [r for r, v in res.items() if now - float(v.get("at") or 0) > RESERVE_TTL_S]:
+        res.pop(rid, None)
+    return list(res.values())
+
+
+def reserved_usd():
+    """Money currently held for calls in flight (shown next to today's spend)."""
+    with _flock():
+        return round(sum(float(v.get("usd") or 0) for v in _held(_load_counts())), 6)
+
+
 @contextlib.contextmanager
 def gate(kind, units, model=""):
     """kind: 'gemini' or 'claude' (units = number of calls, usually 1), or
     'tts' (units = character count). Raises UsageCapExceeded BEFORE the wrapped
-    call if it would breach a per-job or daily cap; commits usage + logs
-    only if the wrapped call completes without raising."""
+    call if it — together with every call already running — would breach a
+    per-job or daily cap. The estimate is held while the call runs and replaced
+    by the real cost when it ends. A call that raises after the provider
+    answered (tokens were reported or seen) is still recorded and charged; a
+    call that failed with no answer is released without a charge."""
     job_id = get_job_id()
     est_cost = _est_cost(kind, units, model)
+    ukey = _UNIT_KEY.get(kind, "tts_chars")
+    rid = uuid.uuid4().hex
 
     with _flock():
         d = _load_counts()
         job = _job_slot(d, job_id)
+        held = _held(d)
+        held_units = sum(v.get("units") or 0 for v in held if v.get("key") == ukey)
+        held_job = sum(v.get("units") or 0 for v in held if v.get("key") == ukey and v.get("job") == job_id)
+        held_usd = sum(float(v.get("usd") or 0) for v in held)
         if kind == "claude":
-            if job["claude_calls"] + units > MAX_CLAUDE_CALLS_PER_JOB:
+            if job["claude_calls"] + held_job + units > MAX_CLAUDE_CALLS_PER_JOB:
                 raise UsageCapExceeded(
                     f"MAX_CLAUDE_CALLS_PER_JOB={MAX_CLAUDE_CALLS_PER_JOB} would be "
-                    f"exceeded for job '{job_id}' ({job['claude_calls']} + {units})")
-            if d["claude_calls"] + units > MAX_DAILY_CLAUDE_CALLS:
+                    f"exceeded for job '{job_id}' ({job['claude_calls'] + held_job} + {units})")
+            if d["claude_calls"] + held_units + units > MAX_DAILY_CLAUDE_CALLS:
                 raise UsageCapExceeded(
                     f"MAX_DAILY_CLAUDE_CALLS={MAX_DAILY_CLAUDE_CALLS} would be "
-                    f"exceeded today ({d['claude_calls']} + {units})")
+                    f"exceeded today ({d['claude_calls'] + held_units} + {units})")
         elif kind == "gemini":
-            if job["gemini_calls"] + units > MAX_GEMINI_CALLS_PER_JOB:
+            if job["gemini_calls"] + held_job + units > MAX_GEMINI_CALLS_PER_JOB:
                 raise UsageCapExceeded(
                     f"MAX_GEMINI_CALLS_PER_JOB={MAX_GEMINI_CALLS_PER_JOB} would be "
-                    f"exceeded for job '{job_id}' ({job['gemini_calls']} + {units})")
-            if d["gemini_calls"] + units > MAX_DAILY_GEMINI_CALLS:
+                    f"exceeded for job '{job_id}' ({job['gemini_calls'] + held_job} + {units})")
+            if d["gemini_calls"] + held_units + units > MAX_DAILY_GEMINI_CALLS:
                 raise UsageCapExceeded(
                     f"MAX_DAILY_GEMINI_CALLS={MAX_DAILY_GEMINI_CALLS} would be "
-                    f"exceeded today ({d['gemini_calls']} + {units})")
+                    f"exceeded today ({d['gemini_calls'] + held_units} + {units})")
         else:
-            if job["tts_chars"] + units > MAX_TTS_CHARS_PER_JOB:
+            if job["tts_chars"] + held_job + units > MAX_TTS_CHARS_PER_JOB:
                 raise UsageCapExceeded(
                     f"MAX_TTS_CHARS_PER_JOB={MAX_TTS_CHARS_PER_JOB} would be "
-                    f"exceeded for job '{job_id}' ({job['tts_chars']} + {units})")
-            if d["tts_chars"] + units > MAX_DAILY_TTS_CHARS:
+                    f"exceeded for job '{job_id}' ({job['tts_chars'] + held_job} + {units})")
+            if d["tts_chars"] + held_units + units > MAX_DAILY_TTS_CHARS:
                 raise UsageCapExceeded(
                     f"MAX_DAILY_TTS_CHARS={MAX_DAILY_TTS_CHARS} would be "
-                    f"exceeded today ({d['tts_chars']} + {units})")
+                    f"exceeded today ({d['tts_chars'] + held_units} + {units})")
         cap = daily_cap()
-        if d["est_cost_usd"] + est_cost > cap:
+        if d["est_cost_usd"] + held_usd + est_cost > cap:
+            running = f" + ${held_usd:.4f} held for calls running now" if held_usd else ""
             raise UsageCapExceeded(
                 f"the daily spend limit of ${cap:g} would be exceeded "
-                f"today (${d['est_cost_usd']:.4f} + ${est_cost:.4f} est.)")
+                f"today (${d['est_cost_usd']:.4f}{running} + ${est_cost:.4f} est.)")
+        d["reserved"][rid] = {"usd": round(est_cost, 6), "key": ukey, "units": units,
+                              "job": job_id, "at": time.time(), "pid": os.getpid()}
+        _save_counts(d)
 
     meter = Meter()
     _tier_local.tier = ""
     _tier_local.thoughts = 0
-    yield meter  # --- the actual API call happens here, outside the lock ---
+    _tier_local.seen = None
+    error = None
+    try:
+        yield meter  # --- the actual API call happens here, outside the lock ---
+    except BaseException as e:
+        error = e
+        raise
+    finally:
+        try:
+            _settle(rid, kind, units, model, job_id, est_cost, meter, error)
+        except Exception:
+            if error is None:      # accounting failed on a good call: say so
+                raise              # (a failing call keeps its own error)
+
+
+def _settle(rid, kind, units, model, job_id, est_cost, meter, error):
+    """Drop the hold; record and charge the call unless it failed unanswered."""
+    seen = getattr(_tier_local, "seen", None) or {}
+    if error is not None and not meter.reported and seen:
+        # the provider answered (usage was parsed on this thread) and the
+        # caller raised before reporting it: that answer was billed
+        meter.tokens(seen.get("prompt"), seen.get("output"), seen.get("cached"))
     # parse_gemini_usage() ran on this thread during the call: pick up the
     # service tier and thinking count it saw (REST callers report tokens only).
     meter.tier = meter.tier or getattr(_tier_local, "tier", "") or ""
     meter.thought_tokens = meter.thought_tokens or getattr(_tier_local, "thoughts", 0) or 0
+    charge = error is None or meter.reported
 
     # Actual tokens beat the flat per-call guess whenever the caller reported
     # them. TTS is already exact (it is billed per character).
@@ -781,6 +844,10 @@ def gate(kind, units, model=""):
 
     with _flock():
         d = _load_counts()
+        d["reserved"].pop(rid, None)
+        if not charge:
+            _save_counts(d)
+            return
         job = _job_slot(d, job_id)
         if kind == "claude":
             job["claude_calls"] += units
@@ -793,7 +860,7 @@ def gate(kind, units, model=""):
             d["tts_chars"] += units
         d["est_cost_usd"] = round(d["est_cost_usd"] + est_cost, 6)
         _save_counts(d)
-        _append_log({
+        entry = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "job_id": job_id,
             "stage": get_stage(),
@@ -815,7 +882,12 @@ def gate(kind, units, model=""):
                               "claude_calls": d["claude_calls"],
                               "tts_chars": d["tts_chars"],
                               "est_cost_usd": d["est_cost_usd"]},
-        })
+        }
+        if error is not None:
+            # answered and billed, then the caller failed (bad JSON, a local
+            # error): the money was spent, so it is on the books
+            entry["failed_after_response"] = f"{type(error).__name__}: {error}"[:200]
+        _append_log(entry)
 
 
 def rate_card():

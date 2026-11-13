@@ -239,28 +239,78 @@ def remove_account(root, account_id):
     return True
 
 
+class _Multipart:
+    """A multipart/form-data body read from disk as it is sent (2026-11-13).
+    Before, the whole video was read into memory and then copied into the
+    request body: a 1 GB export held about 2 GB while it uploaded.
+
+    files: (field, filename, content_type, source) where source is bytes or a
+    path. `length` is exact, so the request carries Content-Length."""
+
+    CHUNK = 1024 * 1024
+
+    def __init__(self, fields, files):
+        self.boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+        self.parts = []                      # bytes, or (path, size)
+        b = self.boundary
+        for name, value in fields:
+            self.parts.append((f"--{b}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n"
+                               .encode("utf-8") + str(value).encode("utf-8") + b"\r\n"))
+        for name, filename, content_type, source in files:
+            self.parts.append((f"--{b}\r\nContent-Disposition: form-data; name=\"{name}\"; "
+                               f"filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n").encode("utf-8"))
+            if isinstance(source, (bytes, bytearray)):
+                self.parts.append(bytes(source))
+            else:
+                self.parts.append((source, os.path.getsize(source)))
+            self.parts.append(b"\r\n")
+        self.parts.append(f"--{b}--\r\n".encode("utf-8"))
+        self.content_type = f"multipart/form-data; boundary={b}"
+        self.length = sum(len(x) if isinstance(x, bytes) else x[1] for x in self.parts)
+
+    def chunks(self):
+        for part in self.parts:
+            if isinstance(part, bytes):
+                yield part
+                continue
+            path, size = part
+            left = size
+            with open(path, "rb") as f:
+                while left > 0:
+                    buf = f.read(min(self.CHUNK, left))
+                    if not buf:
+                        raise UploadPostError(f"{os.path.basename(path)} changed while it was being uploaded")
+                    left -= len(buf)
+                    yield buf
+
+    def reader(self):
+        """A fresh file-like body (one per attempt): read(n) hands out the
+        next bytes, never more than CHUNK + n in memory."""
+        return _PartReader(self.chunks())
+
+
+class _PartReader:
+    def __init__(self, chunks):
+        self._chunks, self._buf = chunks, b""
+
+    def read(self, n=-1):
+        if n is None or n < 0:
+            out = self._buf + b"".join(self._chunks)
+            self._buf = b""
+            return out
+        while len(self._buf) < n:
+            nxt = next(self._chunks, None)
+            if nxt is None:
+                break
+            self._buf += nxt
+        out, self._buf = self._buf[:n], self._buf[n:]
+        return out
+
+
 def _encode_multipart_formdata(fields, files):
-    boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
-    body = bytearray()
-
-    for name, value in fields:
-        body.extend(f"--{boundary}\r\n".encode("utf-8"))
-        body.extend(f"Content-Disposition: form-data; name=\"{name}\"\r\n\r\n".encode("utf-8"))
-        body.extend(str(value).encode("utf-8"))
-        body.extend(b"\r\n")
-
-    for name, filename, content_type, file_bytes in files:
-        body.extend(f"--{boundary}\r\n".encode("utf-8"))
-        body.extend(
-            f"Content-Disposition: form-data; name=\"{name}\"; filename=\"{filename}\"\r\n".encode("utf-8")
-        )
-        body.extend(f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"))
-        body.extend(file_bytes)
-        body.extend(b"\r\n")
-
-    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
-    content_type = f"multipart/form-data; boundary={boundary}"
-    return body, content_type
+    """The whole body in memory — small payloads and tests only."""
+    mp = _Multipart(fields, files)
+    return bytearray(mp.reader().read()), mp.content_type
 
 
 def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=None, _http=None, on_step=None,
@@ -368,47 +418,42 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
     if "bluesky" in platforms:
         fields.append(("bluesky_text", (metadata.get("title") or "")[:300]))
 
-    files = []
-    if on_step:
-        on_step(f"Reading video file ({os.path.basename(video_path)})")
-    with open(video_path, "rb") as vf:
-        video_bytes = vf.read()
-    files.append(("video", os.path.basename(video_path), "video/mp4", video_bytes))
-
+    files = [("video", os.path.basename(video_path), "video/mp4", video_path)]   # streamed from disk
     if thumbnail_path and os.path.exists(thumbnail_path):
         if on_step:
             on_step("Attaching thumbnail")
-        with open(thumbnail_path, "rb") as tf:
-            thumb_bytes = tf.read()
         mime = "image/png" if thumbnail_path.endswith(".png") else "image/jpeg"
-        files.append(("thumbnail", os.path.basename(thumbnail_path), mime, thumb_bytes))
+        files.append(("thumbnail", os.path.basename(thumbnail_path), mime, thumbnail_path))
 
     if on_step:
         on_step("Uploading multipart payload to Upload-Post")
 
-    body_bytes, content_type = _encode_multipart_formdata(fields, files)
+    body = _Multipart(fields, files)
 
     if _http is not None:
-        return _http("POST", f"{API_BASE}/upload", body_bytes, cfg)
+        return _http("POST", f"{API_BASE}/upload", bytearray(body.reader().read()), cfg)
 
-    req = urllib.request.Request(
-        f"{API_BASE}/upload",
-        data=body_bytes,
-        method="POST",
-        headers={
-            "Authorization": f"Apikey {cfg['api_key']}",
-            "Content-Type": content_type,
-            "User-Agent": USER_AGENT,
-            "Idempotency-Key": request_id,
-        },
-    )
+    def _req():
+        # a new request per attempt: the body is a stream and is used up once sent
+        return urllib.request.Request(
+            f"{API_BASE}/upload",
+            data=body.reader(),
+            method="POST",
+            headers={
+                "Authorization": f"Apikey {cfg['api_key']}",
+                "Content-Type": body.content_type,
+                "Content-Length": str(body.length),
+                "User-Agent": USER_AGENT,
+                "Idempotency-Key": request_id,
+            },
+        )
 
     # Owner, 2026-10-31: three merged videos never posted after Upload-Post
     # gateway errors (502/504). A gateway error may still have been accepted,
     # so check status first; resend only when Upload-Post has no record.
     for attempt in range(UPLOAD_ATTEMPTS):
         try:
-            with urllib.request.urlopen(req, timeout=UPLOAD_TIMEOUT) as r:
+            with urllib.request.urlopen(_req(), timeout=UPLOAD_TIMEOUT) as r:
                 raw = r.read().decode("utf-8")
                 res = json.loads(raw) if raw else {}
                 return res
@@ -433,6 +478,39 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
             on_step(f"{err} — Upload-Post has no record of it; retrying "
                     f"(attempt {attempt + 2} of {UPLOAD_ATTEMPTS})")
         time.sleep(RETRY_WAIT[attempt] + random.uniform(0, 10))
+
+
+# A refusal we can be sure of: Upload-Post answered and said no. Everything
+# else (a timeout, a dropped connection, a 5xx, 408/409/425/429) leaves it
+# unknown whether the upload arrived.
+_UNSURE_4XX = (408, 409, 425, 429)
+
+
+def rejected(exc):
+    """True only when this error proves Upload-Post did NOT take the upload."""
+    st = getattr(exc, "status", None)
+    return isinstance(exc, UploadPostError) and st is not None and 400 <= st < 500 and st not in _UNSURE_4XX
+
+
+def upload_state(request_id, cfg=None, _http=None):
+    """What Upload-Post knows about this request id:
+      "accepted"  it has the upload (queued, running, or published somewhere)
+      "failed"    it finished and no channel took the video — a new upload is right
+      "absent"    it answered and has no such upload
+      "unknown"   it could not be asked (network, 5xx) — do not send again yet"""
+    try:
+        st = upload_status(request_id, cfg=cfg or config(), _http=_http)
+    except UploadPostError as e:
+        return "absent" if e.status == 404 else "unknown"
+    except Exception:
+        return "unknown"
+    status = (st or {}).get("status")
+    if not status or status == "not_found":
+        return "absent"
+    res = st.get("results") or []
+    if status == "completed" and res and not any(x.get("success") for x in res):
+        return "failed"
+    return "accepted"
 
 
 def accepted(request_id, cfg=None):

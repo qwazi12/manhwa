@@ -1067,6 +1067,9 @@ def _single_should_merge(pdir):
                 f"{adj[0]}-{n} instead of posting this chapter on its own (allow_single posts it alone)")
     end = max((e_ for _a, e_, _p in posted), default=None)
     if end is not None and n > end:
+        if _auto_append_mode() == "cumulative":
+            return (f"{name} is added to the posted video ending at {end} once "
+                    f"{_auto_append_min()} new chapter(s) are ready (allow_single posts it alone)")
         return (f"{name} waits for the next merge, which starts at {end + 1} once "
                 f"{_auto_append_min()} chapters are ready (allow_single posts it alone)")
     return None
@@ -1257,10 +1260,46 @@ def _adapt_tags_for_chapter(tags, series_name, ch_n):
     return _trim_tags_to_limit(adapted, YT_TAGS_CHARS_MAX)
 
 
+def _metadata_locked(pdir, queued=None):
+    """{export name: why} for the videos of this chapter whose title,
+    description, tags and channels a person has already signed off or that
+    have gone out: approved in Video review, in the posting queue, being
+    posted, or posted. Series defaults must not rewrite these (review,
+    2026-11-13: "Save as series defaults → apply to all" rewrote every stored
+    video of the series, approved and posted ones included)."""
+    pid = os.path.basename(pdir.rstrip("/"))
+    out = {}
+    for name, rec in (load_reviews(pdir) or {}).items():
+        if (rec or {}).get("status") == "approved":
+            out[name] = "approved"
+    for name, rec in (load_publishes(pdir) or {}).items():
+        rec = rec or {}
+        if rec.get("status") in ("in_progress", "published", "partial") or any(
+                r.get("status") in ("submitted", "published") for r in rec.get("results") or []):
+            out[name] = "posted" if rec.get("status") != "in_progress" else "being posted"
+    if queued is None:
+        import ingest as _i
+        queued = {(it.get("project"), it.get("name")) for it in _pq.load(_i.PROJECTS).get("items", [])
+                  if it.get("status") in _pq.ACTIVE}
+    for qp, qn in queued:
+        if qp == pid:
+            out.setdefault(qn, "in the posting queue")
+    return out
+
+
+_PROPAGATE_LAST = {"protected": 0}
+
+
 def _propagate_series_defaults(sid, series, pack):
     import ingest as _i
     root = _i.PROJECTS
     applied = 0
+    _PROPAGATE_LAST["protected"] = 0
+    try:
+        queued = {(it.get("project"), it.get("name")) for it in _pq.load(root).get("items", [])
+                  if it.get("status") in _pq.ACTIVE}
+    except Exception:  # noqa — without the queue, approvals and posts still protect
+        queued = set()
     t_tmpl = pack.get("title_template")
     d_tmpl = pack.get("description_template")
     tags = pack.get("default_tags")
@@ -1280,10 +1319,18 @@ def _propagate_series_defaults(sid, series, pack):
                 continue
             ch_label = str(cmeta.get("chapter") or (ch_n if ch_n is not None else "")).strip()
             store = load_publish(pdir)
+            locked = _metadata_locked(pdir, queued)
             target_keys = list(store.keys())
             if DRAFT not in target_keys:
                 target_keys.append(DRAFT)
+            # a signed-off video with no details of its own reads the draft
+            draft_feeds_locked = any(k not in store for k in locked)
+            touched = False
             for k in target_keys:
+                if k in locked or (k == DRAFT and draft_feeds_locked):
+                    _PROPAGATE_LAST["protected"] += 1
+                    continue
+                touched = True
                 item = dict(store.get(k) or {})
                 if t_tmpl:
                     item["title"] = _apply_title_template(t_tmpl, ch_label)
@@ -1312,8 +1359,9 @@ def _propagate_series_defaults(sid, series, pack):
                     item["targets"] = list(targets)
                 item.update(extra)
                 store[k] = item
-            save_publish(pdir, store)
-            applied += 1
+            if touched:
+                save_publish(pdir, store)
+                applied += 1
         except Exception as e:
             print(f"[propagate_series_defaults] error on {f}: {e}", flush=True)
 
@@ -1662,11 +1710,14 @@ def api_publish_series_defaults(body: SeriesDefaultsIn):
     _sp.save(root, pack)
 
     applied = 0
+    protected = 0
     if body.apply_all:
         applied = _propagate_series_defaults(sid, series, pack)
+        protected = _PROPAGATE_LAST["protected"]
 
-    _ev("publish", f"{series}: saved series defaults & applied to {applied} chapters", "ok")
-    return {"ok": True, "series": series, "pack": pack, "applied": applied}
+    _ev("publish", f"{series}: saved series defaults & applied to {applied} chapters"
+        + (f"; {protected} approved, queued or posted video(s) kept their details" if protected else ""), "ok")
+    return {"ok": True, "series": series, "pack": pack, "applied": applied, "protected": protected}
 
 
 @app.post("/api/publish")
@@ -3572,6 +3623,14 @@ def api_range_build(body: RangeIn):
         m0["append"] = body.append
     with open(os.path.join(rdir, "project.json"), "w", encoding="utf-8") as mf:
         json.dump(m0, mf, indent=2)
+    # Each chapter's check results travel with the merged video, so they are
+    # still there after the chapter folders are cleaned up (release_gate.py).
+    try:
+        import release_gate as _rg
+        _rg.store_evidence(rdir, [cp for _n, cp, _c in pl["chapters"]])
+    except Exception as e:  # noqa — the merge still builds; the gate then reports the chapters as unknown
+        _ev("publish", f"{_pretty(range_pid)}: could not store the chapters' check results with the merge "
+                       f"({type(e).__name__}: {str(e)[:120]})", "warn")
 
     # 2. Mark constituent chapters in reviews.json as "merged"
     for n, cp, cname in pl["chapters"]:
@@ -3975,13 +4034,28 @@ def _auto_append_enabled():
     return os.environ.get("AUTO_APPEND", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
+def _auto_append_mode():
+    """How the next merge is cut (auto_append.py). AUTO_APPEND_MODE on Railway:
+    "cumulative" (default; owner brief 2026-11-13: each new chapter extends the
+    previous compilation) or "fresh" (owner 2026-11-08: start after the last
+    posted video, no overlapping ranges). An unknown value is refused loudly."""
+    import auto_append as _aa
+    m = (os.environ.get("AUTO_APPEND_MODE") or "cumulative").strip().lower()
+    if m not in _aa.MODES:
+        raise RuntimeError(f"AUTO_APPEND_MODE={m!r} is not one of {', '.join(_aa.MODES)}")
+    return m
+
+
 def _auto_append_min():
-    """New chapters needed before the next merge is built (owner, 2026-11-08: "when
-    there are enough new chapters"). AUTO_APPEND_MIN on Railway; default 7."""
+    """New chapters needed before the next merge is built. AUTO_APPEND_MIN on
+    Railway; default 1 when cumulative (every new chapter extends the
+    compilation), 7 when fresh (owner, 2026-11-08: "when there are enough new
+    chapters")."""
+    default = 1 if _auto_append_mode() == "cumulative" else 7
     try:
-        return max(1, int(os.environ.get("AUTO_APPEND_MIN", "7")))
+        return max(1, int(os.environ.get("AUTO_APPEND_MIN", str(default))))
     except ValueError:
-        return 7
+        return default
 
 
 def _auto_append_holds():
@@ -4161,7 +4235,7 @@ def _auto_append_pass(apply=True, limit=1):
         for sid, (posted, singles, pending) in sorted(_auto_append_inputs().items()):
             if sid in holds:                          # FL-1: these chapters post as singles
                 singles = {n: x for n, x in singles.items() if n < holds[sid]}
-            d = _aa.decide(posted, singles, pending, min_new=_auto_append_min())
+            d = _aa.decide(posted, singles, pending, min_new=_auto_append_min(), mode=_auto_append_mode())
             d["series"] = sid
             out.append(d)
             if not apply:
@@ -4177,7 +4251,8 @@ def _auto_append_pass(apply=True, limit=1):
                         "video_id": base.get("video_id") or "", "retire": d["retire"]}))
                     started += 1
                     d["started"] = r.get("project")
-                    _ev("publish", f"{_series_label(sid, base['project'])}: next merge after the posted video {base['start']}-"
+                    how = "adding the new chapter(s) to" if d["start"] <= base["start"] else "next merge after"
+                    _ev("publish", f"{_series_label(sid, base['project'])}: {how} the posted video {base['start']}-"
                                    f"{base['end']} → building {d['start']}-{d['end']} for Needs review", "ok")
                 except Exception as e:  # noqa — e.g. the posted video has no copy here or in Drive
                     d["error"] = str(getattr(e, "detail", e))[:200]
@@ -4199,6 +4274,7 @@ def api_auto_append():
         if d.get("base"):
             d["base"] = {k: d["base"].get(k) for k in ("project", "name", "start", "end")}
     return {"enabled": _auto_append_enabled(), "last_run": _AUTO_APPEND["last_run"],
+            "mode": _auto_append_mode(), "min_new": _auto_append_min(),
             "holds": _auto_append_holds(),
             "undo": "set AUTO_APPEND=0 on Railway to stop; Unmerge on a merged video puts its chapters back",
             "series": plans}
@@ -5049,36 +5125,60 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
         # Post again sent the video a second time. Now the id is stored before
         # the bytes go out; a later attempt asks Upload-Post about that id
         # first and sends nothing when the upload is already there.
+        # Review, 2026-11-13: the id was dropped on ANY error, so an upload
+        # that arrived but whose answer timed out was sent again under a new
+        # id. It is now dropped only when Upload-Post provably refused it (or
+        # finished with no channel taking the video); otherwise it is kept and
+        # the next attempt settles it with Upload-Post before sending anything.
         durable = hasattr(mod, "accepted")
         upload_ids = dict((load_publishes(pdir).get(name) or {}).get("upload_ids") or {})
+
+        def _state(rid_):
+            if hasattr(mod, "upload_state"):
+                return mod.upload_state(rid_)
+            try:                                   # older backend: yes / no only
+                return "accepted" if mod.accepted(rid_) else "absent"
+            except Exception:
+                return "unknown"
+
         for prof, group in groups.items():
             step("uploading video to Upload-Post (%s)" % ", ".join(group), 1)
             created = None
             if durable:
                 rid0 = upload_ids.get(prof)
-                if rid0:
-                    try:
-                        if mod.accepted(rid0):
-                            created = {"success": True, "request_id": rid0, "recovered": True}
-                            step("Upload-Post already has this upload from an earlier attempt — not sent again", 1)
-                    except Exception:
-                        pass
-                else:
+                state = _state(rid0) if rid0 else "new"
+                if state == "accepted":
+                    created = {"success": True, "request_id": rid0, "recovered": True}
+                    step("Upload-Post already has this upload from an earlier attempt — not sent again", 1)
+                elif state == "unknown":
+                    raise RuntimeError(
+                        "an earlier attempt may already have reached Upload-Post and it could not be "
+                        "asked just now — nothing was sent, so there can be no second copy; try again shortly")
+                elif state in ("new", "failed"):
+                    # first attempt, or the earlier upload ended with every channel refusing it
                     rid0 = upload_ids[prof] = uuid.uuid4().hex
                     _publish_record(pdir, name, upload_ids=upload_ids)
+                # "absent": same id again — it is also the Idempotency-Key
             if created is None:
+                sure_no = False
                 try:
                     kw = {"request_id": rid0} if durable else {}
                     created = mod.upload_video_post(
                         video, md, group, thumbnail_path=thumb_file,
                         on_step=lambda m: step(m, 1), **kw
                     )
+                    sure_no = not (created or {}).get("success")     # it answered: no
+                    created = created or {"success": False, "error": "Upload-Post returned an empty answer"}
                 except Exception as e:
                     created = {"success": False, "error": str(e)}
-                if durable and not created.get("success"):
+                    sure_no = bool(getattr(mod, "rejected", lambda _e: False)(e))
+                if durable and sure_no:
                     # refused outright: the next attempt is a new upload with a new id
                     upload_ids.pop(prof, None)
                     _publish_record(pdir, name, upload_ids=upload_ids)
+                elif durable and not created.get("success"):
+                    created["error"] = (str(created.get("error")) + " — it is not known whether Upload-Post "
+                                        "received the video; the next attempt checks before sending")[:500]
             rid = created.get("request_id")
             for t in group:
                 a = names.get(t) or {}

@@ -16,11 +16,18 @@ def _w(path, value):
         json.dump(value, f)
 
 
-def _chapter(root, pid, critique=None, qa=None, validation=None, name="final.mp4"):
+SCRIPT = "He draws his sword.\n"
+SHA = __import__("hashlib").sha256(SCRIPT.encode()).hexdigest()
+
+
+def _chapter(root, pid, critique=None, qa=None, validation=None, name="final.mp4", bound=True):
+    """bound: the critique names the script it checked (records since 2026-11-13)."""
     p = os.path.join(root, pid)
     _w(os.path.join(p, "project.json"), {"id": pid})
+    with open(os.path.join(p, "script.txt"), "w") as f:
+        f.write(SCRIPT)
     if critique is not None:
-        _w(os.path.join(p, "critique.json"), critique)
+        _w(os.path.join(p, "critique.json"), {**critique, "script_sha256": SHA} if bound else critique)
     if validation is not None:
         _w(os.path.join(p, "validation.json"), validation)
     if qa is not None:
@@ -77,6 +84,7 @@ def test_a_merged_video_answers_for_the_chapters_in_it(tmp_path):
     _chapter(root, "s_1", CLEAN, PASSED)
     _chapter(root, "s_2", OPEN, PASSED)
     m = _chapter(root, "s_ch1-2", None, PASSED, name="final_range_1-2.mp4")
+    _w(os.path.join(m, "project.json"), {"kind": "range"})
     _w(os.path.join(m, "exports", "_qa", "final_range_1-2.mp4.manifest.json"),
        {"context": {"kind": "range", "components": [{"project": "s_1", "name": "final.mp4"},
                                                     {"project": "s_2", "name": "final.mp4"}]}})
@@ -127,3 +135,136 @@ def test_cost_summary():
     c = sc.cost(ledger, idx, "2026-11")
     assert c["per_chapter_median"] == 0.9 and c["under_1_dollar_pct"] == 66.7 and c["under_50_cents_pct"] == 33.3
     assert c["month_by_stage"] == {"describe": 3.0, "unlabelled": 1.0} and c["month_labelled_pct"] == 75.0
+
+
+# ---- review 2026-11-13: missing / corrupt / outdated evidence is never "clear"
+
+def test_missing_critique_is_not_clear_even_with_passing_media(tmp_path, monkeypatch):
+    monkeypatch.delenv("RELEASE_GATE_LEGACY", raising=False)
+    p = _chapter(str(tmp_path), "m_1", None, PASSED)
+    v = rg.verdict(p, "final.mp4")
+    assert v["release"] == "blocked" and v["critical"][0]["code"] == "script_missing" and v["unknown"] == ["script_missing"]
+    monkeypatch.setenv("RELEASE_GATE", "strict")
+    assert any("script_missing" in b for b in rg.blocking(p, "final.mp4"))
+    monkeypatch.setenv("RELEASE_GATE", "critical")
+    assert rg.blocking(p, "final.mp4")
+    # the stated policy for videos made before the checks existed
+    monkeypatch.setenv("RELEASE_GATE_LEGACY", "review")
+    assert rg.verdict(p, "final.mp4")["release"] == "review" and rg.blocking(p, "final.mp4") == []
+    monkeypatch.setenv("RELEASE_GATE", "strict")
+    assert rg.blocking(p, "final.mp4")
+
+
+def test_corrupt_critique_blocks_under_every_policy(tmp_path, monkeypatch):
+    p = _chapter(str(tmp_path), "m_2", None, PASSED)
+    for bad in ("{not json", "[1, 2]", "", '"text"'):
+        with open(os.path.join(p, "critique.json"), "w") as f:
+            f.write(bad)
+        for policy in ("block", "review"):
+            monkeypatch.setenv("RELEASE_GATE_LEGACY", policy)
+            v = rg.verdict(p, "final.mp4")
+            assert v["release"] == "blocked" and v["critical"][0]["code"] == "script_unreadable", (bad, policy)
+    _w(os.path.join(p, "critique.json"), {"status": "done", "outcome": "clean", "unresolved": "none", "script_sha256": SHA})
+    assert rg.verdict(p, "final.mp4")["critical"][0]["code"] == "script_unreadable"
+
+
+def test_script_changed_after_the_check_is_outdated(tmp_path):
+    p = _chapter(str(tmp_path), "m_3", CLEAN, PASSED)
+    assert rg.verdict(p, "final.mp4")["release"] == "clear"
+    with open(os.path.join(p, "script.txt"), "a") as f:
+        f.write("A line added by hand.\n")
+    v = rg.verdict(p, "final.mp4")
+    assert v["release"] == "blocked" and v["critical"][0]["code"] == "script_outdated"
+
+
+def test_record_that_names_no_script_is_a_review_item(tmp_path):
+    v = rg.verdict(_chapter(str(tmp_path), "m_4", CLEAN, PASSED, bound=False), "final.mp4")
+    assert v["release"] == "review" and v["review"][0]["code"] == "script_unbound"
+
+
+def test_media_report_missing_corrupt_unfinished_or_about_another_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("RELEASE_GATE_LEGACY", raising=False)
+    root = str(tmp_path)
+    assert rg.verdict(_chapter(root, "q_1", CLEAN, None), "final.mp4")["critical"][0]["code"] == "media_missing"
+    p = _chapter(root, "q_2", CLEAN, PASSED)
+    with open(os.path.join(p, "exports", "_qa", "final.mp4.qa.json"), "w") as f:
+        f.write("{oops")
+    assert rg.verdict(p, "final.mp4")["critical"][0]["code"] == "media_unchecked"
+    v = rg.verdict(_chapter(root, "q_3", CLEAN, {"status": "incomplete", "findings": []}), "final.mp4")
+    assert v["critical"][0]["code"] == "media_unchecked"
+    # passed, but for a file that has since been replaced
+    import media_qa
+    p = _chapter(root, "q_4", CLEAN, None)
+    export = os.path.join(p, "exports", "final.mp4")
+    os.makedirs(os.path.dirname(export), exist_ok=True)
+    with open(export, "wb") as f:
+        f.write(b"first render")
+    _w(os.path.join(p, "exports", "_qa", "final.mp4.qa.json"),
+       {"status": "passed", "findings": [], "export_digest": media_qa.file_digest(export)})
+    assert rg.verdict(p, "final.mp4")["release"] == "clear"
+    with open(export, "wb") as f:
+        f.write(b"second render, never checked")
+    assert rg.verdict(p, "final.mp4")["critical"][0]["code"] == "media_outdated"
+
+
+def _merge(root, pid, parts, name):
+    m = _chapter(root, pid, None, PASSED, name=name)
+    os.remove(os.path.join(m, "script.txt"))
+    _w(os.path.join(m, "project.json"), {"kind": "range", "build": {"export": name},
+                                         "merged_from": [{"project": x} for x in parts]})
+    return m
+
+
+def test_merged_video_with_a_missing_chapter_folder_is_not_clear(tmp_path, monkeypatch):
+    monkeypatch.delenv("RELEASE_GATE_LEGACY", raising=False)
+    root = str(tmp_path)
+    _chapter(root, "g_1", CLEAN, PASSED)
+    m = _merge(root, "g_ch1-2", ["g_1", "g_2"], "r.mp4")          # g_2 was cleaned up, nothing stored
+    v = rg.verdict(m, "r.mp4")
+    assert v["release"] == "blocked"
+    assert [(f["code"], f["chapter"]) for f in v["critical"]] == [("component_missing", "g_2")]
+
+
+def test_evidence_stored_at_build_survives_cleanup(tmp_path):
+    import shutil
+    root = str(tmp_path)
+    c1, c2 = _chapter(root, "e_1", CLEAN, PASSED), _chapter(root, "e_2", OPEN, PASSED)
+    m = _merge(root, "e_ch1-2", ["e_1", "e_2"], "r.mp4")
+    rg.store_evidence(m, [c1, c2])
+    shutil.rmtree(c1)
+    shutil.rmtree(c2)
+    v = rg.verdict(m, "r.mp4")
+    assert v["release"] == "blocked" and len(v["critical"]) == 1
+    f = v["critical"][0]
+    assert (f["code"], f["chapter"], f.get("stored")) == ("script_unresolved", "e_2", True)
+
+
+def test_nested_compilations_answer_for_every_chapter(tmp_path):
+    """old compilation (1-2) + new chapter 3 -> 1-3; then + 4 -> 1-4, after
+    every earlier folder has been cleaned up."""
+    import shutil
+    root = str(tmp_path)
+    c1, c2 = _chapter(root, "n_1", CLEAN, PASSED), _chapter(root, "n_2", OPEN, PASSED)
+    m12 = _merge(root, "n_ch1-2", ["n_1", "n_2"], "a.mp4")
+    rg.store_evidence(m12, [c1, c2])
+    c3 = _chapter(root, "n_3", CLEAN, PASSED)
+    m13 = _merge(root, "n_ch1-3", ["n_ch1-2", "n_3"], "b.mp4")
+    rg.store_evidence(m13, [m12, c3])
+    # live: the nested merge is opened and its chapters checked one by one
+    v = rg.verdict(m13, "b.mp4")
+    assert [(f["code"], f["chapter"]) for f in v["critical"]] == [("script_unresolved", "n_2")]
+    for d in (c1, c2, c3, m12):
+        shutil.rmtree(d)
+    c4 = _chapter(root, "n_4", CLEAN, PASSED)
+    m14 = _merge(root, "n_ch1-4", ["n_ch1-3", "n_4"], "c.mp4")
+    rg.store_evidence(m14, [m13, c4])
+    shutil.rmtree(m13)
+    v = rg.verdict(m14, "c.mp4")
+    assert [(f["code"], f["chapter"]) for f in v["critical"]] == [("script_unresolved", "n_2")]
+    assert not [f for f in v["critical"] + v["review"] if f["code"] == "component_missing"]
+
+
+def test_merge_with_no_record_of_its_chapters_is_not_clear(tmp_path, monkeypatch):
+    monkeypatch.delenv("RELEASE_GATE_LEGACY", raising=False)
+    m = _merge(str(tmp_path), "z_ch1-2", [], "r.mp4")
+    assert rg.verdict(m, "r.mp4")["critical"][0]["code"] == "component_missing"

@@ -90,10 +90,13 @@ Read-only reports: `GET /api/spend` (now also by stage, thinking tokens, Flex re
 | `FLEX_TRIP` (3), `FLEX_COOLDOWN_S` (600) | after this many Flex refusals in a row, Flex is not requested for this many seconds |
 | `CACHE_CODE_STRICT` (`1` = old rule) | by default a change to code files alone does not make finished describe/script/voice work "stale" |
 | `CRITIQUE_VERIFY` (`0` disables) | rewritten script units are re-checked once by the script editor |
-| `RELEASE_GATE` (`off` default / `critical` / `strict`) | whether open script problems and failed final-media QA block posting (`release_gate.py`). `off` only reports them in `/api/scorecard` |
+| `RELEASE_GATE` (`off` default / `critical` / `strict`) | whether script and final-media findings block approval and posting (`release_gate.py`). `off` only reports them in `/api/scorecard`. A check that is missing, unreadable, unfinished or about another version of the file is never a pass |
+| `RELEASE_GATE_LEGACY` (`block` default / `review`) | videos made before the checks existed have no evidence. `block`: missing evidence is critical. `review`: it is a review item (blocks only under `strict`). Unreadable or outdated evidence is critical under both |
 | `MEDIA_QA_ENFORCE` (`1` enables) | final-media QA must pass, and the exact export be re-approved, before posting (not set in production) |
 | `STITCH_ENGINE` (`clean` default / `copy`) | how merged videos are joined; `copy` is the join used before 2026-11-13 |
-| `AUTO_APPEND_MIN` (7), `AUTO_APPEND_HOLD` | chapters a new merge needs; `series:chapter` pairs that post as singles |
+| `AUTO_APPEND_MODE` (`cumulative` default / `fresh`) | how the next merge is cut. `cumulative`: the last posted video plus the new chapters (posted 1-4 + chapter 5 → 1-5; the posted video is re-used as the first piece). `fresh`: the 2026-11-08 rule — start after the last posted video, no overlapping ranges. An unknown value is refused |
+| `AUTO_APPEND_MIN` (1 when cumulative, 7 when fresh), `AUTO_APPEND_HOLD` | new chapters a merge needs; `series:chapter` pairs that post as singles |
+| `USAGE_RESERVE_TTL_S` (1800) | how long money held for a running paid call counts against the daily cap if its process died without settling |
 | `SHEET_GATE_OFF` (`1` disables) | the Posting Review sheet gate (also `POST /api/sheet_gate {"on": false}`) |
 | `INGEST_LINE_MAX` (2), `JOB_STALL_SECONDS` (1800), `JOB_STOP_GRACE_SECONDS` (120) | chapters in line at once (one runs, one waits); when a silent render job is retired |
 | tuning groups `SPLIT_*`, `CROP_*`, `BUBBLE_*`, `VALIDATOR_*`, `PLUS_*`, `LAB_*`, `CLAUDE_TEST_*`, `TTS_*`, `DESCRIBE_*` | defaults in code; change only with a measured reason |

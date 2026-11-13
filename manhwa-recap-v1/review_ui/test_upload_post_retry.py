@@ -50,7 +50,8 @@ def test_each_upload_sends_its_own_request_id_as_idempotency_key(env):
     run, sent, _, _ = env
     assert run([b'{"success": true, "request_id": "x"}'])["success"]
     key = sent[0].get_header("Idempotency-key")
-    assert key and f'name="request_id"\r\n\r\n{key}'.encode() in sent[0].data
+    # the body is a stream read from disk now (2026-11-13), not bytes in memory
+    assert key and f'name="request_id"\r\n\r\n{key}'.encode() in sent[0].data.read()
 
 
 def test_gateway_error_unknown_upstream_is_resent_with_same_key(env):

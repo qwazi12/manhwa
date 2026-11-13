@@ -35,7 +35,7 @@ class _FakeModels:
 
 def _install_fake_sdk(models):
     genai = types.ModuleType("google.genai")
-    genai.Client = lambda api_key=None: types.SimpleNamespace(models=models)
+    genai.Client = lambda api_key=None, **kw: types.SimpleNamespace(models=models)
     gtypes = types.ModuleType("google.genai.types")
     gtypes.EmbedContentConfig = lambda **kw: None
     google = types.ModuleType("google")

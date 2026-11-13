@@ -50,6 +50,7 @@ def lib(tmp_path, monkeypatch):
                                                          [(n, 600.0 * i) for i, (n, _p, _x) in enumerate(chs)])[1])
     monkeypatch.setattr(rc, "_probe", lambda path: 600.0)
     monkeypatch.setenv("AUTO_APPEND", "1")
+    monkeypatch.setenv("AUTO_APPEND_MODE", "fresh")            # these tests pin the 2026-11-08 rule
     monkeypatch.setenv("AUTO_APPEND_MIN", "2")
     # the posted merged video 20-21
     p = tmp_path / "hound_ch20-21"
@@ -234,3 +235,45 @@ def test_playlist_link_needs_a_real_playlist_id(lib, monkeypatch):
                                                    {"summary": "A thing happens."})
         assert ("Full series playlist" in text) is want, text
         assert "list=Hound" not in text
+
+
+# ---- owner brief 2026-11-13: each new chapter extends the previous compilation
+
+def test_cumulative_is_the_default_and_one_new_chapter_extends_the_posted_video(lib, monkeypatch):
+    root, tmp_path = lib
+    monkeypatch.delenv("AUTO_APPEND_MODE")
+    monkeypatch.delenv("AUTO_APPEND_MIN")
+    assert server._auto_append_mode() == "cumulative" and server._auto_append_min() == 1
+    os.rename(os.path.join(root, "hound_23"), os.path.join(root, "_later_23"))      # only chapter 22 is new
+    d = next(x for x in server._auto_append_pass() if x["series"] == "hound")
+    assert d["action"] == "build" and (d["start"], d["end"]) == (20, 22), d
+    m = _wait(root, "hound_ch20-22")
+    assert m["build"]["status"] == "done", m
+    # the posted compilation is the first piece — re-used, not rebuilt from chapters
+    assert [x["project"] for x in m["merged_from"]] == ["hound_ch20-21", "hound_22"]
+    assert [int(n) for n, _t in m["build"]["marks"]] == [20, 21, 22]               # its own markers carried in
+    md = server.load_publish(os.path.join(root, "hound_ch20-22"))["final_range_20-22.mp4"]
+    assert md["title"] == "[20-22] Hound Returns For VENGEANCE | Flamingo Recap"
+    # every chapter's check results were stored with the new compilation
+    ev = json.load(open(os.path.join(root, "hound_ch20-22", "release_evidence.json")))["chapters"]
+    assert "hound_22" in ev and ev["hound_ch20-21"]["parts"] == []
+    assert next(x for x in server._auto_append_pass() if x["series"] == "hound")["action"] == "none"
+
+    # chapter 23 arrives while 20-22 waits for review: 20-23 replaces it
+    os.rename(os.path.join(root, "_later_23"), os.path.join(root, "hound_23"))
+    d2 = next(x for x in server._auto_append_pass() if x["series"] == "hound")
+    assert d2["action"] == "build" and (d2["start"], d2["end"]) == (20, 23) and d2["retire"] == ["hound_ch20-22"]
+    m2 = _wait(root, "hound_ch20-23")
+    assert [x["project"] for x in m2["merged_from"]] == ["hound_ch20-21", "hound_22", "hound_23"]
+
+
+def test_unknown_mode_is_refused(lib, monkeypatch):
+    monkeypatch.setenv("AUTO_APPEND_MODE", "sometimes")
+    with pytest.raises(RuntimeError):
+        server._auto_append_mode()
+
+
+def test_dry_run_reports_the_mode(lib, monkeypatch):
+    monkeypatch.setenv("AUTO_APPEND_MODE", "cumulative")
+    r = server.api_auto_append()
+    assert r["mode"] == "cumulative" and r["min_new"] == 2

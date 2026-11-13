@@ -490,7 +490,13 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         direct_record = dict(narrate.LAST_DIRECT_SPEECH)
         json.dump(direct_record, open(ds_path, "w"), indent=1, ensure_ascii=False)
         # what the script editor (critique pass) flagged and rewrote
-        json.dump(dict(getattr(narrate, "LAST_CRITIQUE", {}) or {}),
+        # script_sha256 ties this record to the exact script.txt it judged
+        # (release_gate: a script changed afterwards is "outdated", not passed)
+        import hashlib as _hl
+        import time as _tm
+        json.dump({**dict(getattr(narrate, "LAST_CRITIQUE", {}) or {}),
+                   "script_sha256": _hl.sha256(open(script_path, "rb").read()).hexdigest(),
+                   "checked_at": _tm.time()},
                   open(os.path.join(proj, "critique.json"), "w"), indent=1, ensure_ascii=False)
         scenes = narrate.provenance(results)
         json.dump(scenes, open(prov_path, "w"), indent=1)
