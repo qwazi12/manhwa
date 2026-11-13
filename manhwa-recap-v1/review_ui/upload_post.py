@@ -263,7 +263,12 @@ def _encode_multipart_formdata(fields, files):
     return body, content_type
 
 
-def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=None, _http=None, on_step=None):
+def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=None, _http=None, on_step=None,
+                      request_id=None):
+    """request_id: the caller's own id for this upload, stored BEFORE the bytes
+    are sent, so a publish cut off by a restart can ask Upload-Post whether it
+    arrived instead of sending the video a second time (2026-11-13). When
+    omitted, one is made here as before."""
     cfg = cfg or config()
     if not cfg["api_key"]:
         raise UploadPostError("UPLOADPOST_API_KEY is not set")
@@ -297,7 +302,7 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
     # Our own request id, also the Idempotency-Key: after a gateway error we
     # can ask Upload-Post whether it got the upload, and a resend with the same
     # key can never create a second post (Upload-Post docs, 2026-10-31).
-    request_id = uuid.uuid4().hex
+    request_id = request_id or uuid.uuid4().hex
     fields = [
         ("user", user_profile),
         ("title", metadata.get("title") or "Manhwa Recap"),
@@ -428,6 +433,12 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
             on_step(f"{err} — Upload-Post has no record of it; retrying "
                     f"(attempt {attempt + 2} of {UPLOAD_ATTEMPTS})")
         time.sleep(RETRY_WAIT[attempt] + random.uniform(0, 10))
+
+
+def accepted(request_id, cfg=None):
+    """Public form of _accepted: does Upload-Post already hold an upload with
+    this request id?"""
+    return _accepted(request_id, cfg or config())
 
 
 def _accepted(request_id, cfg):

@@ -128,6 +128,7 @@ def fake_drafts(monkeypatch, n=5):
 
 
 def test_revision_cap_context_and_unverified_findings_are_preserved(monkeypatch):
+    monkeypatch.setenv("CRITIQUE_VERIFY", "0")          # the rule before the re-check existed
     panels = fake_drafts(monkeypatch)
     issues = [{"unit": i, "type": "hallucination", "problem": f"claim {i}", "fix": "remove it"} for i in range(5)]
     monkeypatch.setattr(narrate, "critique_units", lambda *a, **k: issues)
@@ -145,6 +146,47 @@ def test_revision_cap_context_and_unverified_findings_are_preserved(monkeypatch)
     assert received[0]["opening"] and all(not k["opening"] for k in received[1:])
     assert c["outcome"] == "needs_review" and len(c["unresolved"]) == 5
     assert sum(i["resolution"] == "rewritten_unverified" for i in c["unresolved"]) == 3
+
+
+def _rewrite_env(monkeypatch, first, second):
+    """critique_units answers `first` on the whole draft and `second` on the re-check."""
+    monkeypatch.delenv("CRITIQUE_VERIFY", raising=False)
+    panels = fake_drafts(monkeypatch)
+    calls = []
+    def crit(results, *a, **k):
+        calls.append(len(results))
+        return first if len(calls) == 1 else second
+    monkeypatch.setattr(narrate, "critique_units", crit)
+    monkeypatch.setattr(narrate, "revise_unit", lambda sc, *a, **k: f"[ID: {sc[0]['panel_id']}] The boy stepped inside.")
+    narrate.generate_narration(panels, verbose=False, direct=False)
+    return narrate.LAST_CRITIQUE, calls
+
+
+def test_rewrites_are_rechecked_and_a_clean_recheck_makes_the_chapter_clean(monkeypatch):
+    issues = [{"unit": u, "type": "hallucination", "problem": "claim", "fix": "remove it"} for u in (1, 3)]
+    c, calls = _rewrite_env(monkeypatch, issues, [])
+    assert calls == [5, 2]                              # whole draft, then only the 2 rewritten units
+    assert c["outcome"] == "clean" and c["unresolved"] == []
+    assert c["verified"] == {"units": [1, 3], "still_flagged": []}
+    assert {a["status"] for a in c["attempts"]} == {"rewritten_verified"}
+    assert len(c["issues"]) == 2                        # what the editor first found is kept on record
+
+
+def test_a_rewrite_that_is_still_wrong_stays_open_under_its_own_unit(monkeypatch):
+    issues = [{"unit": u, "type": "hallucination", "problem": "claim", "fix": "remove it"} for u in (1, 3)]
+    # the re-check sees the rewritten units as 0 and 1; the second (unit 3) is still wrong
+    c, _ = _rewrite_env(monkeypatch, issues, [{"unit": 1, "type": "hallucination", "problem": "still invented", "fix": "x"}])
+    assert c["outcome"] == "needs_review"
+    assert [(i["unit"], i["resolution"]) for i in c["unresolved"]] == [(3, "still_flagged_after_rewrite")]
+    assert {a["unit"]: a["status"] for a in c["attempts"]} == {1: "rewritten_verified", 3: "still_flagged"}
+
+
+def test_units_over_the_revision_limit_stay_open_even_when_the_recheck_is_clean(monkeypatch):
+    issues = [{"unit": i, "type": "hallucination", "problem": f"claim {i}", "fix": "remove it"} for i in range(5)]
+    c, calls = _rewrite_env(monkeypatch, issues, [])
+    assert calls == [5, 3]
+    assert c["outcome"] == "needs_review"
+    assert sorted((i["unit"], i["resolution"]) for i in c["unresolved"]) == [(3, "not_repaired"), (4, "not_repaired")]
 
 
 @pytest.mark.parametrize("failure", [narrate.CritiqueError("bad JSON"), RuntimeError("provider unavailable")])

@@ -906,18 +906,31 @@ def _record_export_media(pdir, name, **context):
         _ev("render", f"Final-media manifest incomplete: {str(exc)[:200]}", "warn")
 
 
+def _release_gate_blockers(pdir, name):
+    """Critical defects found by the script editor and final-media QA
+    (release_gate.py). Returns nothing unless RELEASE_GATE is switched on."""
+    try:
+        import release_gate
+        return release_gate.blocking(pdir, name)
+    except Exception as e:  # noqa — an unreadable report must not post a video the gate was asked to hold
+        import release_gate as _rg
+        return [f"Release check could not run ({type(e).__name__}); nothing is released while "
+                f"RELEASE_GATE is on."] if _rg.mode() != "off" else []
+
+
 def _media_readiness_blockers(pdir, name):
     import qa_project_policy as policy
     if policy.restricted(pdir):
         return [policy.REASON]
+    gate = _release_gate_blockers(pdir, name)
     if not _mqa.enforcement_enabled():
-        return []
+        return gate
     if not name:
-        return ["No export is available for final-media QA."]
+        return gate + ["No export is available for final-media QA."]
     try:
-        return _mqa.blockers(pdir, name, load_reviews(pdir).get(name))
+        return gate + _mqa.blockers(pdir, name, load_reviews(pdir).get(name))
     except Exception:
-        return ["Final-media QA is unavailable; publication cannot proceed while enforcement is enabled."]
+        return gate + ["Final-media QA is unavailable; publication cannot proceed while enforcement is enabled."]
 
 
 class MediaQaIn(BaseModel):
@@ -4213,6 +4226,54 @@ def api_growth_analytics_video(video_id: str, start: str, end: str, by_day: int 
         raise HTTPException(502, str(e))
 
 
+_SCORECARD = {"at": 0.0, "value": None}
+
+
+def _published_videos():
+    """Every YouTube post on record: project, its link, newest chapter, and
+    when it went (or is set to go) live. Reads files only."""
+    import ingest as _i
+    out = []
+    for pid in sorted(os.listdir(_i.PROJECTS)) if os.path.isdir(_i.PROJECTS) else []:
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(pdir):
+            continue
+        try:
+            _sid, series, n, meta = _series_ident(pdir)
+        except Exception:  # noqa — one bad folder must not stop the report
+            continue
+        end = meta.get("chapters_end") if meta.get("kind") == "range" else n
+        for name, rec in (load_publishes(pdir) or {}).items():
+            for res in (rec or {}).get("results") or []:
+                if res.get("status") != "published" or res.get("network") != "youtube":
+                    continue
+                at = (rec or {}).get("publish_at") or res.get("published_at") or 0
+                if at and end is not None:
+                    out.append({"project": pid, "label": f"{series} {meta.get('chapters_start')}-{end}"
+                                if meta.get("kind") == "range" else f"{series} {end}",
+                                "url": meta.get("url") or "", "chapter_end": _autopilot.norm_chapter(str(end)),
+                                "live_at": float(at), "video_url": res.get("url")})
+    return out
+
+
+@app.get("/api/scorecard")
+def api_scorecard(fresh: int = 0):
+    """Measured quality, corrections, cost and release timeliness, from stored
+    records (scorecard.py). Read-only; kept for 5 minutes (fresh=1 recomputes)."""
+    import ingest as _i
+    import scorecard as _sc
+    import watchlist as _wl
+    if not fresh and _SCORECARD["value"] and time.time() - _SCORECARD["at"] < 300:
+        return _SCORECARD["value"]
+    data = _wl.load(_wl_root())
+    find = lambda url: _wl.find_by_mirror(data, url)[0]
+    st = _autopilot.load(_i.PROJECTS)
+    val = _sc.build(_i.PROJECTS, _published_videos(), find, list(st["ledger"].values()),
+                    _usage_index(), _autopilot.et_day()[:7])
+    _SCORECARD.update(at=time.time(), value=val)
+    return val
+
+
 @app.get("/api/growth/snapshot")
 def api_growth_snapshot(days: int = 14):
     """F-02 daily exports, read-only (no sync, no prune, no saves): series,
@@ -4982,15 +5043,42 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
         names = {x.get("account_id"): x for x in
                  (elig.get("accounts") or {}).get("accounts") or []}
         results = []
+        # Upload identity that survives a restart (2026-11-13). The request id
+        # used to be made inside the upload call and lost with the process: a
+        # publish cut off mid-upload stayed "posting" for good, and pressing
+        # Post again sent the video a second time. Now the id is stored before
+        # the bytes go out; a later attempt asks Upload-Post about that id
+        # first and sends nothing when the upload is already there.
+        durable = hasattr(mod, "accepted")
+        upload_ids = dict((load_publishes(pdir).get(name) or {}).get("upload_ids") or {})
         for prof, group in groups.items():
             step("uploading video to Upload-Post (%s)" % ", ".join(group), 1)
-            try:
-                created = mod.upload_video_post(
-                    video, md, group, thumbnail_path=thumb_file,
-                    on_step=lambda m: step(m, 1)
-                )
-            except Exception as e:
-                created = {"success": False, "error": str(e)}
+            created = None
+            if durable:
+                rid0 = upload_ids.get(prof)
+                if rid0:
+                    try:
+                        if mod.accepted(rid0):
+                            created = {"success": True, "request_id": rid0, "recovered": True}
+                            step("Upload-Post already has this upload from an earlier attempt — not sent again", 1)
+                    except Exception:
+                        pass
+                else:
+                    rid0 = upload_ids[prof] = uuid.uuid4().hex
+                    _publish_record(pdir, name, upload_ids=upload_ids)
+            if created is None:
+                try:
+                    kw = {"request_id": rid0} if durable else {}
+                    created = mod.upload_video_post(
+                        video, md, group, thumbnail_path=thumb_file,
+                        on_step=lambda m: step(m, 1), **kw
+                    )
+                except Exception as e:
+                    created = {"success": False, "error": str(e)}
+                if durable and not created.get("success"):
+                    # refused outright: the next attempt is a new upload with a new id
+                    upload_ids.pop(prof, None)
+                    _publish_record(pdir, name, upload_ids=upload_ids)
             rid = created.get("request_id")
             for t in group:
                 a = names.get(t) or {}
@@ -5039,6 +5127,24 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
         JOBS[job_id].update(status="error", error=str(e)[:500])
         _persist_job(job_id)
 
+PUBLISH_ORPHAN_SECONDS = 600
+
+
+def _publish_orphaned(rec, now=None):
+    """A publish record still "in progress" whose worker is gone (the server
+    restarted mid-upload): no live job, nothing submitted, no update for
+    PUBLISH_ORPHAN_SECONDS. It may be started again — the new attempt asks
+    Upload-Post about the stored upload id before sending anything."""
+    if rec.get("status") != "in_progress":
+        return False
+    job = JOBS.get(rec.get("job") or "") or {}
+    if job.get("status") in ("queued", "running"):
+        return False
+    if any(r.get("status") == "submitted" for r in rec.get("results") or []):
+        return False                     # accepted: the status check settles it
+    return (now or time.time()) - (rec.get("updated_at") or rec.get("started_at") or 0) > PUBLISH_ORPHAN_SECONDS
+
+
 class PublishNowIn(BaseModel):
     project: str = ""
     name: str = ""
@@ -5057,7 +5163,7 @@ def os_publish(body: PublishNowIn):
     if not elig["ready"]:
         raise HTTPException(409, "not ready to publish — " + " ".join(elig["blockers"]))
     pubs = load_publishes(pdir)
-    if (pubs.get(name) or {}).get("status") == "in_progress":
+    if (pubs.get(name) or {}).get("status") == "in_progress" and not _publish_orphaned(pubs.get(name) or {}):
         raise HTTPException(409, "a publish for this export is already running")
     job_id = uuid.uuid4().hex[:12]
     JOBS[job_id] = {"status": "queued", "done": 0, "total": 4, "error": None,

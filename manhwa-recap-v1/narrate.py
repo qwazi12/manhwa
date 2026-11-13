@@ -612,6 +612,31 @@ Output the JSON array only.
     return parse_critique(raw, len(results))
 
 
+def verify_revisions(results, units, model, api_key, direct_by_unit=None):
+    """A3 pass 3 (2026-11-13): check the REWRITTEN units once more against
+    their panel facts. One small reviewer call. Returns the issues that are
+    still there, with the original unit numbers.
+
+    Before this pass every rewrite was recorded "rewritten_unverified" and the
+    chapter "needs_review": on production 30 of 36 chapters carried that
+    outcome, with 91 of 93 flagged problems rewritten and none re-checked — so
+    the label could not tell a fixed script from a broken one, and nothing
+    could act on it."""
+    units = [u for u in units if 0 <= u < len(results)]
+    if not units:
+        return []
+    direct_by_unit = direct_by_unit or {}
+    sub = [results[u] for u in units]
+    left = critique_units(sub, model, api_key,
+                          direct_by_unit={i: direct_by_unit.get(u, []) for i, u in enumerate(units)})
+    out = []
+    for it in left:
+        i = it.get("unit")
+        if isinstance(i, int) and 0 <= i < len(units):
+            out.append({**it, "unit": units[i]})
+    return out
+
+
 def revise_unit(scene_panels, draft, unit_issues, model, global_beatsheet, api_key,
                 direct_lines=None, series_bible_data=None, opening=""):
     """A3 pass 2: regenerate ONE flagged unit with the reviewer's notes
@@ -724,6 +749,24 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
                             "after": strip_anchored_tags(fixed.strip())[:1500]})
             print(f"critique: {len(issues)} issue(s), revised "
                   f"{len(LAST_CRITIQUE['revised'])} unit(s)", file=sys.stderr)
+            # Re-check what was rewritten (CRITIQUE_VERIFY=0 turns this off).
+            rewritten = [x["unit"] for x in LAST_CRITIQUE["revised"]]
+            if rewritten and os.environ.get("CRITIQUE_VERIFY", "1") != "0":
+                try:
+                    still = verify_revisions(results, rewritten, model, api_key,
+                                             direct_by_unit={u: _direct(u) for u in rewritten})
+                    LAST_CRITIQUE["verified"] = {
+                        "units": rewritten,
+                        "still_flagged": [
+                            {"unit": it.get("unit"), "type": it.get("type"),
+                             "problem": str(it.get("problem") or "")[:300],
+                             "fix": str(it.get("fix") or "")[:300]} for it in still]}
+                    bad = {it["unit"] for it in still}
+                    for a in LAST_CRITIQUE["attempts"]:
+                        if a.get("status") == "rewritten_unverified":
+                            a["status"] = "still_flagged" if a["unit"] in bad else "rewritten_verified"
+                except CritiqueError as e:
+                    LAST_CRITIQUE["verified"] = {"units": rewritten, "error": str(e)[:200]}
     except CritiqueError as e:
         model_issues = e.issues
         LAST_CRITIQUE.update(status="incomplete", error=str(e), issues=list(e.issues), review_response_valid=False)
@@ -737,9 +780,19 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
 
     left, summary = _audit()
     revised_units = {x["unit"] for x in LAST_CRITIQUE["revised"]}
-    LAST_CRITIQUE["unresolved"] = [
-        {**it, "resolution": "rewritten_unverified" if it["unit"] in revised_units else "not_repaired"}
-        for it in model_issues] + [{**it, "resolution": "direct_speech_contract_failed"} for it in left]
+    ver = LAST_CRITIQUE.get("verified") or {}
+    if "still_flagged" in ver:
+        # the rewrites were re-checked: a rewritten unit is settled unless the
+        # second check still flags it; a flagged unit that was never rewritten
+        # (over the revision limit) stays open
+        LAST_CRITIQUE["unresolved"] = (
+            [{**it, "resolution": "not_repaired"} for it in model_issues if it["unit"] not in revised_units]
+            + [{**it, "resolution": "still_flagged_after_rewrite"} for it in ver["still_flagged"]]
+            + [{**it, "resolution": "direct_speech_contract_failed"} for it in left])
+    else:
+        LAST_CRITIQUE["unresolved"] = [
+            {**it, "resolution": "rewritten_unverified" if it["unit"] in revised_units else "not_repaired"}
+            for it in model_issues] + [{**it, "resolution": "direct_speech_contract_failed"} for it in left]
     LAST_CRITIQUE["outcome"] = ("incomplete" if LAST_CRITIQUE["status"] != "done" else
                                 "needs_review" if LAST_CRITIQUE["unresolved"] else "clean")
     LAST_DIRECT_SPEECH.clear()
