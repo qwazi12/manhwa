@@ -2,7 +2,7 @@
 
 What the studio runs, when, and every setting that changes its behaviour. Kept in step with the code (global rule 33); if this file and the code disagree, the code is right and this file is a defect.
 
-Last checked against the code: 2026-10-04, commit after 6c22a4f.
+Last checked against the code: 2026-10-04, commit after 6c22a4f. Entries marked "Added 2026-11-13" were checked on the branch `feat/audit-fixes-20261113`; the rest of this file was not re-verified then (docs/AUDIT_2026-11-13.md lists known gaps).
 
 ## Services
 
@@ -37,6 +37,17 @@ The scheduler checks every **10 minutes** (first check 60 s after boot); `AUTOPI
 | publish prep | each check | up to 5 chapters waiting for you that lack SEO (≈ $0.012 each, only with budget left) or a thumbnail (free) get them. New chapters get SEO when making finishes; new videos get a thumbnail, then the Drive copy, after the render |
 | autopilot | each check, when **on** | makes the next chapter: first the top ready entry of your **Make next** list (Library), else round robin; N per day; re-reads every series source every 6 h |
 | export cleanup | on export listing | deletes exports older than 7 days, except videos still scheduled to post |
+
+Added 2026-11-13 (branch `feat/audit-fixes-20261113`):
+
+| Step | When | What |
+|---|---|---|
+| source check | each check, every 6 hours, **whether or not autopilot is on** | reads every series page for new chapters (free) |
+| account hold | after an AI-provider account failure (out of credits, bad key) | autopilot starts nothing for 30 minutes, says why, then tries one chapter; no chapter is struck for it |
+
+Production Python packages are pinned in `deploy/requirements.txt` (the image used to install the newest release of each on every rebuild).
+
+Read-only reports: `GET /api/spend` (now also by stage, thinking tokens, Flex requested vs served), `GET /api/scorecard` (quality, corrections, cost, release timeliness; kept 5 minutes, `?fresh=1` recomputes).
 
 ## Settings changed in the app (stored on the volume)
 
@@ -75,6 +86,16 @@ The scheduler checks every **10 minutes** (first check 60 s after boot); `AUTOPI
 | `AUTOPILOT_SCHEDULER` | `0` switches the background scheduler off |
 | `CACHE_RELEASE` (`off` disables), `CACHE_RELEASE_SECONDS` (300) | while idle, drop the Linux file cache renders leave behind — Railway bills it as memory (review_ui/cache_release.py) |
 | `AUTO_FRAMING` (`off` disables), `AUTO_TURN` (`suggest` default / `apply` / `off`), `AUTO_TURN_MIN_CONF` (0.8), `AUTO_FRAMING_MODEL` (`gemini-3.8-flash`), `AUTO_FRAMING_WORKERS` (5) | automatic subject framing and sideways-picture turns (docs/FLAMINGO_AUTO_FRAMING.md) |
+| `VISION_THINKING_LEVEL` (default `low`), `SCRIPT_THINKING_LEVEL` (default: the model's own), `CROP_THINKING_BUDGET` (default `0`) | how much the model may "think" (billed as output). `default` / empty restores the model's own setting. Added 2026-11-13 |
+| `FLEX_TRIP` (3), `FLEX_COOLDOWN_S` (600) | after this many Flex refusals in a row, Flex is not requested for this many seconds |
+| `CACHE_CODE_STRICT` (`1` = old rule) | by default a change to code files alone does not make finished describe/script/voice work "stale" |
+| `CRITIQUE_VERIFY` (`0` disables) | rewritten script units are re-checked once by the script editor |
+| `RELEASE_GATE` (`off` default / `critical` / `strict`) | whether open script problems and failed final-media QA block posting (`release_gate.py`). `off` only reports them in `/api/scorecard` |
+| `MEDIA_QA_ENFORCE` (`1` enables) | final-media QA must pass, and the exact export be re-approved, before posting (not set in production) |
+| `STITCH_ENGINE` (`clean` default / `copy`) | how merged videos are joined; `copy` is the join used before 2026-11-13 |
+| `AUTO_APPEND_MIN` (7), `AUTO_APPEND_HOLD` | chapters a new merge needs; `series:chapter` pairs that post as singles |
+| `SHEET_GATE_OFF` (`1` disables) | the Posting Review sheet gate (also `POST /api/sheet_gate {"on": false}`) |
+| `INGEST_LINE_MAX` (2), `JOB_STALL_SECONDS` (1800), `JOB_STOP_GRACE_SECONDS` (120) | chapters in line at once (one runs, one waits); when a silent render job is retired |
 | tuning groups `SPLIT_*`, `CROP_*`, `BUBBLE_*`, `VALIDATOR_*`, `PLUS_*`, `LAB_*`, `CLAUDE_TEST_*`, `TTS_*`, `DESCRIBE_*` | defaults in code; change only with a measured reason |
 
 **Vercel (frontend)**

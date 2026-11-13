@@ -54,6 +54,20 @@ How to pause, resume, re-run, read the logs, and recover from the usual failures
 | Signed out on a phone | sign-in cookie expired (90 days) or the password changed | sign in at /login |
 | Job stuck with no progress | a stalled worker | Stop it in the jobs bar, then Resume |
 
+### Added 2026-11-13 (branch `feat/audit-fixes-20261113`)
+
+| What you see | What it means | What to do | Undo |
+|---|---|---|---|
+| Autopilot: "holding ~N min: the AI provider refused the account" | Gemini refused the account (credits ran out, key invalid), not a chapter. Nothing starts for 30 minutes; no chapter is marked failed for it | top up / fix the key in AI Studio; autopilot then tries one chapter by itself | the hold ends by itself, or when any chapter finishes |
+| A series "blocked" with "cache is stale / edited … work preserved" after one failure | the same inputs would fail the same way, so it was not retried | Chapter → step strip → ↻ Redo that step (costs that step again), then Retry | — |
+| A merge fails with "pieces are out of order or repeated", "encoded differently" or "add up to" | the compilation check refused to write a broken video; the previous file is untouched | rebuild the named chapter's video, then build the merge again | `STITCH_ENGINE=copy` uses the old join (the checks still run) |
+| Log line "[stitch] clean join not possible … using the packet-copy join" | a piece could not be joined the new way; the old join was used so the merge still finished | nothing; the merged video will show timestamp warnings in final-media QA | — |
+| A video shows "posting" long after a restart | the upload was cut off; its upload id is on record | press Post again: Upload-Post is asked first and the video is sent only if it never arrived | — |
+| Posting blocked with "Release check (…)" | `RELEASE_GATE` is on and the video has an open script problem or failed final-media QA | fix what is named, re-render, re-approve | `RELEASE_GATE=off` |
+| `/api/spend` → `by_stage` shows "unlabelled" | calls logged before 2026-11-13 carry no stage | nothing | — |
+
+Where to look: `/api/scorecard` for quality, corrections, cost and time-to-publish; `/api/spend` for cost by stage, thinking tokens and Flex served vs requested; `/api/autopilot` → `hold`.
+
 ## Deploy and roll back
 
 - **Before every push** (code or docs): check nothing is running — Activity → Jobs, or `GET /api/jobsbar` returns `{"jobs":[]}`. A push restarts the backend; interrupted ingests resume once on boot, renders don't.
