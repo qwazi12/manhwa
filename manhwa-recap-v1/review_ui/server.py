@@ -5312,6 +5312,14 @@ PREP_RETRY_SECONDS = 6 * 3600
 
 
 def _prepare_publish(pdir, name, do_seo=True):
+    """Packaging for one video, with its spend labelled: it runs outside the
+    chapter's job, so its calls used to be logged under the job "unknown"."""
+    pid = os.path.basename(pdir.rstrip("/"))
+    with usage.scope(job_id="pkg:" + pid, stage="packaging", project=pid):
+        return _prepare_publish_labelled(pdir, name, do_seo)
+
+
+def _prepare_publish_labelled(pdir, name, do_seo=True):
     """SEO (one small model call, budget-gated) then thumbnail options (free,
     local). Never raises: a failure is logged and the video is unaffected.
     name == DRAFT: the chapter has no video yet — SEO only (as Scrapper writes
@@ -7110,7 +7118,13 @@ def _sweep_stalled_jobs():
     except OSError:
         return swept
     for fn in names:
-        if not fn.endswith(".json"):
+        # Render records only. Chapter (ingest) records share this folder but
+        # carry no heartbeat and their "ts" is the creation time, so any chapter
+        # still being made 30 minutes after it was queued was rewritten "error"
+        # here on every job listing; a restart in that window then dropped it
+        # as "worker is gone" (found 2026-11-13). Chapters are settled by the
+        # ingest worker and the boot sweep.
+        if not fn.endswith(".json") or not fn.startswith("render_"):
             continue
         fp = os.path.join(d, fn)
         try:
@@ -7349,6 +7363,18 @@ RESUME_MAX = 2              # restarts a single ingest may survive
 RESUME_WINDOW = 6 * 3600    # older orphans are written off as before
 
 
+def _settle_written_off(job_id, error):
+    """A chapter written off at startup must also fail in autopilot's ledger.
+    It used to stay "queued" there, which counts as made: the chapter was never
+    tried again and showed as "in line" for good (found 2026-11-13)."""
+    try:
+        import autopilot as _apm
+        import ingest as _ing
+        _apm.on_job_end(_ing.PROJECTS, job_id, "error", error)
+    except Exception as e:  # noqa — the sweep itself must not fail
+        print(f"[boot] {job_id}: could not settle the autopilot ledger: {e}", flush=True)
+
+
 def _sweep_orphaned_ingest_jobs():
     """E1: a server restart (deploy, env-var change, crash) kills the ingest
     thread but leaves its persisted status 'running' forever — a mystery-dead
@@ -7398,6 +7424,7 @@ def _sweep_orphaned_ingest_jobs():
                                   "re-submit the chapter URL to resume from cached stages"
                                   + (" (already resumed %d times)" % j.get("resumes", 0)
                                      if j.get("resumes", 0) >= RESUME_MAX else ""))
+                    _settle_written_off(j.get("job") or fn[:-5], j["error"])
                 json.dump(j, open(p, "w"))
                 n += 1
     except FileNotFoundError:
@@ -7583,8 +7610,14 @@ def _queue_worker():
         try:
             _run_ingest_job(job_id, url, fresh, engine=engine,
                             variant=variant, direct=direct)
-        except Exception:                  # a worker crash must not kill the queue
-            pass
+        except Exception as e:             # a worker crash must not kill the queue
+            import traceback
+            print(f"[queue] {job_id}: worker crashed: {type(e).__name__}: {e}\n{traceback.format_exc()}",
+                  flush=True)
+            try:
+                _ev("ingest", f"{job_id}: the queue worker crashed ({type(e).__name__}: {str(e)[:160]})", "error")
+            except Exception:
+                pass
 
 
 def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
@@ -7609,8 +7642,12 @@ def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
     _persist_ingest(job_id)
     with _QUEUE_LOCK:
         # the engine rides with the job — it used to be dropped here, so any
-        # QUEUED ingest (every Tracker ingest) silently ran Gemini
-        _QUEUE.append((job_id, url, fresh, engine, variant, direct))
+        # QUEUED ingest (every Tracker ingest) silently ran Gemini.
+        # One entry per job: a second Resume (or a resume racing the line
+        # filler) used to queue the same chapter twice, and the worker then
+        # ran it again after it had finished (found 2026-11-13).
+        if not any(q[0] == job_id for q in _QUEUE):
+            _QUEUE.append((job_id, url, fresh, engine, variant, direct))
         start = not _QUEUE_RUNNING
         if start:
             _QUEUE_RUNNING = True
@@ -7811,15 +7848,8 @@ def ingest_status(job_id: str):
 @app.get("/api/logs/usage")
 def logs_usage(n: int = 100):
     """Tail the structured API-call log + today's running cost totals."""
-    lines = []
-    if os.path.exists(usage.LOG_PATH):
-        with open(usage.LOG_PATH, encoding="utf-8") as f:
-            raw = f.readlines()[-n:]
-        for ln in raw:
-            try:
-                lines.append(json.loads(ln))
-            except Exception:
-                pass
+    import spend_index
+    lines = spend_index.tail(usage.LOG_PATH, max(1, min(int(n), 200000)))   # reads the end of the file only
     lines.reverse()  # newest first
     return {"calls": lines, "summary": usage.daily_summary()}
 
@@ -9892,35 +9922,16 @@ def _ap_deps():
                                                            source="autopilot")}
 
 
-_AP_SPEND_CACHE = {"at": 0.0, "value": 0.0}
-
-
 def _ap_spent_today():
-    """Metered spend of autopilot's own jobs today (ET), from the usage log —
-    the number autopilot's $ budget is checked against. Cached 30 s."""
-    now = time.time()
-    if now - _AP_SPEND_CACHE["at"] < 30:
-        return _AP_SPEND_CACHE["value"]
+    """Metered spend of autopilot's own jobs today (ET), from the usage index —
+    the number autopilot's $ budget is checked against. It used to re-read the
+    whole usage log every 30 seconds."""
     jobs = {e.get("job") for e in _autopilot.load(_ingest_mod.PROJECTS)["ledger"].values()
             if e.get("source") == "autopilot" and e.get("job")}
-    today, total = _autopilot.et_day(now), 0.0
-    if jobs:
-        try:
-            with open(usage.LOG_PATH, encoding="utf-8") as f:
-                for line in f:
-                    if '"job_id"' not in line:
-                        continue
-                    try:
-                        e = json.loads(line)
-                    except ValueError:
-                        continue
-                    if e.get("job_id") in jobs and _autopilot.et_day(
-                            datetime.fromisoformat(e["ts"]).timestamp()) == today:
-                        total += e.get("est_cost_usd") or 0.0
-        except (FileNotFoundError, KeyError, ValueError):
-            pass
-    _AP_SPEND_CACHE.update(at=now, value=round(total, 4))
-    return _AP_SPEND_CACHE["value"]
+    if not jobs:
+        return 0.0
+    today, by = _autopilot.et_day(time.time()), _usage_index()["by_job_day"]
+    return round(sum(by.get((j, today), 0.0) for j in jobs), 4)
 
 
 def _waiting_ingests(status):
@@ -10013,6 +10024,7 @@ def _resume_interrupted():
                 rec.update(status="error", error="can't resume after the restart: the job has no chapter link")
                 INGEST[jid] = rec
                 _persist_ingest(jid)
+                _settle_written_off(jid, rec["error"])
                 print(f"[boot] {jid}: not resumed — no chapter link on record", flush=True)
                 continue
             rec["url"] = url
@@ -11741,37 +11753,11 @@ def autopilot_backfill(body: BackfillIn):
 # page, jobs with real names and costs, and spend in one place.
 import events as _events
 
-_COST_CACHE = {"key": None, "by_job": {}, "by_day": {}, "by_kind": {}}
-
-
 def _usage_index():
-    """Per-job and per-day spend from the usage log, cached by file size."""
-    try:
-        st = os.stat(usage.LOG_PATH)
-        key = (st.st_size, st.st_mtime)
-    except OSError:
-        return _COST_CACHE
-    if _COST_CACHE["key"] == key:
-        return _COST_CACHE
-    by_job, by_day, by_kind = {}, {}, {}
-    with open(usage.LOG_PATH, encoding="utf-8") as f:
-        for line in f:
-            try:
-                e = json.loads(line)
-            except ValueError:
-                continue
-            c = e.get("est_cost_usd") or 0.0
-            jid = e.get("job_id") or "?"
-            by_job[jid] = by_job.get(jid, 0.0) + c
-            try:
-                day = _autopilot.et_day(datetime.fromisoformat(e["ts"]).timestamp())
-            except Exception:
-                continue
-            by_day[day] = by_day.get(day, 0.0) + c
-            k = (day[:7], e.get("provider") or e.get("kind") or "?")
-            by_kind[k] = by_kind.get(k, 0.0) + c
-    _COST_CACHE.update(key=key, by_job=by_job, by_day=by_day, by_kind=by_kind)
-    return _COST_CACHE
+    """Per-job, per-day, per-provider and per-stage spend from the usage log.
+    Only lines appended since the last call are parsed (spend_index.py)."""
+    import spend_index
+    return spend_index.refresh(usage.LOG_PATH, _autopilot.et_day)
 
 
 @app.get("/api/events")
@@ -11926,7 +11912,15 @@ def spend_summary():
     return {"day": day, "today": {"spent": round(spent, 3), "cap": cap},
             "autopilot": {"spent": _ap_spent_today(), "budget": st["settings"].get("budget_usd")},
             "month": {"label": month, "days": days, "total": round(sum(v for _, v in days), 2),
-                      "by_provider": {k[1]: round(v, 3) for k, v in idx["by_kind"].items() if k[0] == month}},
+                      "by_provider": {k[1]: round(v, 3) for k, v in idx["by_kind"].items() if k[0] == month},
+                      # which pipeline stage the money went to; lines written before
+                      # 2026-11-13 carry no stage and show as "unlabelled"
+                      "by_stage": {k[1]: round(v, 3) for k, v in sorted(
+                          idx["by_stage"].items(), key=lambda kv: -kv[1]) if k[0] == month},
+                      "thinking_tokens": {k[1]: int(v) for k, v in idx["thinking"].items() if k[0] == month},
+                      "tiers": [{"requested": k[1] or "standard", "served": k[2] or "standard", "calls": int(v)}
+                                for k, v in idx["tiers"].items() if k[0] == month]},
+            "flex": usage.flex_state(),
             "chapters": chapters,
             "rates": usage.rate_card(),
             "note": "Measured from real tokens since 2026-10-03; earlier Gemini Flash calls were under-counted. "

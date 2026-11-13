@@ -218,6 +218,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
 
     proj_id = project_id(url, variant)
     proj = os.path.join(PROJECTS, proj_id)
+    usage.set_project(proj_id)        # every paid call below is logged with its chapter and stage
+    usage.set_stage("scrape")
     import tempfile
     import generation_cache as cache
     os.makedirs(proj, exist_ok=True)
@@ -253,7 +255,9 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     # Split into a fresh workspace: failed downloads/splits must not destroy
     # the original source behind an approved cut. Changed successful source
     # trees are archived before promotion, never mixed with stale crops.
-    subp_env = {**os.environ, "RECAP_JOB_ID": job_id}
+    usage.set_stage("split")
+    subp_env = {**os.environ, "RECAP_JOB_ID": job_id, "RECAP_PROJECT": proj_id,
+                "RECAP_STAGE": "split"}
     if tier:                                   # describe runs as a subprocess
         subp_env["RECAP_SERVICE_TIER"] = tier
     split_log = os.path.join(proj, "split.log")
@@ -365,6 +369,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
 
     # 3. describe ---------------------------------------------------------
     # Resolve Series Bible (character cheat-sheet, setting tropes, costume vs monster rules)
+    usage.set_stage("research")
     series_raw, _ = parse_series_chapter(url)
     import series_bible
     bible = series_bible.load_series_bible(series_raw, pdir=proj)
@@ -392,6 +397,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         series_bible.save_series_bible(series_raw, bible, pdir=proj)
 
     progress("describe", "Describing panels (Gemini vision)…", 35)
+    usage.set_stage("describe")
+    subp_env["RECAP_STAGE"] = "describe"
     desc_log = os.path.join(proj, "describe.log")
     desc_cmd = [PY, os.path.join(ROOT, "panel-describe", "run.py"),
                 "--input", crops, "--out", desc_path,
@@ -445,6 +452,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         open_alias = _sp.spoken_alias(_pack, _ch)
     except Exception:
         pass
+    usage.set_stage("script")
     script_inputs = cache.script_inputs(proj, panels, bible, direct,
                                         open_title, open_alias, narrate.DEFAULT_MODEL)
     script_cache = os.path.join(proj, "script.cache.json")
@@ -511,6 +519,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
 
     # 5. voice (TTS each beat via REST; recompute timeline) --------------
     progress("voice", f"Synthesizing {len(beats)} beats (TTS)…", 72)
+    usage.set_stage("voice")
     import server as srv  # reuse the REST TTS helper (certifi CA, no SDK)
     import gemini_tts
     voice_engine = gemini_tts.engine_for_project(proj)   # pinned per project
@@ -526,23 +535,51 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     voice_cache = os.path.join(proj, "voice.cache.json")
     from pathlib import Path
     voice_outputs = {out.name: str(out) for out in Path(audio).glob("beat_*.mp3")}
+    # A line whose file exists but was never registered comes from a pool that
+    # was cut (a failed line, a spend pause, a restart). It used to make every
+    # later pass fail with "voice cache is edited" (2026-11-13). Such a file is
+    # removed and recorded again below — free, from the voice cache.
+    known = cache.recorded_outputs(voice_cache)
+    if known is not None:
+        for name in [n for n in voice_outputs if n not in known]:
+            try:
+                os.remove(voice_outputs.pop(name))
+            except OSError:
+                pass
     if voice_outputs or os.path.exists(voice_cache):
         cache.require_current(voice_cache, voice_inputs, voice_outputs, "voice")
+    else:
+        # register the run before the first line, so a cut pool is recognisable
+        cache.open_record(voice_cache, voice_inputs)
     todo = [(b, out) for b, out in todo if not os.path.exists(out)]
     if todo:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         n_w = max(1, int(os.environ.get("TTS_WORKERS", "4")))
+        first_error = None
         with ThreadPoolExecutor(max_workers=n_w) as ex:
             synth = usage.carry(srv._synth_rest)          # count under THIS job
             futs = {ex.submit(synth, b["text"], out, engine=voice_engine): out
                     for b, out in todo}
             for k, fut in enumerate(as_completed(futs), 1):
-                fut.result()      # first failure (incl. a usage cap) stops the job
+                if fut.cancelled():
+                    continue
+                try:
+                    fut.result()
+                except BaseException as e:      # incl. a usage cap
+                    # stop handing out new lines, but keep registering the ones
+                    # already recording: they are paid for
+                    if first_error is None:
+                        first_error = e
+                        for other in futs:
+                            other.cancel()
+                    continue
                 voice_outputs[os.path.basename(futs[fut])] = futs[fut]
                 cache.record(voice_cache, voice_inputs, voice_outputs)
                 if k % 10 == 0:
                     progress("voice", f"recorded {k}/{len(todo)} lines",
                              72 + int(12 * k / len(todo)))
+        if first_error is not None:
+            raise first_error
     t = 0.0
     for i, b in enumerate(beats):
         if b.get("silent") or not (b.get("text") or "").strip():
@@ -566,6 +603,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
 
     # 6. match (DP aligner) ----------------------------------------------
     progress("match", "Matching beats to panels…", 90)
+    usage.set_stage("match")
     pj = json.load(open(desc_path))
     for p in pj:
         if p.get("file") and not os.path.isabs(p["file"]):
@@ -581,6 +619,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     match_method = method
 
     import shot_planner
+    usage.set_stage("crops")
     progress("match", "Planning precise shot crops…", 96)
     shots = shot_planner.plan_shots(shots, desc_path, crops)
     af = shot_planner.LAST_AUTO_FRAMING or {}

@@ -223,8 +223,14 @@ def call_gemini_rest(model, prompt, api_key):
         import urllib.error
         url = "https://generativelanguage.googleapis.com/v1beta/interactions"
         payload = {"model": model, "input": prompt}
-        # Autopilot chapters ask for Flex (half price, may queue ~1–15 min).
-        tier = usage.requested_tier() if usage else ""
+        # Script writing keeps the model's own thinking unless
+        # SCRIPT_THINKING_LEVEL is set (usage.thinking_level).
+        level = usage.thinking_level("script", model) if usage else ""
+        if level:
+            payload["generation_config"] = {"thinking_level": level}
+        # Autopilot chapters ask for Flex (half price, may queue ~1–15 min);
+        # skipped for a while when Google keeps refusing it (usage.effective_tier).
+        tier = usage.effective_tier() if usage else ""
         if tier:
             payload["service_tier"] = tier
         data = json.dumps(payload).encode("utf-8")
@@ -237,6 +243,8 @@ def call_gemini_rest(model, prompt, api_key):
                                             else 300, context=context) as response:
                     res = json.loads(response.read().decode("utf-8"))
                 _stash_usage(res)
+                if usage and payload.get("service_tier") == "flex":
+                    usage.flex_result(True)
                 break
             except urllib.error.HTTPError as e:
                 body = ""
@@ -247,11 +255,22 @@ def call_gemini_rest(model, prompt, api_key):
                 # Retry transient failures; surface everything else WITH the
                 # API's own explanation (job db7216d976ce died as an opaque
                 # bare "HTTP Error 400" because this body was discarded).
+                if e.code == 400 and "generation_config" in payload and "hinking" in body:
+                    # this model does not take thinking_level: send without it
+                    if usage:
+                        usage.thinking_unsupported(model)
+                    payload.pop("generation_config", None)
+                    data = json.dumps(payload).encode("utf-8")
+                    continue
                 if e.code in (429, 500, 502, 503) and attempt < 2:
                     last_err = f"{e.code}: {body}"
-                    if payload.pop("service_tier", None):
+                    if payload.pop("service_tier", None) == "flex":
                         # Flex has no server-side fallback: retry on Standard
+                        # right away (a Flex refusal is not a busy Standard tier)
+                        if usage and e.code in (429, 503):
+                            usage.flex_result(False)
                         data = json.dumps(payload).encode("utf-8")
+                        continue
                     _time.sleep(8 * (attempt + 1))
                     continue
                 raise RuntimeError(

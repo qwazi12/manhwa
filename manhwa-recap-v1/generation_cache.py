@@ -57,6 +57,54 @@ def record(path, inputs, outputs):
     return rec
 
 
+# Keys of an inputs record that identify the CODE that produced the output,
+# not what was sent to the model. A deploy that touches one of those files
+# used to turn every unfinished chapter "stale": the chapter then failed the
+# same way on each retry until someone re-ran the stage by hand (Death Knight
+# 95, 2026-11-05, failed twice in a row on it). The paid output is still the
+# answer to the same question, so code-only drift counts as current.
+# CACHE_CODE_STRICT=1 restores the old rule.
+CODE_KEYS = ("code", "ocr_code", "synth_code")
+
+
+def content_inputs(inputs):
+    """The inputs without the code-identity keys."""
+    if not isinstance(inputs, dict):
+        return inputs
+    return {k: v for k, v in inputs.items() if k not in CODE_KEYS}
+
+
+def same_inputs(recorded, current):
+    """True when the recorded inputs match the current ones — exactly, or in
+    everything except the code identity (unless CACHE_CODE_STRICT=1)."""
+    if recorded == current:
+        return True
+    if os.environ.get("CACHE_CODE_STRICT", "") == "1":
+        return False
+    return digest(content_inputs(recorded)) == digest(content_inputs(current))
+
+
+def open_record(path, inputs):
+    """Register a run that has produced nothing yet, so files written before
+    the first record() are recognisable as this run's."""
+    rec = {"version": VERSION, "input_digest": digest(inputs), "inputs": inputs, "outputs": {}}
+    write_json(path, rec)
+    return rec
+
+
+def recorded_outputs(path):
+    """Names of the outputs a valid record lists, or None when there is no
+    readable record."""
+    try:
+        rec = json.loads(Path(path).read_text(encoding="utf-8"))
+        if (not isinstance(rec, dict) or rec.get("version") != VERSION
+                or not isinstance(rec.get("outputs"), dict)):
+            return None
+        return set(rec["outputs"])
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def status(path, inputs, outputs):
     try:
         rec = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -66,7 +114,7 @@ def status(path, inputs, outputs):
             return "unknown"
     except (OSError, ValueError, KeyError, TypeError):
         return "unknown"
-    if rec["input_digest"] != digest(inputs):
+    if rec["input_digest"] != digest(inputs) and not same_inputs(rec["inputs"], inputs):
         return "stale"
     hashes = {name: file_digest(out) for name, out in outputs.items()}
     if any(v is None for v in hashes.values()):

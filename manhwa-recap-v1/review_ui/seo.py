@@ -929,7 +929,7 @@ def generate(pdir, name, card, style, res, model=None, _call=None, usage=None):
         raw = _call(prompt, model)
     else:
         from google import genai
-        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"), http_options={"api_version": "v1beta"})
 
         def do():
             r = client.models.generate_content(model=model, contents=prompt)

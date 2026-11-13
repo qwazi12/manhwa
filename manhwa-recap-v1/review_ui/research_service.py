@@ -29,15 +29,33 @@ def _series(series_id):
     return None
 
 
-def _slugs(series):
+# A mirror's slug never changes, but resolving it can cost a live request:
+# mangayomi's chapter_url fetches the source's chapter list. The Library page
+# resolved every series on every load (13 requests, 3 s, measured 2026-11-13).
+# Resolved once per (source, series link) and kept for the life of the process;
+# a failed lookup is not kept, so it is tried again next time.
+_SLUG_CACHE = {}
+
+
+def _mirror_slug(m):
     import ingest
     import providers
+    key = (m.get("source"), m.get("series_url"))
+    if key in _SLUG_CACHE:
+        return _SLUG_CACHE[key]
+    ch = (m.get("chapters") or ["1"])[-1]
+    url = providers.by_name(m["source"]).chapter_url(m["series_url"], ch)
+    slug, _ = ingest.parse_series_chapter(url)
+    if slug:
+        _SLUG_CACHE[key] = slug
+    return slug
+
+
+def _slugs(series):
     out = []
     for m in series.get("mirrors") or []:
         try:
-            ch = (m.get("chapters") or ["1"])[-1]
-            url = providers.by_name(m["source"]).chapter_url(m["series_url"], ch)
-            slug, _ = ingest.parse_series_chapter(url)
+            slug = _mirror_slug(m)
             if slug and slug not in out:
                 out.append(slug)
         except Exception:

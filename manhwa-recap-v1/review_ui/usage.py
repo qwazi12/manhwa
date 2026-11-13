@@ -182,6 +182,62 @@ def get_job_id():
     return getattr(_local, "job_id", None) or os.environ.get("RECAP_JOB_ID", "unknown")
 
 
+def set_stage(stage):
+    """Label this thread's paid calls with the pipeline stage that makes them
+    (describe, script, voice, framing, …). Written to every log line so spend
+    can be reported per stage; before 2026-11-13 no call recorded its stage."""
+    _local.stage = (stage or "").strip() or None
+
+
+def get_stage():
+    """Thread setting first; a subprocess (describe) gets RECAP_STAGE."""
+    return getattr(_local, "stage", None) or os.environ.get("RECAP_STAGE") or None
+
+
+def set_project(project_id):
+    """The chapter (project folder name) this thread's paid calls belong to."""
+    _local.project = (project_id or "").strip() or None
+
+
+def get_project():
+    return getattr(_local, "project", None) or os.environ.get("RECAP_PROJECT") or None
+
+
+@contextlib.contextmanager
+def stage(name, project=None):
+    """`with usage.stage("seo", project=pid):` — label the calls made inside,
+    then restore what was set before."""
+    prev_s, prev_p = getattr(_local, "stage", None), getattr(_local, "project", None)
+    _local.stage = name
+    if project:
+        _local.project = project
+    try:
+        yield
+    finally:
+        _local.stage, _local.project = prev_s, prev_p
+
+
+@contextlib.contextmanager
+def scope(job_id=None, stage=None, project=None):
+    """Label everything paid inside the block — job, stage, chapter — and put
+    back what was set before (request threads are reused). Work that runs
+    outside a chapter job (packaging after an ingest, a title rewrite from the
+    site) used to be logged under the job "unknown": 16% of spend between
+    2026-10-25 and 11-08 could not be traced to a chapter."""
+    prev = (getattr(_local, "job_id", None), getattr(_local, "stage", None),
+            getattr(_local, "project", None))
+    if job_id:
+        _local.job_id = job_id
+    if stage:
+        _local.stage = stage
+    if project:
+        _local.project = project
+    try:
+        yield
+    finally:
+        _local.job_id, _local.stage, _local.project = prev
+
+
 def carry(fn):
     """Wrap fn so it runs under the CALLER's job id in a worker thread.
 
@@ -189,17 +245,31 @@ def carry(fn):
     so every voice line recorded 4-at-a-time landed in one shared "unknown"
     job. Its per-job cap (MAX_TTS_CHARS_PER_JOB) then filled up across a day's
     chapters and paused every new one as if the daily budget were spent
-    (owner, 2026-10-05: "why the works keep pausing")."""
+    (owner, 2026-10-05: "why the works keep pausing").
+
+    The requested service tier, the stage label and the project ride along
+    too (2026-11-13): they are thread-local as well, so pooled calls asked for
+    Standard although the chapter asked for Flex, and carried no label."""
     jid = getattr(_local, "job_id", None)
+    stg = getattr(_local, "stage", None)
+    proj = getattr(_local, "project", None)
+    tier = getattr(_req_local, "tier", "")
 
     def run(*a, **k):
-        prev = getattr(_local, "job_id", None)
+        prev = (getattr(_local, "job_id", None), getattr(_local, "stage", None),
+                getattr(_local, "project", None), getattr(_req_local, "tier", ""))
         if jid:
             _local.job_id = jid
+        if stg:
+            _local.stage = stg
+        if proj:
+            _local.project = proj
+        if tier:
+            _req_local.tier = tier
         try:
             return fn(*a, **k)
         finally:
-            _local.job_id = prev
+            _local.job_id, _local.stage, _local.project, _req_local.tier = prev
     return run
 
 
@@ -460,6 +530,75 @@ def requested_tier():
     return getattr(_req_local, "tier", "") or os.environ.get("RECAP_SERVICE_TIER", "").lower()
 
 
+# ---- Flex availability -------------------------------------------------
+# Measured 2026-11-13: Google refused 8 of 8 Flex requests in 0.3 s each
+# ("high demand"), and since 2026-11-04 one call in ~2,350 was served on Flex.
+# Every refused request was then repeated on Standard, so a chapter paid full
+# price AND made each call twice. After FLEX_TRIP refusals in a row Flex is
+# skipped for FLEX_COOLDOWN_S, then tried again; one success closes the breaker.
+FLEX_TRIP = int(os.environ.get("FLEX_TRIP", 3))
+FLEX_COOLDOWN_S = float(os.environ.get("FLEX_COOLDOWN_S", 600))
+_flex = {"fails": 0, "until": 0.0, "refused": 0, "served": 0}
+_flex_lock = threading.Lock()
+
+
+def effective_tier(now=None):
+    """The tier to put on the next request: the requested one, unless Flex is
+    requested and its breaker is open."""
+    tier = requested_tier()
+    if tier == "flex" and (now or time.time()) < _flex["until"]:
+        return ""
+    return tier
+
+
+def flex_result(served, now=None):
+    """Call after a Flex request: served=True on success, False on a capacity
+    refusal (429/503)."""
+    with _flex_lock:
+        if served:
+            _flex["fails"] = 0
+            _flex["served"] += 1
+            return
+        _flex["fails"] += 1
+        _flex["refused"] += 1
+        if _flex["fails"] >= FLEX_TRIP:
+            _flex["fails"] = 0
+            _flex["until"] = (now or time.time()) + FLEX_COOLDOWN_S
+            print(f"[usage] Flex refused {FLEX_TRIP} times in a row — using Standard "
+                  f"for {FLEX_COOLDOWN_S:.0f}s, then trying Flex again", flush=True)
+
+
+def flex_state():
+    return dict(_flex)
+
+
+# ---- Thinking ----------------------------------------------------------
+# No call limited thinking before 2026-11-13, and thinking tokens (billed as
+# output) were 48% of spend. Measured on 24 real panels: at "low" the text read
+# from every panel was identical and thinking fell from ~270 tokens a panel to
+# 0; speaker labels differed from the stored ones on 10 panels — the same 10 a
+# second run at the default setting differed on. So image calls (describe,
+# framing, cut checks) default to "low". Script writing keeps the model's
+# default unless SCRIPT_THINKING_LEVEL is set. "" or "default" = model default.
+_THINKING_DEFAULTS = {"vision": "low", "script": ""}
+_no_thinking_level = set()          # models that rejected the setting
+
+
+def thinking_level(kind, model=""):
+    """'low' | 'medium' | 'high' | '' for a call of this kind ('vision' or
+    'script'), from <KIND>_THINKING_LEVEL."""
+    lvl = os.environ.get(f"{kind.upper()}_THINKING_LEVEL", _THINKING_DEFAULTS.get(kind, ""))
+    lvl = (lvl or "").strip().lower()
+    if lvl in ("", "default", "off") or model in _no_thinking_level:
+        return ""
+    return lvl
+
+
+def thinking_unsupported(model):
+    """The API rejected thinking_level for this model: stop sending it."""
+    _no_thinking_level.add(model)
+
+
 def parse_gemini_usage(res):
     """Token counts from ANY Gemini response shape we receive, or {} if none.
 
@@ -657,6 +796,8 @@ def gate(kind, units, model=""):
         _append_log({
             "ts": datetime.now(timezone.utc).isoformat(),
             "job_id": job_id,
+            "stage": get_stage(),
+            "project": get_project(),
             "provider": {"gemini": "gemini", "claude": "anthropic"}.get(
                 kind, "google-tts"),
             "kind": kind, "model": model, "units": units,
@@ -667,6 +808,7 @@ def gate(kind, units, model=""):
             "cached_tokens": meter.cached_tokens,
             "thought_tokens": meter.thought_tokens,
             "service_tier": meter.tier or None,
+            "requested_tier": requested_tier() or None,
             "metered": meter.reported,
             "job_totals": dict(job),
             "daily_totals": {"gemini_calls": d["gemini_calls"],

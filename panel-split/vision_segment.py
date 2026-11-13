@@ -103,7 +103,7 @@ def _segment_bytes(img_bytes, mime, api_key, model):
     """Core vision call on raw image bytes → cleaned beats (may be [])."""
     from google import genai
     from google.genai import types
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
 
     def _call():
         return client.models.generate_content(

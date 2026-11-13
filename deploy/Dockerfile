@@ -35,11 +35,14 @@ WORKDIR /app
 # The last step proves OpenCV imports: the default segment renderer
 # (fast_render.py) draws with it (ultralytics installs it), so a missing lib
 # fails the BUILD — the old deployment keeps serving — not every render.
-RUN pip install --no-cache-dir \
-      "fastapi" "uvicorn[standard]" "python-multipart" "pydantic>=2" \
-      "google-genai>=1.0.0" "anthropic>=0.40" "numpy" "scipy" "Pillow" "certifi" "sqlalchemy>=2.0" \
-    && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir "ultralytics" \
+# Versions are pinned (deploy/requirements.txt, read from the live container on
+# 2026-11-13): an unpinned rebuild pulled a google-genai release that broke the
+# crop planner without any commit here.
+COPY deploy/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+    && pip install --no-cache-dir torch==2.15.0+cpu torchvision==0.29.2+cpu \
+         --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir "ultralytics==8.4.207" \
     && python3 -c "import cv2, numpy; print('cv2', cv2.__version__)"
 
 COPY . /app
