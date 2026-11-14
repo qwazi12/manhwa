@@ -4074,6 +4074,14 @@ def api_range_build(body: RangeIn):
                 except Exception as e:  # noqa — the video is still fine; say so
                     _ev("publish", f"{series} chapters {a}-{b}: couldn't copy the posted video's "
                                    f"title/tags/thumbnail — {str(e)[:160]}", "warn")
+            try:
+                # the series' search name, locked hook, other names and three hashtags (owner, 2026-11-14)
+                sp = _apply_search_pack(rdir, name, why="series search pack (new merged video)")
+                for why in (sp or {}).get("problems") or []:
+                    _ev("publish", f"{series} chapters {a}-{b}: search-pack title not used — {why}", "warn")
+            except Exception as e:  # noqa — the video is still fine; say so
+                _ev("publish", f"{series} chapters {a}-{b}: the series search pack could not be applied — "
+                               f"{str(e)[:160]}", "warn")
 
             m = _read_json(os.path.join(rdir, "project.json"))
             m["build"] = {"status": "done", "at": time.time(), "export": name, "marks": marks}
@@ -4864,10 +4872,22 @@ def api_growth_snapshot(days: int = 14):
         m = next((x for x in ms if x.get("series_key") == key), None) or {}
         chs = [c for c in m.get("chapters") or []]
         latest = max((float(c) for c in chs if re.fullmatch(r"\d+(\.\d+)?", str(c))), default=None)
-        pack = _spk.load(_yt_root(), sx["id"]) or {}
+        # A project's series id is not always the watchlist's ("…-s-…" vs "…s-…",
+        # WEBTOON's "-5988"): seven series exported no hook and no made/posted
+        # chapter for that reason (found 2026-11-14).
+        same = [k for k in rows if _ssp.norm(k) == _ssp.norm(sx["id"])]
+        packs = [pk for pk in (_spk.load(_yt_root(), k) for k in dict.fromkeys([sx["id"]] + same)) if pk]
+        pack = next((pk for pk in packs if (pk.get("title_lock") or {}).get("approved_by_user")), None) or \
+            (packs[0] if packs else {})
         lock = pack.get("title_lock") or {}
-        mine = rows.get(sx["id"]) or {}
-        series_out.append({"series_id": sx["id"], "title": sx.get("title"), "tier": sx.get("tier"),
+        mine = {"made_through": max((rows[k]["made_through"] for k in same if rows[k]["made_through"] is not None), default=None),
+                "posted_through": max((rows[k]["posted_through"] for k in same if rows[k]["posted_through"] is not None), default=None)}
+        sp = _ssp.get(_i.PROJECTS, sx["id"]) or {}
+        series_out.append({"search_title": sp.get("search_title") or "", "aka_names": sp.get("aka_names") or [],
+                           "hook": sp.get("hook") or "", "hook_status": sp.get("hook_status") or "",
+                           "evidence": sp.get("evidence") or "", "characters": sp.get("characters") or [],
+                           "pack_hashtags": sp.get("hashtags") or [],
+                           "series_id": sx["id"], "title": sx.get("title"), "tier": sx.get("tier"),
                            "production_source": key, "latest_source_chapter": latest,
                            "latest_source_date": ((m.get("release_dates") or {}).get(str(int(latest)) if latest is not None else "") or [None])[0],
                            "made_through": mine.get("made_through"), "posted_through": mine.get("posted_through"),
@@ -4919,6 +4939,106 @@ def api_growth_snapshot(days: int = 14):
     return {"generated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "read_only": True,
             "series": series_out, "queue": queue, "pending": pending,
             "posted": sorted(posted, key=lambda r: r["published_at_utc"], reverse=True)}
+
+
+# ---------------------------------------------- series search pack (series_search.py)
+# Owner, 2026-11-14: the title uses the name people search, the other names go
+# in "Also known as", one locked hook per series, exactly three hashtags.
+import series_search as _ssp
+
+
+def _search_label(pdir):
+    sid, _series, n, meta = _series_ident(pdir)
+    if meta.get("kind") == "range":
+        return sid, f"{meta.get('chapters_start')}-{meta.get('chapters_end')}"
+    return sid, str(n if n is not None else (meta.get("chapter") or "")).strip()
+
+
+def _apply_search_pack(pdir, name, actor="auto", why="series search pack"):
+    """Apply the series' search pack to one video's details. -> {changed,
+    problems} or None when the series has no pack. A posted video is never
+    touched; an approved or queued one changes only for actor="owner"."""
+    import ingest as _i
+    sid, label = _search_label(pdir)
+    rec = _ssp.get(_i.PROJECTS, sid)
+    if not rec or not label or _went_out(pdir, name):
+        return None
+    store = load_publish(pdir)
+    md = {**publish_defaults(pdir), **(store.get(name) or {})}
+    new, changed, probs = _ssp.apply(md, rec, label)
+    new["description"] = (new.get("description") or "")[:YT_DESC_MAX]
+    if changed:
+        store[name] = new
+        save_publish(pdir, store, actor=actor, why=why)
+    return {"changed": changed, "problems": probs, "title": new.get("title")}
+
+
+class SearchPackIn(BaseModel):
+    records: list[dict]
+    source: str = ""
+
+
+class SearchPackApplyIn(BaseModel):
+    exports: list[list[str]]            # [[project, export name], …] — exactly these
+    apply: bool = False
+
+
+@app.get("/api/series/search_pack")
+def api_series_search_pack():
+    """Read-only: every series' search name, locked hook, other names, characters and hashtags."""
+    import ingest as _i
+    d = _ssp.load(_i.PROJECTS)
+    return {"series": sorted(d.get("series", {}).values(), key=lambda r: r.get("series_id") or ""),
+            "how": "new merged videos get it when they are built; a video already waiting changes only "
+                   "through POST /api/series/search_pack/apply; posted videos are never changed"}
+
+
+@app.post("/api/series/search_pack")
+def api_series_search_pack_save(body: SearchPackIn):
+    """Save search-pack records (all or none). Changes no video by itself.
+    Undo: save the earlier record again (the previous file is kept as .bak)."""
+    import ingest as _i
+    try:
+        ids = _ssp.upsert(_i.PROJECTS, body.records, source=body.source)
+    except _ssp.PackError as e:
+        raise HTTPException(400, str(e))
+    _ev("settings", f"series search pack saved for {len(ids)} series" + (f" ({body.source})" if body.source else ""), "ok")
+    return {"ok": True, "saved": ids}
+
+
+@app.post("/api/series/search_pack/apply")
+def api_series_search_pack_apply(body: SearchPackApplyIn):
+    """The pack on videos that have not posted — exactly the ones listed.
+    apply=false: what would change. apply=true: saved as the owner's edit
+    (the only way an approved or queued video's details change). A posted
+    video is refused. Undo: the video's packaging history has the old text."""
+    import ingest as _i
+    out = []
+    for pair in body.exports or []:
+        if not (isinstance(pair, list) and len(pair) == 2):
+            raise HTTPException(400, "each entry is [project, export name]")
+        pid, name = str(pair[0]), os.path.basename(str(pair[1]))
+        pdir = project_dir_for(pid)
+        row = {"project": pid, "name": name}
+        if _went_out(pdir, name):
+            out.append({**row, "refused": "already posted — posted videos are never changed"})
+            continue
+        sid, label = _search_label(pdir)
+        rec = _ssp.get(_i.PROJECTS, sid)
+        if not rec:
+            out.append({**row, "refused": f"no search pack saved for series '{sid}'"})
+            continue
+        md = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
+        new, changed, probs = _ssp.apply(md, rec, label)
+        row.update(changed=changed, problems=probs,
+                   before={k: md.get(k) for k in changed}, after={k: new.get(k) for k in changed})
+        if body.apply and changed:
+            _apply_search_pack(pdir, name, actor="owner", why="series search pack applied to this video")
+            row["applied"] = True
+        out.append(row)
+    if body.apply:
+        _ev("publish", f"series search pack applied to {sum(1 for r in out if r.get('applied'))} chosen video(s)", "ok")
+    return {"ok": True, "applied": bool(body.apply), "videos": out}
 
 
 def _apply_prior_seo(rdir, name, ap, marks, a, b):
