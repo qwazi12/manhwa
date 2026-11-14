@@ -280,3 +280,23 @@ def test_dry_run_reports_the_mode(lib, monkeypatch):
     monkeypatch.setenv("AUTO_APPEND_MODE", "cumulative")
     r = server.api_auto_append()
     assert r["mode"] == "cumulative" and r["min_new"] == 2
+
+
+def test_new_merge_gets_the_series_search_pack(lib):
+    """Owner 2026-11-14: search name in the title, locked hook, other names, three hashtags."""
+    root, tmp_path = lib
+    server.api_series_search_pack_save(server.SearchPackIn(records=[{
+        "series_id": "hound", "search_title": "Revenge of the Iron-Blooded Sword Hound",
+        "hook": "Disposable Hound Returns For VENGEANCE", "aka_names": ["Revenge of the Baskerville Bloodhound"],
+        "characters": ["Vikir"], "hashtags": ["#IronBloodedSwordHound", "#ManhwaRecap", "#Regression"]}]))
+    server._auto_append_pass()
+    assert _wait(root, "hound_ch22-23")["build"]["status"] == "done"
+    md = server.load_publish(os.path.join(root, "hound_ch22-23"))["final_range_22-23.mp4"]
+    assert md["title"] == "[22-23] Disposable Hound Returns For VENGEANCE | Revenge of the Iron-Blooded Sword Hound"
+    d = md["description"]
+    assert "\U0001F4D6 Series: Revenge of the Iron-Blooded Sword Hound\nAlso known as: Revenge of the Baskerville Bloodhound\nMain characters: Vikir" in d
+    assert d.rstrip().split("\n")[-1] == "#IronBloodedSwordHound #ManhwaRecap #Regression"
+    assert "• 0:00 - Chapter 22\n• 10:00 - Chapter 23" in d                      # the timestamps are kept
+    assert md["hashtags"] == ["#IronBloodedSwordHound", "#ManhwaRecap", "#Regression"]
+    posted = server.load_publish(os.path.join(root, "hound_ch20-21"))["final_range_20-21.mp4"]
+    assert posted["title"] == "[20-21] Hound Returns For VENGEANCE | Flamingo Recap"        # the posted video is not touched
