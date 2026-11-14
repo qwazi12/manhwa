@@ -209,3 +209,24 @@ def test_tag_trim_and_startup_repairs_do_not_touch_a_locked_video(lib):
     store["final.mp4"]["tags"] = ["shorter"]
     server.save_publish(d, store, why="tag trim")
     assert _details(d)["final.mp4"]["tags"] == ["reviewed"]
+
+
+def test_late_automatic_seo_fills_only_what_is_still_empty(lib):
+    """SEO that arrives after approval (e.g. once the spend day resets) may
+    fill an empty field; it never replaces a value a person approved."""
+    d = _chapter(lib, 80, review="approved")
+    store = server.load_publish(d)
+    store["final.mp4"] = {"title": "Reviewed title", "description": "", "tags": []}
+    server.save_publish(d, store, actor="owner")
+    store = server.load_publish(d)
+    store["final.mp4"] = {"title": "SEO TITLE", "description": "seo description", "tags": ["seo"]}
+    server.save_publish(d, store, why="automatic SEO fill-in")
+    got = _details(d)["final.mp4"]
+    assert got == {"title": "Reviewed title", "description": "seo description", "tags": ["seo"]}
+    h = _history(d)
+    assert h[-2]["blocked"] == "approved" and h[-2]["fields"] == ["title"]
+    assert h[-1]["filled_empty"] is True and h[-1]["fields"] == ["description", "tags"]
+
+
+def test_automatic_seo_apply_is_not_treated_as_the_owner(lib):
+    assert getattr(server._SEO_ACTOR, "who", "owner") == "owner"      # a click on the page is the owner

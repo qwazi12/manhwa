@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RECAP = os.path.abspath(os.path.join(HERE, ".."))
@@ -180,6 +181,48 @@ def project_id(url, variant=""):
     return _slug(url) + (f"-{variant}" if variant else "")
 
 
+# ---- chapters made at the same time (INGEST_WORKERS > 1) -----------------
+# Two stages hand their results back through module-level variables
+# (narrate.LAST_SOURCE_REVIEW / LAST_DIRECT_SPEECH / LAST_CRITIQUE,
+# shot_planner.LAST_AUTO_FRAMING). Two chapters inside the same stage at once
+# would read each other's results, so those stages run one chapter at a time;
+# scraping, splitting, describing, voicing and rendering overlap freely.
+# With one worker (the default) the locks are never contended.
+_STAGE_LOCKS = {"script": threading.RLock(), "framing": threading.RLock()}
+_stage_held = threading.local()
+
+
+def _stage_enter(name):
+    _STAGE_LOCKS[name].acquire()
+    held = getattr(_stage_held, "names", None)
+    if held is None:
+        held = _stage_held.names = []
+    held.append(name)
+
+
+def _stage_exit(name):
+    held = getattr(_stage_held, "names", None) or []
+    if name in held:
+        held.remove(name)
+        _STAGE_LOCKS[name].release()
+
+
+def _releases_stage_locks(fn):
+    """Whatever way the chapter ends (finished, failed, stopped), this thread
+    gives back every stage lock it holds."""
+    import functools
+
+    @functools.wraps(fn)
+    def run(*a, **k):
+        try:
+            return fn(*a, **k)
+        finally:
+            for name in list(getattr(_stage_held, "names", None) or []):
+                _stage_exit(name)
+    return run
+
+
+@_releases_stage_locks
 def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
                engine="gemini", variant="", direct=None, tier=""):
     """Run the pipeline for one chapter URL. `progress(stage, msg, pct)` is
@@ -438,6 +481,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     script_path = os.path.join(proj, "script.txt")
     prov_path = os.path.join(proj, "script.json")
     _cached_script = open(script_path).read().strip() if os.path.exists(script_path) else ""
+    _stage_enter("script")              # until the script's results are written down
     panels = narrate.load_panels(desc_path)
     json.dump(dict(narrate.LAST_SOURCE_REVIEW),
               open(os.path.join(proj, "source_review.json"), "w"), indent=1, ensure_ascii=False)
@@ -521,6 +565,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         raise RuntimeError(
             "narrate produced 0 beats (empty or unusable script.txt) — "
             "aborting before voice/match")
+    _stage_exit("script")
     progress("narrate", f"{len(beats)} narration beats.", 70)
 
     # 5. voice (TTS each beat via REST; recompute timeline) --------------
@@ -627,8 +672,10 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     import shot_planner
     usage.set_stage("crops")
     progress("match", "Planning precise shot crops…", 96)
+    _stage_enter("framing")
     shots = shot_planner.plan_shots(shots, desc_path, crops)
     af = shot_planner.LAST_AUTO_FRAMING or {}
+    _stage_exit("framing")
     if af.get("skipped"):
         progress("match", f"Auto framing skipped: {af['skipped']}", 96)
     else:

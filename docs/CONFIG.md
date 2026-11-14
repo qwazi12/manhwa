@@ -90,13 +90,19 @@ Read-only reports: `GET /api/spend` (now also by stage, thinking tokens, Flex re
 | `FLEX_TRIP` (3), `FLEX_COOLDOWN_S` (600) | after this many Flex refusals in a row, Flex is not requested for this many seconds |
 | `CACHE_CODE_STRICT` (`1` = old rule) | by default a change to code files alone does not make finished describe/script/voice work "stale" |
 | `CRITIQUE_VERIFY` (`0` disables) | rewritten script units are re-checked once by the script editor |
-| `RELEASE_GATE` (`off` default / `critical` / `strict`) | whether script and final-media findings block approval and posting (`release_gate.py`). `off` only reports them in `/api/scorecard`. A check that is missing, unreadable, unfinished or about another version of the file is never a pass |
-| `RELEASE_GATE_LEGACY` (`block` default / `review`) | videos made before the checks existed have no evidence. `block`: missing evidence is critical. `review`: it is a review item (blocks only under `strict`). Unreadable or outdated evidence is critical under both |
+| `RELEASE_GATE` (`off` default / `critical` / `strict`) | whether the release verdict blocks approval and posting (`release_gate.py`). `off` only reports it in `/api/scorecard`. Verdicts: blocked (a defect was found), unknown (evidence missing, unreadable, unfinished, unbound, stale or unverifiable), review, clear. `critical` stops blocked and unknown; `strict` stops review too. **Keep `off` in production until it is calibrated on real media** |
+| `RELEASE_GATE_LEGACY` (`block` default / `review`) | videos made before evidence was recorded. `review` turns only these findings into review items: `script_missing`, `narration_unbound`, `media_missing`, `archive_unbound`, `component_unbound`, `evidence_missing`. Unreadable, unfinished, mismatched and missing-file findings are never downgraded |
 | `MEDIA_QA_ENFORCE` (`1` enables) | final-media QA must pass, and the exact export be re-approved, before posting (not set in production) |
 | `STITCH_ENGINE` (`clean` default / `copy`) | how merged videos are joined; `copy` is the join used before 2026-11-13 |
 | `AUTO_APPEND_MODE` (`cumulative` default / `fresh`) | how the next merge is cut. `cumulative`: the last posted video plus the new chapters (posted 1-4 + chapter 5 → 1-5; the posted video is re-used as the first piece). `fresh`: the 2026-11-08 rule — start after the last posted video, no overlapping ranges. An unknown value is refused |
 | `AUTO_APPEND_MIN` (1 when cumulative, 7 when fresh), `AUTO_APPEND_HOLD` | new chapters a merge needs; `series:chapter` pairs that post as singles |
-| `USAGE_RESERVE_TTL_S` (1800) | how long money held for a running paid call counts against the daily cap if its process died without settling |
+| `USAGE_RESERVE_TTL_S` (1800) | a hold for a paid call with no result after this long becomes **uncertain spend** (it is not dropped) |
+| `USAGE_OBSERVED_KEEP` (200) | how many recent real costs per kind / model / stage are remembered; the hold for a call is the larger of the model's estimate and the dearest of these |
+| `USAGE_UNCERTAIN_STREAK` (6), `USAGE_UNCERTAIN_COOLDOWN_S` (900) | paid calls of one job that end without an answer, in a row, before that job is refused more for this long |
+| `EST_COST_FLASH38_CALL_USD` (0.021), `EST_COST_FLASH35_CALL_USD` (0.033), `EST_COST_FLASH25_CALL_USD` (0.011) | amount held per call before it runs; set to the measured 99th percentile (were 0.005 / 0.012 / 0.001) |
+| `CROP_MAX_OUTPUT_TOKENS` (8192), `VISION_MAX_OUTPUT_TOKENS` (0 = off), `SCRIPT_MAX_OUTPUT_TOKENS` (0 = off) | largest answer one call may produce. Vision and script caps are off until tried on the live API |
+| `INGEST_WORKERS` (1, max 8) | chapters made at the same time. The script and framing stages still run one chapter at a time; the line (`INGEST_LINE_MAX`) holds at least workers + 1 |
+| `RETENTION_WORK_DAYS` (14), `RETENTION_ARCHIVE_DAYS` (14), `RETENTION_REVISION_DAYS` (30), `RETENTION_CACHE_DAYS` (30), `RETENTION_TRASH_DAYS` (30) | windows used by the storage retention plan (`retention.py`). Proposed defaults — nothing runs on a schedule |
 | `SHEET_GATE_OFF` (`1` disables) | the Posting Review sheet gate (also `POST /api/sheet_gate {"on": false}`) |
 | `INGEST_LINE_MAX` (2), `JOB_STALL_SECONDS` (1800), `JOB_STOP_GRACE_SECONDS` (120) | chapters in line at once (one runs, one waits); when a silent render job is retired |
 | tuning groups `SPLIT_*`, `CROP_*`, `BUBBLE_*`, `VALIDATOR_*`, `PLUS_*`, `LAB_*`, `CLAUDE_TEST_*`, `TTS_*`, `DESCRIBE_*` | defaults in code; change only with a measured reason |
@@ -108,3 +114,26 @@ Read-only reports: `GET /api/spend` (now also by stage, thinking tokens, Flex re
 | `BASIC_AUTH_USER`, `BASIC_AUTH_PASSWORD` | site login (the /login page sets a 90-day signed cookie per device); on production a missing one closes the site (503) |
 | `SHARED_SECRET` | added to every backend request; never sent to the browser |
 | `BACKEND_URL` | optional; defaults to the Railway URL |
+
+## Records added 2026-11-14 (all additive; older code ignores them)
+
+| File | What it holds |
+|---|---|
+| `<projects>/_channels.json` (+ `.prev`) | channel registry: targets, API-key variable NAME, genre focus, series, voice, branding, packaging, schedule (`channels.py`). No file = one implicit channel from the studio default |
+| `<chapter>/critique.json` → `script_sha256`, `narration_sha256` | which script and which spoken lines the script editor's verdict covers |
+| `<compilation>/release_evidence.json` → `exports[name].components` | per export: each piece's file hash and findings at build time, nested compilations included |
+| `<chapter>/drive.json` → `sha256` | checksum of the archived video, so an archived export can be tied to its QA report |
+| `<chapter>/reviews.json` → `packaging` | at approval: fingerprint of the details, the thumbnail, and the exact thumbnail file that will be uploaded |
+| `<chapter>/packaging_revisions.jsonl` | every packaging change, and every automatic change that was stopped |
+| `<chapter>/publishes.json` → `uploads` | every upload attempt per profile: id, channels, outcome, what was published |
+| `_usage/counters.json` → `confirmed_usd`, `estimated_usd`, `uncertain_usd`, `reserved`, `observed`, `pending_ledger` | spend buckets, holds for running calls, learned call sizes, ledger lines not yet written |
+
+## Endpoints added 2026-11-14
+
+| Route | Purpose |
+|---|---|
+| `GET /api/release-calendar` | per chapter: source → detected → made → reviewed → scheduled → published, with the 24–48 h target |
+| `GET /api/channels`, `PUT /api/channels` (`dry_run` default) | read / validate / save the channel registry |
+| `GET /api/storage/retention`, `POST /api/storage/retention/apply` | dry-run retention plan; apply named categories (moves to trash; `trash` needs `confirm="purge"`) |
+| `POST /api/series/defaults/retroactive` | preview (`apply=false`) and apply series defaults to named videos, locked ones included |
+

@@ -1188,6 +1188,7 @@ def load_publish(pdir):
 
 
 PACKAGING_LOG = "packaging_revisions.jsonl"
+_SEO_ACTOR = threading.local()     # "auto" while automatic preparation applies SEO; otherwise a person
 
 
 def _packaging_note(pdir, **entry):
@@ -1231,12 +1232,27 @@ def save_publish(pdir, data, actor="auto", why=""):
                             if (before or {}).get(f) != (after or {}).get(f) and not f.startswith("_")) \
                 if isinstance(after, dict) and isinstance(before or {}, dict) else ["*"]
             if k in locked and actor != "owner":
-                # a locked export with no details of its own reads the draft
-                if before is None:
-                    data.pop(k)
+                # Nothing a person saw is changed. A field that is still EMPTY
+                # in the stored details may be filled in (late SEO after the
+                # spend day resets); that is recorded too.
+                filled = []
+                if isinstance(before, dict) and isinstance(after, dict):
+                    kept = dict(before)
+                    for f in fields:
+                        if before.get(f) in (None, "", [], {}) and after.get(f) not in (None, "", [], {}):
+                            kept[f] = after[f]
+                            filled.append(f)
+                    data[k] = kept
+                elif before is None:
+                    data.pop(k)       # no details of its own: it reads the draft / defaults it was approved with
                 else:
                     data[k] = before
-                _packaging_note(pdir, export=k, actor=actor, why=why, blocked=locked[k], fields=fields)
+                stopped = [f for f in fields if f not in filled]
+                if stopped:
+                    _packaging_note(pdir, export=k, actor=actor, why=why, blocked=locked[k], fields=stopped)
+                if filled:
+                    _packaging_note(pdir, export=k, actor=actor, why=why or "filled in a field that was empty",
+                                    fields=filled, filled_empty=True, locked=locked[k])
                 continue
             if fields:
                 _packaging_note(pdir, export=k, actor=actor, why=why, fields=fields,
@@ -1569,6 +1585,31 @@ def api_series_defaults_retroactive(body: SeriesRetroIn):
     return {"ok": True, "series_id": sid, "applied": n, "exports": sorted(chosen)}
 
 
+def _channel_registry():
+    """The channel registry (channels.py). Raises channels.RegistryError when
+    the saved file is invalid — never a silent fallback to another channel."""
+    import channels as _ch
+    import ingest as _i
+    return _ch.load(_i.PROJECTS, _studio.publish_defaults().get("targets") or [])
+
+
+def _channel_targets(pdir):
+    """Upload targets of the channel this chapter's series belongs to; [] when
+    there is no saved registry (the studio default then applies, as before).
+    An invalid registry is an error for the caller: a video must not go to a
+    default channel because its channel's entry is broken."""
+    import channels as _ch
+    reg = _channel_registry()
+    if reg.get("implicit"):
+        return []
+    try:
+        sid = _series_ident(pdir)[0]
+        genres = (_series_pack(pdir, refresh=False) or {}).get("genre") or []
+    except Exception:  # noqa — unknown series: the default channel
+        sid, genres = None, []
+    return _ch.targets_for(reg, sid, genres if isinstance(genres, list) else [genres])
+
+
 def _publish_defaults_base(pdir):
     """Sensible starting metadata from what the project already knows."""
     meta = {}
@@ -1614,7 +1655,8 @@ def _publish_defaults_base(pdir):
             "tags": base_tags,
             "category_id": (sp.get("default_category") if sp else None) or "24",
             "privacy": (sp.get("default_privacy") if sp else None) or _studio.publish_defaults().get("privacy", "private"),
-            "targets": list((sp.get("default_targets") if sp else None) or _studio.publish_defaults().get("targets") or []),
+            "targets": list((sp.get("default_targets") if sp else None) or _channel_targets(pdir)
+                            or _studio.publish_defaults().get("targets") or []),
             "publish_at": "",
             "playlist": (sp.get("playlist_id") if sp else None) or series,
             "made_for_kids": bool((sp or {}).get("default_made_for_kids", False)),
@@ -1656,7 +1698,8 @@ def _publish_defaults_base(pdir):
         # Privacy is private unless the owner saved "public" in ⚙️ Settings &
         # Channels (studio_settings.py) — never public by omission.
         "privacy": (sp.get("default_privacy") if sp else None) or _studio.publish_defaults().get("privacy", "private"),
-        "targets": list((sp.get("default_targets") if sp else None) or _studio.publish_defaults().get("targets") or []),
+        "targets": list((sp.get("default_targets") if sp else None) or _channel_targets(pdir)
+                            or _studio.publish_defaults().get("targets") or []),
         "publish_at": "",
         "playlist": (sp.get("playlist_id") if sp else None) or series,
         "made_for_kids": bool((sp or {}).get("default_made_for_kids", False)),
@@ -2476,9 +2519,10 @@ def _thumbcopilot_apply(body: ThumbApplyIn, source="auto"):
     pdir = project_dir_for(body.project)
     name = os.path.basename(body.name or "")
     lock = _metadata_locked(pdir).get(name)
-    if lock and source == "auto":
+    if lock and source == "auto" and _thumb_sha(pdir, name):
         # an automatic redraw never replaces the thumbnail of a video that is
-        # approved, queued, being posted, scheduled or posted
+        # approved, queued, being posted, scheduled or posted (a video with
+        # no thumbnail at all may still get its first one)
         _packaging_note(pdir, export=name, actor="auto", why="automatic thumbnail redraw", blocked=lock,
                         fields=["thumbnail"])
         return {"ok": False, "skipped": lock, "project": os.path.basename(pdir.rstrip("/")), "name": name}
@@ -4578,6 +4622,180 @@ def _published_videos():
     return out
 
 
+# ---------------------------------------------------------------- channels
+
+@app.get("/api/channels")
+def api_channels():
+    """The channel registry with each channel's series, plus what stops it
+    from working (invalid file, an API-key variable that is not set). Names of
+    variables only — no secret is read or returned."""
+    import channels as _ch
+    import ingest as _i
+    import watchlist as _wl
+    try:
+        reg = _channel_registry()
+    except _ch.RegistryError as e:
+        return {"ok": False, "problems": e.problems,
+                "undo": f"fix {_ch.NAME} or restore {_ch.NAME}.prev in the projects folder"}
+    ids = [x.get("id") for x in (_wl.load(_wl_root()).get("series") or [])]
+    return {"ok": True, **_ch.summary(reg, ids), "missing_credentials": _ch.missing_credentials(reg),
+            "applies_to": "default upload targets per series and the release calendar; voice and branding "
+                          "are recorded but not applied yet"}
+
+
+class ChannelsIn(BaseModel):
+    registry: dict
+    dry_run: bool = True
+
+
+@app.put("/api/channels")
+def api_channels_save(body: ChannelsIn):
+    """Validate (dry_run, the default) or save the registry. Saving keeps the
+    previous file as _channels.json.prev. Videos already approved, queued or
+    posted keep their channels (packaging lock)."""
+    import channels as _ch
+    import ingest as _i
+    bad = _ch.problems(body.registry)
+    if bad:
+        raise HTTPException(422, {"code": "invalid_registry", "message": "; ".join(bad)})
+    if body.dry_run:
+        return {"ok": True, "saved": False, **_ch.summary(body.registry)}
+    out = _ch.save(_i.PROJECTS, body.registry)
+    _ev("publish", f"channel registry saved: {len(out['channels'])} channel(s)", "ok")
+    return {"ok": True, "saved": True, **_ch.summary(out),
+            "undo": f"restore {_ch.NAME}.prev in the projects folder"}
+
+
+# ------------------------------------------------------- release calendar
+
+def _calendar_chapter_states():
+    """{(watchlist series id, chapter): {produced, reviewed, scheduled,
+    published}} from the files on disk. Reads only."""
+    import ingest as _i
+    import watchlist as _wl
+    data = _wl.load(_wl_root())
+    queue = {(it.get("project"), it.get("name")): it for it in _pq.load(_i.PROJECTS).get("items", [])
+             if it.get("status") in _pq.ACTIVE}
+    ledger_by_project = {e.get("project"): e for e in _autopilot.load(_i.PROJECTS)["ledger"].values() if e.get("project")}
+    out, comps = {}, []
+    for pid in sorted(os.listdir(_i.PROJECTS)) if os.path.isdir(_i.PROJECTS) else []:
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(pdir):
+            continue
+        try:
+            _sid, _series, n, meta = _series_ident(pdir)
+            ws = _wl.find_by_mirror(data, meta.get("url") or "")[0] if meta.get("url") else None
+        except Exception:  # noqa — one unreadable folder must not empty the calendar
+            continue
+        if not ws:
+            continue
+        name = _latest_rendered_export(pdir)
+        st = {"produced": {}, "reviewed": {}, "scheduled": {}, "published": {}}
+        led = ledger_by_project.get(pid) or {}
+        if name:
+            stat = _export_stat(pdir, name)
+            st["produced"] = {"at": stat["mtime"] if stat else None, "project": pid, "status": "done"}
+            rv = (load_reviews(pdir).get(name) or {})
+            if rv.get("status"):
+                st["reviewed"] = {"status": rv["status"], "at": rv.get("reviewed_at")}
+            q = queue.get((pid, name))
+            if q:
+                st["scheduled"] = {"at": q.get("publish_at") or q.get("slot_at"), "queued": True}
+        elif led:
+            st["produced"] = {"status": led.get("status"), "project": pid}
+        for pname, rec in (load_publishes(pdir) or {}).items():
+            for r in (rec or {}).get("results") or []:
+                if r.get("status") == "published" and (r.get("network") or "youtube") == "youtube":
+                    # live = when it is public: the scheduled time for a scheduled upload
+                    at = r.get("public_at") or (rec or {}).get("publish_at") or r.get("published_at")
+                    st["published"] = {"at": float(at) if at else None, "video": r.get("url"),
+                                       "verified": bool(r.get("url")), "project": pid,
+                                       "visibility": r.get("visibility") or "live"}
+        if meta.get("kind") == "range":
+            try:
+                comps.append((ws["id"], int(meta["chapters_start"]), int(meta["chapters_end"]), pid, st))
+            except (KeyError, TypeError, ValueError):
+                pass
+        elif n is not None:
+            out[(ws["id"], _autopilot.norm_chapter(str(n)))] = st
+    # a chapter inside a compilation takes the compilation's review / schedule / publication
+    for wsid, a, b, pid, cst in comps:
+        for ch in range(a, b + 1):
+            st = out.setdefault((wsid, str(ch)), {"produced": {}, "reviewed": {}, "scheduled": {}, "published": {}})
+            st["produced"] = {**st["produced"], "included_in": pid} if st["produced"] else {"included_in": pid, "at": cst["produced"].get("at")}
+            for step in ("reviewed", "scheduled", "published"):
+                cur, new = st.get(step) or {}, cst.get(step) or {}
+                if new and (not cur.get("at") or (new.get("at") and new["at"] < cur["at"])):
+                    st[step] = {**new, "via": pid}
+    return data, out
+
+
+@app.get("/api/release-calendar")
+def api_release_calendar(days: int = 30):
+    """Per chapter: source available -> detected -> made -> reviewed ->
+    scheduled -> published, and whether the 24-48 h target was met. Rows whose
+    source time is unknown are listed and not scored (release_calendar.py)."""
+    import channels as _ch
+    import release_calendar as _rcal
+    data, states = _calendar_chapter_states()
+    try:
+        reg = _channel_registry()
+        channel_of = lambda sid: (_ch.channel_for(reg, sid) or {}).get("id")
+    except _ch.RegistryError:
+        channel_of = None
+    cal = _rcal.build(data.get("series") or [], lambda sid, ch: states.get((sid, _autopilot.norm_chapter(str(ch)))),
+                      time.time(), channel_of=channel_of, since_days=max(1, min(int(days), 365)))
+    cal["targets"] = {"releases_per_day": "3-4 across all channels", "hours_from_source": "24-48"}
+    return cal
+
+
+# ------------------------------------------------------- storage retention
+
+class RetentionIn(BaseModel):
+    categories: list[str] = []
+    confirm: str = ""
+    max_gb: float = 5.0
+
+
+def _retention_queued():
+    import ingest as _i
+    return [(it.get("project"), it.get("name")) for it in _pq.load(_i.PROJECTS).get("items", [])
+            if it.get("status") in _pq.ACTIVE]
+
+
+@app.get("/api/storage/retention")
+def api_storage_retention(detail: int = 0):
+    """Dry run: what could be removed and, for everything kept, why
+    (retention.py). Changes nothing."""
+    import ingest as _i
+    import retention as _ret
+    p = _ret.plan(_i.PROJECTS, queued=_retention_queued())
+    if not detail:
+        p["kept"] = len(p["kept"])
+        p["candidates"] = sorted(p["candidates"], key=lambda c: -c["bytes"])[:50]
+    return p
+
+
+@app.post("/api/storage/retention/apply")
+def api_storage_retention_apply(body: RetentionIn):
+    """Clean the named categories. Everything is moved to the trash (undo:
+    move it back); only category "trash" deletes, and needs confirm="purge".
+    Refused while any job is running."""
+    import ingest as _i
+    import retention as _ret
+    busy = [j for j in list(INGEST.values()) + list(JOBS.values()) if (j or {}).get("status") in ("running", "queued")]
+    if busy:
+        raise HTTPException(409, "work is in progress — clean up when nothing is being made, rendered or posted")
+    try:
+        out = _ret.apply(_i.PROJECTS, body.categories, confirm=body.confirm,
+                         max_bytes=int(max(0.0, body.max_gb) * 1024 ** 3), queued=_retention_queued())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _ev("storage", f"retention: {len(out['items'])} item(s), {out['freed_bytes'] / 1e9:.2f} GB "
+                   f"({', '.join(out['categories'])}); {len(out['skipped'])} skipped", "ok")
+    return out
+
+
 @app.get("/api/scorecard")
 def api_scorecard(fresh: int = 0):
     """Measured quality, corrections, cost and release timeliness, from stored
@@ -4826,7 +5044,9 @@ def api_seo_apply(body: SeoApplyIn):
         raise HTTPException(400, "unknown field %r" % field)
 
     store[name] = md
-    save_publish(pdir, store, actor="owner", why="SEO suggestions applied to this video")
+    save_publish(pdir, store, actor=getattr(_SEO_ACTOR, "who", "owner"),
+                 why="SEO suggestions applied to this video" if getattr(_SEO_ACTOR, "who", "owner") == "owner"
+                 else "automatic SEO fill-in")
     applied = dict(rec.get("applied") or {})
     applied[field] = {"at": time.time(),
                       "value": md.get("title") if field == "title" else True}
@@ -5269,7 +5489,7 @@ def _settle_upload_attempts(attempts, results):
         for att in hist:
             if att.get("outcome") in ("rejected", "replaced"):
                 continue
-            rows = by.get(att["id"]) or []
+            rows = (by.get(att["id"]) or []) + (by.get(att["track"]) or [] if att.get("track") else [])
             for r in rows:
                 if r.get("status") == "published":
                     att.setdefault("published", {})[r["account_id"]] = {
@@ -5460,7 +5680,9 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
                     continue
                 if att.get("outcome"):
                     continue                           # rejected / replaced: provably nothing posted
-                d = mod.upload_detail(att["id"])
+                # ask about the id Upload-Post answered with (it returns the
+                # client's own; kept separately in case it ever differs)
+                d = mod.upload_detail(att.get("track") or att["id"])
                 if d["state"] == "unknown":
                     raise RuntimeError(
                         "an earlier attempt may already have reached Upload-Post and it could not be "
@@ -5481,7 +5703,7 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
                     elif (p and p["state"] == "failed") or d["state"] == "failed":
                         rows.pop(t, None)              # provably not posted there: may be sent again
                     else:
-                        rows[t] = _row(t, request_id=att["id"], status="submitted")
+                        rows[t] = _row(t, request_id=att.get("track") or att["id"], status="submitted")
                         open_left = True
                 if not open_left:
                     att["outcome"] = "finished"
@@ -5527,8 +5749,10 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
                 elif kind == "accepted":
                     # Accepted only. Whether it is processed, scheduled or
                     # live comes from the status check — never assumed here.
+                    if info.get("request_id") and info["request_id"] != att["id"]:
+                        att["track"] = info["request_id"]
                     for t in todo:
-                        rows[t] = _row(t, request_id=att["id"], status="submitted",
+                        rows[t] = _row(t, request_id=att.get("track") or att["id"], status="submitted",
                                        **({"job_id": info["job_id"]} if info.get("job_id") else {}))
                 else:
                     for t in todo:
@@ -5912,7 +6136,11 @@ def _prepare_publish_labelled(pdir, name, do_seo=True):
                     continue
                 if not md.get(field) or md.get(field) == base.get(field):
                     try:
-                        api_seo_apply(SeoApplyIn(project=pid, name=name, field=field))
+                        _SEO_ACTOR.who = "auto"       # not a person's click: the packaging lock applies
+                        try:
+                            api_seo_apply(SeoApplyIn(project=pid, name=name, field=field))
+                        finally:
+                            _SEO_ACTOR.who = "owner"
                         filled.append(field)
                     except HTTPException:
                         pass
@@ -8145,30 +8373,88 @@ def _after_ingest(job_id):
 _QUEUE = []
 _QUEUE_LOCK = threading.Lock()
 _QUEUE_RUNNING = False
+# 2026-11-14: several chapters at once, when asked for. INGEST_WORKERS (default
+# 1 = exactly the behaviour above). What makes more than one safe now:
+#   * money: every paid call holds its cost before it runs (usage.gate), so
+#     chapters running together cannot pass the daily cap between them;
+#   * the two stages that return results through module variables run one
+#     chapter at a time (ingest._STAGE_LOCKS);
+#   * one chapter is never made by two workers at once (_QUEUE_BUSY).
+# Renders have their own queue and are not affected.
+_QUEUE_ACTIVE = 0
+_QUEUE_BUSY = set()
+
+
+def _ingest_workers():
+    try:
+        return max(1, min(8, int(os.environ.get("INGEST_WORKERS", "1"))))
+    except ValueError:
+        return 1
+
+
+def _queue_key(url, variant=""):
+    """What must not be made twice at once: the project the link (and
+    variant) builds."""
+    try:
+        return _ingest_mod.project_id(url, variant or "")
+    except Exception:  # noqa — fall back to the link itself
+        return (url or "").strip().rstrip("/").lower() + "|" + (variant or "")
+
+
+def _queue_take():
+    """Under _QUEUE_LOCK: the first queued job whose chapter is not already
+    being made, or None."""
+    for i, q in enumerate(_QUEUE):
+        if _queue_key(q[1], q[4]) not in _QUEUE_BUSY:
+            return _QUEUE.pop(i)
+    return None
+
+
+def _queue_wake():
+    """Start workers for queued chapters, up to INGEST_WORKERS."""
+    global _QUEUE_ACTIVE, _QUEUE_RUNNING
+    start = 0
+    with _QUEUE_LOCK:
+        runnable = sum(1 for q in _QUEUE if _queue_key(q[1], q[4]) not in _QUEUE_BUSY)
+        while _QUEUE_ACTIVE < _ingest_workers() and start < runnable:
+            _QUEUE_ACTIVE += 1
+            start += 1
+        _QUEUE_RUNNING = _QUEUE_ACTIVE > 0
+    for _ in range(start):
+        threading.Thread(target=_queue_worker, daemon=True).start()
 
 
 def _queue_worker():
-    global _QUEUE_RUNNING
+    global _QUEUE_RUNNING, _QUEUE_ACTIVE
     while True:
         with _QUEUE_LOCK:
-            if not _QUEUE:
-                _QUEUE_RUNNING = False
+            job = _queue_take()
+            if job is None:
+                _QUEUE_ACTIVE -= 1
+                _QUEUE_RUNNING = _QUEUE_ACTIVE > 0
                 return
-            job_id, url, fresh, engine, variant, direct = _QUEUE.pop(0)
-        rec = INGEST.get(job_id) or {}
-        if rec.get("control") == "stop" or rec.get("status") in ("cancelled", "held"):
-            continue                       # dequeued before it ever started
+            job_id, url, fresh, engine, variant, direct = job
+            key = _queue_key(url, variant)
+            _QUEUE_BUSY.add(key)
         try:
-            _run_ingest_job(job_id, url, fresh, engine=engine,
-                            variant=variant, direct=direct)
-        except Exception as e:             # a worker crash must not kill the queue
-            import traceback
-            print(f"[queue] {job_id}: worker crashed: {type(e).__name__}: {e}\n{traceback.format_exc()}",
-                  flush=True)
+            rec = INGEST.get(job_id) or {}
+            if rec.get("control") == "stop" or rec.get("status") in ("cancelled", "held"):
+                continue                       # dequeued before it ever started
             try:
-                _ev("ingest", f"{job_id}: the queue worker crashed ({type(e).__name__}: {str(e)[:160]})", "error")
-            except Exception:
-                pass
+                _run_ingest_job(job_id, url, fresh, engine=engine,
+                                variant=variant, direct=direct)
+            except Exception as e:             # a worker crash must not kill the queue
+                import traceback
+                print(f"[queue] {job_id}: worker crashed: {type(e).__name__}: {e}\n{traceback.format_exc()}",
+                      flush=True)
+                try:
+                    _ev("ingest", f"{job_id}: the queue worker crashed ({type(e).__name__}: {str(e)[:160]})", "error")
+                except Exception:
+                    pass
+        finally:
+            with _QUEUE_LOCK:
+                _QUEUE_BUSY.discard(key)
+            _queue_wake()                      # a chapter that waited for this one may start
 
 
 def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
@@ -8199,11 +8485,7 @@ def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
         # ran it again after it had finished (found 2026-11-13).
         if not any(q[0] == job_id for q in _QUEUE):
             _QUEUE.append((job_id, url, fresh, engine, variant, direct))
-        start = not _QUEUE_RUNNING
-        if start:
-            _QUEUE_RUNNING = True
-    if start:
-        threading.Thread(target=_queue_worker, daemon=True).start()
+    _queue_wake()
     return job_id
 
 
@@ -10443,13 +10725,16 @@ def _ap_deps():
         # A chapter paused by a usage limit today also holds the line: starting
         # another would only pause too (owner, 2026-10-06: ch.182 started and
         # paused right after ch.181). They resume first when there is room.
-        return any(j.get("status") in ("queued", "running", "paused", "pausing")
-                   for j in list(INGEST.values())) or bool(_paused_today()) or \
-            any(j.get("status") == "held" for j in list(INGEST.values()))
+        # With INGEST_WORKERS > 1 the line is "busy" only when every worker
+        # has a chapter; a paused or held chapter still stops new starts.
+        active = sum(1 for j in list(INGEST.values()) if j.get("status") in ("queued", "running"))
+        return active >= _ingest_workers() or bool(_paused_today()) or \
+            any(j.get("status") in ("paused", "pausing", "held") for j in list(INGEST.values()))
 
     def spend():
         d = usage.daily_summary()
-        spent = d.get("est_cost_usd", 0.0) if d.get("date") == usage._today() else 0.0
+        # spent + uncertain + held for running calls: what the cap is checked against
+        spent = d.get("committed_usd", d.get("est_cost_usd", 0.0)) if d.get("date") == usage._today() else 0.0
         return float(spent or 0.0), float(usage.daily_cap())
 
     def chapter_url(row, chapter):
@@ -10500,7 +10785,8 @@ def _waiting_ingests(status):
 # paused). Others wait OUTSIDE it as "held" and start by themselves, oldest
 # first, when a place frees up; one paused by a daily limit only re-enters
 # when there is room under the limits.
-LINE_MAX = max(1, int(os.environ.get("INGEST_LINE_MAX", "2")))
+# with several workers the line holds at least one waiting chapter per worker
+LINE_MAX = max(1, int(os.environ.get("INGEST_LINE_MAX", "2")), _ingest_workers() + 1)
 _LINE_ST = ("queued", "running", "paused", "pausing")
 
 

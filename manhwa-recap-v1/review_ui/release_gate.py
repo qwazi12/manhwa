@@ -127,6 +127,12 @@ def _read(path):
     return None if v is MISSING or v is CORRUPT else v
 
 
+def _ctx(manifest):
+    """A manifest's context as a dict, whatever is stored there."""
+    c = manifest.get("context") if isinstance(manifest, dict) else None
+    return c if isinstance(c, dict) else {}
+
+
 def _name(pdir):
     return os.path.basename(str(pdir).rstrip("/"))
 
@@ -297,7 +303,7 @@ def spoken_digest(pdir, name):
     if not name:
         return board_narration(pdir)
     m = _read(_qa_paths(pdir, name)[0])
-    if not m or not isinstance(m.get("events"), list) or (m.get("context") or {}).get("kind") == "range":
+    if not m or not isinstance(m.get("events"), list) or _ctx(m).get("kind") == "range":
         return None
     return narration_digest([e.get("text", "") for e in m["events"] if isinstance(e, dict)])
 
@@ -312,6 +318,8 @@ def script_findings(pdir, name=None):
         return [_f("script_unreadable", "the script-editor record (critique.json) cannot be read")]
     if c.get("status") != "done" or c.get("outcome") == "incomplete":
         return [_f("script_unchecked", f"the script editor did not finish ({str(c.get('status'))[:80]})")]
+    if "outcome" in c and c["outcome"] not in ("clean", "needs_review"):
+        return [_f("script_unreadable", "the script-editor record (critique.json) has an unexpected shape")]
     out = []
     checked_script, checked_lines = c.get("script_sha256"), c.get("narration_sha256")
     now_script = script_digest(pdir)
@@ -339,6 +347,9 @@ def script_findings(pdir, name=None):
                       for i in c.get("issues") or [] if isinstance(i, dict)]
     if not isinstance(unresolved, list) or not all(isinstance(i, dict) for i in unresolved):
         return [_f("script_unreadable", "the script-editor record (critique.json) has an unexpected shape")]
+    if any(i.get("resolution") not in OPEN and i.get("resolution") != "rewritten_unverified" for i in unresolved):
+        # an open item whose state is not one the script editor writes: do not guess
+        return [_f("script_unreadable", "the script-editor record lists an open item in a state it does not recognise")]
     hard = [i for i in unresolved if i.get("resolution") in OPEN and
             (i.get("type") in CRITICAL_TYPES or i.get("resolution") == "direct_speech_contract_failed")]
     soft = [i for i in unresolved if i.get("resolution") in OPEN and i not in hard]
@@ -387,15 +398,21 @@ def _manifest_components(pdir, name):
     """[(project dir, export name, sha256 the manifest recorded or None)] of a
     compilation export, from its render manifest; None when there is none."""
     m = _read(_qa_paths(pdir, name)[0]) if name else None
-    if not m or (m.get("context") or {}).get("kind") != "range":
+    if not m or _ctx(m).get("kind") != "range":
         return None
     root = os.path.dirname(str(pdir).rstrip("/"))
     inputs = m.get("inputs") if isinstance(m.get("inputs"), dict) else {}
-    hashes = {(_name(c.get("project") or ""), c.get("name")): c.get("export")
-              for c in inputs.get("components") or [] if isinstance(c, dict)}
+    listed = inputs.get("components") if isinstance(inputs.get("components"), list) else []
+    hashes = {(_name(c["project"]), c.get("name")): c.get("export")
+              for c in listed if isinstance(c, dict) and isinstance(c.get("project"), str)
+              and isinstance(c.get("export"), str)}
     out = []
-    for c in (m.get("context") or {}).get("components") or []:
-        if not isinstance(c, dict) or not c.get("project") or not c.get("name"):
+    comps = _ctx(m).get("components")
+    if not isinstance(comps, list):
+        return None
+    for c in comps:
+        if not isinstance(c, dict) or not isinstance(c.get("project"), str) or not isinstance(c.get("name"), str) \
+                or not c["project"] or not c["name"]:
             return None
         # manifests store the build machine's absolute path: use the folder name
         out.append((os.path.join(root, _name(c["project"])), c["name"], hashes.get((_name(c["project"]), c["name"]))))

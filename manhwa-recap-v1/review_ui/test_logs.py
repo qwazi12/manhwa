@@ -63,7 +63,8 @@ def main():
                   open(os.path.join(jobs_dir, "render_r1.json"), "w"))
         open(usage.LOG_PATH, "w").write(json.dumps({"ts": "2026-10-04T12:00:00+00:00", "job_id": "j1",
                                                     "provider": "gemini", "est_cost_usd": 0.53}) + "\n")
-        server._COST_CACHE["key"] = None
+        import spend_index
+        spend_index._STATE.pop(usage.LOG_PATH, None)     # read this log from its start
         c = TestClient(server.app)
         g = c.get("/api/logs/jobs").json()
         allr = {r["id"]: r for grp in g.values() for r in grp}
@@ -82,7 +83,8 @@ def main():
         check("/api/jobsbar answers", "jobs" in c.get("/api/jobsbar").json())
     finally:
         ingest.PROJECTS, server._JOBS_DIR, usage.LOG_PATH = saved
-        server._COST_CACHE["key"] = None
+        # (server._COST_CACHE is gone: spend is read through spend_index, which
+        # keys its state on the log file itself — 2026-11-13)
 
     src = open(os.path.join(HERE, "storyboard.py"), encoding="utf-8").read()
     check("Logs has Live / Jobs / Spend / What changed tabs",
