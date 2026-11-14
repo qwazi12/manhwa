@@ -37,6 +37,7 @@ def lib(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, "PROJECTS", root)
     monkeypatch.setattr(server, "_schedule_on_verdict", lambda *a: False)
     monkeypatch.delenv("AUTO_APPEND_HOLD", raising=False)
+    monkeypatch.setenv("AUTO_APPEND_MODE", "fresh")            # the 2026-11-08 rule these tests pin
     monkeypatch.setenv("AUTO_APPEND_MIN", "7")
     _posted(_proj(root, "star_ch122-128", kind="range", chapters_start=122, chapters_end=128, chapter="122-128"),
             "final_range_122-128.mp4")
@@ -95,3 +96,14 @@ def test_wait_message_names_the_chapter_after_an_approved_merge():
     pending = [{"project": "m", "start": 129, "end": 135, "building": False, "approved": True}]
     d = aa.decide(posted, singles, pending, min_new=7)
     assert d["action"] == "wait" and "ch 136 ready right after it" in d["why"] and "rebuild 129-136" in d["why"]
+
+
+def test_cumulative_mode_says_the_chapter_joins_the_posted_video(lib, monkeypatch):
+    monkeypatch.setenv("AUTO_APPEND_MODE", "cumulative")
+    monkeypatch.setenv("AUTO_APPEND_MIN", "1")
+    rd = os.path.join(lib, "star_ch129-135")
+    with open(os.path.join(rd, "reviews.json"), "w") as f:
+        json.dump({"final_range_129-135.mp4": {"status": "sent_back"}}, f)
+    with pytest.raises(HTTPException) as e:
+        _approve("star_136")
+    assert "is added to the posted video ending at 128 once 1 new chapter(s)" in e.value.detail

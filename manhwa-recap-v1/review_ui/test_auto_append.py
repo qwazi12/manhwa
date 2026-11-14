@@ -109,3 +109,59 @@ def test_timestamps_replace_old_block_in_posted_style():
     assert "00:00 Chapter 20" not in out
     assert "⏱️ Timestamps:\n• 0:00 - Chapter 20\n• 10:00 - Chapter 21\n• 1:02:05 - Chapter 22\n\n❤️ Support" in out
     assert out.startswith("Hook line.\n\n📖 Series: S")
+
+
+# ---- cumulative mode (owner brief 2026-11-13; the 2026-11-04 rule restored)
+
+def _cp(a, b, pid=None):
+    return {"project": pid or f"s_ch{a}-{b}", "name": "v.mp4", "start": a, "end": b, "at": 1}
+
+
+def _cs(n, status="review_pending", **kw):
+    return {"project": f"s_{n}", "name": "final.mp4", "status": status, "superseded": False,
+            "merged_into": None, "has_video": True, **kw}
+
+
+def test_cumulative_old_compilation_plus_one_new_chapter():
+    """Review 2026-11-13: with the threshold at 1 the fresh rule picked only
+    chapter 5; the cumulative rule gives 1-5 with the posted video inside."""
+    posted, singles = [_cp(1, 4)], {5: _cs(5)}
+    fresh = aa.decide(posted, singles, [], min_new=1, mode="fresh")
+    assert (fresh["start"], fresh["end"], fresh["projects"]) == (5, 5, ["s_5"])
+    d = aa.decide(posted, singles, [], min_new=1, mode="cumulative")
+    assert d["action"] == "build" and (d["start"], d["end"]) == (1, 5)
+    assert d["projects"] == ["s_ch1-4", "s_5"] and d["base"]["project"] == "s_ch1-4" and d["retire"] == []
+
+
+def test_cumulative_chain_each_release_extends_the_last():
+    d = aa.decide([_cp(1, 4), _cp(1, 5)], {6: _cs(6), 7: _cs(7)}, [], mode="cumulative")
+    assert (d["start"], d["end"], d["projects"]) == (1, 7, ["s_ch1-5", "s_6", "s_7"])
+
+
+def test_cumulative_replaces_a_waiting_merge_but_never_an_approved_one():
+    posted = [_cp(1, 4)]
+    singles = {5: _cs(5, status="merged", merged_into="s_ch1-5"), 6: _cs(6)}
+    waiting = {"project": "s_ch1-5", "start": 1, "end": 5, "building": False, "approved": False,
+               "pieces": [{"project": "s_ch1-4", "name": "v.mp4"}, {"project": "s_5", "name": "final.mp4"}]}
+    d = aa.decide(posted, singles, [waiting], mode="cumulative")
+    assert (d["start"], d["end"]) == (1, 6) and d["retire"] == ["s_ch1-5"]
+    assert d["projects"] == ["s_ch1-4", "s_5", "s_6"]
+    held = aa.decide(posted, singles, [dict(waiting, approved=True)], mode="cumulative")
+    assert held["action"] == "wait" and "ch 6 will be added" in held["why"]
+
+
+def test_cumulative_waits_for_min_new_and_for_a_build_in_progress():
+    posted = [_cp(1, 4)]
+    w = aa.decide(posted, {5: _cs(5)}, [], min_new=2, mode="cumulative")
+    assert w["action"] == "wait" and "once 2 are ready" in w["why"]
+    b = aa.decide(posted, {5: _cs(5)}, [{"project": "x", "start": 1, "end": 5, "building": True,
+                                             "approved": False, "pieces": []}], mode="cumulative")
+    assert b["action"] == "wait"
+    assert aa.decide(posted, {5: _cs(5, status="approved")}, [], mode="cumulative")["action"] == "none"
+    assert aa.decide(posted, {6: _cs(6)}, [], mode="cumulative")["action"] == "none"     # 5 is missing: no gap
+
+
+def test_unknown_mode_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        aa.decide([_cp(1, 4)], {}, [], mode="both")

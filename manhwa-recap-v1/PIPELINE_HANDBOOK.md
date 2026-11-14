@@ -1467,3 +1467,15 @@ The40-row renderqueue history cap again removed an unrelated old completed row. 
 ## E39 — automatic orientation and subject framing
 
 `auto_framing.py` asks one vision question per used panel (subject box without balloons/captions/SFX/gutters) and, for tall panels without translated lettering, a two-order three-copy comparison for sideways art. Answers are cached per image in `<project>/auto_framing_cache.json`. New ingests run it inside `shot_planner.plan_shots` after close-up planning; existing chapters use the board's **Auto-frame** button (`POST /api/storyboard/auto_framing`, named project, refused while that chapter renders, one Undo). Only default full-panel framing is replaced; planner close-ups, composition downgrades, reviewer crops and manual turns stay. Turns are suggestions (F5, *Apply suggested turn*) unless `AUTO_TURN=apply` (F6, `rotation_source: auto`). `build_segments` carries `rotation_deg`/`rotation_source`/`rotation_reason`/`rotation_suggestion`; a suggestion alone never invalidates a clip. Measured on Chapter 34: subject crops mean IoU 0.68 vs reviewer (0.49 whole panel); turns 1/2 found, 0 false in the used panels. Details, settings and cost: docs/FLAMINGO_AUTO_FRAMING.md.
+
+## E40 — audit branch `feat/audit-fixes-20261113` (2026-11-13/14, not deployed)
+
+Full account: `docs/AUDIT_2026-11-13.md`; switches: `docs/CONFIG.md`; operator steps: `docs/RUNBOOK.md`. In one place, how the new pieces work:
+
+- **Spend (`usage.py`)** — every paid call holds money before it runs and settles into confirmed / estimated / uncertain; all of them and the holds count against the daily cap. `usage.recover()` runs at server start.
+- **Release verdict (`release_gate.py`)** — per export: blocked / unknown / review / clear, from evidence tied to the export (spoken lines, render manifest, exported bytes; per-export records for compilations). Off unless `RELEASE_GATE` is set.
+- **Uploads (`upload_post.py`, `server._run_publish_job`)** — attempts are recorded before sending and reconciled with Upload-Post before anything is sent again.
+- **Packaging lock (`server.save_publish`)** — signed-off videos keep their details, channels and thumbnail; history in `packaging_revisions.jsonl`.
+- **Cumulative releases (`auto_append.py`, `server.api_range_build`)** — the last posted video plus the new chapters; one build per release; a signed-off release is never rebuilt over.
+- **Chapter workers (`INGEST_WORKERS`)**, **channel registry (`channels.py`)**, **release calendar (`release_calendar.py`)**, **storage retention (`retention.py`)**.
+

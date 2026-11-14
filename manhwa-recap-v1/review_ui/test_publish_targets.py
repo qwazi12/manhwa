@@ -20,11 +20,32 @@ class FakeUP:
         self.calls, self.fail = [], fail_profile
         self.yt_reject, self.pending = yt_reject, pending
 
-    def upload_video_post(self, video, md, targets, thumbnail_path=None, on_step=None):
+    def upload_video_post(self, video, md, targets, thumbnail_path=None, on_step=None, request_id=None):
         self.calls.append(list(targets))
         if self.fail and targets[0].startswith(self.fail + ":"):
             return {"success": False, "error": "boom"}
         return {"success": True, "request_id": "r-" + targets[0]}
+
+    # the publisher reads outcomes through the client's documented-answer
+    # helpers (2026-11-14); this fake answers status the way it always did
+    def upload_detail(self, rid):
+        import upload_post as up
+        real = up.upload_status
+        up.upload_status = lambda r, cfg=None, _http=None: self.upload_status(r)
+        try:
+            return up.upload_detail(rid, cfg={"api_key": "offline"})
+        finally:
+            up.upload_status = real
+
+    @staticmethod
+    def classify_response(resp):
+        import upload_post as up
+        return up.classify_response(resp)
+
+    @staticmethod
+    def rejected(exc):
+        import upload_post as up
+        return up.rejected(exc)
 
     def upload_status(self, rid):
         prof, net = rid[2:].split(":")
@@ -113,7 +134,7 @@ def main():
     seen = {}
 
     class ThumbUP(FakeUP):
-        def upload_video_post(self, video, md, targets, thumbnail_path=None, on_step=None):
+        def upload_video_post(self, video, md, targets, thumbnail_path=None, on_step=None, request_id=None):
             seen["thumb"] = thumbnail_path
             return super().upload_video_post(video, md, targets)
     saved_lp = server.load_publish

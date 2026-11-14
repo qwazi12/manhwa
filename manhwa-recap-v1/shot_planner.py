@@ -16,6 +16,15 @@ except ImportError:
     usage = None
 
 MODEL_NAME = "gemini-2.5-flash"
+# The Gemini SDK is asked for API version v1beta explicitly. google-genai 3.0.0
+# (pulled by an unpinned image rebuild on 2026-11-08) defaults to v1, where
+# JSON mode is refused: every crop request failed with HTTP 400 and each shot
+# silently fell back to the full panel (found 2026-11-13; last good call 11-05).
+# Thinking tokens the crop planner may spend per call. Measured 2026-11-13 on
+# 12 panels: with 0, boxes overlapped the stored ones 0.81 on average (a second
+# default run: 0.86) and thinking fell from ~1,900 tokens a call to 0.
+# CROP_THINKING_BUDGET="" restores the model's default.
+CROP_THINKING_BUDGET = os.environ.get("CROP_THINKING_BUDGET", "0").strip()
 LAST_AUTO_FRAMING = None     # summary of the last plan_shots auto-framing pass
 
 # Keywords that trigger a Gemini close-up crop analysis
@@ -262,7 +271,7 @@ def _query_gemini_for_crops(img_path, beats_list, api_key):
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
     img_b64, mime = _encode_image(img_path)
 
     prompt = f"""You are a professional webtoon recap video editor.
@@ -280,6 +289,17 @@ Beats list:
 {json.dumps(beats_list)}
 """
 
+    cfg = dict(temperature=0.0, response_mime_type="application/json")
+    if CROP_THINKING_BUDGET != "":
+        try:
+            cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=int(CROP_THINKING_BUDGET))
+        except (ValueError, AttributeError):
+            pass
+
+    cap = usage.output_cap("crop", MODEL_NAME) if usage else 0
+    if cap:
+        cfg["max_output_tokens"] = cap       # bounds the cost of one call (usage.output_cap)
+
     def _call():
         return client.models.generate_content(
             model=MODEL_NAME,
@@ -287,10 +307,7 @@ Beats list:
                 types.Part.from_bytes(data=base64.b64decode(img_b64), mime_type=mime),
                 types.Part(text=prompt),
             ],
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-                response_mime_type="application/json"
-            ),
+            config=types.GenerateContentConfig(**cfg),
         )
 
     if usage:
@@ -482,6 +499,8 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
     global LAST_AUTO_FRAMING
     try:
         import auto_framing
+        if usage:
+            usage.set_stage("framing")
         LAST_AUTO_FRAMING = auto_framing.apply_to_shots(
             shots, crops_dir, desc_path,
             cache_path=os.path.join(os.path.dirname(desc_path), "auto_framing_cache.json"))

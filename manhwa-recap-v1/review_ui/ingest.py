@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RECAP = os.path.abspath(os.path.join(HERE, ".."))
@@ -180,6 +181,48 @@ def project_id(url, variant=""):
     return _slug(url) + (f"-{variant}" if variant else "")
 
 
+# ---- chapters made at the same time (INGEST_WORKERS > 1) -----------------
+# Two stages hand their results back through module-level variables
+# (narrate.LAST_SOURCE_REVIEW / LAST_DIRECT_SPEECH / LAST_CRITIQUE,
+# shot_planner.LAST_AUTO_FRAMING). Two chapters inside the same stage at once
+# would read each other's results, so those stages run one chapter at a time;
+# scraping, splitting, describing, voicing and rendering overlap freely.
+# With one worker (the default) the locks are never contended.
+_STAGE_LOCKS = {"script": threading.RLock(), "framing": threading.RLock()}
+_stage_held = threading.local()
+
+
+def _stage_enter(name):
+    _STAGE_LOCKS[name].acquire()
+    held = getattr(_stage_held, "names", None)
+    if held is None:
+        held = _stage_held.names = []
+    held.append(name)
+
+
+def _stage_exit(name):
+    held = getattr(_stage_held, "names", None) or []
+    if name in held:
+        held.remove(name)
+        _STAGE_LOCKS[name].release()
+
+
+def _releases_stage_locks(fn):
+    """Whatever way the chapter ends (finished, failed, stopped), this thread
+    gives back every stage lock it holds."""
+    import functools
+
+    @functools.wraps(fn)
+    def run(*a, **k):
+        try:
+            return fn(*a, **k)
+        finally:
+            for name in list(getattr(_stage_held, "names", None) or []):
+                _stage_exit(name)
+    return run
+
+
+@_releases_stage_locks
 def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
                engine="gemini", variant="", direct=None, tier=""):
     """Run the pipeline for one chapter URL. `progress(stage, msg, pct)` is
@@ -218,6 +261,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
 
     proj_id = project_id(url, variant)
     proj = os.path.join(PROJECTS, proj_id)
+    usage.set_project(proj_id)        # every paid call below is logged with its chapter and stage
+    usage.set_stage("scrape")
     import tempfile
     import generation_cache as cache
     os.makedirs(proj, exist_ok=True)
@@ -253,7 +298,9 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     # Split into a fresh workspace: failed downloads/splits must not destroy
     # the original source behind an approved cut. Changed successful source
     # trees are archived before promotion, never mixed with stale crops.
-    subp_env = {**os.environ, "RECAP_JOB_ID": job_id}
+    usage.set_stage("split")
+    subp_env = {**os.environ, "RECAP_JOB_ID": job_id, "RECAP_PROJECT": proj_id,
+                "RECAP_STAGE": "split"}
     if tier:                                   # describe runs as a subprocess
         subp_env["RECAP_SERVICE_TIER"] = tier
     split_log = os.path.join(proj, "split.log")
@@ -365,6 +412,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
 
     # 3. describe ---------------------------------------------------------
     # Resolve Series Bible (character cheat-sheet, setting tropes, costume vs monster rules)
+    usage.set_stage("research")
     series_raw, _ = parse_series_chapter(url)
     import series_bible
     bible = series_bible.load_series_bible(series_raw, pdir=proj)
@@ -392,6 +440,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         series_bible.save_series_bible(series_raw, bible, pdir=proj)
 
     progress("describe", "Describing panels (Gemini vision)…", 35)
+    usage.set_stage("describe")
+    subp_env["RECAP_STAGE"] = "describe"
     desc_log = os.path.join(proj, "describe.log")
     desc_cmd = [PY, os.path.join(ROOT, "panel-describe", "run.py"),
                 "--input", crops, "--out", desc_path,
@@ -431,6 +481,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     script_path = os.path.join(proj, "script.txt")
     prov_path = os.path.join(proj, "script.json")
     _cached_script = open(script_path).read().strip() if os.path.exists(script_path) else ""
+    _stage_enter("script")              # until the script's results are written down
     panels = narrate.load_panels(desc_path)
     json.dump(dict(narrate.LAST_SOURCE_REVIEW),
               open(os.path.join(proj, "source_review.json"), "w"), indent=1, ensure_ascii=False)
@@ -445,6 +496,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         open_alias = _sp.spoken_alias(_pack, _ch)
     except Exception:
         pass
+    usage.set_stage("script")
     script_inputs = cache.script_inputs(proj, panels, bible, direct,
                                         open_title, open_alias, narrate.DEFAULT_MODEL)
     script_cache = os.path.join(proj, "script.cache.json")
@@ -482,7 +534,13 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         direct_record = dict(narrate.LAST_DIRECT_SPEECH)
         json.dump(direct_record, open(ds_path, "w"), indent=1, ensure_ascii=False)
         # what the script editor (critique pass) flagged and rewrote
-        json.dump(dict(getattr(narrate, "LAST_CRITIQUE", {}) or {}),
+        # script_sha256 ties this record to the exact script.txt it judged
+        # (release_gate: a script changed afterwards is "outdated", not passed)
+        import hashlib as _hl
+        import time as _tm
+        json.dump({**dict(getattr(narrate, "LAST_CRITIQUE", {}) or {}),
+                   "script_sha256": _hl.sha256(open(script_path, "rb").read()).hexdigest(),
+                   "checked_at": _tm.time()},
                   open(os.path.join(proj, "critique.json"), "w"), indent=1, ensure_ascii=False)
         scenes = narrate.provenance(results)
         json.dump(scenes, open(prov_path, "w"), indent=1)
@@ -507,10 +565,12 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         raise RuntimeError(
             "narrate produced 0 beats (empty or unusable script.txt) — "
             "aborting before voice/match")
+    _stage_exit("script")
     progress("narrate", f"{len(beats)} narration beats.", 70)
 
     # 5. voice (TTS each beat via REST; recompute timeline) --------------
     progress("voice", f"Synthesizing {len(beats)} beats (TTS)…", 72)
+    usage.set_stage("voice")
     import server as srv  # reuse the REST TTS helper (certifi CA, no SDK)
     import gemini_tts
     voice_engine = gemini_tts.engine_for_project(proj)   # pinned per project
@@ -526,23 +586,51 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     voice_cache = os.path.join(proj, "voice.cache.json")
     from pathlib import Path
     voice_outputs = {out.name: str(out) for out in Path(audio).glob("beat_*.mp3")}
+    # A line whose file exists but was never registered comes from a pool that
+    # was cut (a failed line, a spend pause, a restart). It used to make every
+    # later pass fail with "voice cache is edited" (2026-11-13). Such a file is
+    # removed and recorded again below — free, from the voice cache.
+    known = cache.recorded_outputs(voice_cache)
+    if known is not None:
+        for name in [n for n in voice_outputs if n not in known]:
+            try:
+                os.remove(voice_outputs.pop(name))
+            except OSError:
+                pass
     if voice_outputs or os.path.exists(voice_cache):
         cache.require_current(voice_cache, voice_inputs, voice_outputs, "voice")
+    else:
+        # register the run before the first line, so a cut pool is recognisable
+        cache.open_record(voice_cache, voice_inputs)
     todo = [(b, out) for b, out in todo if not os.path.exists(out)]
     if todo:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         n_w = max(1, int(os.environ.get("TTS_WORKERS", "4")))
+        first_error = None
         with ThreadPoolExecutor(max_workers=n_w) as ex:
             synth = usage.carry(srv._synth_rest)          # count under THIS job
             futs = {ex.submit(synth, b["text"], out, engine=voice_engine): out
                     for b, out in todo}
             for k, fut in enumerate(as_completed(futs), 1):
-                fut.result()      # first failure (incl. a usage cap) stops the job
+                if fut.cancelled():
+                    continue
+                try:
+                    fut.result()
+                except BaseException as e:      # incl. a usage cap
+                    # stop handing out new lines, but keep registering the ones
+                    # already recording: they are paid for
+                    if first_error is None:
+                        first_error = e
+                        for other in futs:
+                            other.cancel()
+                    continue
                 voice_outputs[os.path.basename(futs[fut])] = futs[fut]
                 cache.record(voice_cache, voice_inputs, voice_outputs)
                 if k % 10 == 0:
                     progress("voice", f"recorded {k}/{len(todo)} lines",
                              72 + int(12 * k / len(todo)))
+        if first_error is not None:
+            raise first_error
     t = 0.0
     for i, b in enumerate(beats):
         if b.get("silent") or not (b.get("text") or "").strip():
@@ -566,6 +654,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
 
     # 6. match (DP aligner) ----------------------------------------------
     progress("match", "Matching beats to panels…", 90)
+    usage.set_stage("match")
     pj = json.load(open(desc_path))
     for p in pj:
         if p.get("file") and not os.path.isabs(p["file"]):
@@ -581,9 +670,12 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     match_method = method
 
     import shot_planner
+    usage.set_stage("crops")
     progress("match", "Planning precise shot crops…", 96)
+    _stage_enter("framing")
     shots = shot_planner.plan_shots(shots, desc_path, crops)
     af = shot_planner.LAST_AUTO_FRAMING or {}
+    _stage_exit("framing")
     if af.get("skipped"):
         progress("match", f"Auto framing skipped: {af['skipped']}", 96)
     else:
@@ -597,6 +689,14 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     for s in segs:
         s["clip"] = f"clips/seg_{s['seg_index']:03d}.mp4"
     json.dump(segs, open(os.path.join(proj, "segments.json"), "w"), indent=2)
+    # The script editor checked the script these lines were just built from:
+    # record which spoken lines its verdict covers (release_gate). A line
+    # edited, reordered or excluded on the board later no longer matches.
+    try:
+        import release_gate as _rg
+        _rg.bind_critique(proj)
+    except Exception as e:  # noqa — the chapter still builds; the gate then reports "narration_unbound"
+        print(f"[ingest] could not tie the script check to the spoken lines: {e}", flush=True)
     os.makedirs(os.path.join(proj, "clips"), exist_ok=True)
     # Check the timeline this ingest just built, repair what is mechanical,
     # and record what survives — the same step the Claude lab ends with. A

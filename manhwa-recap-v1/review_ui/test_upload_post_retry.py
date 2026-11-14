@@ -40,8 +40,11 @@ def env(tmp_path, monkeypatch):
                 raise o
             return Resp(o)
         monkeypatch.setattr(up.urllib.request, "urlopen", urlopen)
-        monkeypatch.setattr(up, "upload_status", lambda rid, cfg=None: status.get(rid) or
-                            (_ for _ in ()).throw(up.UploadPostError("not found (404)", 404)))
+        # Upload-Post's documented answer for an id it has never seen
+        # (docs.upload-post.com/api/upload-status): HTTP 404 + status not_found
+        monkeypatch.setattr(up, "upload_status", lambda rid, cfg=None, _http=None: status.get(rid) or
+                            (_ for _ in ()).throw(up.UploadPostError(
+                                "not found (404)", 404, '{"request_id": "%s", "status": "not_found"}' % rid)))
         return up.upload_video_post(str(video), {"title": "T"}, ["youtube"], cfg=cfg)
     return run, sent, sleeps, status
 
@@ -50,7 +53,8 @@ def test_each_upload_sends_its_own_request_id_as_idempotency_key(env):
     run, sent, _, _ = env
     assert run([b'{"success": true, "request_id": "x"}'])["success"]
     key = sent[0].get_header("Idempotency-key")
-    assert key and f'name="request_id"\r\n\r\n{key}'.encode() in sent[0].data
+    # the body is a stream read from disk now (2026-11-13), not bytes in memory
+    assert key and f'name="request_id"\r\n\r\n{key}'.encode() in sent[0].data.read()
 
 
 def test_gateway_error_unknown_upstream_is_resent_with_same_key(env):

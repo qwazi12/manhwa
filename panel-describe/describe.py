@@ -187,35 +187,66 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
             }
         ]
     }
+    # Image calls are mechanical (read the text, describe, box the subject):
+    # keep the model from spending output tokens on thinking (usage.py).
+    level = usage.thinking_level("vision", model) if usage else \
+        os.environ.get("VISION_THINKING_LEVEL", "low")
+    if level and level not in ("default", "off"):
+        payload["generation_config"] = {"thinking_level": level}
+    cap = usage.output_cap("vision", model) if usage else 0
+    if cap:                              # off unless VISION_MAX_OUTPUT_TOKENS is set
+        payload.setdefault("generation_config", {})["max_output_tokens"] = cap
     # Autopilot chapters ask for the Flex tier (half price, may queue up to
     # ~15 min). Google does not fall back by itself, so a capacity refusal is
-    # retried once on Standard rather than failing the chapter.
-    tier = usage.requested_tier() if usage else os.environ.get("RECAP_SERVICE_TIER", "")
+    # retried once on Standard rather than failing the chapter. When Flex keeps
+    # being refused, usage.effective_tier() stops asking for a while.
+    tier = usage.effective_tier() if usage else os.environ.get("RECAP_SERVICE_TIER", "")
     if tier:
         payload["service_tier"] = tier
-    body = json.dumps(payload).encode("utf-8")
 
     ctx = None
     if certifi_path:
         ctx = ssl.create_default_context(cafile=certifi_path)
 
-    req = urllib.request.Request(url, data=body,
-        headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
-        method="POST")
-
-    try:
-        with urllib.request.urlopen(req, timeout=900 if tier == "flex" else 60,
-                                    context=ctx) as resp:
-            data = json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        if not (tier and e.code in (429, 503)):
-            raise
-        payload.pop("service_tier", None)
+    def _send():
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
             method="POST")
-        with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
-            data = json.loads(resp.read())
+        with urllib.request.urlopen(req, timeout=900 if payload.get("service_tier") == "flex" else 60,
+                                    context=ctx) as resp:
+            return json.loads(resp.read())
+
+    try:
+        data = _send()
+        if tier == "flex" and usage:
+            usage.flex_result(True)
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            pass
+        if e.code == 400 and "max_output_tokens" in payload.get("generation_config", {}) and "max_output" in body:
+            if usage:
+                usage.output_cap_unsupported(model)
+            payload["generation_config"].pop("max_output_tokens", None)
+            if not payload["generation_config"]:
+                payload.pop("generation_config")
+            data = _send()
+        elif e.code == 400 and "generation_config" in payload and "hinking" in body:
+            # this model does not take thinking_level: send without it, and
+            # stop sending it for this model
+            if usage:
+                usage.thinking_unsupported(model)
+            payload.pop("generation_config", None)
+            data = _send()
+        elif tier and e.code in (429, 503):
+            if tier == "flex" and usage:
+                usage.flex_result(False)
+            payload.pop("service_tier", None)
+            data = _send()
+        else:
+            raise urllib.error.HTTPError(e.url, e.code, f"{e.reason} {body}".strip(), e.headers, None) from None
     # This helper returns only the text, so the token counts would be lost.
     # Stash them for the usage gate — describe sends images, and the flat
     # per-call estimate was least accurate exactly here.
@@ -267,7 +298,7 @@ def describe_with_gemini(path: str, api_key: str, model: str, prompt: str | None
         from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
 
         def _call():
             return client.models.generate_content(
@@ -319,7 +350,7 @@ def ask_image(img_bytes: bytes, mime: str, prompt: str, api_key: str, model: str
         return call()
     from google import genai
     from google.genai import types
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
     call = lambda: client.models.generate_content(
         model=model,
         contents=[types.Part.from_bytes(data=img_bytes, mime_type=mime),
@@ -372,7 +403,8 @@ def cache_state(rec, path, api_key, model, series_bible=None):
     if not isinstance(recorded, dict) or recorded.get("version") != cache.VERSION:
         return "unknown"
     current = generation_inputs(path, api_key, model, series_bible)
-    return "current" if recorded.get("inputs") == current else "stale"
+    # a code-only difference is not a reason to pay again (generation_cache.CODE_KEYS)
+    return "current" if cache.same_inputs(recorded.get("inputs"), current) else "stale"
 
 
 def describe_panel(path: str, api_key: str | None, model: str, series_bible: dict | None = None):

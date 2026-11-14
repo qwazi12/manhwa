@@ -1,0 +1,21 @@
+# Production Python packages, pinned to the versions running in production on
+# 2026-11-13 (read from the live container with `pip freeze`).
+#
+# deploy/Dockerfile used to install these unpinned, so every rebuild could pull
+# new releases with no commit here. On 2026-11-08 a rebuild pulled
+# google-genai 3.0.0, whose default API version refuses JSON mode: the crop
+# planner failed on every call from then on, silently.
+#
+# To upgrade: change a pin, run the test suite, deploy with the queue empty,
+# and make one chapter end to end before trusting it.
+fastapi==0.162.2
+uvicorn[standard]==0.54.0
+python-multipart==0.0.33
+pydantic==2.14.3
+google-genai==3.0.0
+anthropic==2.6.0
+numpy==2.5.4
+scipy==1.18.1
+Pillow==13.0.0
+certifi==2026.10.23
+SQLAlchemy==2.1.8

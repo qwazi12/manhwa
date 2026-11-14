@@ -39,8 +39,10 @@ import contextlib
 import fcntl
 import json
 import os
+import sys
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -155,8 +157,14 @@ EST_GEMINI_MODEL_COST_USD = [
     # Pre-call guess only (the cap check runs BEFORE the call). Sized from a
     # measured describe call (~2,250 in / ~800 out incl. thinking) at the
     # published $1.50/$9.00 — the old $0.001 under-guessed it ~10x.
-    ("gemini-3.5-flash",  _envf("EST_COST_FLASH35_CALL_USD", 0.012)),
-    ("gemini-3.8-flash",  _envf("EST_COST_FLASH38_CALL_USD", 0.005)),
+    # 2026-11-14: raised to the measured 99th percentile of a metered call
+    # (production log, 2026-10-20..11-13: 3.8-flash n=9,465 p50 $0.0026 p95
+    # $0.0118 p99 $0.0208 max $0.102; 3.5-flash n=451 p99 $0.033; 2.5-flash
+    # n=1,509 p99 $0.0107 max $0.158). At the old values 17% of 3.8-flash
+    # calls and every 2.5-flash call cost more than was held for them.
+    ("gemini-3.5-flash",  _envf("EST_COST_FLASH35_CALL_USD", 0.033)),
+    ("gemini-3.8-flash",  _envf("EST_COST_FLASH38_CALL_USD", 0.021)),
+    ("gemini-2.5-flash",  _envf("EST_COST_FLASH25_CALL_USD", 0.011)),
     ("gemini-3.1-flash",  EST_COST_PER_GEMINI_CALL_USD),
 ]
 
@@ -182,6 +190,62 @@ def get_job_id():
     return getattr(_local, "job_id", None) or os.environ.get("RECAP_JOB_ID", "unknown")
 
 
+def set_stage(stage):
+    """Label this thread's paid calls with the pipeline stage that makes them
+    (describe, script, voice, framing, …). Written to every log line so spend
+    can be reported per stage; before 2026-11-13 no call recorded its stage."""
+    _local.stage = (stage or "").strip() or None
+
+
+def get_stage():
+    """Thread setting first; a subprocess (describe) gets RECAP_STAGE."""
+    return getattr(_local, "stage", None) or os.environ.get("RECAP_STAGE") or None
+
+
+def set_project(project_id):
+    """The chapter (project folder name) this thread's paid calls belong to."""
+    _local.project = (project_id or "").strip() or None
+
+
+def get_project():
+    return getattr(_local, "project", None) or os.environ.get("RECAP_PROJECT") or None
+
+
+@contextlib.contextmanager
+def stage(name, project=None):
+    """`with usage.stage("seo", project=pid):` — label the calls made inside,
+    then restore what was set before."""
+    prev_s, prev_p = getattr(_local, "stage", None), getattr(_local, "project", None)
+    _local.stage = name
+    if project:
+        _local.project = project
+    try:
+        yield
+    finally:
+        _local.stage, _local.project = prev_s, prev_p
+
+
+@contextlib.contextmanager
+def scope(job_id=None, stage=None, project=None):
+    """Label everything paid inside the block — job, stage, chapter — and put
+    back what was set before (request threads are reused). Work that runs
+    outside a chapter job (packaging after an ingest, a title rewrite from the
+    site) used to be logged under the job "unknown": 16% of spend between
+    2026-10-25 and 11-08 could not be traced to a chapter."""
+    prev = (getattr(_local, "job_id", None), getattr(_local, "stage", None),
+            getattr(_local, "project", None))
+    if job_id:
+        _local.job_id = job_id
+    if stage:
+        _local.stage = stage
+    if project:
+        _local.project = project
+    try:
+        yield
+    finally:
+        _local.job_id, _local.stage, _local.project = prev
+
+
 def carry(fn):
     """Wrap fn so it runs under the CALLER's job id in a worker thread.
 
@@ -189,17 +253,31 @@ def carry(fn):
     so every voice line recorded 4-at-a-time landed in one shared "unknown"
     job. Its per-job cap (MAX_TTS_CHARS_PER_JOB) then filled up across a day's
     chapters and paused every new one as if the daily budget were spent
-    (owner, 2026-10-05: "why the works keep pausing")."""
+    (owner, 2026-10-05: "why the works keep pausing").
+
+    The requested service tier, the stage label and the project ride along
+    too (2026-11-13): they are thread-local as well, so pooled calls asked for
+    Standard although the chapter asked for Flex, and carried no label."""
     jid = getattr(_local, "job_id", None)
+    stg = getattr(_local, "stage", None)
+    proj = getattr(_local, "project", None)
+    tier = getattr(_req_local, "tier", "")
 
     def run(*a, **k):
-        prev = getattr(_local, "job_id", None)
+        prev = (getattr(_local, "job_id", None), getattr(_local, "stage", None),
+                getattr(_local, "project", None), getattr(_req_local, "tier", ""))
         if jid:
             _local.job_id = jid
+        if stg:
+            _local.stage = stg
+        if proj:
+            _local.project = proj
+        if tier:
+            _req_local.tier = tier
         try:
             return fn(*a, **k)
         finally:
-            _local.job_id = prev
+            _local.job_id, _local.stage, _local.project, _req_local.tier = prev
     return run
 
 
@@ -218,6 +296,15 @@ def _today():
 # and nowhere else — the day bucket, each job bucket and the lifetime bucket
 # are all filled through this, so they cannot drift apart again.
 _CALL_COUNTERS = ("gemini_calls", "claude_calls", "tts_chars")
+# Money, kept apart (2026-11-14). est_cost_usd (the day's spend everything
+# else reads) = confirmed_usd + estimated_usd.
+#   confirmed_usd  priced from the tokens / audio the provider reported
+#   estimated_usd  the call succeeded but reported no usage: the estimate stands
+#   uncertain_usd  the call ended with NO answer (timeout, dropped connection,
+#                  process died mid-call): it may have been billed. Counted at
+#                  the amount held for it, against the cap, never as "free".
+# Money still held for running calls is in "reserved".
+_MONEY = ("confirmed_usd", "estimated_usd", "uncertain_usd")
 
 
 def _zero_counts():
@@ -247,9 +334,18 @@ def _load_counts():
         for k in _CALL_COUNTERS:
             life[k] = life.get(k, 0) + d.get(k, 0)
         life["est_cost_usd"] = round(life.get("est_cost_usd", 0.0) + d.get("est_cost_usd", 0.0), 6)
+        for k in _MONEY:
+            life[k] = round(life.get(k, 0.0) + d.get(k, 0.0), 6)
+        # holds, learned call sizes and unwritten ledger lines belong to no day
         d = dict(_zero_counts(), date=_today(), est_cost_usd=0.0,
-                 jobs={}, lifetime=life)
+                 jobs={}, lifetime=life, reserved=d.get("reserved") or {},
+                 observed=d.get("observed") or {}, pending_ledger=d.get("pending_ledger") or [])
     d.setdefault("jobs", {})
+    d.setdefault("reserved", {})
+    d.setdefault("observed", {})
+    d.setdefault("pending_ledger", [])
+    for k in _MONEY:
+        d.setdefault(k, 0.0)
     # A counters.json written before a provider existed has no key for it.
     for k in _CALL_COUNTERS:
         d.setdefault(k, 0)
@@ -281,12 +377,59 @@ def _save_counts(d):
     tmp = COUNTS_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(d, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp, COUNTS_PATH)
 
 
 def _append_log(entry):
     with open(LOG_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def _ledger_tail_ids(block=256 * 1024):
+    """rids in the last part of the ledger (to avoid writing a line twice)."""
+    try:
+        with open(LOG_PATH, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - block))
+            data = f.read().decode("utf-8", "replace")
+    except OSError:
+        return set()
+    out = set()
+    for line in data.splitlines():
+        try:
+            rid = json.loads(line).get("rid")
+        except (ValueError, AttributeError):
+            continue
+        if rid:
+            out.add(rid)
+    return out
+
+
+def _flush_ledger(d):
+    """Write the lines waiting in counters.json to the ledger. A line is put
+    in counters.json (durably, with the money) BEFORE it is appended, so a
+    failed or interrupted append loses nothing: it is written on a later call.
+    Returns True when d changed. Call under the lock."""
+    pending = d.get("pending_ledger") or []
+    if not pending:
+        return False
+    seen = _ledger_tail_ids() if len(pending) > 1 or pending[0].get("_retry") else set()
+    left = []
+    for i, e in enumerate(pending):
+        if e.get("rid") in seen:
+            continue
+        try:
+            _append_log({k: v for k, v in e.items() if k != "_retry"})
+        except OSError as err:
+            print(f"[usage] ledger not writable ({err}); {len(pending) - i} line(s) kept for later", file=sys.stderr)
+            left = [dict(x, _retry=True) for x in pending[i:]]
+            break
+    d["pending_ledger"] = left
+    return True
 
 
 @contextlib.contextmanager
@@ -460,6 +603,100 @@ def requested_tier():
     return getattr(_req_local, "tier", "") or os.environ.get("RECAP_SERVICE_TIER", "").lower()
 
 
+# ---- Flex availability -------------------------------------------------
+# Measured 2026-11-13: Google refused 8 of 8 Flex requests in 0.3 s each
+# ("high demand"), and since 2026-11-04 one call in ~2,350 was served on Flex.
+# Every refused request was then repeated on Standard, so a chapter paid full
+# price AND made each call twice. After FLEX_TRIP refusals in a row Flex is
+# skipped for FLEX_COOLDOWN_S, then tried again; one success closes the breaker.
+FLEX_TRIP = int(os.environ.get("FLEX_TRIP", 3))
+FLEX_COOLDOWN_S = float(os.environ.get("FLEX_COOLDOWN_S", 600))
+_flex = {"fails": 0, "until": 0.0, "refused": 0, "served": 0}
+_flex_lock = threading.Lock()
+
+
+def effective_tier(now=None):
+    """The tier to put on the next request: the requested one, unless Flex is
+    requested and its breaker is open."""
+    tier = requested_tier()
+    if tier == "flex" and (now or time.time()) < _flex["until"]:
+        return ""
+    return tier
+
+
+def flex_result(served, now=None):
+    """Call after a Flex request: served=True on success, False on a capacity
+    refusal (429/503)."""
+    with _flex_lock:
+        if served:
+            _flex["fails"] = 0
+            _flex["served"] += 1
+            return
+        _flex["fails"] += 1
+        _flex["refused"] += 1
+        if _flex["fails"] >= FLEX_TRIP:
+            _flex["fails"] = 0
+            _flex["until"] = (now or time.time()) + FLEX_COOLDOWN_S
+            print(f"[usage] Flex refused {FLEX_TRIP} times in a row — using Standard "
+                  f"for {FLEX_COOLDOWN_S:.0f}s, then trying Flex again", flush=True)
+
+
+def flex_state():
+    return dict(_flex)
+
+
+# ---- Thinking ----------------------------------------------------------
+# No call limited thinking before 2026-11-13, and thinking tokens (billed as
+# output) were 48% of spend. Measured on 24 real panels: at "low" the text read
+# from every panel was identical and thinking fell from ~270 tokens a panel to
+# 0; speaker labels differed from the stored ones on 10 panels — the same 10 a
+# second run at the default setting differed on. So image calls (describe,
+# framing, cut checks) default to "low". Script writing keeps the model's
+# default unless SCRIPT_THINKING_LEVEL is set. "" or "default" = model default.
+_THINKING_DEFAULTS = {"vision": "low", "script": ""}
+_no_thinking_level = set()          # models that rejected the setting
+
+
+def thinking_level(kind, model=""):
+    """'low' | 'medium' | 'high' | '' for a call of this kind ('vision' or
+    'script'), from <KIND>_THINKING_LEVEL."""
+    lvl = os.environ.get(f"{kind.upper()}_THINKING_LEVEL", _THINKING_DEFAULTS.get(kind, ""))
+    lvl = (lvl or "").strip().lower()
+    if lvl in ("", "default", "off") or model in _no_thinking_level:
+        return ""
+    return lvl
+
+
+# Largest answer a call may produce (thinking counts), so one runaway call has
+# a known worst cost. <KIND>_MAX_OUTPUT_TOKENS; 0 = no cap.
+#   crop    on (8192): the SDK setting is documented; the dearest crop call on
+#           record produced 63,061 output tokens ($0.158) for a few boxes
+#   vision / script  off by default: the Interactions API field has not been
+#           tried against the live service (no paid call was made for it) and
+#           a cap that is too low would cut a script short. Set them after the
+#           one-chapter validation run.
+_OUTPUT_CAP_DEFAULTS = {"crop": 8192, "vision": 0, "script": 0}
+_no_output_cap = set()
+
+
+def output_cap(kind, model=""):
+    try:
+        cap = int(os.environ.get(f"{kind.upper()}_MAX_OUTPUT_TOKENS", _OUTPUT_CAP_DEFAULTS.get(kind, 0)))
+    except ValueError:
+        cap = _OUTPUT_CAP_DEFAULTS.get(kind, 0)
+    return 0 if cap <= 0 or model in _no_output_cap else cap
+
+
+def output_cap_unsupported(model):
+    """The API rejected max_output_tokens for this model: stop sending it."""
+    _no_output_cap.add(model)
+
+
+def thinking_unsupported(model):
+    """The API rejected thinking_level for this model: stop sending it."""
+    _no_thinking_level.add(model)
+
+
 def parse_gemini_usage(res):
     """Token counts from ANY Gemini response shape we receive, or {} if none.
 
@@ -490,6 +727,7 @@ def parse_gemini_usage(res):
         out["tier"] = str(res.get("service_tier") or "standard").lower()
         _tier_local.tier = out["tier"]
         _tier_local.thoughts = out["thoughts"]
+        _tier_local.seen = dict(out)     # read by gate() when the caller fails before reporting
         return out
     except Exception:
         return {}
@@ -501,7 +739,7 @@ class Meter:
     call sites that have not been updated keep working unchanged."""
 
     __slots__ = ("prompt_tokens", "output_tokens", "cached_tokens", "reported",
-                 "thought_tokens", "tier")
+                 "thought_tokens", "tier", "free")
 
     def __init__(self):
         self.prompt_tokens = 0
@@ -510,6 +748,13 @@ class Meter:
         self.thought_tokens = 0
         self.tier = ""
         self.reported = False
+        self.free = False
+
+    def not_sent(self):
+        """The caller knows no request left the machine (it failed while being
+        built): if the block raises, nothing is charged or held as uncertain."""
+        self.free = True
+        return self
 
     def tokens(self, prompt=0, output=0, cached=0):
         # A report of ZERO tokens is not a measurement — no real call costs
@@ -576,104 +821,327 @@ def _est_cost(kind, units, model=""):
     return units / 1000.0 * EST_COST_PER_TTS_1K_CHARS_USD
 
 
+# Money held for calls that are running right now (2026-11-13/14). The gate
+# used to compare the cap with money already SPENT, so two calls that started
+# together both passed a cap only one of them fitted under. Each call now
+# holds an amount in counters.json from the moment it is let through until it
+# is settled; the cap check counts spent + uncertain + held.
+#
+# How much is held: the larger of the model's estimate (set to the measured
+# 99th percentile) and the most expensive of the last OBSERVED_KEEP calls of
+# the same kind / model / stage — so a stage that runs dearer than the table
+# says is held at what it actually costs.
+#
+# A hold that is never settled (the process died mid-call, or the hold is
+# older than RESERVE_TTL_S) is NOT dropped as if nothing was spent: it becomes
+# uncertain_usd with a ledger line. recover() does that for every hold at
+# server start, when no earlier call can still be running.
+RESERVE_TTL_S = float(os.environ.get("USAGE_RESERVE_TTL_S", 1800))
+OBSERVED_KEEP = int(os.environ.get("USAGE_OBSERVED_KEEP", 200))
+# Calls of one job that ended with no answer, in a row, before the job is
+# refused more paid calls for UNCERTAIN_COOLDOWN_S (a retry loop against a
+# provider that times out can be billed for every attempt).
+UNCERTAIN_STREAK = int(os.environ.get("USAGE_UNCERTAIN_STREAK", 6))
+UNCERTAIN_COOLDOWN_S = float(os.environ.get("USAGE_UNCERTAIN_COOLDOWN_S", 900))
+_UNIT_KEY = {"claude": "claude_calls", "gemini": "gemini_calls"}
+
+
+def _obs_key(kind, model, stage):
+    return f"{kind}|{model or ''}|{stage or ''}"
+
+
+def reservation(kind, units, model="", stage=None, d=None):
+    """What is held for one call before it runs."""
+    est = _est_cost(kind, units, model)
+    if kind == "tts":
+        return est                        # billed per character / second of audio: already exact
+    if d is None:
+        with _flock():
+            d = _load_counts()
+    seen = (d.get("observed") or {}).get(_obs_key(kind, model, stage if stage is not None else get_stage())) or []
+    return max(est, max(seen) * units if seen else 0.0)
+
+
+def _abandon(d, rid, hold, why):
+    """An unsettled hold becomes uncertain spend, with a ledger line."""
+    usd = round(float(hold.get("usd") or 0), 6)
+    d["reserved"].pop(rid, None)
+    d["uncertain_usd"] = round(d.get("uncertain_usd", 0.0) + usd, 6)
+    d.setdefault("pending_ledger", []).append({
+        "ts": datetime.now(timezone.utc).isoformat(), "rid": rid, "job_id": hold.get("job"),
+        "stage": hold.get("stage"), "project": hold.get("project"), "kind": hold.get("kind"),
+        "model": hold.get("model"), "units": hold.get("units"), "est_cost_usd": 0.0,
+        "uncertain_usd": usd, "outcome": "uncertain", "why": why, "metered": False})
+
+
+def _held(d, now=None):
+    """Live holds. Holds past RESERVE_TTL_S are turned into uncertain spend
+    (their call cannot still be running), never silently dropped."""
+    now = now or time.time()
+    res = d.setdefault("reserved", {})
+    for rid in [r for r, v in res.items() if now - float(v.get("at") or 0) > RESERVE_TTL_S]:
+        _abandon(d, rid, res[rid], f"no result after {int(RESERVE_TTL_S)}s — the process that made the call is gone")
+    return list(res.values())
+
+
+def recover(why="the server restarted while this call was running"):
+    """Server start: nothing from before the restart can still be running, so
+    every hold left behind is a call whose outcome will never be reported.
+    Each becomes uncertain spend. Returns how many, and their total."""
+    with _flock():
+        d = _load_counts()
+        holds = dict(d.get("reserved") or {})
+        for rid, h in holds.items():
+            _abandon(d, rid, h, why)
+        if holds or d.get("pending_ledger"):
+            _save_counts(d)
+            if _flush_ledger(d):
+                _save_counts(d)
+    return {"calls": len(holds), "uncertain_usd": round(sum(float(h.get("usd") or 0) for h in holds.values()), 6)}
+
+
+def reserved_usd():
+    """Money currently held for calls in flight (shown next to today's spend)."""
+    with _flock():
+        return round(sum(float(v.get("usd") or 0) for v in (_load_counts().get("reserved") or {}).values()), 6)
+
+
+def committed_usd(d=None):
+    """Everything that counts against today's cap: spent (confirmed +
+    estimated), uncertain, and held for calls still running."""
+    if d is None:
+        with _flock():
+            d = _load_counts()
+    return round(float(d.get("est_cost_usd") or 0) + float(d.get("uncertain_usd") or 0)
+                 + sum(float(v.get("usd") or 0) for v in (d.get("reserved") or {}).values()), 6)
+
+
+def headroom():
+    """Dollars left under today's cap, counting uncertain and held money."""
+    with _flock():
+        d = _load_counts()
+    return round(daily_cap() - committed_usd(d), 6)
+
+
+def answered_with_error(exc):
+    """True when the provider ANSWERED with an HTTP error (the exception
+    carries a 4xx/5xx status). Gemini and Anthropic do not bill a request they
+    answer with an error. A timeout or a dropped connection carries no status:
+    the request may have been processed and billed."""
+    for attr in ("code", "status_code", "status", "http_status"):
+        v = getattr(exc, attr, None)
+        if callable(v):
+            try:
+                v = v()
+            except Exception:  # noqa
+                v = None
+        if isinstance(v, int) and not isinstance(v, bool) and 400 <= v <= 599:
+            return True
+    return False
+
+
 @contextlib.contextmanager
 def gate(kind, units, model=""):
     """kind: 'gemini' or 'claude' (units = number of calls, usually 1), or
     'tts' (units = character count). Raises UsageCapExceeded BEFORE the wrapped
-    call if it would breach a per-job or daily cap; commits usage + logs
-    only if the wrapped call completes without raising."""
+    call if it — together with every call already running and every call whose
+    billing is uncertain — would breach a per-job or daily cap.
+
+    How a call ends decides where its money goes:
+      succeeded, usage reported     -> confirmed_usd (real tokens)
+      succeeded, no usage reported  -> estimated_usd (the model's table estimate)
+      failed AFTER an answer        -> confirmed_usd, ledger: failed_after_response
+      provider answered with an error (HTTP 4xx/5xx), or the cap refused it,
+        or the caller called meter.not_sent()   -> nothing charged
+      ended with no answer (timeout, dropped connection, unknown error)
+                                    -> uncertain_usd (the amount held)"""
     job_id = get_job_id()
-    est_cost = _est_cost(kind, units, model)
+    stage, project = get_stage(), get_project()
+    ukey = _UNIT_KEY.get(kind, "tts_chars")
+    rid = uuid.uuid4().hex
 
     with _flock():
         d = _load_counts()
+        changed = _flush_ledger(d)
         job = _job_slot(d, job_id)
-        if kind == "claude":
-            if job["claude_calls"] + units > MAX_CLAUDE_CALLS_PER_JOB:
-                raise UsageCapExceeded(
-                    f"MAX_CLAUDE_CALLS_PER_JOB={MAX_CLAUDE_CALLS_PER_JOB} would be "
-                    f"exceeded for job '{job_id}' ({job['claude_calls']} + {units})")
-            if d["claude_calls"] + units > MAX_DAILY_CLAUDE_CALLS:
-                raise UsageCapExceeded(
-                    f"MAX_DAILY_CLAUDE_CALLS={MAX_DAILY_CLAUDE_CALLS} would be "
-                    f"exceeded today ({d['claude_calls']} + {units})")
+        held = _held(d)
+        est_cost = reservation(kind, units, model, stage, d)
+        held_units = sum(v.get("units") or 0 for v in held if v.get("key") == ukey)
+        held_job = sum(v.get("units") or 0 for v in held if v.get("key") == ukey and v.get("job") == job_id)
+        held_usd = sum(float(v.get("usd") or 0) for v in held)
+        refusal = None
+        streak = job.get("uncertain_streak") or 0
+        if streak >= UNCERTAIN_STREAK and time.time() - float(job.get("uncertain_at") or 0) < UNCERTAIN_COOLDOWN_S:
+            refusal = (f"{streak} paid calls in a row for job '{job_id}' ended without an answer (they may have "
+                       f"been billed); no more are made for this job for {int(UNCERTAIN_COOLDOWN_S // 60)} minutes")
+        elif kind == "claude":
+            if job["claude_calls"] + held_job + units > MAX_CLAUDE_CALLS_PER_JOB:
+                refusal = (f"MAX_CLAUDE_CALLS_PER_JOB={MAX_CLAUDE_CALLS_PER_JOB} would be "
+                           f"exceeded for job '{job_id}' ({job['claude_calls'] + held_job} + {units})")
+            elif d["claude_calls"] + held_units + units > MAX_DAILY_CLAUDE_CALLS:
+                refusal = (f"MAX_DAILY_CLAUDE_CALLS={MAX_DAILY_CLAUDE_CALLS} would be "
+                           f"exceeded today ({d['claude_calls'] + held_units} + {units})")
         elif kind == "gemini":
-            if job["gemini_calls"] + units > MAX_GEMINI_CALLS_PER_JOB:
-                raise UsageCapExceeded(
-                    f"MAX_GEMINI_CALLS_PER_JOB={MAX_GEMINI_CALLS_PER_JOB} would be "
-                    f"exceeded for job '{job_id}' ({job['gemini_calls']} + {units})")
-            if d["gemini_calls"] + units > MAX_DAILY_GEMINI_CALLS:
-                raise UsageCapExceeded(
-                    f"MAX_DAILY_GEMINI_CALLS={MAX_DAILY_GEMINI_CALLS} would be "
-                    f"exceeded today ({d['gemini_calls']} + {units})")
+            if job["gemini_calls"] + held_job + units > MAX_GEMINI_CALLS_PER_JOB:
+                refusal = (f"MAX_GEMINI_CALLS_PER_JOB={MAX_GEMINI_CALLS_PER_JOB} would be "
+                           f"exceeded for job '{job_id}' ({job['gemini_calls'] + held_job} + {units})")
+            elif d["gemini_calls"] + held_units + units > MAX_DAILY_GEMINI_CALLS:
+                refusal = (f"MAX_DAILY_GEMINI_CALLS={MAX_DAILY_GEMINI_CALLS} would be "
+                           f"exceeded today ({d['gemini_calls'] + held_units} + {units})")
         else:
-            if job["tts_chars"] + units > MAX_TTS_CHARS_PER_JOB:
-                raise UsageCapExceeded(
-                    f"MAX_TTS_CHARS_PER_JOB={MAX_TTS_CHARS_PER_JOB} would be "
-                    f"exceeded for job '{job_id}' ({job['tts_chars']} + {units})")
-            if d["tts_chars"] + units > MAX_DAILY_TTS_CHARS:
-                raise UsageCapExceeded(
-                    f"MAX_DAILY_TTS_CHARS={MAX_DAILY_TTS_CHARS} would be "
-                    f"exceeded today ({d['tts_chars']} + {units})")
+            if job["tts_chars"] + held_job + units > MAX_TTS_CHARS_PER_JOB:
+                refusal = (f"MAX_TTS_CHARS_PER_JOB={MAX_TTS_CHARS_PER_JOB} would be "
+                           f"exceeded for job '{job_id}' ({job['tts_chars'] + held_job} + {units})")
+            elif d["tts_chars"] + held_units + units > MAX_DAILY_TTS_CHARS:
+                refusal = (f"MAX_DAILY_TTS_CHARS={MAX_DAILY_TTS_CHARS} would be "
+                           f"exceeded today ({d['tts_chars'] + held_units} + {units})")
         cap = daily_cap()
-        if d["est_cost_usd"] + est_cost > cap:
-            raise UsageCapExceeded(
-                f"the daily spend limit of ${cap:g} would be exceeded "
-                f"today (${d['est_cost_usd']:.4f} + ${est_cost:.4f} est.)")
+        spent, unsure = d["est_cost_usd"], d.get("uncertain_usd", 0.0)
+        if refusal is None and spent + unsure + held_usd + est_cost > cap:
+            parts = f"${spent:.4f} spent"
+            if unsure:
+                parts += f" + ${unsure:.4f} for calls that ended without an answer"
+            if held_usd:
+                parts += f" + ${held_usd:.4f} held for calls running now"
+            refusal = (f"the daily spend limit of ${cap:g} would be exceeded "
+                       f"today ({parts} + ${est_cost:.4f} for this call)")
+        if refusal is not None:
+            if changed or len(held) != len(d["reserved"]):
+                _save_counts(d)
+            raise UsageCapExceeded(refusal)
+        d["reserved"][rid] = {"usd": round(est_cost, 6), "key": ukey, "units": units, "kind": kind, "model": model,
+                              "job": job_id, "stage": stage, "project": project,
+                              "at": time.time(), "pid": os.getpid()}
+        try:
+            _save_counts(d)
+        except OSError as e:
+            # the hold cannot be written, so the cap cannot be enforced: stop
+            raise UsageCapExceeded(f"the spend record cannot be written ({e}); paid calls are stopped "
+                                   "until it can") from e
 
     meter = Meter()
     _tier_local.tier = ""
     _tier_local.thoughts = 0
-    yield meter  # --- the actual API call happens here, outside the lock ---
+    _tier_local.seen = None
+    error = None
+    try:
+        yield meter  # --- the actual API call happens here, outside the lock ---
+    except BaseException as e:
+        error = e
+        raise
+    finally:
+        try:
+            _settle(rid, kind, units, model, job_id, est_cost, meter, error, stage, project)
+        except Exception as e:
+            # Never fail a call over its bookkeeping. The hold stays in
+            # counters.json and is turned into uncertain spend later, so the
+            # money still counts against the cap.
+            print(f"[usage] could not settle call {rid} ({type(e).__name__}: {e}); its hold of "
+                  f"${est_cost:.4f} stays against the cap", file=sys.stderr)
+
+
+def _settle(rid, kind, units, model, job_id, held_usd, meter, error, stage, project):
+    """Replace the hold with what the call turned out to be."""
+    seen = getattr(_tier_local, "seen", None) or {}
+    if error is not None and not meter.reported and seen:
+        # the provider answered (usage was parsed on this thread) and the
+        # caller raised before reporting it: that answer was billed
+        meter.tokens(seen.get("prompt"), seen.get("output"), seen.get("cached"))
     # parse_gemini_usage() ran on this thread during the call: pick up the
     # service tier and thinking count it saw (REST callers report tokens only).
     meter.tier = meter.tier or getattr(_tier_local, "tier", "") or ""
     meter.thought_tokens = meter.thought_tokens or getattr(_tier_local, "thoughts", 0) or 0
 
-    # Actual tokens beat the flat per-call guess whenever the caller reported
-    # them. TTS is already exact (it is billed per character).
+    if error is None or meter.reported:
+        outcome = "ok" if error is None else "failed_after_response"
+    elif getattr(meter, "free", False) or isinstance(error, UsageCapExceeded) or answered_with_error(error):
+        outcome = "not_billed"
+    else:
+        outcome = "uncertain"
+
+    cost = held_usd
+    # Actual tokens beat the held amount whenever the caller reported them.
     if kind in ("gemini", "claude") and meter.reported:
-        est_cost = token_cost(model, meter.prompt_tokens, meter.output_tokens,
-                              meter.cached_tokens if kind == "gemini" else 0,
-                              meter.tier if kind == "gemini" else "")
+        cost = token_cost(model, meter.prompt_tokens, meter.output_tokens,
+                          meter.cached_tokens if kind == "gemini" else 0,
+                          meter.tier if kind == "gemini" else "")
     # Gemini TTS: priced from the audio actually returned (25 tokens/s).
-    if kind == "tts" and (model or "").startswith("gemini") and meter.reported:
-        est_cost = gemini_tts_cost(model, meter.prompt_tokens, meter.output_tokens)
+    elif kind == "tts" and (model or "").startswith("gemini") and meter.reported:
+        cost = gemini_tts_cost(model, meter.prompt_tokens, meter.output_tokens)
+    elif outcome == "ok":
+        # succeeded without reporting usage: the model's table estimate (the
+        # hold may be larger — it is sized for the worst recent call)
+        cost = _est_cost(kind, units, model)
 
     with _flock():
         d = _load_counts()
+        d["reserved"].pop(rid, None)
         job = _job_slot(d, job_id)
-        if kind == "claude":
-            job["claude_calls"] += units
-            d["claude_calls"] += units
-        elif kind == "gemini":
-            job["gemini_calls"] += units
-            d["gemini_calls"] += units
-        else:
-            job["tts_chars"] += units
-            d["tts_chars"] += units
-        d["est_cost_usd"] = round(d["est_cost_usd"] + est_cost, 6)
-        _save_counts(d)
-        _append_log({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "job_id": job_id,
-            "provider": {"gemini": "gemini", "claude": "anthropic"}.get(
-                kind, "google-tts"),
+        if outcome == "not_billed":
+            _save_counts(d)
+            return
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(), "rid": rid,
+            "job_id": job_id, "stage": stage, "project": project,
+            "provider": {"gemini": "gemini", "claude": "anthropic"}.get(kind, "google-tts"),
             "kind": kind, "model": model, "units": units,
-            "unit": "chars" if kind == "tts" else "call",
-            "est_cost_usd": round(est_cost, 6),
-            "prompt_tokens": meter.prompt_tokens,
-            "output_tokens": meter.output_tokens,
-            "cached_tokens": meter.cached_tokens,
-            "thought_tokens": meter.thought_tokens,
-            "service_tier": meter.tier or None,
-            "metered": meter.reported,
-            "job_totals": dict(job),
-            "daily_totals": {"gemini_calls": d["gemini_calls"],
-                              "claude_calls": d["claude_calls"],
-                              "tts_chars": d["tts_chars"],
-                              "est_cost_usd": d["est_cost_usd"]},
-        })
+            "unit": "chars" if kind == "tts" else "call"}
+        if outcome == "uncertain":
+            d["uncertain_usd"] = round(d.get("uncertain_usd", 0.0) + held_usd, 6)
+            job["uncertain_streak"] = (job.get("uncertain_streak") or 0) + 1
+            job["uncertain_at"] = time.time()
+            entry.update(est_cost_usd=0.0, uncertain_usd=round(held_usd, 6), outcome="uncertain", metered=False,
+                         why=f"{type(error).__name__}: {error}"[:200])
+        else:
+            job["uncertain_streak"] = 0
+            if kind == "claude":
+                job["claude_calls"] += units
+                d["claude_calls"] += units
+            elif kind == "gemini":
+                job["gemini_calls"] += units
+                d["gemini_calls"] += units
+            else:
+                job["tts_chars"] += units
+                d["tts_chars"] += units
+            exact = meter.reported or (kind == "tts" and not (model or "").startswith("gemini"))
+            bucket = "confirmed_usd" if exact else "estimated_usd"
+            d[bucket] = round(d.get(bucket, 0.0) + cost, 6)
+            d["est_cost_usd"] = round(d["est_cost_usd"] + cost, 6)
+            if kind != "tts" and meter.reported and units:
+                # what this kind of call really costs, for the next hold
+                key = _obs_key(kind, model, stage)
+                d["observed"][key] = ((d["observed"].get(key) or []) + [round(cost / units, 6)])[-OBSERVED_KEEP:]
+            entry.update({
+                "est_cost_usd": round(cost, 6),
+                "held_usd": round(held_usd, 6),
+                "prompt_tokens": meter.prompt_tokens,
+                "output_tokens": meter.output_tokens,
+                "cached_tokens": meter.cached_tokens,
+                "thought_tokens": meter.thought_tokens,
+                "service_tier": meter.tier or None,
+                "requested_tier": requested_tier() or None,
+                "metered": meter.reported,
+                "job_totals": {k: job.get(k, 0) for k in _CALL_COUNTERS},
+                "daily_totals": {"gemini_calls": d["gemini_calls"],
+                                  "claude_calls": d["claude_calls"],
+                                  "tts_chars": d["tts_chars"],
+                                  "est_cost_usd": d["est_cost_usd"],
+                                  "uncertain_usd": d.get("uncertain_usd", 0.0)},
+            })
+            if error is not None:
+                # answered and billed, then the caller failed (bad JSON, a local
+                # error): the money was spent, so it is on the books
+                entry["failed_after_response"] = f"{type(error).__name__}: {error}"[:200]
+        # Money and the ledger line are saved together; only then is the line
+        # appended. If the append fails or the process dies here, the line is
+        # still in counters.json and is written by a later call.
+        d["pending_ledger"].append(entry)
+        _save_counts(d)
+        if _flush_ledger(d):
+            try:
+                _save_counts(d)
+            except OSError:
+                pass        # the line may be appended twice-proofed by its rid next time
 
 
 def rate_card():
@@ -706,4 +1174,7 @@ def daily_summary():
     with _flock():
         d = _load_counts()
     d["rates"] = rate_card()
+    d["reserved_usd"] = round(sum(float(v.get("usd") or 0) for v in (d.get("reserved") or {}).values()), 6)
+    d["committed_usd"] = committed_usd(d)       # spent + uncertain + held: what the cap is checked against
+    d["cap_usd"] = daily_cap()
     return d

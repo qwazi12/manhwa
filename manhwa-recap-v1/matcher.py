@@ -392,7 +392,7 @@ def _gemini_embed(texts, model_name=GEMINI_EMBED_MODEL):
     while i < len(todo):
         chunk = todo[i:i + (EMBED_BATCH if batch_ok else 1)]
         if client is None:
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
 
         def _call():
             payload = [t for _, t in chunk]

@@ -209,12 +209,27 @@ def copy_chapter(pdir, video_name, series, chapter, thumb_path=None, stop=None, 
                          "size": v.get("size"), "md5": v.get("md5Checksum")} for k, v in files.items()},
            # the video's bytes in Drive match ours (size + MD5) — the only
            # evidence that lets the studio ever drop its own copy
-           "verified": _same(vid, files["video"])}
+           "verified": _same(vid, files["video"]),
+           # the same bytes' sha256: what final-media QA records, so an
+           # archived video can still be tied to its QA report after the
+           # local copy is dropped (release_gate.export_identity)
+           "sha256": _sha256(vid)}
     tmp = os.path.join(pdir, RECORD + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(rec, f, indent=1)
     os.replace(tmp, os.path.join(pdir, RECORD))
     return rec
+
+
+def _sha256(path):
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
 
 
 def _md5(path):

@@ -17,6 +17,7 @@ Everything is deploy-agnostic: put this behind any reverse proxy / subdomain
 """
 
 import hmac
+import hashlib
 import json
 import os
 import re
@@ -906,18 +907,31 @@ def _record_export_media(pdir, name, **context):
         _ev("render", f"Final-media manifest incomplete: {str(exc)[:200]}", "warn")
 
 
+def _release_gate_blockers(pdir, name):
+    """Critical defects found by the script editor and final-media QA
+    (release_gate.py). Returns nothing unless RELEASE_GATE is switched on."""
+    try:
+        import release_gate
+        return release_gate.blocking(pdir, name)
+    except Exception as e:  # noqa — an unreadable report must not post a video the gate was asked to hold
+        import release_gate as _rg
+        return [f"Release check could not run ({type(e).__name__}); nothing is released while "
+                f"RELEASE_GATE is on."] if _rg.mode() != "off" else []
+
+
 def _media_readiness_blockers(pdir, name):
     import qa_project_policy as policy
     if policy.restricted(pdir):
         return [policy.REASON]
+    gate = _release_gate_blockers(pdir, name)
     if not _mqa.enforcement_enabled():
-        return []
+        return gate
     if not name:
-        return ["No export is available for final-media QA."]
+        return gate + ["No export is available for final-media QA."]
     try:
-        return _mqa.blockers(pdir, name, load_reviews(pdir).get(name))
+        return gate + _mqa.blockers(pdir, name, load_reviews(pdir).get(name))
     except Exception:
-        return ["Final-media QA is unavailable; publication cannot proceed while enforcement is enabled."]
+        return gate + ["Final-media QA is unavailable; publication cannot proceed while enforcement is enabled."]
 
 
 class MediaQaIn(BaseModel):
@@ -1054,6 +1068,9 @@ def _single_should_merge(pdir):
                 f"{adj[0]}-{n} instead of posting this chapter on its own (allow_single posts it alone)")
     end = max((e_ for _a, e_, _p in posted), default=None)
     if end is not None and n > end:
+        if _auto_append_mode() == "cumulative":
+            return (f"{name} is added to the posted video ending at {end} once "
+                    f"{_auto_append_min()} new chapter(s) are ready (allow_single posts it alone)")
         return (f"{name} waits for the next merge, which starts at {end + 1} once "
                 f"{_auto_append_min()} chapters are ready (allow_single posts it alone)")
     return None
@@ -1106,6 +1123,8 @@ def api_review_save(body: ReviewIn):
     if status:                                # a verdict pins the cut it judged
         rec["cut_signature"] = cut_signature(pdir=pdir)
         rec["media_identity"] = _mqa.identity(pdir, name)
+        if status == "approved":
+            _pin_packaging(pdir, name, rec)
     recs[name] = rec
     save_reviews(pdir, recs)
     scheduled = _schedule_on_verdict(pid, name, status)
@@ -1168,11 +1187,85 @@ def load_publish(pdir):
         return {}
 
 
-def save_publish(pdir, data):
+PACKAGING_LOG = "packaging_revisions.jsonl"
+_SEO_ACTOR = threading.local()     # "auto" while automatic preparation applies SEO; otherwise a person
+
+
+def _packaging_note(pdir, **entry):
+    """Append one line to the chapter's packaging history (who changed what,
+    or what an automatic step was stopped from changing)."""
+    try:
+        with open(os.path.join(pdir, PACKAGING_LOG), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": time.time(), **entry}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _short_hash(v):
+    return hashlib.sha256(json.dumps(v, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()[:16]
+
+
+def save_publish(pdir, data, actor="auto", why=""):
+    """Store publish details (title, description, tags, channels, privacy …).
+
+    Packaging lock (2026-11-14): the details of an export that is approved, in
+    the posting queue, being posted, scheduled or posted are changed ONLY by a
+    person acting on that video (actor="owner"). Every other writer — series
+    defaults, automatic SEO, title repair at start-up, tag trimming — passes
+    through here as actor="auto": its change to a locked export is dropped,
+    the stored details stay, and the attempt is written to the packaging
+    history. Changes that are applied are recorded there too."""
     if isinstance(data, dict):
         for k, item in data.items():
             if isinstance(item, dict) and "tags" in item and isinstance(item["tags"], list):
                 item["tags"] = _trim_tags_to_limit(item["tags"], YT_TAGS_CHARS_MAX)
+        old = load_publish(pdir)
+        try:
+            locked = _metadata_locked(pdir)
+        except Exception:  # noqa — cannot tell what is locked: change nothing automatic
+            locked = {k: "lock state unreadable" for k in data} if actor != "owner" else {}
+        for k in list(data):
+            before, after = old.get(k), data[k]
+            if before == after:
+                continue
+            fields = sorted(f for f in set(before or {}) | set(after or {})
+                            if (before or {}).get(f) != (after or {}).get(f) and not f.startswith("_")) \
+                if isinstance(after, dict) and isinstance(before or {}, dict) else ["*"]
+            if k in locked and actor != "owner":
+                # Nothing a person saw is changed. A field that is still EMPTY
+                # in the stored details may be filled in (late SEO after the
+                # spend day resets); that is recorded too.
+                filled = []
+                if isinstance(before, dict) and isinstance(after, dict):
+                    kept = dict(before)
+                    for f in fields:
+                        if before.get(f) in (None, "", [], {}) and after.get(f) not in (None, "", [], {}):
+                            kept[f] = after[f]
+                            filled.append(f)
+                    data[k] = kept
+                elif before is None:
+                    data.pop(k)       # no details of its own: it reads the draft / defaults it was approved with
+                else:
+                    data[k] = before
+                stopped = [f for f in fields if f not in filled]
+                if stopped:
+                    _packaging_note(pdir, export=k, actor=actor, why=why, blocked=locked[k], fields=stopped)
+                if filled:
+                    _packaging_note(pdir, export=k, actor=actor, why=why or "filled in a field that was empty",
+                                    fields=filled, filled_empty=True, locked=locked[k])
+                continue
+            if fields:
+                _packaging_note(pdir, export=k, actor=actor, why=why, fields=fields,
+                                before=_short_hash(before), after=_short_hash(after),
+                                **({"title": [(before or {}).get("title"), (after or {}).get("title")]}
+                                   if "title" in fields else {}))
+        if actor != "owner" and DRAFT in data and data.get(DRAFT) != old.get(DRAFT) \
+                and any(k not in old for k in locked if k != DRAFT):
+            data[DRAFT] = old.get(DRAFT) if old.get(DRAFT) is not None else data.pop(DRAFT) and None
+            if data.get(DRAFT) is None:
+                data.pop(DRAFT, None)
+            _packaging_note(pdir, export=DRAFT, actor=actor, why=why,
+                            blocked="a locked video reads these draft details", fields=["*"])
     tmp = os.path.join(pdir, PUBLISH_NAME + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1)
@@ -1244,10 +1337,134 @@ def _adapt_tags_for_chapter(tags, series_name, ch_n):
     return _trim_tags_to_limit(adapted, YT_TAGS_CHARS_MAX)
 
 
-def _propagate_series_defaults(sid, series, pack):
+def _thumb_sha(pdir, name):
+    import thumbnail as _tb
+    try:
+        path = _tb.path_for(pdir, name)
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except Exception:  # noqa — no thumbnail yet
+        return None
+
+
+def _thumbnail_changed(pdir, name, before, actor, why):
+    """History line for a thumbnail change; a person changing the thumbnail of
+    an approved video un-pins the upload thumbnail fixed at approval."""
+    after = _thumb_sha(pdir, name)
+    if after == before:
+        return
+    _packaging_note(pdir, export=name, actor=actor, why=why, fields=["thumbnail"],
+                    before=(before or "")[:16], after=(after or "")[:16])
+    recs = load_reviews(pdir)
+    pk = (recs.get(name) or {}).get("packaging")
+    if pk and pk.get("upload_thumb"):
+        pk.pop("upload_thumb", None)
+        pk.pop("upload_thumb_sha256", None)
+        pk["thumb_sha256"] = after
+        save_reviews(pdir, recs)
+
+
+def _pin_packaging(pdir, name, rec):
+    """At approval: fix what this video will be uploaded with. Records the
+    details' fingerprint and the thumbnail, and works out NOW the thumbnail
+    the upload will carry (the series master + chapter badge when the series
+    has one — owner rule 2026-11-07) so that what is approved is what is
+    uploaded: nothing is substituted later behind the approval."""
+    import shutil as _sh
+    import thumbnail as _tb
+    md = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
+    pin = {"at": time.time(),
+           "details": _short_hash({k: md.get(k) for k in ("title", "description", "tags", "targets", "privacy",
+                                                           "playlist", "youtube_playlist_id", "category_id",
+                                                           "made_for_kids", "first_comment")}),
+           "thumb_sha256": _thumb_sha(pdir, name)}
+    try:
+        stored = _tb.path_for(pdir, name) or None
+        final = _series_master_thumb(pdir, stored)
+        if final and os.path.isfile(final):
+            keep = os.path.join(pdir, "exports", "_thumbs", "approved_" + os.path.splitext(name)[0]
+                                + os.path.splitext(final)[1])
+            if os.path.abspath(final) != os.path.abspath(keep):
+                os.makedirs(os.path.dirname(keep), exist_ok=True)
+                _sh.copyfile(final, keep)
+            with open(keep, "rb") as f:
+                pin.update(upload_thumb=os.path.basename(keep), upload_thumb_sha256=hashlib.sha256(f.read()).hexdigest(),
+                           series_master=bool(stored is None or os.path.abspath(final) != os.path.abspath(stored)))
+    except Exception as e:  # noqa — approval is never refused over the thumbnail
+        pin["upload_thumb_error"] = str(e)[:160]
+    rec["packaging"] = pin
+    _packaging_note(pdir, export=name, actor="owner", why="approved — packaging pinned", fields=["approval"],
+                    after=pin["details"])
+    return pin
+
+
+def _pinned_upload_thumb(pdir, name):
+    """The thumbnail fixed at approval, if it is still exactly that file."""
+    pk = (load_reviews(pdir).get(name) or {}).get("packaging") or {}
+    fn = pk.get("upload_thumb")
+    if not fn:
+        return None
+    path = os.path.join(pdir, "exports", "_thumbs", os.path.basename(fn))
+    try:
+        with open(path, "rb") as f:
+            ok = hashlib.sha256(f.read()).hexdigest() == pk.get("upload_thumb_sha256")
+    except OSError:
+        return None
+    return path if ok else None
+
+
+def _metadata_locked(pdir, queued=None):
+    """{export name: why} for the videos of this chapter whose title,
+    description, tags and channels a person has already signed off or that
+    have gone out: approved in Video review, in the posting queue, being
+    posted, or posted. Series defaults must not rewrite these (review,
+    2026-11-13: "Save as series defaults → apply to all" rewrote every stored
+    video of the series, approved and posted ones included)."""
+    pid = os.path.basename(pdir.rstrip("/"))
+    out = {}
+    for name, rec in (load_reviews(pdir) or {}).items():
+        if (rec or {}).get("status") == "approved":
+            out[name] = "approved"
+    for name, rec in (load_publishes(pdir) or {}).items():
+        rec = rec or {}
+        results = rec.get("results") or []
+        if rec.get("status") in ("in_progress", "published", "partial") or any(
+                r.get("status") in ("submitted", "published", "unconfirmed") for r in results):
+            out[name] = ("being posted" if rec.get("status") == "in_progress" else
+                         "scheduled" if any(r.get("visibility") == "scheduled" for r in results) else "posted")
+    if queued is None:
+        import ingest as _i
+        queued = {(it.get("project"), it.get("name")) for it in _pq.load(_i.PROJECTS).get("items", [])
+                  if it.get("status") in _pq.ACTIVE}
+    for qp, qn in queued:
+        if qp == pid:
+            out.setdefault(qn, "in the posting queue")
+    return out
+
+
+_PROPAGATE_LAST = {"protected": 0}
+
+
+def _propagate_series_defaults(sid, series, pack, only=None, dry=False):
+    """Apply the series' saved defaults to its videos' details.
+
+    Default: every video that is NOT locked (new drafts, videos still in
+    review). Locked videos — approved, queued, being posted, scheduled, posted
+    — are left alone and counted in _PROPAGATE_LAST["protected"].
+
+    only={(project, export)}: a retroactive update of exactly those videos,
+    locked or not — an explicit, targeted owner action. dry=True changes
+    nothing and returns the list of what would change (the preview)."""
     import ingest as _i
     root = _i.PROJECTS
     applied = 0
+    preview = []
+    _PROPAGATE_LAST["protected"] = 0
+    try:
+        queued = {(it.get("project"), it.get("name")) for it in _pq.load(root).get("items", [])
+                  if it.get("status") in _pq.ACTIVE}
+    except Exception:  # noqa — without the queue, approvals and posts still protect
+        queued = set()
     t_tmpl = pack.get("title_template")
     d_tmpl = pack.get("description_template")
     tags = pack.get("default_tags")
@@ -1267,10 +1484,23 @@ def _propagate_series_defaults(sid, series, pack):
                 continue
             ch_label = str(cmeta.get("chapter") or (ch_n if ch_n is not None else "")).strip()
             store = load_publish(pdir)
+            locked = _metadata_locked(pdir, queued)
             target_keys = list(store.keys())
             if DRAFT not in target_keys:
                 target_keys.append(DRAFT)
+            # a signed-off video with no details of its own reads the draft
+            draft_feeds_locked = any(k not in store for k in locked)
+            touched = False
             for k in target_keys:
+                if only is not None:
+                    if (f, k) not in only:
+                        continue
+                elif k in locked or (k == DRAFT and draft_feeds_locked):
+                    _PROPAGATE_LAST["protected"] += 1
+                    if not dry:
+                        continue
+                before_item = dict(store.get(k) or {})
+                touched = True
                 item = dict(store.get(k) or {})
                 if t_tmpl:
                     item["title"] = _apply_title_template(t_tmpl, ch_label)
@@ -1298,18 +1528,86 @@ def _propagate_series_defaults(sid, series, pack):
                 if targets:
                     item["targets"] = list(targets)
                 item.update(extra)
+                if dry:
+                    diff = {x: [before_item.get(x), item.get(x)] for x in sorted(set(before_item) | set(item))
+                            if before_item.get(x) != item.get(x)}
+                    if diff:
+                        preview.append({"project": f, "name": k, "locked": locked.get(k), "changes": diff})
+                    continue
                 store[k] = item
-            save_publish(pdir, store)
-            applied += 1
+            if touched and not dry:
+                save_publish(pdir, store, actor="owner" if only is not None else "auto",
+                             why="series defaults applied to chosen videos" if only is not None else "series defaults")
+                applied += 1
         except Exception as e:
             print(f"[propagate_series_defaults] error on {f}: {e}", flush=True)
 
-    try:
-        _rerender_chosen_thumbnails(force_cover_default=True)
-    except Exception as e:
-        print(f"[propagate_series_defaults] thumbnail rerender error: {e}", flush=True)
+    if dry:
+        return preview
+    if only is None:
+        try:
+            # skips every locked video (_thumb_keep_reason)
+            _rerender_chosen_thumbnails(force_cover_default=True)
+        except Exception as e:
+            print(f"[propagate_series_defaults] thumbnail rerender error: {e}", flush=True)
 
     return applied
+
+
+class SeriesRetroIn(BaseModel):
+    series_id: str = ""
+    exports: list[list[str]] | None = None      # [[project, export name], …] — exactly these
+    apply: bool = False
+
+
+@app.post("/api/series/defaults/retroactive")
+def api_series_defaults_retroactive(body: SeriesRetroIn):
+    """Retroactive series defaults, in two steps (2026-11-14). Series defaults
+    reach new drafts and unreviewed videos by themselves; an approved, queued,
+    scheduled or posted video changes only here.
+      apply=false  the preview: every video of the series whose details would
+                   change, each marked with why it is locked
+      apply=true   changes exactly the videos listed in `exports`
+    Details only — thumbnails are never changed by this."""
+    import series_pack as _sp
+    sid = (body.series_id or "").strip()
+    pack = _sp.load(_yt_root(), sid) if sid else None
+    if not pack:
+        raise HTTPException(404, "no saved defaults for this series")
+    if not body.apply:
+        return {"ok": True, "series_id": sid, "applied": 0,
+                "preview": _propagate_series_defaults(sid, sid, pack, dry=True)}
+    chosen = {(str(x[0]), str(x[1])) for x in (body.exports or []) if isinstance(x, list) and len(x) == 2}
+    if not chosen:
+        raise HTTPException(400, "list the videos to change in `exports` — see the preview (apply=false)")
+    n = _propagate_series_defaults(sid, sid, pack, only=chosen)
+    _ev("publish", f"{sid}: series defaults applied to {len(chosen)} chosen video(s) by the owner", "ok")
+    return {"ok": True, "series_id": sid, "applied": n, "exports": sorted(chosen)}
+
+
+def _channel_registry():
+    """The channel registry (channels.py). Raises channels.RegistryError when
+    the saved file is invalid — never a silent fallback to another channel."""
+    import channels as _ch
+    import ingest as _i
+    return _ch.load(_i.PROJECTS, _studio.publish_defaults().get("targets") or [])
+
+
+def _channel_targets(pdir):
+    """Upload targets of the channel this chapter's series belongs to; [] when
+    there is no saved registry (the studio default then applies, as before).
+    An invalid registry is an error for the caller: a video must not go to a
+    default channel because its channel's entry is broken."""
+    import channels as _ch
+    reg = _channel_registry()
+    if reg.get("implicit"):
+        return []
+    try:
+        sid = _series_ident(pdir)[0]
+        genres = (_series_pack(pdir, refresh=False) or {}).get("genre") or []
+    except Exception:  # noqa — unknown series: the default channel
+        sid, genres = None, []
+    return _ch.targets_for(reg, sid, genres if isinstance(genres, list) else [genres])
 
 
 def _publish_defaults_base(pdir):
@@ -1357,7 +1655,8 @@ def _publish_defaults_base(pdir):
             "tags": base_tags,
             "category_id": (sp.get("default_category") if sp else None) or "24",
             "privacy": (sp.get("default_privacy") if sp else None) or _studio.publish_defaults().get("privacy", "private"),
-            "targets": list((sp.get("default_targets") if sp else None) or _studio.publish_defaults().get("targets") or []),
+            "targets": list((sp.get("default_targets") if sp else None) or _channel_targets(pdir)
+                            or _studio.publish_defaults().get("targets") or []),
             "publish_at": "",
             "playlist": (sp.get("playlist_id") if sp else None) or series,
             "made_for_kids": bool((sp or {}).get("default_made_for_kids", False)),
@@ -1399,7 +1698,8 @@ def _publish_defaults_base(pdir):
         # Privacy is private unless the owner saved "public" in ⚙️ Settings &
         # Channels (studio_settings.py) — never public by omission.
         "privacy": (sp.get("default_privacy") if sp else None) or _studio.publish_defaults().get("privacy", "private"),
-        "targets": list((sp.get("default_targets") if sp else None) or _studio.publish_defaults().get("targets") or []),
+        "targets": list((sp.get("default_targets") if sp else None) or _channel_targets(pdir)
+                            or _studio.publish_defaults().get("targets") or []),
         "publish_at": "",
         "playlist": (sp.get("playlist_id") if sp else None) or series,
         "made_for_kids": bool((sp or {}).get("default_made_for_kids", False)),
@@ -1649,11 +1949,14 @@ def api_publish_series_defaults(body: SeriesDefaultsIn):
     _sp.save(root, pack)
 
     applied = 0
+    protected = 0
     if body.apply_all:
         applied = _propagate_series_defaults(sid, series, pack)
+        protected = _PROPAGATE_LAST["protected"]
 
-    _ev("publish", f"{series}: saved series defaults & applied to {applied} chapters", "ok")
-    return {"ok": True, "series": series, "pack": pack, "applied": applied}
+    _ev("publish", f"{series}: saved series defaults & applied to {applied} chapters"
+        + (f"; {protected} approved, queued or posted video(s) kept their details" if protected else ""), "ok")
+    return {"ok": True, "series": series, "pack": pack, "applied": applied, "protected": protected}
 
 
 @app.post("/api/publish")
@@ -1679,7 +1982,7 @@ def api_publish_save(body: PublishIn):
                 if k in (body.metadata or {}):
                     rec[k] = md[k]
             store[latest] = rec
-    save_publish(pdir, store)
+    save_publish(pdir, store, actor="owner", why="details edited on the video's page")
     pid = os.path.basename(pdir.rstrip("/"))
     # Same shape as the GET. Returning a thinner object here emptied the
     # category and privacy dropdowns the moment anything was saved, because the
@@ -2102,6 +2405,12 @@ def _thumb_keep_reason(pdir, name, masters):
         sid = _series_ident(pdir)[0] or ""
     except Exception:
         sid = ""
+    try:
+        lock = _metadata_locked(pdir).get(name)
+    except Exception:  # noqa — cannot tell: leave it alone
+        lock = "lock state unreadable"
+    if lock:
+        return lock                       # approved / queued / being posted / scheduled / posted
     if sid and masters(sid):
         return "series master"
     rec = _tb.get(pdir, name)
@@ -2209,6 +2518,14 @@ def _thumbcopilot_apply(body: ThumbApplyIn, source="auto"):
     import thumbnail as _tb
     pdir = project_dir_for(body.project)
     name = os.path.basename(body.name or "")
+    lock = _metadata_locked(pdir).get(name)
+    if lock and source == "auto" and _thumb_sha(pdir, name):
+        # an automatic redraw never replaces the thumbnail of a video that is
+        # approved, queued, being posted, scheduled or posted (a video with
+        # no thumbnail at all may still get its first one)
+        _packaging_note(pdir, export=name, actor="auto", why="automatic thumbnail redraw", blocked=lock,
+                        fields=["thumbnail"])
+        return {"ok": False, "skipped": lock, "project": os.path.basename(pdir.rstrip("/")), "name": name}
     rec = tstudio.get_concepts(pdir, name)
     c = next((x for x in (rec.get("concepts") or [])
               if x.get("id") == body.concept_id), None)
@@ -2228,10 +2545,13 @@ def _thumbcopilot_apply(body: ThumbApplyIn, source="auto"):
         raise HTTPException(409, str(e))
     with open(tmp, "rb") as f:
         data = f.read()
+    before = _thumb_sha(pdir, name)
     try:
         saved = _tb.save(pdir, name, data, source=source)   # the existing store
     except _tb.ThumbnailError as e:
         raise HTTPException(422, str(e))
+    _thumbnail_changed(pdir, name, before, "owner" if source != "auto" else "auto",
+                       "thumbnail picked from the concepts" if source != "auto" else "automatic thumbnail")
 
     if body.set_series_default:
         tstudio.approve_style(_yt_root(), key, style,
@@ -3401,6 +3721,10 @@ def _restore_from_drive(pdir, name):
     return dest
 
 
+_RANGE_BUILD_LOCK = threading.Lock()
+_RANGE_BUILDING = set()          # range project ids with a build in progress (this process)
+
+
 class RangeIn(BaseModel):
     project: str = ""          # any chapter of the series
     chapters_start: int = 0
@@ -3525,10 +3849,28 @@ def api_range_build(body: RangeIn):
         raise HTTPException(409, "no rendered video yet for chapter(s) " +
                             ", ".join(str(n) for n in pl["missing"][:30]))
 
-    rdir, meta = _rc.write_project(_ing.PROJECTS, sid, series, a, b,
-                                   url=_read_json(os.path.join(src, "project.json")).get("url") or "")
+    # One build per release at a time, and never over a release a person has
+    # signed off (2026-11-14). Two requests for the same range used to write
+    # the same folder at once; a rebuild replaced an approved or queued
+    # compilation's file under its approval.
+    range_pid = _rc.project_id(sid, a, b)
     name = f"final_range_{a}-{b}.mp4"
-    range_pid = os.path.basename(rdir)
+    existing = os.path.join(_ing.PROJECTS, range_pid)
+    with _RANGE_BUILD_LOCK:
+        if range_pid in _RANGE_BUILDING:
+            raise HTTPException(409, f"{_pretty(range_pid)} is already being built")
+        if os.path.isdir(existing):
+            lock = _metadata_locked(existing).get(name)
+            if lock:
+                raise HTTPException(409, f"{_pretty(range_pid)} is {lock} — it is not rebuilt over; "
+                                         "send it back or unmerge it first")
+        _RANGE_BUILDING.add(range_pid)
+    try:
+        rdir, meta = _rc.write_project(_ing.PROJECTS, sid, series, a, b,
+                                       url=_read_json(os.path.join(src, "project.json")).get("url") or "")
+    except Exception:
+        _RANGE_BUILDING.discard(range_pid)
+        raise
 
     # What each piece looked like before the merge, so Unmerge can put it
     # back exactly (owner, 2026-10-12: "can i merge and unmerge chapters?")
@@ -3559,7 +3901,6 @@ def api_range_build(body: RangeIn):
         m0["append"] = body.append
     with open(os.path.join(rdir, "project.json"), "w", encoding="utf-8") as mf:
         json.dump(m0, mf, indent=2)
-
     # 2. Mark constituent chapters in reviews.json as "merged"
     for n, cp, cname in pl["chapters"]:
         try:
@@ -3578,8 +3919,24 @@ def api_range_build(body: RangeIn):
 
     def run():
         try:
+            _range_build_body()
+        finally:
+            _RANGE_BUILDING.discard(range_pid)
+
+    def _range_build_body():
+        try:
             for _n, cp, cn in pl["chapters"]:
                 _restore_from_drive(cp, cn)
+            # Evidence for THIS export: each piece's file hash and its check
+            # results as they are now, while the files are here. It stays with
+            # the compilation after the pieces are cleaned up or edited
+            # (release_gate.py).
+            try:
+                import release_gate as _rg
+                _rg.store_evidence(rdir, name, [(cp, cn) for _n, cp, cn in pl["chapters"]])
+            except Exception as e:  # noqa — the merge still builds; the gate reports its pieces as unknown
+                _ev("publish", f"{_pretty(range_pid)}: could not store the pieces' check results with the merge "
+                               f"({type(e).__name__}: {str(e)[:120]})", "warn")
             marks = _rc.stitch(pl["chapters"], os.path.join(rdir, "exports", name))
             secs = _rc._probe(os.path.join(rdir, "exports", name))
             kept = _rc.kept_seconds(marks, secs)
@@ -3746,7 +4103,11 @@ def api_range_build(body: RangeIn):
             _write_meta_atomic(rdir, m)
             _ev("publish", f"{series} chapters {a}-{b}: range build failed — {str(e)[:160]}", "warn")
 
-    threading.Thread(target=run, daemon=True).start()
+    try:
+        threading.Thread(target=run, daemon=True).start()
+    except Exception:
+        _RANGE_BUILDING.discard(range_pid)
+        raise
     return {"ok": True, "project": range_pid, "export": name,
             "chapters_start": a, "chapters_end": b}
 
@@ -3845,7 +4206,8 @@ def api_publish_repair_titles(body: RepairTitlesIn):
                     dirty = True
             store[name] = new
         if dirty and body.apply:
-            save_publish(pdir, store)
+            # an explicit repair the owner previewed (apply=false lists the changes)
+            save_publish(pdir, store, actor="owner", why="title repair applied after preview")
     if body.apply and changes:
         _ev("publish", f"repaired {len(changes)} title/description/tag field(s) (merged-video numbers, old suffix)", "ok")
     return {"applied": body.apply, "changes": changes}
@@ -3962,13 +4324,28 @@ def _auto_append_enabled():
     return os.environ.get("AUTO_APPEND", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
+def _auto_append_mode():
+    """How the next merge is cut (auto_append.py). AUTO_APPEND_MODE on Railway:
+    "cumulative" (default; owner brief 2026-11-13: each new chapter extends the
+    previous compilation) or "fresh" (owner 2026-11-08: start after the last
+    posted video, no overlapping ranges). An unknown value is refused loudly."""
+    import auto_append as _aa
+    m = (os.environ.get("AUTO_APPEND_MODE") or "cumulative").strip().lower()
+    if m not in _aa.MODES:
+        raise RuntimeError(f"AUTO_APPEND_MODE={m!r} is not one of {', '.join(_aa.MODES)}")
+    return m
+
+
 def _auto_append_min():
-    """New chapters needed before the next merge is built (owner, 2026-11-08: "when
-    there are enough new chapters"). AUTO_APPEND_MIN on Railway; default 7."""
+    """New chapters needed before the next merge is built. AUTO_APPEND_MIN on
+    Railway; default 1 when cumulative (every new chapter extends the
+    compilation), 7 when fresh (owner, 2026-11-08: "when there are enough new
+    chapters")."""
+    default = 1 if _auto_append_mode() == "cumulative" else 7
     try:
-        return max(1, int(os.environ.get("AUTO_APPEND_MIN", "7")))
+        return max(1, int(os.environ.get("AUTO_APPEND_MIN", str(default))))
     except ValueError:
-        return 7
+        return default
 
 
 def _auto_append_holds():
@@ -4148,7 +4525,7 @@ def _auto_append_pass(apply=True, limit=1):
         for sid, (posted, singles, pending) in sorted(_auto_append_inputs().items()):
             if sid in holds:                          # FL-1: these chapters post as singles
                 singles = {n: x for n, x in singles.items() if n < holds[sid]}
-            d = _aa.decide(posted, singles, pending, min_new=_auto_append_min())
+            d = _aa.decide(posted, singles, pending, min_new=_auto_append_min(), mode=_auto_append_mode())
             d["series"] = sid
             out.append(d)
             if not apply:
@@ -4164,7 +4541,8 @@ def _auto_append_pass(apply=True, limit=1):
                         "video_id": base.get("video_id") or "", "retire": d["retire"]}))
                     started += 1
                     d["started"] = r.get("project")
-                    _ev("publish", f"{_series_label(sid, base['project'])}: next merge after the posted video {base['start']}-"
+                    how = "adding the new chapter(s) to" if d["start"] <= base["start"] else "next merge after"
+                    _ev("publish", f"{_series_label(sid, base['project'])}: {how} the posted video {base['start']}-"
                                    f"{base['end']} → building {d['start']}-{d['end']} for Needs review", "ok")
                 except Exception as e:  # noqa — e.g. the posted video has no copy here or in Drive
                     d["error"] = str(getattr(e, "detail", e))[:200]
@@ -4186,6 +4564,7 @@ def api_auto_append():
         if d.get("base"):
             d["base"] = {k: d["base"].get(k) for k in ("project", "name", "start", "end")}
     return {"enabled": _auto_append_enabled(), "last_run": _AUTO_APPEND["last_run"],
+            "mode": _auto_append_mode(), "min_new": _auto_append_min(),
             "holds": _auto_append_holds(),
             "undo": "set AUTO_APPEND=0 on Railway to stop; Unmerge on a merged video puts its chapters back",
             "series": plans}
@@ -4211,6 +4590,228 @@ def api_growth_analytics_video(video_id: str, start: str, end: str, by_day: int 
         raise HTTPException(503, str(e))
     except _yta.AnalyticsError as e:
         raise HTTPException(502, str(e))
+
+
+_SCORECARD = {"at": 0.0, "value": None}
+
+
+def _published_videos():
+    """Every YouTube post on record: project, its link, newest chapter, and
+    when it went (or is set to go) live. Reads files only."""
+    import ingest as _i
+    out = []
+    for pid in sorted(os.listdir(_i.PROJECTS)) if os.path.isdir(_i.PROJECTS) else []:
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(pdir):
+            continue
+        try:
+            _sid, series, n, meta = _series_ident(pdir)
+        except Exception:  # noqa — one bad folder must not stop the report
+            continue
+        end = meta.get("chapters_end") if meta.get("kind") == "range" else n
+        for name, rec in (load_publishes(pdir) or {}).items():
+            for res in (rec or {}).get("results") or []:
+                if res.get("status") != "published" or res.get("network") != "youtube":
+                    continue
+                at = (rec or {}).get("publish_at") or res.get("published_at") or 0
+                if at and end is not None:
+                    out.append({"project": pid, "label": f"{series} {meta.get('chapters_start')}-{end}"
+                                if meta.get("kind") == "range" else f"{series} {end}",
+                                "url": meta.get("url") or "", "chapter_end": _autopilot.norm_chapter(str(end)),
+                                "live_at": float(at), "video_url": res.get("url")})
+    return out
+
+
+# ---------------------------------------------------------------- channels
+
+@app.get("/api/channels")
+def api_channels():
+    """The channel registry with each channel's series, plus what stops it
+    from working (invalid file, an API-key variable that is not set). Names of
+    variables only — no secret is read or returned."""
+    import channels as _ch
+    import ingest as _i
+    import watchlist as _wl
+    try:
+        reg = _channel_registry()
+    except _ch.RegistryError as e:
+        return {"ok": False, "problems": e.problems,
+                "undo": f"fix {_ch.NAME} or restore {_ch.NAME}.prev in the projects folder"}
+    ids = [x.get("id") for x in (_wl.load(_wl_root()).get("series") or [])]
+    return {"ok": True, **_ch.summary(reg, ids), "missing_credentials": _ch.missing_credentials(reg),
+            "applies_to": "default upload targets per series and the release calendar; voice and branding "
+                          "are recorded but not applied yet"}
+
+
+class ChannelsIn(BaseModel):
+    registry: dict
+    dry_run: bool = True
+
+
+@app.put("/api/channels")
+def api_channels_save(body: ChannelsIn):
+    """Validate (dry_run, the default) or save the registry. Saving keeps the
+    previous file as _channels.json.prev. Videos already approved, queued or
+    posted keep their channels (packaging lock)."""
+    import channels as _ch
+    import ingest as _i
+    bad = _ch.problems(body.registry)
+    if bad:
+        raise HTTPException(422, {"code": "invalid_registry", "message": "; ".join(bad)})
+    if body.dry_run:
+        return {"ok": True, "saved": False, **_ch.summary(body.registry)}
+    out = _ch.save(_i.PROJECTS, body.registry)
+    _ev("publish", f"channel registry saved: {len(out['channels'])} channel(s)", "ok")
+    return {"ok": True, "saved": True, **_ch.summary(out),
+            "undo": f"restore {_ch.NAME}.prev in the projects folder"}
+
+
+# ------------------------------------------------------- release calendar
+
+def _calendar_chapter_states():
+    """{(watchlist series id, chapter): {produced, reviewed, scheduled,
+    published}} from the files on disk. Reads only."""
+    import ingest as _i
+    import watchlist as _wl
+    data = _wl.load(_wl_root())
+    queue = {(it.get("project"), it.get("name")): it for it in _pq.load(_i.PROJECTS).get("items", [])
+             if it.get("status") in _pq.ACTIVE}
+    ledger_by_project = {e.get("project"): e for e in _autopilot.load(_i.PROJECTS)["ledger"].values() if e.get("project")}
+    out, comps = {}, []
+    for pid in sorted(os.listdir(_i.PROJECTS)) if os.path.isdir(_i.PROJECTS) else []:
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(pdir):
+            continue
+        try:
+            _sid, _series, n, meta = _series_ident(pdir)
+            ws = _wl.find_by_mirror(data, meta.get("url") or "")[0] if meta.get("url") else None
+        except Exception:  # noqa — one unreadable folder must not empty the calendar
+            continue
+        if not ws:
+            continue
+        name = _latest_rendered_export(pdir)
+        st = {"produced": {}, "reviewed": {}, "scheduled": {}, "published": {}}
+        led = ledger_by_project.get(pid) or {}
+        if name:
+            stat = _export_stat(pdir, name)
+            st["produced"] = {"at": stat["mtime"] if stat else None, "project": pid, "status": "done"}
+            rv = (load_reviews(pdir).get(name) or {})
+            if rv.get("status"):
+                st["reviewed"] = {"status": rv["status"], "at": rv.get("reviewed_at")}
+            q = queue.get((pid, name))
+            if q:
+                st["scheduled"] = {"at": q.get("publish_at") or q.get("slot_at"), "queued": True}
+        elif led:
+            st["produced"] = {"status": led.get("status"), "project": pid}
+        for pname, rec in (load_publishes(pdir) or {}).items():
+            for r in (rec or {}).get("results") or []:
+                if r.get("status") == "published" and (r.get("network") or "youtube") == "youtube":
+                    # live = when it is public: the scheduled time for a scheduled upload
+                    at = r.get("public_at") or (rec or {}).get("publish_at") or r.get("published_at")
+                    st["published"] = {"at": float(at) if at else None, "video": r.get("url"),
+                                       "verified": bool(r.get("url")), "project": pid,
+                                       "visibility": r.get("visibility") or "live"}
+        if meta.get("kind") == "range":
+            try:
+                comps.append((ws["id"], int(meta["chapters_start"]), int(meta["chapters_end"]), pid, st))
+            except (KeyError, TypeError, ValueError):
+                pass
+        elif n is not None:
+            out[(ws["id"], _autopilot.norm_chapter(str(n)))] = st
+    # a chapter inside a compilation takes the compilation's review / schedule / publication
+    for wsid, a, b, pid, cst in comps:
+        for ch in range(a, b + 1):
+            st = out.setdefault((wsid, str(ch)), {"produced": {}, "reviewed": {}, "scheduled": {}, "published": {}})
+            st["produced"] = {**st["produced"], "included_in": pid} if st["produced"] else {"included_in": pid, "at": cst["produced"].get("at")}
+            for step in ("reviewed", "scheduled", "published"):
+                cur, new = st.get(step) or {}, cst.get(step) or {}
+                if new and (not cur.get("at") or (new.get("at") and new["at"] < cur["at"])):
+                    st[step] = {**new, "via": pid}
+    return data, out
+
+
+@app.get("/api/release-calendar")
+def api_release_calendar(days: int = 30):
+    """Per chapter: source available -> detected -> made -> reviewed ->
+    scheduled -> published, and whether the 24-48 h target was met. Rows whose
+    source time is unknown are listed and not scored (release_calendar.py)."""
+    import channels as _ch
+    import release_calendar as _rcal
+    data, states = _calendar_chapter_states()
+    try:
+        reg = _channel_registry()
+        channel_of = lambda sid: (_ch.channel_for(reg, sid) or {}).get("id")
+    except _ch.RegistryError:
+        channel_of = None
+    cal = _rcal.build(data.get("series") or [], lambda sid, ch: states.get((sid, _autopilot.norm_chapter(str(ch)))),
+                      time.time(), channel_of=channel_of, since_days=max(1, min(int(days), 365)))
+    cal["targets"] = {"releases_per_day": "3-4 across all channels", "hours_from_source": "24-48"}
+    return cal
+
+
+# ------------------------------------------------------- storage retention
+
+class RetentionIn(BaseModel):
+    categories: list[str] = []
+    confirm: str = ""
+    max_gb: float = 5.0
+
+
+def _retention_queued():
+    import ingest as _i
+    return [(it.get("project"), it.get("name")) for it in _pq.load(_i.PROJECTS).get("items", [])
+            if it.get("status") in _pq.ACTIVE]
+
+
+@app.get("/api/storage/retention")
+def api_storage_retention(detail: int = 0):
+    """Dry run: what could be removed and, for everything kept, why
+    (retention.py). Changes nothing."""
+    import ingest as _i
+    import retention as _ret
+    p = _ret.plan(_i.PROJECTS, queued=_retention_queued())
+    if not detail:
+        p["kept"] = len(p["kept"])
+        p["candidates"] = sorted(p["candidates"], key=lambda c: -c["bytes"])[:50]
+    return p
+
+
+@app.post("/api/storage/retention/apply")
+def api_storage_retention_apply(body: RetentionIn):
+    """Clean the named categories. Everything is moved to the trash (undo:
+    move it back); only category "trash" deletes, and needs confirm="purge".
+    Refused while any job is running."""
+    import ingest as _i
+    import retention as _ret
+    busy = [j for j in list(INGEST.values()) + list(JOBS.values()) if (j or {}).get("status") in ("running", "queued")]
+    if busy:
+        raise HTTPException(409, "work is in progress — clean up when nothing is being made, rendered or posted")
+    try:
+        out = _ret.apply(_i.PROJECTS, body.categories, confirm=body.confirm,
+                         max_bytes=int(max(0.0, body.max_gb) * 1024 ** 3), queued=_retention_queued())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _ev("storage", f"retention: {len(out['items'])} item(s), {out['freed_bytes'] / 1e9:.2f} GB "
+                   f"({', '.join(out['categories'])}); {len(out['skipped'])} skipped", "ok")
+    return out
+
+
+@app.get("/api/scorecard")
+def api_scorecard(fresh: int = 0):
+    """Measured quality, corrections, cost and release timeliness, from stored
+    records (scorecard.py). Read-only; kept for 5 minutes (fresh=1 recomputes)."""
+    import ingest as _i
+    import scorecard as _sc
+    import watchlist as _wl
+    if not fresh and _SCORECARD["value"] and time.time() - _SCORECARD["at"] < 300:
+        return _SCORECARD["value"]
+    data = _wl.load(_wl_root())
+    find = lambda url: _wl.find_by_mirror(data, url)[0]
+    st = _autopilot.load(_i.PROJECTS)
+    val = _sc.build(_i.PROJECTS, _published_videos(), find, list(st["ledger"].values()),
+                    _usage_index(), _autopilot.et_day()[:7])
+    _SCORECARD.update(at=time.time(), value=val)
+    return val
 
 
 @app.get("/api/growth/snapshot")
@@ -4443,7 +5044,9 @@ def api_seo_apply(body: SeoApplyIn):
         raise HTTPException(400, "unknown field %r" % field)
 
     store[name] = md
-    save_publish(pdir, store)
+    save_publish(pdir, store, actor=getattr(_SEO_ACTOR, "who", "owner"),
+                 why="SEO suggestions applied to this video" if getattr(_SEO_ACTOR, "who", "owner") == "owner"
+                 else "automatic SEO fill-in")
     applied = dict(rec.get("applied") or {})
     applied[field] = {"at": time.time(),
                       "value": md.get("title") if field == "title" else True}
@@ -4474,7 +5077,9 @@ async def thumbnail_upload(request: Request, project: str = "", name: str = ""):
     pdir = project_dir_for(project)
     data = await request.body()
     try:
+        _before = _thumb_sha(pdir, name)
         rec = _tb.save(pdir, name, data)
+        _thumbnail_changed(pdir, name, _before, "owner", "thumbnail uploaded by hand")
     except _tb.ThumbnailError as e:
         # 422, not 500: the upload was understood and refused for a stated
         # reason the operator can act on.
@@ -4874,7 +5479,31 @@ def _publish_record(pdir, name, **fields):
     save_publishes(pdir, pubs)
 
 
+def _settle_upload_attempts(attempts, results):
+    """Write each channel's final result back onto the attempt that carried
+    it, so a later Post never sends a channel the video it already has."""
+    by = {}
+    for r in results:
+        by.setdefault(r.get("request_id"), []).append(r)
+    for hist in attempts.values():
+        for att in hist:
+            if att.get("outcome") in ("rejected", "replaced"):
+                continue
+            rows = (by.get(att["id"]) or []) + (by.get(att["track"]) or [] if att.get("track") else [])
+            for r in rows:
+                if r.get("status") == "published":
+                    att.setdefault("published", {})[r["account_id"]] = {
+                        "url": r.get("url"), "at": r.get("published_at"), "platform_post_id": r.get("platform_post_id")}
+            if rows and att.get("outcome") is None and all(r.get("status") in ("published", "failed") for r in rows) \
+                    and {r["account_id"] for r in rows} >= set(att.get("targets") or []) - set(att.get("published") or {}):
+                att["outcome"] = "finished"
+    return attempts
+
+
 def _publish_overall(results):
+    # "unconfirmed" (outcome unknown) is not a success and not in progress: the
+    # record ends "failed"/"partial" with the reason, the upload id is kept,
+    # and the next attempt reconciles with Upload-Post before sending.
     if any(r.get("status") == "submitted" for r in results):
         return "in_progress"
     ok = [r for r in results if r.get("status") == "published"]
@@ -4895,9 +5524,15 @@ def _post_url(hit, network):
     return u or None
 
 
-def _resolve_upload_results(mod, results):
-    """Ask Upload-Post what the platform did with each submitted target.
-    A target stays "submitted" until its request is reported completed."""
+def _resolve_upload_results(mod, results, public_at=None):
+    """Ask Upload-Post what each platform did with every submitted target.
+
+    Kept apart (review, 2026-11-14): "submitted" = Upload-Post has the upload;
+    "published" = the platform took it (with its link); `visibility:
+    "scheduled"` + `public_at` = on YouTube but private until that time;
+    "failed" = that platform refused; "unconfirmed" = Upload-Post no longer
+    knows the id it accepted. Each platform is settled from its own entry —
+    one channel failing does not fail or hide another."""
     by_req = {}
     for r in results:
         if r.get("status") != "submitted":
@@ -4905,28 +5540,36 @@ def _resolve_upload_results(mod, results):
         rid = r.get("request_id")
         if rid not in by_req:
             try:
-                by_req[rid] = mod.upload_status(rid)
+                by_req[rid] = mod.upload_detail(rid) if hasattr(mod, "upload_detail") else None
             except Exception:
                 by_req[rid] = None
-        st = by_req[rid]
-        if not st or st.get("status") != "completed":
+        d = by_req[rid]
+        if not d or d["state"] == "unknown":
+            continue                                   # cannot be asked now: still submitted
+        if d["state"] == "absent":
+            r.update(status="unconfirmed",
+                     error="Upload-Post accepted this upload and now has no record of it")
             continue
         prof, _, net = r["account_id"].partition(":")
         if not net:
             prof, net = "", prof
-        hit = next((x for x in (st.get("results") or [])
-                    if x.get("platform") == net
-                    and (not prof or x.get("profile_username") == prof)), None)
-        if hit is None:
+        p = d["platforms"].get(net)
+        if p and prof and p.get("profile") not in (None, prof):
+            p = None
+        if p and p["state"] == "published":
+            r.update(status="published", url=_post_url({"post_url": p.get("url"),
+                                                        "platform_post_id": p.get("platform_post_id")}, net),
+                     platform_post_id=p.get("platform_post_id"), published_at=time.time(), error=None)
+            if net == "youtube" and public_at and float(public_at) > time.time():
+                r.update(visibility="scheduled", public_at=float(public_at))
+        elif p and p["state"] == "failed":
+            r.update(status="failed", error=p.get("error") or "the platform rejected the upload")
+        elif d["state"] == "failed":
+            r.update(status="failed", error="Upload-Post reports the upload failed (every channel failed, "
+                                            "or it saw no activity for over an hour)")
+        elif d.get("status") == "completed" and p is None:
             r.update(status="failed",
                      error="Upload-Post finished but reported no result for this channel")
-        elif hit.get("success"):
-            r.update(status="published", url=_post_url(hit, net),
-                     platform_post_id=hit.get("platform_post_id"),
-                     published_at=time.time(), error=None)
-        else:
-            r.update(status="failed",
-                     error=hit.get("error_message") or "the platform rejected the upload")
     return results
 
 
@@ -4969,9 +5612,20 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
         # The custom thumbnail saved for this export (exports/_thumbs/), if any.
         import thumbnail as _tb
         thumb_file = _tb.path_for(pdir, name) or None
-        # HEAD's series master + this video's CH badge replaces it when the
-        # series has one in Drive (owner, 2026-11-07); otherwise unchanged.
-        thumb_file = _series_master_thumb(pdir, thumb_file)
+        # The thumbnail fixed when the video was approved is uploaded as it
+        # is. Only approvals from before thumbnails were pinned (2026-11-14)
+        # still get the series master + CH badge worked out here (owner,
+        # 2026-11-07), and that substitution is written to the history.
+        pinned = _pinned_upload_thumb(pdir, name)
+        if pinned:
+            thumb_file = pinned
+        else:
+            stored = thumb_file
+            thumb_file = _series_master_thumb(pdir, thumb_file)
+            if thumb_file != stored:
+                _packaging_note(pdir, export=name, actor="auto", fields=["thumbnail"],
+                                why="series master + chapter badge used at upload (approved before "
+                                    "thumbnails were pinned at approval)")
 
         # One Upload-Post request carries ONE profile ("user"). Targets on
         # different profiles (mk:youtube + default:youtube) must be separate
@@ -4982,32 +5636,133 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
         names = {x.get("account_id"): x for x in
                  (elig.get("accounts") or {}).get("accounts") or []}
         results = []
+        # Upload identity that survives anything short of a proven refusal.
+        # Every attempt is written to publishes.json BEFORE its bytes go out:
+        #   uploads = {profile: [{"id", "targets", "at", "outcome"}]}
+        # outcome: None = not settled, "rejected" = Upload-Post provably said
+        # no, "finished" = it reported every channel's result, "replaced" = it
+        # never had it and a different set of channels is being sent.
+        # Before anything is sent, every unsettled attempt is reconciled with
+        # Upload-Post: channels that already have the video are never sent it
+        # again, channels still processing are waited for, and only channels
+        # that provably failed (or never arrived) are uploaded — if Upload-Post
+        # cannot be asked, nothing is sent.
+        attempts = {k: [dict(a) for a in v if isinstance(a, dict) and a.get("id")]
+                    for k, v in ((load_publishes(pdir).get(name) or {}).get("uploads") or {}).items()
+                    if isinstance(v, list)}
+
+        def _save_attempts():
+            _publish_record(pdir, name, uploads=attempts)
+
+        def _row(t, **kw):
+            a = names.get(t) or {}
+            return {"account_id": t, "request_id": None, "error": None,
+                    "network": a.get("network") or t.partition(":")[2] or t,
+                    "username": a.get("username") or t, **kw}
+
+        def _published(t, rid_, p):
+            net = t.partition(":")[2] or t
+            return _row(t, request_id=rid_, status="published", published_at=time.time(),
+                        url=_post_url({"post_url": p.get("url"), "platform_post_id": p.get("platform_post_id")}, net),
+                        platform_post_id=p.get("platform_post_id"))
+
         for prof, group in groups.items():
-            step("uploading video to Upload-Post (%s)" % ", ".join(group), 1)
-            try:
-                created = mod.upload_video_post(
-                    video, md, group, thumbnail_path=thumb_file,
-                    on_step=lambda m: step(m, 1)
-                )
-            except Exception as e:
-                created = {"success": False, "error": str(e)}
-            rid = created.get("request_id")
-            for t in group:
-                a = names.get(t) or {}
-                r = {"account_id": t, "request_id": rid, "error": None,
-                     "network": a.get("network") or t.partition(":")[2] or t,
-                     "username": a.get("username") or t}
-                if not created.get("success"):
-                    r.update(status="failed",
-                             error=created.get("error") or created.get("message")
-                             or "Upload-Post rejected the upload")
-                elif rid:
-                    # Accepted only. The platform's verdict comes from status.
-                    r.update(status="submitted")
+            step("checking earlier upload attempts (%s)" % ", ".join(group), 1)
+            hist = attempts.setdefault(prof, [])
+            rows, resend = {}, None
+            for att in hist:
+                if att.get("outcome") == "finished":
+                    # settled earlier: what it posted stays posted
+                    for t, p in (att.get("published") or {}).items():
+                        if t in group:
+                            rows[t] = _published(t, att["id"], p)
+                            rows[t]["published_at"] = p.get("at") or rows[t]["published_at"]
+                    continue
+                if att.get("outcome"):
+                    continue                           # rejected / replaced: provably nothing posted
+                # ask about the id Upload-Post answered with (it returns the
+                # client's own; kept separately in case it ever differs)
+                d = mod.upload_detail(att.get("track") or att["id"])
+                if d["state"] == "unknown":
+                    raise RuntimeError(
+                        "an earlier attempt may already have reached Upload-Post and it could not be "
+                        "asked just now — nothing was sent, so there can be no second copy; try again shortly"
+                        + (f" ({d.get('why')})" if d.get("why") else ""))
+                if d["state"] == "absent":
+                    resend = att                       # it never arrived
+                    continue
+                open_left = False
+                for t in att.get("targets") or []:
+                    if t not in group or rows.get(t, {}).get("status") == "published":
+                        continue
+                    p = d["platforms"].get(t.partition(":")[2] or t)
+                    if p and p["state"] == "published":
+                        rows[t] = _published(t, att["id"], p)
+                        att.setdefault("published", {})[t] = {"url": rows[t].get("url"), "at": rows[t]["published_at"],
+                                                              "platform_post_id": p.get("platform_post_id")}
+                    elif (p and p["state"] == "failed") or d["state"] == "failed":
+                        rows.pop(t, None)              # provably not posted there: may be sent again
+                    else:
+                        rows[t] = _row(t, request_id=att.get("track") or att["id"], status="submitted")
+                        open_left = True
+                if not open_left:
+                    att["outcome"] = "finished"
+            todo = [t for t in group if t not in rows]
+            if rows:
+                step("Upload-Post already has this video for %s — not sent again" % ", ".join(sorted(rows)), 1)
+            if todo:
+                if resend is not None and sorted(resend.get("targets") or []) == sorted(todo):
+                    att = resend                       # same id == same Idempotency-Key
                 else:
-                    r.update(status="published", published_at=time.time(),
-                             note="accepted; Upload-Post returned no request_id to verify")
-                results.append(r)
+                    if resend is not None:
+                        resend["outcome"] = "replaced"
+                    att = {"id": uuid.uuid4().hex, "targets": list(todo), "at": time.time(), "outcome": None}
+                    hist.append(att)
+                _save_attempts()                       # on record before a byte is sent
+                step("uploading video to Upload-Post (%s)" % ", ".join(todo), 1)
+                try:
+                    resp = mod.upload_video_post(video, md, todo, thumbnail_path=thumb_file,
+                                                 on_step=lambda m: step(m, 1), request_id=att["id"])
+                    kind, info = mod.classify_response(resp)
+                except JobCancelled:
+                    raise
+                except Exception as e:
+                    kind, info = ("rejected", str(e)) if mod.rejected(e) else ("unknown", str(e))
+                if kind == "rejected":
+                    att["outcome"] = "rejected"        # proven: the next attempt is a new upload
+                    for t in todo:
+                        rows[t] = _row(t, request_id=att["id"], status="failed",
+                                       error=str(info)[:400] or "Upload-Post rejected the upload")
+                elif kind == "finished":
+                    att["outcome"] = "finished"
+                    for t in todo:
+                        p = info.get(t.partition(":")[2] or t)
+                        if p and p["state"] == "published":
+                            rows[t] = _published(t, att["id"], p)
+                            att.setdefault("published", {})[t] = {"url": rows[t].get("url"), "at": rows[t]["published_at"],
+                                                                  "platform_post_id": p.get("platform_post_id")}
+                        elif p and p["state"] == "failed":
+                            rows[t] = _row(t, request_id=att["id"], status="failed", error=p.get("error"))
+                        else:                          # not reported: ask the status endpoint
+                            rows[t] = _row(t, request_id=att["id"], status="submitted")
+                            att["outcome"] = None
+                elif kind == "accepted":
+                    # Accepted only. Whether it is processed, scheduled or
+                    # live comes from the status check — never assumed here.
+                    if info.get("request_id") and info["request_id"] != att["id"]:
+                        att["track"] = info["request_id"]
+                    for t in todo:
+                        rows[t] = _row(t, request_id=att.get("track") or att["id"], status="submitted",
+                                       **({"job_id": info["job_id"]} if info.get("job_id") else {}))
+                else:
+                    for t in todo:
+                        rows[t] = _row(t, request_id=att["id"], status="unconfirmed", error=(
+                            str(info)[:300] + " — it is not known whether Upload-Post received the video; "
+                            "the upload id is kept and the next attempt asks Upload-Post before sending"))
+                _save_attempts()
+            else:
+                _save_attempts()
+            results += [rows[t] for t in group if t in rows]
         _publish_record(pdir, name, status=_publish_overall(results),
                         results=results, stage="waiting for the platform")
 
@@ -5018,8 +5773,10 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
                 break
             _control_gate(JOBS, job_id, _persist_job)
             time.sleep(10)
-            results = _resolve_upload_results(mod, results)
+            results = _resolve_upload_results(mod, results, public_at=publish_at)
         overall = _publish_overall(results)
+        _settle_upload_attempts(attempts, results)
+        _save_attempts()
         _publish_record(pdir, name, status=overall, results=results,
                         post_id=next((r.get("request_id") for r in results
                                       if r.get("request_id")), None),
@@ -5039,6 +5796,24 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
         JOBS[job_id].update(status="error", error=str(e)[:500])
         _persist_job(job_id)
 
+PUBLISH_ORPHAN_SECONDS = 600
+
+
+def _publish_orphaned(rec, now=None):
+    """A publish record still "in progress" whose worker is gone (the server
+    restarted mid-upload): no live job, nothing submitted, no update for
+    PUBLISH_ORPHAN_SECONDS. It may be started again — the new attempt asks
+    Upload-Post about the stored upload id before sending anything."""
+    if rec.get("status") != "in_progress":
+        return False
+    job = JOBS.get(rec.get("job") or "") or {}
+    if job.get("status") in ("queued", "running"):
+        return False
+    if any(r.get("status") == "submitted" for r in rec.get("results") or []):
+        return False                     # accepted: the status check settles it
+    return (now or time.time()) - (rec.get("updated_at") or rec.get("started_at") or 0) > PUBLISH_ORPHAN_SECONDS
+
+
 class PublishNowIn(BaseModel):
     project: str = ""
     name: str = ""
@@ -5057,7 +5832,7 @@ def os_publish(body: PublishNowIn):
     if not elig["ready"]:
         raise HTTPException(409, "not ready to publish — " + " ".join(elig["blockers"]))
     pubs = load_publishes(pdir)
-    if (pubs.get(name) or {}).get("status") == "in_progress":
+    if (pubs.get(name) or {}).get("status") == "in_progress" and not _publish_orphaned(pubs.get(name) or {}):
         raise HTTPException(409, "a publish for this export is already running")
     job_id = uuid.uuid4().hex[:12]
     JOBS[job_id] = {"status": "queued", "done": 0, "total": 4, "error": None,
@@ -5095,7 +5870,7 @@ def os_publish_status(project: str = "", name: str = ""):
             and any(r.get("status") == "submitted" for r in rec.get("results") or [])
             and time.time() - (rec.get("checked_at") or 0) > 15):
         _b, mod = _get_publish_backend()
-        results = _resolve_upload_results(mod, rec["results"])
+        results = _resolve_upload_results(mod, rec["results"], public_at=rec.get("publish_at"))
         overall = _publish_overall(results)
         _publish_record(pdir, name, status=overall, results=results,
                         checked_at=time.time(),
@@ -5272,7 +6047,7 @@ class _SkipSeo(Exception):
 
 def _budget_left():
     try:
-        return float(usage.daily_cap()) - float(usage.daily_summary().get("est_cost_usd") or 0)
+        return float(usage.headroom())      # counts uncertain and held money too
     except Exception:
         return 0.0
 
@@ -5312,6 +6087,14 @@ PREP_RETRY_SECONDS = 6 * 3600
 
 
 def _prepare_publish(pdir, name, do_seo=True):
+    """Packaging for one video, with its spend labelled: it runs outside the
+    chapter's job, so its calls used to be logged under the job "unknown"."""
+    pid = os.path.basename(pdir.rstrip("/"))
+    with usage.scope(job_id="pkg:" + pid, stage="packaging", project=pid):
+        return _prepare_publish_labelled(pdir, name, do_seo)
+
+
+def _prepare_publish_labelled(pdir, name, do_seo=True):
     """SEO (one small model call, budget-gated) then thumbnail options (free,
     local). Never raises: a failure is logged and the video is unaffected.
     name == DRAFT: the chapter has no video yet — SEO only (as Scrapper writes
@@ -5353,7 +6136,11 @@ def _prepare_publish(pdir, name, do_seo=True):
                     continue
                 if not md.get(field) or md.get(field) == base.get(field):
                     try:
-                        api_seo_apply(SeoApplyIn(project=pid, name=name, field=field))
+                        _SEO_ACTOR.who = "auto"       # not a person's click: the packaging lock applies
+                        try:
+                            api_seo_apply(SeoApplyIn(project=pid, name=name, field=field))
+                        finally:
+                            _SEO_ACTOR.who = "owner"
                         filled.append(field)
                     except HTTPException:
                         pass
@@ -7110,7 +7897,13 @@ def _sweep_stalled_jobs():
     except OSError:
         return swept
     for fn in names:
-        if not fn.endswith(".json"):
+        # Render records only. Chapter (ingest) records share this folder but
+        # carry no heartbeat and their "ts" is the creation time, so any chapter
+        # still being made 30 minutes after it was queued was rewritten "error"
+        # here on every job listing; a restart in that window then dropped it
+        # as "worker is gone" (found 2026-11-13). Chapters are settled by the
+        # ingest worker and the boot sweep.
+        if not fn.endswith(".json") or not fn.startswith("render_"):
             continue
         fp = os.path.join(d, fn)
         try:
@@ -7349,6 +8142,18 @@ RESUME_MAX = 2              # restarts a single ingest may survive
 RESUME_WINDOW = 6 * 3600    # older orphans are written off as before
 
 
+def _settle_written_off(job_id, error):
+    """A chapter written off at startup must also fail in autopilot's ledger.
+    It used to stay "queued" there, which counts as made: the chapter was never
+    tried again and showed as "in line" for good (found 2026-11-13)."""
+    try:
+        import autopilot as _apm
+        import ingest as _ing
+        _apm.on_job_end(_ing.PROJECTS, job_id, "error", error)
+    except Exception as e:  # noqa — the sweep itself must not fail
+        print(f"[boot] {job_id}: could not settle the autopilot ledger: {e}", flush=True)
+
+
 def _sweep_orphaned_ingest_jobs():
     """E1: a server restart (deploy, env-var change, crash) kills the ingest
     thread but leaves its persisted status 'running' forever — a mystery-dead
@@ -7398,6 +8203,7 @@ def _sweep_orphaned_ingest_jobs():
                                   "re-submit the chapter URL to resume from cached stages"
                                   + (" (already resumed %d times)" % j.get("resumes", 0)
                                      if j.get("resumes", 0) >= RESUME_MAX else ""))
+                    _settle_written_off(j.get("job") or fn[:-5], j["error"])
                 json.dump(j, open(p, "w"))
                 n += 1
     except FileNotFoundError:
@@ -7567,24 +8373,88 @@ def _after_ingest(job_id):
 _QUEUE = []
 _QUEUE_LOCK = threading.Lock()
 _QUEUE_RUNNING = False
+# 2026-11-14: several chapters at once, when asked for. INGEST_WORKERS (default
+# 1 = exactly the behaviour above). What makes more than one safe now:
+#   * money: every paid call holds its cost before it runs (usage.gate), so
+#     chapters running together cannot pass the daily cap between them;
+#   * the two stages that return results through module variables run one
+#     chapter at a time (ingest._STAGE_LOCKS);
+#   * one chapter is never made by two workers at once (_QUEUE_BUSY).
+# Renders have their own queue and are not affected.
+_QUEUE_ACTIVE = 0
+_QUEUE_BUSY = set()
+
+
+def _ingest_workers():
+    try:
+        return max(1, min(8, int(os.environ.get("INGEST_WORKERS", "1"))))
+    except ValueError:
+        return 1
+
+
+def _queue_key(url, variant=""):
+    """What must not be made twice at once: the project the link (and
+    variant) builds."""
+    try:
+        return _ingest_mod.project_id(url, variant or "")
+    except Exception:  # noqa — fall back to the link itself
+        return (url or "").strip().rstrip("/").lower() + "|" + (variant or "")
+
+
+def _queue_take():
+    """Under _QUEUE_LOCK: the first queued job whose chapter is not already
+    being made, or None."""
+    for i, q in enumerate(_QUEUE):
+        if _queue_key(q[1], q[4]) not in _QUEUE_BUSY:
+            return _QUEUE.pop(i)
+    return None
+
+
+def _queue_wake():
+    """Start workers for queued chapters, up to INGEST_WORKERS."""
+    global _QUEUE_ACTIVE, _QUEUE_RUNNING
+    start = 0
+    with _QUEUE_LOCK:
+        runnable = sum(1 for q in _QUEUE if _queue_key(q[1], q[4]) not in _QUEUE_BUSY)
+        while _QUEUE_ACTIVE < _ingest_workers() and start < runnable:
+            _QUEUE_ACTIVE += 1
+            start += 1
+        _QUEUE_RUNNING = _QUEUE_ACTIVE > 0
+    for _ in range(start):
+        threading.Thread(target=_queue_worker, daemon=True).start()
 
 
 def _queue_worker():
-    global _QUEUE_RUNNING
+    global _QUEUE_RUNNING, _QUEUE_ACTIVE
     while True:
         with _QUEUE_LOCK:
-            if not _QUEUE:
-                _QUEUE_RUNNING = False
+            job = _queue_take()
+            if job is None:
+                _QUEUE_ACTIVE -= 1
+                _QUEUE_RUNNING = _QUEUE_ACTIVE > 0
                 return
-            job_id, url, fresh, engine, variant, direct = _QUEUE.pop(0)
-        rec = INGEST.get(job_id) or {}
-        if rec.get("control") == "stop" or rec.get("status") in ("cancelled", "held"):
-            continue                       # dequeued before it ever started
+            job_id, url, fresh, engine, variant, direct = job
+            key = _queue_key(url, variant)
+            _QUEUE_BUSY.add(key)
         try:
-            _run_ingest_job(job_id, url, fresh, engine=engine,
-                            variant=variant, direct=direct)
-        except Exception:                  # a worker crash must not kill the queue
-            pass
+            rec = INGEST.get(job_id) or {}
+            if rec.get("control") == "stop" or rec.get("status") in ("cancelled", "held"):
+                continue                       # dequeued before it ever started
+            try:
+                _run_ingest_job(job_id, url, fresh, engine=engine,
+                                variant=variant, direct=direct)
+            except Exception as e:             # a worker crash must not kill the queue
+                import traceback
+                print(f"[queue] {job_id}: worker crashed: {type(e).__name__}: {e}\n{traceback.format_exc()}",
+                      flush=True)
+                try:
+                    _ev("ingest", f"{job_id}: the queue worker crashed ({type(e).__name__}: {str(e)[:160]})", "error")
+                except Exception:
+                    pass
+        finally:
+            with _QUEUE_LOCK:
+                _QUEUE_BUSY.discard(key)
+            _queue_wake()                      # a chapter that waited for this one may start
 
 
 def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
@@ -7609,13 +8479,13 @@ def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
     _persist_ingest(job_id)
     with _QUEUE_LOCK:
         # the engine rides with the job — it used to be dropped here, so any
-        # QUEUED ingest (every Tracker ingest) silently ran Gemini
-        _QUEUE.append((job_id, url, fresh, engine, variant, direct))
-        start = not _QUEUE_RUNNING
-        if start:
-            _QUEUE_RUNNING = True
-    if start:
-        threading.Thread(target=_queue_worker, daemon=True).start()
+        # QUEUED ingest (every Tracker ingest) silently ran Gemini.
+        # One entry per job: a second Resume (or a resume racing the line
+        # filler) used to queue the same chapter twice, and the worker then
+        # ran it again after it had finished (found 2026-11-13).
+        if not any(q[0] == job_id for q in _QUEUE):
+            _QUEUE.append((job_id, url, fresh, engine, variant, direct))
+    _queue_wake()
     return job_id
 
 
@@ -7811,15 +8681,8 @@ def ingest_status(job_id: str):
 @app.get("/api/logs/usage")
 def logs_usage(n: int = 100):
     """Tail the structured API-call log + today's running cost totals."""
-    lines = []
-    if os.path.exists(usage.LOG_PATH):
-        with open(usage.LOG_PATH, encoding="utf-8") as f:
-            raw = f.readlines()[-n:]
-        for ln in raw:
-            try:
-                lines.append(json.loads(ln))
-            except Exception:
-                pass
+    import spend_index
+    lines = spend_index.tail(usage.LOG_PATH, max(1, min(int(n), 200000)))   # reads the end of the file only
     lines.reverse()  # newest first
     return {"calls": lines, "summary": usage.daily_summary()}
 
@@ -9862,13 +10725,16 @@ def _ap_deps():
         # A chapter paused by a usage limit today also holds the line: starting
         # another would only pause too (owner, 2026-10-06: ch.182 started and
         # paused right after ch.181). They resume first when there is room.
-        return any(j.get("status") in ("queued", "running", "paused", "pausing")
-                   for j in list(INGEST.values())) or bool(_paused_today()) or \
-            any(j.get("status") == "held" for j in list(INGEST.values()))
+        # With INGEST_WORKERS > 1 the line is "busy" only when every worker
+        # has a chapter; a paused or held chapter still stops new starts.
+        active = sum(1 for j in list(INGEST.values()) if j.get("status") in ("queued", "running"))
+        return active >= _ingest_workers() or bool(_paused_today()) or \
+            any(j.get("status") in ("paused", "pausing", "held") for j in list(INGEST.values()))
 
     def spend():
         d = usage.daily_summary()
-        spent = d.get("est_cost_usd", 0.0) if d.get("date") == usage._today() else 0.0
+        # spent + uncertain + held for running calls: what the cap is checked against
+        spent = d.get("committed_usd", d.get("est_cost_usd", 0.0)) if d.get("date") == usage._today() else 0.0
         return float(spent or 0.0), float(usage.daily_cap())
 
     def chapter_url(row, chapter):
@@ -9892,35 +10758,16 @@ def _ap_deps():
                                                            source="autopilot")}
 
 
-_AP_SPEND_CACHE = {"at": 0.0, "value": 0.0}
-
-
 def _ap_spent_today():
-    """Metered spend of autopilot's own jobs today (ET), from the usage log —
-    the number autopilot's $ budget is checked against. Cached 30 s."""
-    now = time.time()
-    if now - _AP_SPEND_CACHE["at"] < 30:
-        return _AP_SPEND_CACHE["value"]
+    """Metered spend of autopilot's own jobs today (ET), from the usage index —
+    the number autopilot's $ budget is checked against. It used to re-read the
+    whole usage log every 30 seconds."""
     jobs = {e.get("job") for e in _autopilot.load(_ingest_mod.PROJECTS)["ledger"].values()
             if e.get("source") == "autopilot" and e.get("job")}
-    today, total = _autopilot.et_day(now), 0.0
-    if jobs:
-        try:
-            with open(usage.LOG_PATH, encoding="utf-8") as f:
-                for line in f:
-                    if '"job_id"' not in line:
-                        continue
-                    try:
-                        e = json.loads(line)
-                    except ValueError:
-                        continue
-                    if e.get("job_id") in jobs and _autopilot.et_day(
-                            datetime.fromisoformat(e["ts"]).timestamp()) == today:
-                        total += e.get("est_cost_usd") or 0.0
-        except (FileNotFoundError, KeyError, ValueError):
-            pass
-    _AP_SPEND_CACHE.update(at=now, value=round(total, 4))
-    return _AP_SPEND_CACHE["value"]
+    if not jobs:
+        return 0.0
+    today, by = _autopilot.et_day(time.time()), _usage_index()["by_job_day"]
+    return round(sum(by.get((j, today), 0.0) for j in jobs), 4)
 
 
 def _waiting_ingests(status):
@@ -9938,7 +10785,8 @@ def _waiting_ingests(status):
 # paused). Others wait OUTSIDE it as "held" and start by themselves, oldest
 # first, when a place frees up; one paused by a daily limit only re-enters
 # when there is room under the limits.
-LINE_MAX = max(1, int(os.environ.get("INGEST_LINE_MAX", "2")))
+# with several workers the line holds at least one waiting chapter per worker
+LINE_MAX = max(1, int(os.environ.get("INGEST_LINE_MAX", "2")), _ingest_workers() + 1)
 _LINE_ST = ("queued", "running", "paused", "pausing")
 
 
@@ -10013,6 +10861,7 @@ def _resume_interrupted():
                 rec.update(status="error", error="can't resume after the restart: the job has no chapter link")
                 INGEST[jid] = rec
                 _persist_ingest(jid)
+                _settle_written_off(jid, rec["error"])
                 print(f"[boot] {jid}: not resumed — no chapter link on record", flush=True)
                 continue
             rec["url"] = url
@@ -10043,7 +10892,7 @@ def _cap_headroom():
         if d.get("date") != usage._today():
             return True
         est = _autopilot.estimate(_autopilot.load(_ingest_mod.PROJECTS)["ledger"])
-        return (float(d.get("est_cost_usd") or 0) + est <= usage.daily_cap()
+        return (float(d.get("committed_usd") or d.get("est_cost_usd") or 0) + est <= usage.daily_cap()
                 and int(d.get("gemini_calls") or 0) + 700 <= usage.MAX_DAILY_GEMINI_CALLS
                 and int(d.get("tts_chars") or 0) + 15000 <= usage.MAX_DAILY_TTS_CHARS)
     except Exception:
@@ -10527,6 +11376,15 @@ def _series_look(pdir):
 
 @app.on_event("startup")
 def _start_background_work():
+    try:
+        # paid calls cut off by the restart: their holds become "uncertain"
+        # spend (they may have been billed) instead of quietly expiring
+        left = usage.recover()
+        if left["calls"]:
+            _ev("spend", f"{left['calls']} paid call(s) were running when the server restarted; "
+                         f"${left['uncertain_usd']:.4f} is counted as uncertain spend", "warn")
+    except Exception as e:
+        print(f"[startup] spend recovery failed: {e}", flush=True)
     try:
         import thumbnail_studio as _ts_boot
         _ts_boot.CANON = _canon_series        # one thumbnail look per tracker series
@@ -11741,37 +12599,11 @@ def autopilot_backfill(body: BackfillIn):
 # page, jobs with real names and costs, and spend in one place.
 import events as _events
 
-_COST_CACHE = {"key": None, "by_job": {}, "by_day": {}, "by_kind": {}}
-
-
 def _usage_index():
-    """Per-job and per-day spend from the usage log, cached by file size."""
-    try:
-        st = os.stat(usage.LOG_PATH)
-        key = (st.st_size, st.st_mtime)
-    except OSError:
-        return _COST_CACHE
-    if _COST_CACHE["key"] == key:
-        return _COST_CACHE
-    by_job, by_day, by_kind = {}, {}, {}
-    with open(usage.LOG_PATH, encoding="utf-8") as f:
-        for line in f:
-            try:
-                e = json.loads(line)
-            except ValueError:
-                continue
-            c = e.get("est_cost_usd") or 0.0
-            jid = e.get("job_id") or "?"
-            by_job[jid] = by_job.get(jid, 0.0) + c
-            try:
-                day = _autopilot.et_day(datetime.fromisoformat(e["ts"]).timestamp())
-            except Exception:
-                continue
-            by_day[day] = by_day.get(day, 0.0) + c
-            k = (day[:7], e.get("provider") or e.get("kind") or "?")
-            by_kind[k] = by_kind.get(k, 0.0) + c
-    _COST_CACHE.update(key=key, by_job=by_job, by_day=by_day, by_kind=by_kind)
-    return _COST_CACHE
+    """Per-job, per-day, per-provider and per-stage spend from the usage log.
+    Only lines appended since the last call are parsed (spend_index.py)."""
+    import spend_index
+    return spend_index.refresh(usage.LOG_PATH, _autopilot.et_day)
 
 
 @app.get("/api/events")
@@ -11926,7 +12758,15 @@ def spend_summary():
     return {"day": day, "today": {"spent": round(spent, 3), "cap": cap},
             "autopilot": {"spent": _ap_spent_today(), "budget": st["settings"].get("budget_usd")},
             "month": {"label": month, "days": days, "total": round(sum(v for _, v in days), 2),
-                      "by_provider": {k[1]: round(v, 3) for k, v in idx["by_kind"].items() if k[0] == month}},
+                      "by_provider": {k[1]: round(v, 3) for k, v in idx["by_kind"].items() if k[0] == month},
+                      # which pipeline stage the money went to; lines written before
+                      # 2026-11-13 carry no stage and show as "unlabelled"
+                      "by_stage": {k[1]: round(v, 3) for k, v in sorted(
+                          idx["by_stage"].items(), key=lambda kv: -kv[1]) if k[0] == month},
+                      "thinking_tokens": {k[1]: int(v) for k, v in idx["thinking"].items() if k[0] == month},
+                      "tiers": [{"requested": k[1] or "standard", "served": k[2] or "standard", "calls": int(v)}
+                                for k, v in idx["tiers"].items() if k[0] == month]},
+            "flex": usage.flex_state(),
             "chapters": chapters,
             "rates": usage.rate_card(),
             "note": "Measured from real tokens since 2026-10-03; earlier Gemini Flash calls were under-counted. "
@@ -12407,7 +13247,7 @@ def studio_queue_add(body: StudioQueueIn):
             if body.privacy is not None:
                 md["privacy"] = body.privacy
             store[name] = md
-            save_publish(pdir, store)
+            save_publish(pdir, store, actor="owner", why="channels / privacy set when queued")
         entries.append({"project": os.path.basename(pdir.rstrip("/")), "name": name})
     added, skipped = _pq.add(_i.PROJECTS, entries)
     for a in added:
@@ -12561,7 +13401,7 @@ def studio_bulk(body: StudioBulkIn):
                 md = {**publish_defaults(pdir), **(store.get(name) or {})}
                 md["targets"] = [t for t in body.targets if isinstance(t, str)]
                 store[name] = md
-                save_publish(pdir, store)
+                save_publish(pdir, store, actor="owner", why="channels changed for the selected videos")
             elif body.action == "seo":
                 threading.Thread(target=_redo_seo, args=(pid, name), daemon=True).start()
             elif body.action == "requeue":
@@ -12585,7 +13425,7 @@ def studio_bulk(body: StudioBulkIn):
                 if body.privacy is not None:
                     md["privacy"] = body.privacy
                 store[name] = md
-                save_publish(pdir, store)
+                save_publish(pdir, store, actor="owner", why="details edited for the selected videos")
             else:
                 raise HTTPException(400, "unknown action")
             done.append({"project": pid, "name": name})

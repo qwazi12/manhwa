@@ -67,9 +67,11 @@ def test_real_videos_have_no_outro_frames_between_chapters(tmp_path):
         outro = tmp_path / f"outro{n}.mp4"; _clip(outro, "red", 1)
         d, name = chapter(tmp_path, n, outro_path=str(outro))
         story = tmp_path / f"story{n}.mp4"; _clip(story, "blue", 2)
-        lst = tmp_path / f"l{n}.txt"; lst.write_text(f"file '{story}'\nfile '{outro}'\n")
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy",
-                        str(Path(d, "exports", name))], check=True)
+        # a chapter export is its clips joined the studio's way (media_concat)
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from media_concat import concatenate
+        concatenate([story, outro], Path(d, "exports", name))
         chs.append((n, d, name))
     out = tmp_path / "range" / "r.mp4"
     marks = rc.stitch(chs, str(out))

@@ -86,6 +86,45 @@ FAIL_COOLDOWN = 3600        # seconds before a failed chapter is tried again
 REFRESH_EVERY = 6 * 3600    # re-read every series page this often (free)
 DEFAULT_ESTIMATE = 0.80     # $ per chapter until autopilot has history
 TICK_SECONDS = 600          # scheduler cadence (server.py)
+ACCOUNT_HOLD = 1800         # seconds autopilot waits after an account-level failure
+
+
+# ------------------------------------------------------------- failure kinds
+# Autopilot used to count every failure against the chapter: two failures and
+# its series was blocked until the owner pressed Retry. That is right for a
+# passing fault and wrong for the other two kinds seen in production:
+#   account       — the provider refused the ACCOUNT (out of credits, bad key).
+#                   2026-10-29..11-03: ten chapters failed on HTTP 402
+#                   ("prepayment credits are depleted"), each was retried, and
+#                   ten series ended up blocked for a fault no chapter caused.
+#                   Now: no strike; autopilot holds every start for
+#                   ACCOUNT_HOLD seconds, says why, then tries one chapter.
+#   deterministic — the same inputs will fail the same way (a cache that needs
+#                   review). Death Knight 95 failed twice on 2026-11-05 with
+#                   the same "cache is stale" text. Now: blocked at once with
+#                   the reason; no second run.
+#   transient     — everything else: one retry after FAIL_COOLDOWN, as before.
+_ACCOUNT_MARKS = ("http error 402", "payment required", "prepayment credits", "credits are depleted",
+                  "billing", "api key not valid", "api_key_invalid", "permission_denied",
+                  "http error 401", "http error 403")
+_DETERMINISTIC_MARKS = ("cache is stale", "cache is edited", "cache is unknown", "cache is incomplete",
+                        "existing work preserved", "work preserved", "review required")
+
+
+def classify_error(error):
+    """'account' | 'deterministic' | 'transient' for a job's error text."""
+    low = (error or "").lower()
+    if any(m in low for m in _ACCOUNT_MARKS):
+        return "account"
+    if any(m in low for m in _DETERMINISTIC_MARKS):
+        return "deterministic"
+    return "transient"
+
+
+def hold_left(st, now=None):
+    """Seconds an account-level hold still has to run (0 = none)."""
+    h = st.get("hold") or {}
+    return max(0, int((h.get("until") or 0) - (time.time() if now is None else now)))
 UNDO = ("Switch OFF: nothing new starts. A chapter already running finishes "
         "its current step — press Stop on it in Logs to halt it.")
 
@@ -179,6 +218,9 @@ _SAY = {
         if (f.get("before") or {}).get(k) != v) or "settings saved", "info"),
     "backfill_planned": lambda f: (f"{f.get('series')}: back catalogue planned from ch.{f.get('after')}", "info"),
     "refresh_failed": lambda f: (f"reading series pages failed: {f.get('error')}", "warn"),
+    "account_hold": lambda f: (f"autopilot is holding for {f.get('minutes')} min: the AI provider refused the "
+                               f"account, not the chapter ({(f.get('error') or '')[:140]}). "
+                               "Fix billing or the key; it then tries one chapter by itself.", "error"),
     "project_archived": lambda f: (f"archived {f.get('project')} ({f.get('reason')})", "info"),
     "archived_project_deleted": lambda f: (f"deleted archived {f.get('project')} (freed {f.get('freed_mb')} MB)", "warn"),
 }
@@ -305,13 +347,26 @@ def on_job_end(root, job_id, status, error=None, cost=None):
         elif status == "budget_paused":
             e.update(status="budget_paused", error=error)
         elif status == "error":
-            e["fails"] = e.get("fails", 0) + 1
-            e.update(status="failed", error=(error or "")[:300], failed_at=time.time())
+            kind = classify_error(error)
+            if kind == "account":
+                # not the chapter's fault: no strike, and nothing else starts
+                # until the hold runs out (it would fail the same way)
+                st["hold"] = {"reason": (error or "")[:300], "at": time.time(),
+                              "until": time.time() + ACCOUNT_HOLD, "job": job_id}
+            elif kind == "deterministic":
+                e["fails"] = max(e.get("fails", 0) + 1, FAIL_LIMIT)
+            else:
+                e["fails"] = e.get("fails", 0) + 1
+            e.update(status="failed", error=(error or "")[:300], failed_at=time.time(), fail_kind=kind)
         else:
             e["status"] = status
+        if status == "done":
+            st.pop("hold", None)             # a chapter got through: the account works
         save(root, st)
         entry = dict(e)
     audit("chapter_" + entry["status"], key=hit, job=job_id, error=entry.get("error"))
+    if entry.get("status") == "failed" and entry.get("fail_kind") == "account":
+        audit("account_hold", minutes=ACCOUNT_HOLD // 60, error=entry.get("error"))
     return entry
 
 
@@ -651,6 +706,11 @@ def decide(st, rows, *, queue_busy, spent, cap, now=None, ap_spent=0.0, prio=Non
         return "Autopilot is off", None
     if queue_busy:
         return "an ingest is running or waiting — autopilot adds the next one when the line is empty", None
+    left = hold_left(st, now)
+    if left:
+        return (f"holding ~{left // 60 + 1} min: the AI provider refused the account "
+                f"({((st.get('hold') or {}).get('reason') or '')[:120]}) — fix billing or the key; "
+                "autopilot then tries one chapter by itself"), None
     n, lim = today_count(st["ledger"], now), int(cfg.get("per_day") or 0)
     if n >= lim:
         return f"today's limit reached ({n} of {lim}) — continues after midnight ET", None
@@ -680,15 +740,19 @@ def tick(root, deps, now=None):
     runtime["last_tick"] = now
     with _lock:
         st = load(root)
-    if not st["settings"].get("enabled"):
-        runtime["last_result"] = "off"
-        return None
+    # Reading the series pages is free and is what DETECTS a new chapter, so it
+    # runs whether or not autopilot may start work. It used to sit below the
+    # "off" check: with autopilot off from 2026-11-05 no source was read for 8
+    # days and nothing new could be seen (found 2026-11-13).
     if now - runtime["last_refresh"] > REFRESH_EVERY:
         runtime["last_refresh"] = now
         try:
             deps["refresh"]()
         except Exception as e:                     # stale lists beat no autopilot
             audit("refresh_failed", error=str(e)[:200])
+    if not st["settings"].get("enabled"):
+        runtime["last_result"] = "off"
+        return None
     with _lock:
         st = load(root)
         view = deps["view"]()
@@ -818,5 +882,6 @@ def status(root, deps, now=None):
         "last_tick": runtime["last_tick"], "last_result": runtime["last_result"],
         "last_started": runtime["last_started"], "last_refresh": runtime["last_refresh"] or None,
         "tick_seconds": TICK_SECONDS,
+        "hold": dict(st["hold"], left_seconds=hold_left(st, now)) if hold_left(st, now) else None,
         "series": rows, "recent": recent, "undo": UNDO,
     }

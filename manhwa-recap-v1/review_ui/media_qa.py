@@ -237,6 +237,15 @@ def capture_export(pdir, name, speed=1.0, cards=(), components=None):
             if not child or child.get("capture_errors"):
                 errors.append(f"component {cn} lacks a complete render manifest")
             cursor += keep if keep is not None else media_audio.duration(Path(cp) / "exports" / cn)
+        if context["components"]:
+            # how long the closing card of this compilation is (its last
+            # piece's), so a later compilation can cut it without that piece
+            try:
+                import range_compile as _rcm
+                last = context["components"][-1]
+                context["outro_seconds"] = float(_rcm.outro_seconds(last["project"], last["name"]))
+            except Exception:  # noqa — unknown: the later cut then looks at the piece itself
+                pass
     else:
         for card in context["cards"]:
             if card["role"] == "intro":
@@ -371,8 +380,21 @@ def inspect(pdir, name):
         finding("export-broken", "critical", str(exc))
         report["checks"]["final_decode"] = "failed"
     measured = {}
+    # A compilation is checked against its own file (decode, length, clipping,
+    # joins). Its lines' original voice files belong to the chapters it was
+    # built from and were measured when each chapter was exported; once those
+    # chapters are cleaned up the files are gone. That is not a fault in the
+    # compilation (2026-11-14: it was reported as "narration-broken, critical"
+    # for every line of every cleaned-up chapter), so those lines are counted
+    # and named in the report instead of failing it.
+    is_range = (manifest.get("context") or {}).get("kind") == "range"
+    spoken = gone = 0
     for event in manifest.get("events", []):
         if not any(c.isalnum() for c in event.get("text", "")):
+            continue
+        spoken += 1
+        if is_range and event.get("audio") and not os.path.exists(event["audio"]):
+            gone += 1
             continue
         try:
             path = event.get("audio") or ""
@@ -397,6 +419,12 @@ def inspect(pdir, name):
                     finding("narration-truncated", "critical", "Expected narration extends beyond the delivered soundtrack.", event)
         except (ValueError, OSError, KeyError, subprocess.SubprocessError) as exc:
             finding("narration-broken", "critical", str(exc), event)
+    if is_range:
+        report["checks"]["source_voice"] = (
+            "re-measured for every line" if not gone else
+            f"{gone} of {spoken} lines not re-measured: their chapters' voice files are no longer on disk "
+            "(measured when each chapter was exported)")
+        report["metrics"]["source_voice_unavailable"] = gone
     events = sorted(manifest.get("events", []), key=lambda e: e["start"])
     for a, b in zip(events, events[1:]):
         if a.get("source_project") != b.get("source_project"):
