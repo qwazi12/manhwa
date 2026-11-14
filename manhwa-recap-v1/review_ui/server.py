@@ -9135,10 +9135,19 @@ def api_watchlist_chapters(series_id: str, series_key: str, refresh: int = 0):
                          for c in m.get("chapters", [])]}
 
 
+def _source_backup_event(title, m):
+    """One Activity line when a backup source added chapters the main one could not show."""
+    bk = (m or {}).get("backup") or {}
+    if bk.get("added"):
+        _ev("tracker", f"{title}: {m.get('label')} could not be read ({m.get('error')}); "
+                       f"{bk.get('label')} lists new ch.{', '.join(str(c) for c in bk['added'])}", "warn")
+
+
 @app.post("/api/watchlist/refresh_all")
 def api_watchlist_refresh_all():
     """Check every series' preferred (else best) mirror: chapters, release
-    dates and cover. Sequential and bounded — one page per series."""
+    dates and cover. A main source that cannot be read has its backup sources
+    asked for the chapter list. Sequential and bounded."""
     import watchlist as _wl
     data = _wl.load(_wl_root())
     done, failed = 0, []
@@ -9146,12 +9155,17 @@ def api_watchlist_refresh_all():
         key = srs.get("preferred_mirror") or (_wl.best_mirror(srs) or {}).get("series_key")
         if not key:
             continue
-        m = _wl.refresh_mirror(_wl_root(), srs["id"], key)
+        m = _wl.refresh_series(_wl_root(), srs["id"])
         if m.get("status") == "ok":
             done += 1
         else:
-            failed.append({"series": srs["title"], "error": m.get("error")})
-    return {"checked": done, "failed": failed}
+            bk = m.get("backup") or {}
+            failed.append({"series": srs["title"], "error": m.get("error"),
+                           "backup": bk.get("label"), "backup_latest": bk.get("latest"),
+                           "backup_added": bk.get("added") or [], "backup_skipped": bk.get("skipped")})
+            _source_backup_event(srs["title"], m)
+    return {"checked": done, "failed": failed,
+            "from_backup": sum(1 for f in failed if f["backup"])}
 
 
 @app.post("/api/watchlist/auto_mirrors")
@@ -10709,7 +10723,7 @@ def _ap_deps():
         for s in _wl_view()["series"]:
             if s.get("best_mirror"):
                 try:
-                    _wl.refresh_mirror(_wl_root(), s["id"], s["best_mirror"])
+                    _source_backup_event(s["title"], _wl.refresh_series(_wl_root(), s["id"]))
                 except Exception as e:  # noqa
                     print(f"[autopilot] refresh {s['id']} failed: {e}", flush=True)
 
