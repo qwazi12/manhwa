@@ -642,6 +642,14 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     for s in segs:
         s["clip"] = f"clips/seg_{s['seg_index']:03d}.mp4"
     json.dump(segs, open(os.path.join(proj, "segments.json"), "w"), indent=2)
+    # The script editor checked the script these lines were just built from:
+    # record which spoken lines its verdict covers (release_gate). A line
+    # edited, reordered or excluded on the board later no longer matches.
+    try:
+        import release_gate as _rg
+        _rg.bind_critique(proj)
+    except Exception as e:  # noqa — the chapter still builds; the gate then reports "narration_unbound"
+        print(f"[ingest] could not tie the script check to the spoken lines: {e}", flush=True)
     os.makedirs(os.path.join(proj, "clips"), exist_ok=True)
     # Check the timeline this ingest just built, repair what is mechanical,
     # and record what survives — the same step the Claude lab ends with. A

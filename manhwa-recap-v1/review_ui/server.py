@@ -3623,15 +3623,6 @@ def api_range_build(body: RangeIn):
         m0["append"] = body.append
     with open(os.path.join(rdir, "project.json"), "w", encoding="utf-8") as mf:
         json.dump(m0, mf, indent=2)
-    # Each chapter's check results travel with the merged video, so they are
-    # still there after the chapter folders are cleaned up (release_gate.py).
-    try:
-        import release_gate as _rg
-        _rg.store_evidence(rdir, [cp for _n, cp, _c in pl["chapters"]])
-    except Exception as e:  # noqa — the merge still builds; the gate then reports the chapters as unknown
-        _ev("publish", f"{_pretty(range_pid)}: could not store the chapters' check results with the merge "
-                       f"({type(e).__name__}: {str(e)[:120]})", "warn")
-
     # 2. Mark constituent chapters in reviews.json as "merged"
     for n, cp, cname in pl["chapters"]:
         try:
@@ -3652,6 +3643,16 @@ def api_range_build(body: RangeIn):
         try:
             for _n, cp, cn in pl["chapters"]:
                 _restore_from_drive(cp, cn)
+            # Evidence for THIS export: each piece's file hash and its check
+            # results as they are now, while the files are here. It stays with
+            # the compilation after the pieces are cleaned up or edited
+            # (release_gate.py).
+            try:
+                import release_gate as _rg
+                _rg.store_evidence(rdir, name, [(cp, cn) for _n, cp, cn in pl["chapters"]])
+            except Exception as e:  # noqa — the merge still builds; the gate reports its pieces as unknown
+                _ev("publish", f"{_pretty(range_pid)}: could not store the pieces' check results with the merge "
+                               f"({type(e).__name__}: {str(e)[:120]})", "warn")
             marks = _rc.stitch(pl["chapters"], os.path.join(rdir, "exports", name))
             secs = _rc._probe(os.path.join(rdir, "exports", name))
             kept = _rc.kept_seconds(marks, secs)
@@ -5011,7 +5012,31 @@ def _publish_record(pdir, name, **fields):
     save_publishes(pdir, pubs)
 
 
+def _settle_upload_attempts(attempts, results):
+    """Write each channel's final result back onto the attempt that carried
+    it, so a later Post never sends a channel the video it already has."""
+    by = {}
+    for r in results:
+        by.setdefault(r.get("request_id"), []).append(r)
+    for hist in attempts.values():
+        for att in hist:
+            if att.get("outcome") in ("rejected", "replaced"):
+                continue
+            rows = by.get(att["id"]) or []
+            for r in rows:
+                if r.get("status") == "published":
+                    att.setdefault("published", {})[r["account_id"]] = {
+                        "url": r.get("url"), "at": r.get("published_at"), "platform_post_id": r.get("platform_post_id")}
+            if rows and att.get("outcome") is None and all(r.get("status") in ("published", "failed") for r in rows) \
+                    and {r["account_id"] for r in rows} >= set(att.get("targets") or []) - set(att.get("published") or {}):
+                att["outcome"] = "finished"
+    return attempts
+
+
 def _publish_overall(results):
+    # "unconfirmed" (outcome unknown) is not a success and not in progress: the
+    # record ends "failed"/"partial" with the reason, the upload id is kept,
+    # and the next attempt reconciles with Upload-Post before sending.
     if any(r.get("status") == "submitted" for r in results):
         return "in_progress"
     ok = [r for r in results if r.get("status") == "published"]
@@ -5032,9 +5057,15 @@ def _post_url(hit, network):
     return u or None
 
 
-def _resolve_upload_results(mod, results):
-    """Ask Upload-Post what the platform did with each submitted target.
-    A target stays "submitted" until its request is reported completed."""
+def _resolve_upload_results(mod, results, public_at=None):
+    """Ask Upload-Post what each platform did with every submitted target.
+
+    Kept apart (review, 2026-11-14): "submitted" = Upload-Post has the upload;
+    "published" = the platform took it (with its link); `visibility:
+    "scheduled"` + `public_at` = on YouTube but private until that time;
+    "failed" = that platform refused; "unconfirmed" = Upload-Post no longer
+    knows the id it accepted. Each platform is settled from its own entry —
+    one channel failing does not fail or hide another."""
     by_req = {}
     for r in results:
         if r.get("status") != "submitted":
@@ -5042,28 +5073,36 @@ def _resolve_upload_results(mod, results):
         rid = r.get("request_id")
         if rid not in by_req:
             try:
-                by_req[rid] = mod.upload_status(rid)
+                by_req[rid] = mod.upload_detail(rid) if hasattr(mod, "upload_detail") else None
             except Exception:
                 by_req[rid] = None
-        st = by_req[rid]
-        if not st or st.get("status") != "completed":
+        d = by_req[rid]
+        if not d or d["state"] == "unknown":
+            continue                                   # cannot be asked now: still submitted
+        if d["state"] == "absent":
+            r.update(status="unconfirmed",
+                     error="Upload-Post accepted this upload and now has no record of it")
             continue
         prof, _, net = r["account_id"].partition(":")
         if not net:
             prof, net = "", prof
-        hit = next((x for x in (st.get("results") or [])
-                    if x.get("platform") == net
-                    and (not prof or x.get("profile_username") == prof)), None)
-        if hit is None:
+        p = d["platforms"].get(net)
+        if p and prof and p.get("profile") not in (None, prof):
+            p = None
+        if p and p["state"] == "published":
+            r.update(status="published", url=_post_url({"post_url": p.get("url"),
+                                                        "platform_post_id": p.get("platform_post_id")}, net),
+                     platform_post_id=p.get("platform_post_id"), published_at=time.time(), error=None)
+            if net == "youtube" and public_at and float(public_at) > time.time():
+                r.update(visibility="scheduled", public_at=float(public_at))
+        elif p and p["state"] == "failed":
+            r.update(status="failed", error=p.get("error") or "the platform rejected the upload")
+        elif d["state"] == "failed":
+            r.update(status="failed", error="Upload-Post reports the upload failed (every channel failed, "
+                                            "or it saw no activity for over an hour)")
+        elif d.get("status") == "completed" and p is None:
             r.update(status="failed",
                      error="Upload-Post finished but reported no result for this channel")
-        elif hit.get("success"):
-            r.update(status="published", url=_post_url(hit, net),
-                     platform_post_id=hit.get("platform_post_id"),
-                     published_at=time.time(), error=None)
-        else:
-            r.update(status="failed",
-                     error=hit.get("error_message") or "the platform rejected the upload")
     return results
 
 
@@ -5119,83 +5158,129 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
         names = {x.get("account_id"): x for x in
                  (elig.get("accounts") or {}).get("accounts") or []}
         results = []
-        # Upload identity that survives a restart (2026-11-13). The request id
-        # used to be made inside the upload call and lost with the process: a
-        # publish cut off mid-upload stayed "posting" for good, and pressing
-        # Post again sent the video a second time. Now the id is stored before
-        # the bytes go out; a later attempt asks Upload-Post about that id
-        # first and sends nothing when the upload is already there.
-        # Review, 2026-11-13: the id was dropped on ANY error, so an upload
-        # that arrived but whose answer timed out was sent again under a new
-        # id. It is now dropped only when Upload-Post provably refused it (or
-        # finished with no channel taking the video); otherwise it is kept and
-        # the next attempt settles it with Upload-Post before sending anything.
-        durable = hasattr(mod, "accepted")
-        upload_ids = dict((load_publishes(pdir).get(name) or {}).get("upload_ids") or {})
+        # Upload identity that survives anything short of a proven refusal.
+        # Every attempt is written to publishes.json BEFORE its bytes go out:
+        #   uploads = {profile: [{"id", "targets", "at", "outcome"}]}
+        # outcome: None = not settled, "rejected" = Upload-Post provably said
+        # no, "finished" = it reported every channel's result, "replaced" = it
+        # never had it and a different set of channels is being sent.
+        # Before anything is sent, every unsettled attempt is reconciled with
+        # Upload-Post: channels that already have the video are never sent it
+        # again, channels still processing are waited for, and only channels
+        # that provably failed (or never arrived) are uploaded — if Upload-Post
+        # cannot be asked, nothing is sent.
+        attempts = {k: [dict(a) for a in v if isinstance(a, dict) and a.get("id")]
+                    for k, v in ((load_publishes(pdir).get(name) or {}).get("uploads") or {}).items()
+                    if isinstance(v, list)}
 
-        def _state(rid_):
-            if hasattr(mod, "upload_state"):
-                return mod.upload_state(rid_)
-            try:                                   # older backend: yes / no only
-                return "accepted" if mod.accepted(rid_) else "absent"
-            except Exception:
-                return "unknown"
+        def _save_attempts():
+            _publish_record(pdir, name, uploads=attempts)
+
+        def _row(t, **kw):
+            a = names.get(t) or {}
+            return {"account_id": t, "request_id": None, "error": None,
+                    "network": a.get("network") or t.partition(":")[2] or t,
+                    "username": a.get("username") or t, **kw}
+
+        def _published(t, rid_, p):
+            net = t.partition(":")[2] or t
+            return _row(t, request_id=rid_, status="published", published_at=time.time(),
+                        url=_post_url({"post_url": p.get("url"), "platform_post_id": p.get("platform_post_id")}, net),
+                        platform_post_id=p.get("platform_post_id"))
 
         for prof, group in groups.items():
-            step("uploading video to Upload-Post (%s)" % ", ".join(group), 1)
-            created = None
-            if durable:
-                rid0 = upload_ids.get(prof)
-                state = _state(rid0) if rid0 else "new"
-                if state == "accepted":
-                    created = {"success": True, "request_id": rid0, "recovered": True}
-                    step("Upload-Post already has this upload from an earlier attempt — not sent again", 1)
-                elif state == "unknown":
+            step("checking earlier upload attempts (%s)" % ", ".join(group), 1)
+            hist = attempts.setdefault(prof, [])
+            rows, resend = {}, None
+            for att in hist:
+                if att.get("outcome") == "finished":
+                    # settled earlier: what it posted stays posted
+                    for t, p in (att.get("published") or {}).items():
+                        if t in group:
+                            rows[t] = _published(t, att["id"], p)
+                            rows[t]["published_at"] = p.get("at") or rows[t]["published_at"]
+                    continue
+                if att.get("outcome"):
+                    continue                           # rejected / replaced: provably nothing posted
+                d = mod.upload_detail(att["id"])
+                if d["state"] == "unknown":
                     raise RuntimeError(
                         "an earlier attempt may already have reached Upload-Post and it could not be "
-                        "asked just now — nothing was sent, so there can be no second copy; try again shortly")
-                elif state in ("new", "failed"):
-                    # first attempt, or the earlier upload ended with every channel refusing it
-                    rid0 = upload_ids[prof] = uuid.uuid4().hex
-                    _publish_record(pdir, name, upload_ids=upload_ids)
-                # "absent": same id again — it is also the Idempotency-Key
-            if created is None:
-                sure_no = False
-                try:
-                    kw = {"request_id": rid0} if durable else {}
-                    created = mod.upload_video_post(
-                        video, md, group, thumbnail_path=thumb_file,
-                        on_step=lambda m: step(m, 1), **kw
-                    )
-                    sure_no = not (created or {}).get("success")     # it answered: no
-                    created = created or {"success": False, "error": "Upload-Post returned an empty answer"}
-                except Exception as e:
-                    created = {"success": False, "error": str(e)}
-                    sure_no = bool(getattr(mod, "rejected", lambda _e: False)(e))
-                if durable and sure_no:
-                    # refused outright: the next attempt is a new upload with a new id
-                    upload_ids.pop(prof, None)
-                    _publish_record(pdir, name, upload_ids=upload_ids)
-                elif durable and not created.get("success"):
-                    created["error"] = (str(created.get("error")) + " — it is not known whether Upload-Post "
-                                        "received the video; the next attempt checks before sending")[:500]
-            rid = created.get("request_id")
-            for t in group:
-                a = names.get(t) or {}
-                r = {"account_id": t, "request_id": rid, "error": None,
-                     "network": a.get("network") or t.partition(":")[2] or t,
-                     "username": a.get("username") or t}
-                if not created.get("success"):
-                    r.update(status="failed",
-                             error=created.get("error") or created.get("message")
-                             or "Upload-Post rejected the upload")
-                elif rid:
-                    # Accepted only. The platform's verdict comes from status.
-                    r.update(status="submitted")
+                        "asked just now — nothing was sent, so there can be no second copy; try again shortly"
+                        + (f" ({d.get('why')})" if d.get("why") else ""))
+                if d["state"] == "absent":
+                    resend = att                       # it never arrived
+                    continue
+                open_left = False
+                for t in att.get("targets") or []:
+                    if t not in group or rows.get(t, {}).get("status") == "published":
+                        continue
+                    p = d["platforms"].get(t.partition(":")[2] or t)
+                    if p and p["state"] == "published":
+                        rows[t] = _published(t, att["id"], p)
+                        att.setdefault("published", {})[t] = {"url": rows[t].get("url"), "at": rows[t]["published_at"],
+                                                              "platform_post_id": p.get("platform_post_id")}
+                    elif (p and p["state"] == "failed") or d["state"] == "failed":
+                        rows.pop(t, None)              # provably not posted there: may be sent again
+                    else:
+                        rows[t] = _row(t, request_id=att["id"], status="submitted")
+                        open_left = True
+                if not open_left:
+                    att["outcome"] = "finished"
+            todo = [t for t in group if t not in rows]
+            if rows:
+                step("Upload-Post already has this video for %s — not sent again" % ", ".join(sorted(rows)), 1)
+            if todo:
+                if resend is not None and sorted(resend.get("targets") or []) == sorted(todo):
+                    att = resend                       # same id == same Idempotency-Key
                 else:
-                    r.update(status="published", published_at=time.time(),
-                             note="accepted; Upload-Post returned no request_id to verify")
-                results.append(r)
+                    if resend is not None:
+                        resend["outcome"] = "replaced"
+                    att = {"id": uuid.uuid4().hex, "targets": list(todo), "at": time.time(), "outcome": None}
+                    hist.append(att)
+                _save_attempts()                       # on record before a byte is sent
+                step("uploading video to Upload-Post (%s)" % ", ".join(todo), 1)
+                try:
+                    resp = mod.upload_video_post(video, md, todo, thumbnail_path=thumb_file,
+                                                 on_step=lambda m: step(m, 1), request_id=att["id"])
+                    kind, info = mod.classify_response(resp)
+                except JobCancelled:
+                    raise
+                except Exception as e:
+                    kind, info = ("rejected", str(e)) if mod.rejected(e) else ("unknown", str(e))
+                if kind == "rejected":
+                    att["outcome"] = "rejected"        # proven: the next attempt is a new upload
+                    for t in todo:
+                        rows[t] = _row(t, request_id=att["id"], status="failed",
+                                       error=str(info)[:400] or "Upload-Post rejected the upload")
+                elif kind == "finished":
+                    att["outcome"] = "finished"
+                    for t in todo:
+                        p = info.get(t.partition(":")[2] or t)
+                        if p and p["state"] == "published":
+                            rows[t] = _published(t, att["id"], p)
+                            att.setdefault("published", {})[t] = {"url": rows[t].get("url"), "at": rows[t]["published_at"],
+                                                                  "platform_post_id": p.get("platform_post_id")}
+                        elif p and p["state"] == "failed":
+                            rows[t] = _row(t, request_id=att["id"], status="failed", error=p.get("error"))
+                        else:                          # not reported: ask the status endpoint
+                            rows[t] = _row(t, request_id=att["id"], status="submitted")
+                            att["outcome"] = None
+                elif kind == "accepted":
+                    # Accepted only. Whether it is processed, scheduled or
+                    # live comes from the status check — never assumed here.
+                    for t in todo:
+                        rows[t] = _row(t, request_id=att["id"], status="submitted",
+                                       **({"job_id": info["job_id"]} if info.get("job_id") else {}))
+                else:
+                    for t in todo:
+                        rows[t] = _row(t, request_id=att["id"], status="unconfirmed", error=(
+                            str(info)[:300] + " — it is not known whether Upload-Post received the video; "
+                            "the upload id is kept and the next attempt asks Upload-Post before sending"))
+                _save_attempts()
+            else:
+                _save_attempts()
+            results += [rows[t] for t in group if t in rows]
         _publish_record(pdir, name, status=_publish_overall(results),
                         results=results, stage="waiting for the platform")
 
@@ -5206,8 +5291,10 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
                 break
             _control_gate(JOBS, job_id, _persist_job)
             time.sleep(10)
-            results = _resolve_upload_results(mod, results)
+            results = _resolve_upload_results(mod, results, public_at=publish_at)
         overall = _publish_overall(results)
+        _settle_upload_attempts(attempts, results)
+        _save_attempts()
         _publish_record(pdir, name, status=overall, results=results,
                         post_id=next((r.get("request_id") for r in results
                                       if r.get("request_id")), None),
@@ -5301,7 +5388,7 @@ def os_publish_status(project: str = "", name: str = ""):
             and any(r.get("status") == "submitted" for r in rec.get("results") or [])
             and time.time() - (rec.get("checked_at") or 0) > 15):
         _b, mod = _get_publish_backend()
-        results = _resolve_upload_results(mod, rec["results"])
+        results = _resolve_upload_results(mod, rec["results"], public_at=rec.get("publish_at"))
         overall = _publish_overall(results)
         _publish_record(pdir, name, status=overall, results=results,
                         checked_at=time.time(),

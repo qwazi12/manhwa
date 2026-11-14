@@ -76,7 +76,8 @@
   ],
   "git": {
     "deploymentEnabled": {
-      "dev/flamingo-*": false
+      "dev/flamingo-*": false,
+      "feat/audit-fixes-*": false
     }
   }
 }

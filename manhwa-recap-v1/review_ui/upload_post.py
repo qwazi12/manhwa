@@ -33,9 +33,10 @@ NETWORKS = (
 
 
 class UploadPostError(RuntimeError):
-    def __init__(self, message, status=None):
+    def __init__(self, message, status=None, body=None):
         super().__init__(message)
         self.status = status
+        self.body = body          # raw response text, when the server answered
 
 
 def env_any_case(name):
@@ -107,10 +108,10 @@ def _request(method, path, cfg=None, body=None, headers=None, _http=None):
     except urllib.error.HTTPError as e:
         detail = ""
         try:
-            detail = e.read().decode("utf-8")[:400]
+            detail = e.read().decode("utf-8")
         except Exception:
             pass
-        raise UploadPostError(f"Upload-Post returned {e.code}: {detail}", e.code)
+        raise UploadPostError(f"Upload-Post returned {e.code}: {detail[:400]}", e.code, detail)
     except urllib.error.URLError as e:
         raise UploadPostError(f"could not reach Upload-Post: {e.reason}")
 
@@ -460,19 +461,23 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
         except urllib.error.HTTPError as e:
             detail = ""
             try:
-                detail = e.read().decode("utf-8")[:500]
+                detail = e.read().decode("utf-8")
             except Exception:
                 pass
-            err = UploadPostError(f"Upload failed ({e.code}): {detail}", e.code)
+            err = UploadPostError(f"Upload failed ({e.code}): {detail[:500]}", e.code, detail)
             if e.code not in GATEWAY_CODES:
                 raise err
         except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
             err = UploadPostError(f"Could not reach Upload-Post: {getattr(e, 'reason', e)}")
-        if _accepted(request_id, cfg):
+        # Ask before sending again. Only a documented "no such upload" answer
+        # permits a resend (same id, same Idempotency-Key); if Upload-Post
+        # cannot say, stop here and let the caller reconcile later.
+        state = upload_detail(request_id, cfg=cfg)["state"]
+        if state in ("accepted", "failed"):
             if on_step:
                 on_step("Upload-Post had received the upload despite the gateway error")
             return {"success": True, "request_id": request_id, "recovered_after": str(err)}
-        if attempt + 1 == UPLOAD_ATTEMPTS:
+        if state == "unknown" or attempt + 1 == UPLOAD_ATTEMPTS:
             raise err
         if on_step:
             on_step(f"{err} — Upload-Post has no record of it; retrying "
@@ -480,37 +485,110 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
         time.sleep(RETRY_WAIT[attempt] + random.uniform(0, 10))
 
 
-# A refusal we can be sure of: Upload-Post answered and said no. Everything
-# else (a timeout, a dropped connection, a 5xx, 408/409/425/429) leaves it
-# unknown whether the upload arrived.
-_UNSURE_4XX = (408, 409, 425, 429)
+# ---------------------------------------------------------------- outcomes
+# From Upload-Post's documentation (docs.upload-post.com/api/upload-video and
+# /api/upload-status, read 2026-11-14):
+#   * request_id may be supplied by the client and is returned in every answer;
+#   * an Idempotency-Key makes a repeated request return the existing job
+#     instead of creating a second one;
+#   * error answers are JSON with "success": false — 400 (bad form), 401, 403,
+#     404 (user not found), 429 (monthly limit); a 500 is a server error;
+#   * status of an unknown id: HTTP 404 with {"status": "not_found"};
+#   * status values: pending, queued, processing, in_progress, completed,
+#     failed ("all platforms have failed, or no activity for over 1 hour"),
+#     not_found; per platform: queued, processing, completed, failed,
+#     retryable, skipped, each with a "success" flag.
+# Anything outside what is documented is treated as "unknown", never as a
+# refusal and never as "nothing was received".
+_REFUSAL_CODES = (400, 401, 403, 404, 429)
+_LIVE_STATES = ("pending", "queued", "processing", "in_progress", "completed")
+_PLATFORM_WAIT = ("queued", "processing", "retryable", "pending", "in_progress")
+
+
+def _json_object(text):
+    try:
+        v = json.loads(text) if text else None
+    except (ValueError, TypeError):
+        return None
+    return v if isinstance(v, dict) else None
 
 
 def rejected(exc):
-    """True only when this error proves Upload-Post did NOT take the upload."""
-    st = getattr(exc, "status", None)
-    return isinstance(exc, UploadPostError) and st is not None and 400 <= st < 500 and st not in _UNSURE_4XX
+    """True only when this error PROVES Upload-Post refused the upload: one of
+    its documented error answers — a refusal status code whose body is JSON
+    saying "success": false. A timeout, a dropped connection, a 5xx, an empty
+    or non-JSON body proves nothing."""
+    if not isinstance(exc, UploadPostError) or exc.status not in _REFUSAL_CODES:
+        return False
+    body = _json_object(getattr(exc, "body", None))
+    return bool(body) and body.get("success") is False
 
 
-def upload_state(request_id, cfg=None, _http=None):
+def classify_response(resp):
+    """What an answer to POST /upload establishes:
+      ("rejected", message)           it says "success": false
+      ("finished", {platform: {...}}) synchronous: per-platform results
+      ("accepted", ids)               "success": true — background / scheduled;
+                                      ids = {"request_id", "job_id"} as returned
+      ("unknown", why)                empty, not an object, or no boolean
+                                      "success": nothing can be concluded"""
+    if not isinstance(resp, dict) or not isinstance(resp.get("success"), bool):
+        return "unknown", "Upload-Post's answer was empty or not in its documented form"
+    if resp["success"] is False:
+        return "rejected", str(resp.get("message") or resp.get("error") or "Upload-Post refused the upload")[:300]
+    if isinstance(resp.get("results"), dict) and resp["results"]:
+        return "finished", {str(k): _platform_outcome(v if isinstance(v, dict) else {}) for k, v in resp["results"].items()}
+    return "accepted", {"request_id": resp.get("request_id") or None, "job_id": resp.get("job_id") or None}
+
+
+def _platform_outcome(x):
+    """One platform's entry (status answer or synchronous result) ->
+    {"state": "published" | "failed" | "pending", ...}."""
+    st = str(x.get("status") or "").lower()
+    if x.get("success") is True:
+        return {"state": "published", "url": x.get("post_url") or x.get("url"),
+                "platform_post_id": x.get("platform_post_id"), "raw": x}
+    if st in _PLATFORM_WAIT:
+        return {"state": "pending", "raw": x}
+    if x.get("success") is False or st in ("failed", "skipped") or x.get("skipped") is True or x.get("error"):
+        return {"state": "failed", "error": str(x.get("error_message") or x.get("message") or x.get("error")
+                                                 or x.get("skip_reason") or "the platform rejected the upload")[:300],
+                "raw": x}
+    return {"state": "pending", "raw": x}
+
+
+def upload_detail(request_id, cfg=None, _http=None):
     """What Upload-Post knows about this request id:
-      "accepted"  it has the upload (queued, running, or published somewhere)
-      "failed"    it finished and no channel took the video — a new upload is right
-      "absent"    it answered and has no such upload
-      "unknown"   it could not be asked (network, 5xx) — do not send again yet"""
+      state "accepted"  it has the upload (waiting, running or done)
+            "failed"    it has it and reports the whole job failed
+            "absent"    its documented "no such upload" answer
+            "unknown"   it could not be asked, or answered something undocumented
+      platforms {name: {"state": "published" | "failed" | "pending", ...}}"""
     try:
         st = upload_status(request_id, cfg=cfg or config(), _http=_http)
     except UploadPostError as e:
-        return "absent" if e.status == 404 else "unknown"
-    except Exception:
-        return "unknown"
-    status = (st or {}).get("status")
-    if not status or status == "not_found":
-        return "absent"
-    res = st.get("results") or []
-    if status == "completed" and res and not any(x.get("success") for x in res):
-        return "failed"
-    return "accepted"
+        body = _json_object(getattr(e, "body", None))
+        if e.status == 404 and body and body.get("status") == "not_found":
+            return {"state": "absent", "platforms": {}}
+        return {"state": "unknown", "platforms": {}, "why": str(e)[:200]}
+    except Exception as e:  # noqa — network, bad JSON, anything
+        return {"state": "unknown", "platforms": {}, "why": f"{type(e).__name__}: {e}"[:200]}
+    if not isinstance(st, dict):
+        return {"state": "unknown", "platforms": {}, "why": "the status answer was not an object"}
+    status = st.get("status")
+    if status == "not_found":
+        return {"state": "absent", "platforms": {}}
+    if status not in _LIVE_STATES and status != "failed":
+        return {"state": "unknown", "platforms": {}, "why": f"undocumented status {status!r}"}
+    platforms = {}
+    for x in st.get("results") or []:
+        if isinstance(x, dict) and x.get("platform"):
+            platforms[str(x["platform"])] = {**_platform_outcome(x), "profile": x.get("profile_username")}
+    return {"state": "failed" if status == "failed" else "accepted", "status": status, "platforms": platforms}
+
+
+def upload_state(request_id, cfg=None, _http=None):
+    return upload_detail(request_id, cfg=cfg, _http=_http)["state"]
 
 
 def accepted(request_id, cfg=None):
@@ -520,10 +598,6 @@ def accepted(request_id, cfg=None):
 
 
 def _accepted(request_id, cfg):
-    """Did Upload-Post register this upload? Unknown -> False (resend is safe:
-    the Idempotency-Key stops a duplicate)."""
-    try:
-        st = upload_status(request_id, cfg=cfg)
-    except Exception:
-        return False
-    return bool(st) and bool(st.get("status")) and st.get("status") not in ("not_found",)
+    """Does Upload-Post hold this upload? Unknown -> False; callers that must
+    not send twice use upload_detail and treat "unknown" separately."""
+    return upload_detail(request_id, cfg=cfg)["state"] in ("accepted", "failed")

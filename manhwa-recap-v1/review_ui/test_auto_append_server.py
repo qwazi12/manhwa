@@ -255,8 +255,11 @@ def test_cumulative_is_the_default_and_one_new_chapter_extends_the_posted_video(
     md = server.load_publish(os.path.join(root, "hound_ch20-22"))["final_range_20-22.mp4"]
     assert md["title"] == "[20-22] Hound Returns For VENGEANCE | Flamingo Recap"
     # every chapter's check results were stored with the new compilation
-    ev = json.load(open(os.path.join(root, "hound_ch20-22", "release_evidence.json")))["chapters"]
-    assert "hound_22" in ev and ev["hound_ch20-21"]["parts"] == []
+    # each piece's file hash and check results were stored for THIS export
+    ev = json.load(open(os.path.join(root, "hound_ch20-22", "release_evidence.json")))["exports"]["final_range_20-22.mp4"]
+    assert [(e["project"], e["name"], e["kind"]) for e in ev["components"]] == [
+        ("hound_ch20-21", "final_range_20-21.mp4", "range"), ("hound_22", "final.mp4", "chapter")]
+    assert all(e["export_sha256"] for e in ev["components"])
     assert next(x for x in server._auto_append_pass() if x["series"] == "hound")["action"] == "none"
 
     # chapter 23 arrives while 20-22 waits for review: 20-23 replaces it

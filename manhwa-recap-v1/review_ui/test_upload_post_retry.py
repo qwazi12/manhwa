@@ -40,8 +40,11 @@ def env(tmp_path, monkeypatch):
                 raise o
             return Resp(o)
         monkeypatch.setattr(up.urllib.request, "urlopen", urlopen)
-        monkeypatch.setattr(up, "upload_status", lambda rid, cfg=None: status.get(rid) or
-                            (_ for _ in ()).throw(up.UploadPostError("not found (404)", 404)))
+        # Upload-Post's documented answer for an id it has never seen
+        # (docs.upload-post.com/api/upload-status): HTTP 404 + status not_found
+        monkeypatch.setattr(up, "upload_status", lambda rid, cfg=None, _http=None: status.get(rid) or
+                            (_ for _ in ()).throw(up.UploadPostError(
+                                "not found (404)", 404, '{"request_id": "%s", "status": "not_found"}' % rid)))
         return up.upload_video_post(str(video), {"title": "T"}, ["youtube"], cfg=cfg)
     return run, sent, sleeps, status
 

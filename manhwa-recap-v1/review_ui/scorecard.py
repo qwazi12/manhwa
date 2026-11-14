@@ -54,7 +54,7 @@ def quality(root):
     media = {"exports": 0, "passed": 0, "failed": 0, "other": 0, "failed_rules": {}}
     corr = {"chapters": 0, "chapters_with_edit_log": 0, "edits": 0, "by_op": {},
             "exports_reviewed": 0, "sent_back": 0, "approved_first_time": 0, "reviewer_recorded": 0}
-    gate = {"exports": 0, "clear": 0, "review": 0, "blocked": 0, "by_code": {}}
+    gate = {"exports": 0, "clear": 0, "review": 0, "unknown": 0, "blocked": 0, "by_code": {}}
     rows = []
     for pid in sorted(os.listdir(root)) if os.path.isdir(root) else []:
         pdir = os.path.join(root, pid)
@@ -124,11 +124,12 @@ def quality(root):
             ver = release_gate.verdict(pdir, name)
             gate["exports"] += 1
             gate[ver["release"]] += 1
-            for f in ver["critical"] + ver["review"]:
+            every = ver["critical"] + ver["unknown"] + ver["review"]
+            for f in every:
                 gate["by_code"][f["code"]] = gate["by_code"].get(f["code"], 0) + 1
             if ver["release"] != "clear":
                 row.setdefault("gate", []).append({"export": name, "release": ver["release"],
-                                                   "codes": sorted({f["code"] for f in ver["critical"] + ver["review"]})})
+                                                   "codes": sorted({f["code"] for f in every})})
         if len(row) > 2:
             rows.append(row)
     script["issues_per_chapter"] = round(script["issues"] / script["chapters"], 2) if script["chapters"] else None
@@ -140,7 +141,7 @@ def quality(root):
                       f"({corr['chapters_with_edit_log']} of {corr['chapters']} chapters still have one), "
                       "review time is not recorded, and approvals carry no reviewer")
     gate["mode"] = release_gate.mode()
-    gate["would_hold_pct"] = _pct(gate["blocked"], gate["exports"])
+    gate["would_hold_pct"] = _pct(gate["blocked"] + gate["unknown"], gate["exports"])
     return {"script": script, "timeline": timeline, "media": media, "corrections": corr, "gate": gate,
             "chapters": rows}
 
