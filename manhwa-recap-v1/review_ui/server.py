@@ -3677,6 +3677,10 @@ def _restore_from_drive(pdir, name):
     return dest
 
 
+_RANGE_BUILD_LOCK = threading.Lock()
+_RANGE_BUILDING = set()          # range project ids with a build in progress (this process)
+
+
 class RangeIn(BaseModel):
     project: str = ""          # any chapter of the series
     chapters_start: int = 0
@@ -3801,10 +3805,28 @@ def api_range_build(body: RangeIn):
         raise HTTPException(409, "no rendered video yet for chapter(s) " +
                             ", ".join(str(n) for n in pl["missing"][:30]))
 
-    rdir, meta = _rc.write_project(_ing.PROJECTS, sid, series, a, b,
-                                   url=_read_json(os.path.join(src, "project.json")).get("url") or "")
+    # One build per release at a time, and never over a release a person has
+    # signed off (2026-11-14). Two requests for the same range used to write
+    # the same folder at once; a rebuild replaced an approved or queued
+    # compilation's file under its approval.
+    range_pid = _rc.project_id(sid, a, b)
     name = f"final_range_{a}-{b}.mp4"
-    range_pid = os.path.basename(rdir)
+    existing = os.path.join(_ing.PROJECTS, range_pid)
+    with _RANGE_BUILD_LOCK:
+        if range_pid in _RANGE_BUILDING:
+            raise HTTPException(409, f"{_pretty(range_pid)} is already being built")
+        if os.path.isdir(existing):
+            lock = _metadata_locked(existing).get(name)
+            if lock:
+                raise HTTPException(409, f"{_pretty(range_pid)} is {lock} — it is not rebuilt over; "
+                                         "send it back or unmerge it first")
+        _RANGE_BUILDING.add(range_pid)
+    try:
+        rdir, meta = _rc.write_project(_ing.PROJECTS, sid, series, a, b,
+                                       url=_read_json(os.path.join(src, "project.json")).get("url") or "")
+    except Exception:
+        _RANGE_BUILDING.discard(range_pid)
+        raise
 
     # What each piece looked like before the merge, so Unmerge can put it
     # back exactly (owner, 2026-10-12: "can i merge and unmerge chapters?")
@@ -3852,6 +3874,12 @@ def api_range_build(body: RangeIn):
             pass
 
     def run():
+        try:
+            _range_build_body()
+        finally:
+            _RANGE_BUILDING.discard(range_pid)
+
+    def _range_build_body():
         try:
             for _n, cp, cn in pl["chapters"]:
                 _restore_from_drive(cp, cn)
@@ -4031,7 +4059,11 @@ def api_range_build(body: RangeIn):
             _write_meta_atomic(rdir, m)
             _ev("publish", f"{series} chapters {a}-{b}: range build failed — {str(e)[:160]}", "warn")
 
-    threading.Thread(target=run, daemon=True).start()
+    try:
+        threading.Thread(target=run, daemon=True).start()
+    except Exception:
+        _RANGE_BUILDING.discard(range_pid)
+        raise
     return {"ok": True, "project": range_pid, "export": name,
             "chapters_start": a, "chapters_end": b}
 

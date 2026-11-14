@@ -96,7 +96,11 @@ def outro_seconds(pdir, name, _probe_fn=None):
             continue
         if ctx.get("kind") == "range":
             # a merged video ends with its LAST chapter's card (2026-11-01:
-            # merging a merge left its "To be continued" mid-video)
+            # merging a merge left its "To be continued" mid-video). The
+            # length is written into the compilation's own manifest when it is
+            # built, so it is still known after that chapter's folder is gone.
+            if isinstance(ctx.get("outro_seconds"), (int, float)):
+                return float(ctx["outro_seconds"])
             last = (ctx.get("components") or [None])[-1]
             return outro_seconds(last["project"], last["name"], _probe_fn) if last else 0.0
         card = next((c for c in ctx.get("cards") or [] if c.get("role") == "outro"), None)
