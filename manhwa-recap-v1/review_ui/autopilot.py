@@ -436,7 +436,9 @@ def candidates(st, series_view, canon, live_projects=(), now=None):
             continue
         row["mirror"] = {"source": best.get("source"), "series_key": best.get("series_key"),
                          "series_url": best.get("series_url"), "support": best.get("support"),
-                         "status": best.get("status"), "last_checked": best.get("last_checked")}
+                         "status": best.get("status"), "last_checked": best.get("last_checked"),
+                         "error": best.get("error"), "last_ok": best.get("last_ok"),
+                         "backup": best.get("backup")}
         chapters = sorted({norm_chapter(c) for c in best.get("chapters") or []}, key=chap_key)
         if not chapters:
             row.update(state="no_source", reason=("source could not be read: " + (best.get("error") or ""))
@@ -488,6 +490,17 @@ def candidates(st, series_view, canon, live_projects=(), now=None):
         else:
             row["reason"] = f"next: ch.{c}" + (f" · {len(todo) - 1} more after it" if len(todo) > 1 else "")
         rows.append(row)
+    # A source that could not be read must not read as "all caught up" (2026-11-14:
+    # Asura refused the server for 9 days and 10 series showed up to date).
+    for row in rows:
+        m = row.get("mirror") or {}
+        if m.get("status") != "error" or row["state"] == "no_source":
+            continue
+        bk = m.get("backup") or {}
+        if bk.get("label"):
+            row["reason"] += f" · main source not readable, chapter list from {bk['label']}"
+        else:
+            row["reason"] += " · source not readable, this list may be out of date"
     return rows
 
 

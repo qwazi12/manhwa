@@ -276,6 +276,7 @@ def refresh_mirror(root, series_id, series_key, _fetcher=None):
         m["latest"] = found[-1][0] if found else None
         m["status"] = "ok"
         m["error"] = None
+        m["last_ok"] = time.time()
         try:
             rel = providers.release_info(prov, _memo(m["series_url"]))
             dates = dict(m.get("release_dates") or {})
@@ -294,6 +295,107 @@ def refresh_mirror(root, series_id, series_key, _fetcher=None):
         m["error"] = str(e)[:300]
     m["last_checked"] = time.time()
     save(root, data)
+    return m
+
+
+# ------------------------------------------------------------ backup lists
+# 2026-11-14: Asura has answered the server with HTTP 403 since 2026-11-05, on
+# series pages and chapters alike. A download already falls back to a backup
+# source (scraper._auto_failover); the chapter LIST did not, so every Asura
+# series read "all caught up" while new chapters were out. A main source that
+# cannot be read now has its backup sources asked for the list.
+BACKUP_MAX_NEW = 10     # more new chapters than this is another numbering, not a release
+
+
+def _num(c):
+    try:
+        return float(c)
+    except (TypeError, ValueError):
+        return None
+
+
+def _backup_keys(series, main_key):
+    """The series' other sources that can list chapters: real discovery only
+    (not the generic fallback), and not MangaDex (the reader cannot read it)."""
+    return [m["series_key"] for m in series.get("mirrors") or []
+            if m["series_key"] != main_key and m.get("source") != "generic"
+            and "mangadex.org" not in (m.get("series_url") or "")]
+
+
+def _merge_backup(root, series_id, main_key, b):
+    """Add what backup mirror `b` lists AFTER the main source's last known
+    chapter to the main mirror's list, and record where it came from. The main
+    mirror keeps status "error": it was not read. Returns the main record."""
+    data = load(root)
+    s = find(data, series_id)
+    mm = next(x for x in s["mirrors"] if x["series_key"] == main_key)
+    known = {_num(c) for c in mm.get("chapters") or []} - {None}
+    top = max(known, default=None)
+    theirs = [c for c in b.get("chapters") or [] if _num(c) is not None]
+    note = {"series_key": b["series_key"], "label": b.get("label"), "series_url": b.get("series_url"),
+            "at": time.time(), "latest": b.get("latest"), "added": [], "skipped": None}
+    new = sorted({c for c in theirs if top is not None and _num(c) > top}, key=_num)
+    if top is None:
+        note["skipped"] = "the main source has never been read, so there is nothing to continue from"
+    elif new and top not in {_num(c) for c in theirs}:
+        note["skipped"] = f"it does not list ch.{mm.get('latest')}, so its numbering may differ"
+    elif len(new) > BACKUP_MAX_NEW:
+        note["skipped"] = (f"it lists {len(new)} chapters after ch.{mm.get('latest')}, "
+                           "so its numbering may differ")
+    elif new:
+        norm = providers.by_name(mm["source"]).normalize_chapter_id
+        new = [norm(c) for c in new]
+        fs = mm.get("first_seen") or {}
+        fb = mm.get("from_backup") or {}
+        for c in new:
+            # listed on the backup = already readable there; no early-access wait
+            fs.setdefault(str(c), 0)
+            fb[str(c)] = b["series_key"]
+        mm["first_seen"], mm["from_backup"] = fs, fb
+        mm["chapters"] = list(mm.get("chapters") or []) + new
+        mm["chapter_count"] = len(mm["chapters"])
+        mm["latest"] = mm["chapters"][-1]
+        note["added"] = new
+    mm["backup"] = note
+    save(root, data)
+    return mm
+
+
+def refresh_series(root, series_id, _fetcher=None):
+    """Read a series' main source; when it cannot be read, ask its backup
+    sources for the chapter list instead.
+
+    Returns the main mirror's record. On it, `backup` (present only while the
+    main source is unreadable) names the source that answered, when, the
+    chapters it added and why it was not used if it was not.
+    """
+    data = load(root)
+    s = find(data, series_id)
+    if s is None:
+        raise WatchlistError(f"no series '{series_id}'")
+    best = best_mirror(s)
+    if best is None:
+        return None
+    main_key = best["series_key"]
+    m = refresh_mirror(root, series_id, main_key, _fetcher=_fetcher)
+    if m.get("status") == "ok":
+        if m.get("backup"):
+            data = load(root)
+            mm = next(x for x in find(data, series_id)["mirrors"] if x["series_key"] == main_key)
+            mm.pop("backup", None)
+            save(root, data)
+            return mm
+        return m
+    for key in _backup_keys(s, main_key):
+        b = refresh_mirror(root, series_id, key, _fetcher=_fetcher)
+        if b.get("status") == "ok":
+            return _merge_backup(root, series_id, main_key, b)
+    if m.get("backup"):                      # no backup answers any more
+        data = load(root)
+        mm = next(x for x in find(data, series_id)["mirrors"] if x["series_key"] == main_key)
+        mm.pop("backup", None)
+        save(root, data)
+        return mm
     return m
 
 
