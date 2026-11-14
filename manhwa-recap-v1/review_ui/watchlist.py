@@ -26,9 +26,13 @@ ingested library exactly as before; this sits alongside it as the planning
 layer.
 """
 
+import functools
 import json
 import os
 import re
+import shutil
+import tempfile
+import threading
 import time
 
 import providers
@@ -52,23 +56,128 @@ def store_path(root):
     return os.path.join(root, STORE_NAME)
 
 
-def load(root):
-    try:
-        with open(store_path(root), encoding="utf-8") as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"series": []}
+# 2026-11-14 incident: two passes saved at the same moment through ONE shared
+# ".tmp" name; the file that landed was half of each, load() answered "no
+# series" for a file it could not parse, and the studio showed an empty
+# watchlist. Now: one writer at a time, a private temp file per save, the last
+# good copy kept beside the store, and a damaged file is never an empty list.
+_LOCK = threading.RLock()
+VIEW_ONLY = ("tier_label", "mirror_count", "best_mirror", "ingestable", "support", "backlog",
+             "ingested_count", "ingested", "unmade", "unmade_count", "checked", "has_new", "made_any")
+
+
+def _locked(fn):
+    """One change to the saved list at a time: load, change and save as one step."""
+    @functools.wraps(fn)
+    def run(*a, **k):
+        with _LOCK:
+            return fn(*a, **k)
+    return run
+
+
+def _read(path):
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or not isinstance(data.get("series", []), list):
+        raise ValueError("not a watchlist file")
     data.setdefault("series", [])
     return data
 
 
-def save(root, data):
+def load(root):
+    """The saved list. A missing file is an empty list (first run). A file that
+    cannot be parsed falls back to the last good copy; with no good copy the
+    result carries `damaged` and save() refuses it, so "could not read" can
+    never be written back as "no series"."""
+    p = store_path(root)
+    try:
+        return _read(p)
+    except FileNotFoundError:
+        return {"series": []}
+    except (ValueError, OSError):
+        pass
+    try:
+        data = _read(p + ".bak")
+        data["recovered_from_backup"] = True
+        return data
+    except (ValueError, OSError):
+        return {"series": [], "damaged": True}
+
+
+def _write(root, data):
+    p = store_path(root)
+    fd, tmp = tempfile.mkstemp(prefix=STORE_NAME + ".", suffix=".tmp", dir=root)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        try:                                   # keep the last GOOD copy
+            if _read(p).get("series"):
+                shutil.copyfile(p, p + ".bak.tmp")
+                os.replace(p + ".bak.tmp", p + ".bak")
+        except (ValueError, OSError):
+            pass
+        os.replace(tmp, p)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def save(root, data, allow_empty=False):
+    if data.get("damaged"):
+        raise WatchlistError("the watchlist file is damaged and has no good copy — "
+                             "restore it first (POST /api/watchlist/restore)")
     os.makedirs(root, exist_ok=True)
-    tmp = store_path(root) + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, store_path(root))
+    out = {k: v for k, v in data.items() if k != "recovered_from_backup"}
+    with _LOCK:
+        if not out.get("series") and not allow_empty:
+            try:
+                n = len(_read(store_path(root)).get("series") or [])
+            except (ValueError, OSError):
+                n = 0
+            if n:
+                raise WatchlistError(f"refusing to replace {n} saved series with an empty list")
+        _write(root, out)
     return data
+
+
+def restore(root, series, replace=False):
+    """Put a saved copy of the list back: the `series` of GET /api/watchlist
+    (its display-only fields are dropped) or of a store file. Refuses to
+    overwrite a list that has series unless `replace`. Whatever file is on disk
+    is kept as _watchlist.json.before-restore-<time>. Returns (now, before)."""
+    if not isinstance(series, list) or not series:
+        raise WatchlistError("nothing to restore: `series` must be a non-empty list")
+    out, seen = [], set()
+    for s in series:
+        if not isinstance(s, dict) or not s.get("id") or not s.get("title") or not isinstance(s.get("mirrors"), list):
+            raise WatchlistError("every series needs an id, a title and a mirrors list")
+        if s["id"] in seen:
+            raise WatchlistError(f"series '{s['id']}' is listed twice")
+        seen.add(s["id"])
+        mirrors = []
+        for m in s["mirrors"]:
+            if not isinstance(m, dict) or not all(m.get(k) for k in ("series_key", "source", "series_url")):
+                raise WatchlistError(f"a source of '{s['id']}' has no series_key / source / series_url")
+            mirrors.append({k: v for k, v in m.items() if k not in ("ingested", "ingested_count")})
+        e = {k: v for k, v in s.items() if k not in VIEW_ONLY}
+        e["mirrors"] = mirrors
+        e.setdefault("preferred_mirror", mirrors[0]["series_key"] if mirrors else None)
+        out.append(e)
+    os.makedirs(root, exist_ok=True)
+    p = store_path(root)
+    with _LOCK:
+        before = len(load(root).get("series") or [])
+        if before and not replace:
+            raise WatchlistError(f"the watchlist has {before} series; pass replace to overwrite it")
+        if os.path.exists(p):
+            shutil.copyfile(p, f"{p}.before-restore-{int(time.time())}")
+        _write(root, {"series": out})
+    return len(out), before
 
 
 def slugify(title):
@@ -111,6 +220,7 @@ def find_by_mirror(data, url):
     return None, None
 
 
+@_locked
 def add_series(root, title, aliases=None, tier="watchlist", rank=None,
                keywords=None, notes="", data=None):
     """Add a canonical series.
@@ -142,6 +252,7 @@ def add_series(root, title, aliases=None, tier="watchlist", rank=None,
     return entry
 
 
+@_locked
 def add_mirror(root, series_id, url, data=None, save_now=True):
     """Attach a source to a canonical series.
 
@@ -179,14 +290,16 @@ def add_mirror(root, series_id, url, data=None, save_now=True):
     return mirror
 
 
+@_locked
 def remove_series(root, series_id):
     data = load(root)
     before = len(data["series"])
     data["series"] = [s for s in data["series"] if s["id"] != series_id]
-    save(root, data)
+    save(root, data, allow_empty=before != len(data["series"]))
     return before != len(data["series"])
 
 
+@_locked
 def set_preferred(root, series_id, series_key):
     """Manual override of which mirror to ingest from."""
     data = load(root)
@@ -200,6 +313,7 @@ def set_preferred(root, series_id, series_key):
     return s
 
 
+@_locked
 def update_series(root, series_id, **fields):
     data = load(root)
     s = find(data, series_id)
@@ -241,6 +355,10 @@ def refresh_mirror(root, series_id, series_key, _fetcher=None):
     "Could not check" and "has nothing" are kept apart, the same rule the
     tracker learned: a failed fetch must never render as a source with no
     chapters.
+
+    The page is read first, with nothing held; the result is then written onto
+    the list AS IT IS ON DISK at that moment, so a change made while the page
+    was loading (a source attached, another series refreshed) is not undone.
     """
     data = load(root)
     s = find(data, series_id)
@@ -251,6 +369,7 @@ def refresh_mirror(root, series_id, series_key, _fetcher=None):
         raise WatchlistError("that mirror is not attached to this series")
 
     prov = providers.by_name(m["source"])
+    series_url = m["series_url"]
     # One download serves both the chapter list and the release dates/cover.
     _pages = {}
 
@@ -258,43 +377,55 @@ def refresh_mirror(root, series_id, series_key, _fetcher=None):
         if url not in _pages:
             _pages[url] = _f(url)
         return _pages[url]
+    found, rel, err = None, None, None
     try:
-        found = prov.discover_chapters(m["series_url"], _fetcher=_memo)
-        # when each chapter first appeared on this source (autopilot waits out
-        # Asura's early-access paywall from this moment; 2026-10-12). Chapters
-        # known before this was recorded count as long out (0).
-        fs = m.get("first_seen")
-        if fs is None:
-            fs = {str(c): 0 for c, _ in found}
-        else:
-            now_ = time.time()
-            for c, _ in found:
-                fs.setdefault(str(c), now_)
-        m["first_seen"] = fs
-        m["chapters"] = [c for c, _ in found]
-        m["chapter_count"] = len(found)
-        m["latest"] = found[-1][0] if found else None
-        m["status"] = "ok"
-        m["error"] = None
-        m["last_ok"] = time.time()
+        found = prov.discover_chapters(series_url, _fetcher=_memo)
         try:
-            rel = providers.release_info(prov, _memo(m["series_url"]))
-            dates = dict(m.get("release_dates") or {})
-            for cid, (day, approx) in rel["dates"].items():
-                old = dates.get(cid)
-                # an exact date is never replaced by an approximate one
-                if not old or old[1] or not approx:
-                    dates[cid] = [day, approx]
-            m["release_dates"] = dates
-            if rel["cover"]:
-                m["cover"] = rel["cover"]
+            rel = providers.release_info(prov, _memo(series_url))
         except Exception:
             pass                       # dates are a bonus; never fail a check
     except Exception as e:
-        m["status"] = "error"
-        m["error"] = str(e)[:300]
-    m["last_checked"] = time.time()
-    save(root, data)
+        err = str(e)[:300]
+
+    with _LOCK:
+        data = load(root)
+        s = find(data, series_id)
+        m = next((x for x in (s or {}).get("mirrors") or [] if x["series_key"] == series_key), None)
+        if m is None:
+            raise WatchlistError("that mirror was removed while it was being checked")
+        if found is not None:
+            # when each chapter first appeared on this source (autopilot waits out
+            # Asura's early-access paywall from this moment; 2026-10-12). Chapters
+            # known before this was recorded count as long out (0).
+            fs = m.get("first_seen")
+            if fs is None:
+                fs = {str(c): 0 for c, _ in found}
+            else:
+                now_ = time.time()
+                for c, _ in found:
+                    fs.setdefault(str(c), now_)
+            m["first_seen"] = fs
+            m["chapters"] = [c for c, _ in found]
+            m["chapter_count"] = len(found)
+            m["latest"] = found[-1][0] if found else None
+            m["status"] = "ok"
+            m["error"] = None
+            m["last_ok"] = time.time()
+            if rel:
+                dates = dict(m.get("release_dates") or {})
+                for cid, (day, approx) in rel["dates"].items():
+                    old = dates.get(cid)
+                    # an exact date is never replaced by an approximate one
+                    if not old or old[1] or not approx:
+                        dates[cid] = [day, approx]
+                m["release_dates"] = dates
+                if rel["cover"]:
+                    m["cover"] = rel["cover"]
+        else:
+            m["status"] = "error"
+            m["error"] = err
+        m["last_checked"] = time.time()
+        save(root, data)
     return m
 
 
@@ -322,6 +453,7 @@ def _backup_keys(series, main_key):
             and "mangadex.org" not in (m.get("series_url") or "")]
 
 
+@_locked
 def _merge_backup(root, series_id, main_key, b):
     """Add what backup mirror `b` lists AFTER the main source's last known
     chapter to the main mirror's list, and record where it came from. The main
@@ -361,6 +493,15 @@ def _merge_backup(root, series_id, main_key, b):
     return mm
 
 
+@_locked
+def _drop_backup_note(root, series_id, main_key):
+    data = load(root)
+    mm = next(x for x in find(data, series_id)["mirrors"] if x["series_key"] == main_key)
+    mm.pop("backup", None)
+    save(root, data)
+    return mm
+
+
 def refresh_series(root, series_id, _fetcher=None):
     """Read a series' main source; when it cannot be read, ask its backup
     sources for the chapter list instead.
@@ -380,22 +521,14 @@ def refresh_series(root, series_id, _fetcher=None):
     m = refresh_mirror(root, series_id, main_key, _fetcher=_fetcher)
     if m.get("status") == "ok":
         if m.get("backup"):
-            data = load(root)
-            mm = next(x for x in find(data, series_id)["mirrors"] if x["series_key"] == main_key)
-            mm.pop("backup", None)
-            save(root, data)
-            return mm
+            return _drop_backup_note(root, series_id, main_key)
         return m
     for key in _backup_keys(s, main_key):
         b = refresh_mirror(root, series_id, key, _fetcher=_fetcher)
         if b.get("status") == "ok":
             return _merge_backup(root, series_id, main_key, b)
     if m.get("backup"):                      # no backup answers any more
-        data = load(root)
-        mm = next(x for x in find(data, series_id)["mirrors"] if x["series_key"] == main_key)
-        mm.pop("backup", None)
-        save(root, data)
-        return mm
+        return _drop_backup_note(root, series_id, main_key)
     return m
 
 
@@ -482,7 +615,13 @@ def view(root, projects=None):
     order = {"greenlight": 0, "high_upside": 1, "watchlist": 2}
     out.sort(key=lambda s: (order.get(s["tier"], 9), s["rank"] or 999,
                             s["title"].lower()))
-    return {"series": out, "tiers": list(TIERS), "tier_labels": TIER_LABEL}
+    res = {"series": out, "tiers": list(TIERS), "tier_labels": TIER_LABEL}
+    if data.get("damaged"):
+        res["error"] = ("the watchlist file is damaged and has no good copy; nothing is shown and "
+                        "nothing can be saved until it is restored (POST /api/watchlist/restore)")
+    elif data.get("recovered_from_backup"):
+        res["warning"] = "the watchlist file was damaged; this is its last good copy"
+    return res
 
 
 # ------------------------------------------------------------------ seed

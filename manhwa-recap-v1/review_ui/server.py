@@ -8936,6 +8936,26 @@ def api_watchlist():
     return _wl_view()
 
 
+class WLRestoreIn(BaseModel):
+    series: list[dict]
+    replace: bool = False
+
+
+@app.post("/api/watchlist/restore")
+def api_watchlist_restore(body: WLRestoreIn):
+    """Put a saved copy of the watchlist back (the `series` of an earlier
+    GET /api/watchlist). Refuses to overwrite a list that has series unless
+    `replace`; the file on disk is kept as _watchlist.json.before-restore-<time>.
+    Undo: restore the earlier copy the same way."""
+    import watchlist as _wl
+    try:
+        now_n, before = _wl.restore(_wl_root(), body.series, replace=body.replace)
+    except _wl.WatchlistError as e:
+        raise HTTPException(409, str(e))
+    _ev("settings", f"watchlist restored from a saved copy: {now_n} series (the list had {before})", "warn")
+    return {"ok": True, "series": now_n, "before": before}
+
+
 @app.post("/api/watchlist/seed")
 def api_watchlist_seed():
     """Load the owner's demand research. Idempotent — an existing series keeps
