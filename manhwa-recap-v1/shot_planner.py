@@ -296,6 +296,10 @@ Beats list:
         except (ValueError, AttributeError):
             pass
 
+    cap = usage.output_cap("crop", MODEL_NAME) if usage else 0
+    if cap:
+        cfg["max_output_tokens"] = cap       # bounds the cost of one call (usage.output_cap)
+
     def _call():
         return client.models.generate_content(
             model=MODEL_NAME,

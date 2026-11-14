@@ -192,3 +192,20 @@ def test_a_cut_voice_pool_leaves_a_recognisable_record(tmp_path):
     known = cache.recorded_outputs(rec)
     kept = {n: p for n, p in on_disk.items() if n in known}               # ingest drops the orphan…
     assert cache.status(rec, inputs, kept) == "current"                   # …and the chapter continues
+
+
+def test_output_caps(monkeypatch):
+    """A cap bounds what one call can cost. Crop planner: on by default;
+    describe / script: only when set (not tried against the live API)."""
+    for k in ("CROP_MAX_OUTPUT_TOKENS", "VISION_MAX_OUTPUT_TOKENS", "SCRIPT_MAX_OUTPUT_TOKENS"):
+        monkeypatch.delenv(k, raising=False)
+    assert usage.output_cap("crop", "m") == 8192
+    assert usage.output_cap("vision", "m") == 0 and usage.output_cap("script", "m") == 0
+    monkeypatch.setenv("VISION_MAX_OUTPUT_TOKENS", "4096")
+    assert usage.output_cap("vision", "m") == 4096
+    monkeypatch.setenv("CROP_MAX_OUTPUT_TOKENS", "0")
+    assert usage.output_cap("crop", "m") == 0
+    monkeypatch.setenv("CROP_MAX_OUTPUT_TOKENS", "junk")
+    assert usage.output_cap("crop", "m") == 8192
+    usage.output_cap_unsupported("old-model")
+    assert usage.output_cap("vision", "old-model") == 0

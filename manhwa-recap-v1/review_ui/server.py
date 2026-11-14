@@ -17,6 +17,7 @@ Everything is deploy-agnostic: put this behind any reverse proxy / subdomain
 """
 
 import hmac
+import hashlib
 import json
 import os
 import re
@@ -1122,6 +1123,8 @@ def api_review_save(body: ReviewIn):
     if status:                                # a verdict pins the cut it judged
         rec["cut_signature"] = cut_signature(pdir=pdir)
         rec["media_identity"] = _mqa.identity(pdir, name)
+        if status == "approved":
+            _pin_packaging(pdir, name, rec)
     recs[name] = rec
     save_reviews(pdir, recs)
     scheduled = _schedule_on_verdict(pid, name, status)
@@ -1184,11 +1187,69 @@ def load_publish(pdir):
         return {}
 
 
-def save_publish(pdir, data):
+PACKAGING_LOG = "packaging_revisions.jsonl"
+
+
+def _packaging_note(pdir, **entry):
+    """Append one line to the chapter's packaging history (who changed what,
+    or what an automatic step was stopped from changing)."""
+    try:
+        with open(os.path.join(pdir, PACKAGING_LOG), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": time.time(), **entry}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _short_hash(v):
+    return hashlib.sha256(json.dumps(v, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()[:16]
+
+
+def save_publish(pdir, data, actor="auto", why=""):
+    """Store publish details (title, description, tags, channels, privacy …).
+
+    Packaging lock (2026-11-14): the details of an export that is approved, in
+    the posting queue, being posted, scheduled or posted are changed ONLY by a
+    person acting on that video (actor="owner"). Every other writer — series
+    defaults, automatic SEO, title repair at start-up, tag trimming — passes
+    through here as actor="auto": its change to a locked export is dropped,
+    the stored details stay, and the attempt is written to the packaging
+    history. Changes that are applied are recorded there too."""
     if isinstance(data, dict):
         for k, item in data.items():
             if isinstance(item, dict) and "tags" in item and isinstance(item["tags"], list):
                 item["tags"] = _trim_tags_to_limit(item["tags"], YT_TAGS_CHARS_MAX)
+        old = load_publish(pdir)
+        try:
+            locked = _metadata_locked(pdir)
+        except Exception:  # noqa — cannot tell what is locked: change nothing automatic
+            locked = {k: "lock state unreadable" for k in data} if actor != "owner" else {}
+        for k in list(data):
+            before, after = old.get(k), data[k]
+            if before == after:
+                continue
+            fields = sorted(f for f in set(before or {}) | set(after or {})
+                            if (before or {}).get(f) != (after or {}).get(f) and not f.startswith("_")) \
+                if isinstance(after, dict) and isinstance(before or {}, dict) else ["*"]
+            if k in locked and actor != "owner":
+                # a locked export with no details of its own reads the draft
+                if before is None:
+                    data.pop(k)
+                else:
+                    data[k] = before
+                _packaging_note(pdir, export=k, actor=actor, why=why, blocked=locked[k], fields=fields)
+                continue
+            if fields:
+                _packaging_note(pdir, export=k, actor=actor, why=why, fields=fields,
+                                before=_short_hash(before), after=_short_hash(after),
+                                **({"title": [(before or {}).get("title"), (after or {}).get("title")]}
+                                   if "title" in fields else {}))
+        if actor != "owner" and DRAFT in data and data.get(DRAFT) != old.get(DRAFT) \
+                and any(k not in old for k in locked if k != DRAFT):
+            data[DRAFT] = old.get(DRAFT) if old.get(DRAFT) is not None else data.pop(DRAFT) and None
+            if data.get(DRAFT) is None:
+                data.pop(DRAFT, None)
+            _packaging_note(pdir, export=DRAFT, actor=actor, why=why,
+                            blocked="a locked video reads these draft details", fields=["*"])
     tmp = os.path.join(pdir, PUBLISH_NAME + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1)
@@ -1260,6 +1321,82 @@ def _adapt_tags_for_chapter(tags, series_name, ch_n):
     return _trim_tags_to_limit(adapted, YT_TAGS_CHARS_MAX)
 
 
+def _thumb_sha(pdir, name):
+    import thumbnail as _tb
+    try:
+        path = _tb.path_for(pdir, name)
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except Exception:  # noqa — no thumbnail yet
+        return None
+
+
+def _thumbnail_changed(pdir, name, before, actor, why):
+    """History line for a thumbnail change; a person changing the thumbnail of
+    an approved video un-pins the upload thumbnail fixed at approval."""
+    after = _thumb_sha(pdir, name)
+    if after == before:
+        return
+    _packaging_note(pdir, export=name, actor=actor, why=why, fields=["thumbnail"],
+                    before=(before or "")[:16], after=(after or "")[:16])
+    recs = load_reviews(pdir)
+    pk = (recs.get(name) or {}).get("packaging")
+    if pk and pk.get("upload_thumb"):
+        pk.pop("upload_thumb", None)
+        pk.pop("upload_thumb_sha256", None)
+        pk["thumb_sha256"] = after
+        save_reviews(pdir, recs)
+
+
+def _pin_packaging(pdir, name, rec):
+    """At approval: fix what this video will be uploaded with. Records the
+    details' fingerprint and the thumbnail, and works out NOW the thumbnail
+    the upload will carry (the series master + chapter badge when the series
+    has one — owner rule 2026-11-07) so that what is approved is what is
+    uploaded: nothing is substituted later behind the approval."""
+    import shutil as _sh
+    import thumbnail as _tb
+    md = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
+    pin = {"at": time.time(),
+           "details": _short_hash({k: md.get(k) for k in ("title", "description", "tags", "targets", "privacy",
+                                                           "playlist", "youtube_playlist_id", "category_id",
+                                                           "made_for_kids", "first_comment")}),
+           "thumb_sha256": _thumb_sha(pdir, name)}
+    try:
+        stored = _tb.path_for(pdir, name) or None
+        final = _series_master_thumb(pdir, stored)
+        if final and os.path.isfile(final):
+            keep = os.path.join(pdir, "exports", "_thumbs", "approved_" + os.path.splitext(name)[0]
+                                + os.path.splitext(final)[1])
+            if os.path.abspath(final) != os.path.abspath(keep):
+                os.makedirs(os.path.dirname(keep), exist_ok=True)
+                _sh.copyfile(final, keep)
+            with open(keep, "rb") as f:
+                pin.update(upload_thumb=os.path.basename(keep), upload_thumb_sha256=hashlib.sha256(f.read()).hexdigest(),
+                           series_master=bool(stored is None or os.path.abspath(final) != os.path.abspath(stored)))
+    except Exception as e:  # noqa — approval is never refused over the thumbnail
+        pin["upload_thumb_error"] = str(e)[:160]
+    rec["packaging"] = pin
+    _packaging_note(pdir, export=name, actor="owner", why="approved — packaging pinned", fields=["approval"],
+                    after=pin["details"])
+    return pin
+
+
+def _pinned_upload_thumb(pdir, name):
+    """The thumbnail fixed at approval, if it is still exactly that file."""
+    pk = (load_reviews(pdir).get(name) or {}).get("packaging") or {}
+    fn = pk.get("upload_thumb")
+    if not fn:
+        return None
+    path = os.path.join(pdir, "exports", "_thumbs", os.path.basename(fn))
+    try:
+        with open(path, "rb") as f:
+            ok = hashlib.sha256(f.read()).hexdigest() == pk.get("upload_thumb_sha256")
+    except OSError:
+        return None
+    return path if ok else None
+
+
 def _metadata_locked(pdir, queued=None):
     """{export name: why} for the videos of this chapter whose title,
     description, tags and channels a person has already signed off or that
@@ -1274,9 +1411,11 @@ def _metadata_locked(pdir, queued=None):
             out[name] = "approved"
     for name, rec in (load_publishes(pdir) or {}).items():
         rec = rec or {}
+        results = rec.get("results") or []
         if rec.get("status") in ("in_progress", "published", "partial") or any(
-                r.get("status") in ("submitted", "published") for r in rec.get("results") or []):
-            out[name] = "posted" if rec.get("status") != "in_progress" else "being posted"
+                r.get("status") in ("submitted", "published", "unconfirmed") for r in results):
+            out[name] = ("being posted" if rec.get("status") == "in_progress" else
+                         "scheduled" if any(r.get("visibility") == "scheduled" for r in results) else "posted")
     if queued is None:
         import ingest as _i
         queued = {(it.get("project"), it.get("name")) for it in _pq.load(_i.PROJECTS).get("items", [])
@@ -1290,10 +1429,20 @@ def _metadata_locked(pdir, queued=None):
 _PROPAGATE_LAST = {"protected": 0}
 
 
-def _propagate_series_defaults(sid, series, pack):
+def _propagate_series_defaults(sid, series, pack, only=None, dry=False):
+    """Apply the series' saved defaults to its videos' details.
+
+    Default: every video that is NOT locked (new drafts, videos still in
+    review). Locked videos — approved, queued, being posted, scheduled, posted
+    — are left alone and counted in _PROPAGATE_LAST["protected"].
+
+    only={(project, export)}: a retroactive update of exactly those videos,
+    locked or not — an explicit, targeted owner action. dry=True changes
+    nothing and returns the list of what would change (the preview)."""
     import ingest as _i
     root = _i.PROJECTS
     applied = 0
+    preview = []
     _PROPAGATE_LAST["protected"] = 0
     try:
         queued = {(it.get("project"), it.get("name")) for it in _pq.load(root).get("items", [])
@@ -1327,9 +1476,14 @@ def _propagate_series_defaults(sid, series, pack):
             draft_feeds_locked = any(k not in store for k in locked)
             touched = False
             for k in target_keys:
-                if k in locked or (k == DRAFT and draft_feeds_locked):
+                if only is not None:
+                    if (f, k) not in only:
+                        continue
+                elif k in locked or (k == DRAFT and draft_feeds_locked):
                     _PROPAGATE_LAST["protected"] += 1
-                    continue
+                    if not dry:
+                        continue
+                before_item = dict(store.get(k) or {})
                 touched = True
                 item = dict(store.get(k) or {})
                 if t_tmpl:
@@ -1358,19 +1512,61 @@ def _propagate_series_defaults(sid, series, pack):
                 if targets:
                     item["targets"] = list(targets)
                 item.update(extra)
+                if dry:
+                    diff = {x: [before_item.get(x), item.get(x)] for x in sorted(set(before_item) | set(item))
+                            if before_item.get(x) != item.get(x)}
+                    if diff:
+                        preview.append({"project": f, "name": k, "locked": locked.get(k), "changes": diff})
+                    continue
                 store[k] = item
-            if touched:
-                save_publish(pdir, store)
+            if touched and not dry:
+                save_publish(pdir, store, actor="owner" if only is not None else "auto",
+                             why="series defaults applied to chosen videos" if only is not None else "series defaults")
                 applied += 1
         except Exception as e:
             print(f"[propagate_series_defaults] error on {f}: {e}", flush=True)
 
-    try:
-        _rerender_chosen_thumbnails(force_cover_default=True)
-    except Exception as e:
-        print(f"[propagate_series_defaults] thumbnail rerender error: {e}", flush=True)
+    if dry:
+        return preview
+    if only is None:
+        try:
+            # skips every locked video (_thumb_keep_reason)
+            _rerender_chosen_thumbnails(force_cover_default=True)
+        except Exception as e:
+            print(f"[propagate_series_defaults] thumbnail rerender error: {e}", flush=True)
 
     return applied
+
+
+class SeriesRetroIn(BaseModel):
+    series_id: str = ""
+    exports: list[list[str]] | None = None      # [[project, export name], …] — exactly these
+    apply: bool = False
+
+
+@app.post("/api/series/defaults/retroactive")
+def api_series_defaults_retroactive(body: SeriesRetroIn):
+    """Retroactive series defaults, in two steps (2026-11-14). Series defaults
+    reach new drafts and unreviewed videos by themselves; an approved, queued,
+    scheduled or posted video changes only here.
+      apply=false  the preview: every video of the series whose details would
+                   change, each marked with why it is locked
+      apply=true   changes exactly the videos listed in `exports`
+    Details only — thumbnails are never changed by this."""
+    import series_pack as _sp
+    sid = (body.series_id or "").strip()
+    pack = _sp.load(_yt_root(), sid) if sid else None
+    if not pack:
+        raise HTTPException(404, "no saved defaults for this series")
+    if not body.apply:
+        return {"ok": True, "series_id": sid, "applied": 0,
+                "preview": _propagate_series_defaults(sid, sid, pack, dry=True)}
+    chosen = {(str(x[0]), str(x[1])) for x in (body.exports or []) if isinstance(x, list) and len(x) == 2}
+    if not chosen:
+        raise HTTPException(400, "list the videos to change in `exports` — see the preview (apply=false)")
+    n = _propagate_series_defaults(sid, sid, pack, only=chosen)
+    _ev("publish", f"{sid}: series defaults applied to {len(chosen)} chosen video(s) by the owner", "ok")
+    return {"ok": True, "series_id": sid, "applied": n, "exports": sorted(chosen)}
 
 
 def _publish_defaults_base(pdir):
@@ -1743,7 +1939,7 @@ def api_publish_save(body: PublishIn):
                 if k in (body.metadata or {}):
                     rec[k] = md[k]
             store[latest] = rec
-    save_publish(pdir, store)
+    save_publish(pdir, store, actor="owner", why="details edited on the video's page")
     pid = os.path.basename(pdir.rstrip("/"))
     # Same shape as the GET. Returning a thinner object here emptied the
     # category and privacy dropdowns the moment anything was saved, because the
@@ -2166,6 +2362,12 @@ def _thumb_keep_reason(pdir, name, masters):
         sid = _series_ident(pdir)[0] or ""
     except Exception:
         sid = ""
+    try:
+        lock = _metadata_locked(pdir).get(name)
+    except Exception:  # noqa — cannot tell: leave it alone
+        lock = "lock state unreadable"
+    if lock:
+        return lock                       # approved / queued / being posted / scheduled / posted
     if sid and masters(sid):
         return "series master"
     rec = _tb.get(pdir, name)
@@ -2273,6 +2475,13 @@ def _thumbcopilot_apply(body: ThumbApplyIn, source="auto"):
     import thumbnail as _tb
     pdir = project_dir_for(body.project)
     name = os.path.basename(body.name or "")
+    lock = _metadata_locked(pdir).get(name)
+    if lock and source == "auto":
+        # an automatic redraw never replaces the thumbnail of a video that is
+        # approved, queued, being posted, scheduled or posted
+        _packaging_note(pdir, export=name, actor="auto", why="automatic thumbnail redraw", blocked=lock,
+                        fields=["thumbnail"])
+        return {"ok": False, "skipped": lock, "project": os.path.basename(pdir.rstrip("/")), "name": name}
     rec = tstudio.get_concepts(pdir, name)
     c = next((x for x in (rec.get("concepts") or [])
               if x.get("id") == body.concept_id), None)
@@ -2292,10 +2501,13 @@ def _thumbcopilot_apply(body: ThumbApplyIn, source="auto"):
         raise HTTPException(409, str(e))
     with open(tmp, "rb") as f:
         data = f.read()
+    before = _thumb_sha(pdir, name)
     try:
         saved = _tb.save(pdir, name, data, source=source)   # the existing store
     except _tb.ThumbnailError as e:
         raise HTTPException(422, str(e))
+    _thumbnail_changed(pdir, name, before, "owner" if source != "auto" else "auto",
+                       "thumbnail picked from the concepts" if source != "auto" else "automatic thumbnail")
 
     if body.set_series_default:
         tstudio.approve_style(_yt_root(), key, style,
@@ -3918,7 +4130,8 @@ def api_publish_repair_titles(body: RepairTitlesIn):
                     dirty = True
             store[name] = new
         if dirty and body.apply:
-            save_publish(pdir, store)
+            # an explicit repair the owner previewed (apply=false lists the changes)
+            save_publish(pdir, store, actor="owner", why="title repair applied after preview")
     if body.apply and changes:
         _ev("publish", f"repaired {len(changes)} title/description/tag field(s) (merged-video numbers, old suffix)", "ok")
     return {"applied": body.apply, "changes": changes}
@@ -4581,7 +4794,7 @@ def api_seo_apply(body: SeoApplyIn):
         raise HTTPException(400, "unknown field %r" % field)
 
     store[name] = md
-    save_publish(pdir, store)
+    save_publish(pdir, store, actor="owner", why="SEO suggestions applied to this video")
     applied = dict(rec.get("applied") or {})
     applied[field] = {"at": time.time(),
                       "value": md.get("title") if field == "title" else True}
@@ -4612,7 +4825,9 @@ async def thumbnail_upload(request: Request, project: str = "", name: str = ""):
     pdir = project_dir_for(project)
     data = await request.body()
     try:
+        _before = _thumb_sha(pdir, name)
         rec = _tb.save(pdir, name, data)
+        _thumbnail_changed(pdir, name, _before, "owner", "thumbnail uploaded by hand")
     except _tb.ThumbnailError as e:
         # 422, not 500: the upload was understood and refused for a stated
         # reason the operator can act on.
@@ -5145,9 +5360,20 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
         # The custom thumbnail saved for this export (exports/_thumbs/), if any.
         import thumbnail as _tb
         thumb_file = _tb.path_for(pdir, name) or None
-        # HEAD's series master + this video's CH badge replaces it when the
-        # series has one in Drive (owner, 2026-11-07); otherwise unchanged.
-        thumb_file = _series_master_thumb(pdir, thumb_file)
+        # The thumbnail fixed when the video was approved is uploaded as it
+        # is. Only approvals from before thumbnails were pinned (2026-11-14)
+        # still get the series master + CH badge worked out here (owner,
+        # 2026-11-07), and that substitution is written to the history.
+        pinned = _pinned_upload_thumb(pdir, name)
+        if pinned:
+            thumb_file = pinned
+        else:
+            stored = thumb_file
+            thumb_file = _series_master_thumb(pdir, thumb_file)
+            if thumb_file != stored:
+                _packaging_note(pdir, export=name, actor="auto", fields=["thumbnail"],
+                                why="series master + chapter badge used at upload (approved before "
+                                    "thumbnails were pinned at approval)")
 
         # One Upload-Post request carries ONE profile ("user"). Targets on
         # different profiles (mk:youtube + default:youtube) must be separate
@@ -5565,7 +5791,7 @@ class _SkipSeo(Exception):
 
 def _budget_left():
     try:
-        return float(usage.daily_cap()) - float(usage.daily_summary().get("est_cost_usd") or 0)
+        return float(usage.headroom())      # counts uncertain and held money too
     except Exception:
         return 0.0
 
@@ -10348,7 +10574,7 @@ def _cap_headroom():
         if d.get("date") != usage._today():
             return True
         est = _autopilot.estimate(_autopilot.load(_ingest_mod.PROJECTS)["ledger"])
-        return (float(d.get("est_cost_usd") or 0) + est <= usage.daily_cap()
+        return (float(d.get("committed_usd") or d.get("est_cost_usd") or 0) + est <= usage.daily_cap()
                 and int(d.get("gemini_calls") or 0) + 700 <= usage.MAX_DAILY_GEMINI_CALLS
                 and int(d.get("tts_chars") or 0) + 15000 <= usage.MAX_DAILY_TTS_CHARS)
     except Exception:
@@ -10832,6 +11058,15 @@ def _series_look(pdir):
 
 @app.on_event("startup")
 def _start_background_work():
+    try:
+        # paid calls cut off by the restart: their holds become "uncertain"
+        # spend (they may have been billed) instead of quietly expiring
+        left = usage.recover()
+        if left["calls"]:
+            _ev("spend", f"{left['calls']} paid call(s) were running when the server restarted; "
+                         f"${left['uncertain_usd']:.4f} is counted as uncertain spend", "warn")
+    except Exception as e:
+        print(f"[startup] spend recovery failed: {e}", flush=True)
     try:
         import thumbnail_studio as _ts_boot
         _ts_boot.CANON = _canon_series        # one thumbnail look per tracker series
@@ -12694,7 +12929,7 @@ def studio_queue_add(body: StudioQueueIn):
             if body.privacy is not None:
                 md["privacy"] = body.privacy
             store[name] = md
-            save_publish(pdir, store)
+            save_publish(pdir, store, actor="owner", why="channels / privacy set when queued")
         entries.append({"project": os.path.basename(pdir.rstrip("/")), "name": name})
     added, skipped = _pq.add(_i.PROJECTS, entries)
     for a in added:
@@ -12848,7 +13083,7 @@ def studio_bulk(body: StudioBulkIn):
                 md = {**publish_defaults(pdir), **(store.get(name) or {})}
                 md["targets"] = [t for t in body.targets if isinstance(t, str)]
                 store[name] = md
-                save_publish(pdir, store)
+                save_publish(pdir, store, actor="owner", why="channels changed for the selected videos")
             elif body.action == "seo":
                 threading.Thread(target=_redo_seo, args=(pid, name), daemon=True).start()
             elif body.action == "requeue":
@@ -12872,7 +13107,7 @@ def studio_bulk(body: StudioBulkIn):
                 if body.privacy is not None:
                     md["privacy"] = body.privacy
                 store[name] = md
-                save_publish(pdir, store)
+                save_publish(pdir, store, actor="owner", why="details edited for the selected videos")
             else:
                 raise HTTPException(400, "unknown action")
             done.append({"project": pid, "name": name})

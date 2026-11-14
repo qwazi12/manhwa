@@ -193,6 +193,9 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
         os.environ.get("VISION_THINKING_LEVEL", "low")
     if level and level not in ("default", "off"):
         payload["generation_config"] = {"thinking_level": level}
+    cap = usage.output_cap("vision", model) if usage else 0
+    if cap:                              # off unless VISION_MAX_OUTPUT_TOKENS is set
+        payload.setdefault("generation_config", {})["max_output_tokens"] = cap
     # Autopilot chapters ask for the Flex tier (half price, may queue up to
     # ~15 min). Google does not fall back by itself, so a capacity refusal is
     # retried once on Standard rather than failing the chapter. When Flex keeps
@@ -223,7 +226,14 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
             body = e.read().decode("utf-8", "replace")[:300]
         except Exception:
             pass
-        if e.code == 400 and "generation_config" in payload and "hinking" in body:
+        if e.code == 400 and "max_output_tokens" in payload.get("generation_config", {}) and "max_output" in body:
+            if usage:
+                usage.output_cap_unsupported(model)
+            payload["generation_config"].pop("max_output_tokens", None)
+            if not payload["generation_config"]:
+                payload.pop("generation_config")
+            data = _send()
+        elif e.code == 400 and "generation_config" in payload and "hinking" in body:
             # this model does not take thinking_level: send without it, and
             # stop sending it for this model
             if usage:

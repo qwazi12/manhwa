@@ -228,6 +228,9 @@ def call_gemini_rest(model, prompt, api_key):
         level = usage.thinking_level("script", model) if usage else ""
         if level:
             payload["generation_config"] = {"thinking_level": level}
+        cap = usage.output_cap("script", model) if usage else 0
+        if cap:                          # off unless SCRIPT_MAX_OUTPUT_TOKENS is set
+            payload.setdefault("generation_config", {})["max_output_tokens"] = cap
         # Autopilot chapters ask for Flex (half price, may queue ~1–15 min);
         # skipped for a while when Google keeps refusing it (usage.effective_tier).
         tier = usage.effective_tier() if usage else ""
@@ -255,6 +258,14 @@ def call_gemini_rest(model, prompt, api_key):
                 # Retry transient failures; surface everything else WITH the
                 # API's own explanation (job db7216d976ce died as an opaque
                 # bare "HTTP Error 400" because this body was discarded).
+                if e.code == 400 and "max_output_tokens" in payload.get("generation_config", {}) and "max_output" in body:
+                    if usage:
+                        usage.output_cap_unsupported(model)
+                    payload["generation_config"].pop("max_output_tokens", None)
+                    if not payload["generation_config"]:
+                        payload.pop("generation_config")
+                    data = json.dumps(payload).encode("utf-8")
+                    continue
                 if e.code == 400 and "generation_config" in payload and "hinking" in body:
                     # this model does not take thinking_level: send without it
                     if usage:
