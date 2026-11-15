@@ -4079,6 +4079,8 @@ def api_range_build(body: RangeIn):
                 sp = _apply_search_pack(rdir, name, why="series search pack (new merged video)")
                 for why in (sp or {}).get("problems") or []:
                     _ev("publish", f"{series} chapters {a}-{b}: search-pack title not used — {why}", "warn")
+                for why in (sp or {}).get("ab_problems") or []:
+                    _ev("publish", f"{series} chapters {a}-{b}: title A/B test can't be set up — {why}", "warn")
             except Exception as e:  # noqa — the video is still fine; say so
                 _ev("publish", f"{series} chapters {a}-{b}: the series search pack could not be applied — "
                                f"{str(e)[:160]}", "warn")
@@ -4886,7 +4888,7 @@ def api_growth_snapshot(days: int = 14):
         series_out.append({"search_title": sp.get("search_title") or "", "aka_names": sp.get("aka_names") or [],
                            "hook": sp.get("hook") or "", "hook_status": sp.get("hook_status") or "",
                            "evidence": sp.get("evidence") or "", "characters": sp.get("characters") or [],
-                           "pack_hashtags": sp.get("hashtags") or [],
+                           "pack_hashtags": sp.get("hashtags") or [], "hook_b": sp.get("hook_b") or "",
                            "series_id": sx["id"], "title": sx.get("title"), "tier": sx.get("tier"),
                            "production_source": key, "latest_source_chapter": latest,
                            "latest_source_date": ((m.get("release_dates") or {}).get(str(int(latest)) if latest is not None else "") or [None])[0],
@@ -4970,7 +4972,24 @@ def _apply_search_pack(pdir, name, actor="auto", why="series search pack"):
     if changed:
         store[name] = new
         save_publish(pdir, store, actor=actor, why=why)
-    return {"changed": changed, "problems": probs, "title": new.get("title")}
+    ab, ab_probs = _ssp.ab_titles(rec, label)
+    return {"changed": changed, "problems": probs, "title": new.get("title"), "ab_titles": ab, "ab_problems": ab_probs}
+
+
+def _ab_test_note(pdir, name):
+    """Title A/B test (owner, HOOKS_FINAL_20261115_v2): the studio uploads with
+    title A; YouTube runs the test, set in YouTube Studio > the video > Test &
+    compare (no API or Upload-Post option). -> the note, or None."""
+    import ingest as _i
+    sid, label = _search_label(pdir)
+    rec = _ssp.get(_i.PROJECTS, sid)
+    ab, probs = _ssp.ab_titles(rec, label) if rec else (None, [])
+    if ab:
+        return (f"title A/B test: in YouTube Studio open the video > Test & compare > Title, "
+                f"A = \"{ab['a']}\", B = \"{ab['b']}\"")
+    if probs:
+        return "title A/B test can't be set up — " + "; ".join(probs)
+    return None
 
 
 class SearchPackIn(BaseModel):
@@ -5030,8 +5049,11 @@ def api_series_search_pack_apply(body: SearchPackApplyIn):
             continue
         md = {**publish_defaults(pdir), **(load_publish(pdir).get(name) or {})}
         new, changed, probs = _ssp.apply(md, rec, label)
+        ab, ab_probs = _ssp.ab_titles(rec, label)
         row.update(changed=changed, problems=probs,
                    before={k: md.get(k) for k in changed}, after={k: new.get(k) for k in changed})
+        if ab or ab_probs:
+            row.update(ab_titles=ab, ab_problems=ab_probs)
         if body.apply and changed:
             _apply_search_pack(pdir, name, actor="owner", why="series search pack applied to this video")
             row["applied"] = True
@@ -11238,6 +11260,12 @@ def _schedule_post_pass(now=None):
                           f"{dec['slot']} ({r.get('privacy')})" + (f" after skipping {', '.join(refused)}" if refused else ""))
             _ev("publish", f"schedule {dec['slot']}: uploading {_pretty(it['project'])} ahead — "
                            f"YouTube publishes it at {dec['slot']}:00", "ok")
+            try:
+                note = _ab_test_note(project_dir_for(it["project"]), it["name"])
+                if note:
+                    _ev("publish", f"{_pretty(it['project'])}: {note}", "warn")
+            except Exception:  # noqa — a reminder must never stop a post
+                pass
             break
         except HTTPException as e:
             _pq.mark(_i.PROJECTS, it["id"], status="failed", error=str(e.detail)[:300])
