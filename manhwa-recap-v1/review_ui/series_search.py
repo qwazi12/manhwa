@@ -28,7 +28,7 @@ import time
 NAME = "_series_search_pack.json"
 TITLE_MAX = 100
 FIELDS = ("search_title", "hook", "hook_status", "aka_names", "characters", "hashtags", "evidence",
-          "library_title", "notes")
+          "library_title", "notes", "hook_b")
 _LOCK = threading.RLock()
 _APOS = str.maketrans({"’": "'", "‘": "'", "`": "'"})
 _TAG = re.compile(r"#[^\s#]+")
@@ -108,6 +108,15 @@ def _clean(rec):
         raise PackError(f"{sid}: exactly three different hashtags like #Word are required")
     if len(f"[1] {hook} | {name}") > TITLE_MAX:
         raise PackError(f"{sid}: the hook and name alone are over {TITLE_MAX} characters")
+    # Title A/B test (owner, HOOKS_FINAL_20261115_v2): hook_b is title B; title A is the hook.
+    hook_b = straight(" ".join(str(rec.get("hook_b") or "").split()))
+    if hook_b:
+        if any(ch in hook_b for ch in "<>"):
+            raise PackError(f"{sid}: YouTube refuses < or > in a title")
+        if hook_b.lower() == hook.lower():
+            raise PackError(f"{sid}: hook_b (title B) is the same as the hook (title A)")
+        if len(f"[1] {hook_b} | {name}") > TITLE_MAX:
+            raise PackError(f"{sid}: hook_b and name alone are over {TITLE_MAX} characters")
 
     def names(key):
         out, seen = [], {name.lower()}
@@ -121,7 +130,7 @@ def _clean(rec):
                  "hook_status": str(rec.get("hook_status") or "locked"),
                  "aka_names": names("aka_names"), "characters": names("characters"), "hashtags": tags,
                  "evidence": str(rec.get("evidence") or ""), "library_title": str(rec.get("library_title") or ""),
-                 "notes": str(rec.get("notes") or "")}
+                 "notes": str(rec.get("notes") or ""), "hook_b": hook_b}
 
 
 def upsert(root, records, source=""):
@@ -141,12 +150,31 @@ def upsert(root, records, source=""):
     return [sid for sid, _ in cleaned]
 
 
-def title_for(rec, label):
-    """-> (title, None) or (None, why not). Never shortens a locked hook."""
-    t = f"[{label}] {rec['hook']} | {rec['search_title']}"
+def title_for(rec, label, hook=None):
+    """-> (title, None) or (None, why not). Never cuts a locked hook's words;
+    when the title is too long only a closing "!" may go (owner precedent,
+    Death Knight 88-95, Nov 14). hook: title B's hook instead of the record's."""
+    h = hook or rec["hook"]
+    t = f"[{label}] {h} | {rec['search_title']}"
+    if len(t) > TITLE_MAX and h.endswith("!"):
+        t2 = f"[{label}] {h.rstrip('!').rstrip()} | {rec['search_title']}"
+        if len(t2) <= TITLE_MAX:
+            return t2, None
     if len(t) > TITLE_MAX:
         return None, f"the title would be {len(t)} characters (YouTube allows {TITLE_MAX}): {t}"
     return t, None
+
+
+def ab_titles(rec, label):
+    """Title A/B test for a video of this series: -> ({"a", "b"}, [problems]),
+    or (None, []) when the series has no test. YouTube runs the test (Studio >
+    the video > Test & compare); the studio uploads with title A."""
+    if not (rec or {}).get("hook_b"):
+        return None, []
+    a, why_a = title_for(rec, label)
+    b, why_b = title_for(rec, label, hook=rec["hook_b"])
+    probs = [w for w in (why_a and "title A: " + why_a, why_b and "title B: " + why_b) if w]
+    return ({"a": a, "b": b} if a and b else None), probs
 
 
 def _is_tag_line(line):

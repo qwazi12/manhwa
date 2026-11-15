@@ -300,3 +300,54 @@ def test_new_merge_gets_the_series_search_pack(lib):
     assert md["hashtags"] == ["#IronBloodedSwordHound", "#ManhwaRecap", "#Regression"]
     posted = server.load_publish(os.path.join(root, "hound_ch20-21"))["final_range_20-21.mp4"]
     assert posted["title"] == "[20-21] Hound Returns For VENGEANCE | Flamingo Recap"        # the posted video is not touched
+
+
+def test_title_ab_test_note_for_the_new_merge(lib):
+    """HOOKS_FINAL_20261115_v2: the series has title B; the video uploads with
+    title A and the upload note says how to start YouTube's Test & compare."""
+    root, tmp_path = lib
+    server.api_series_search_pack_save(server.SearchPackIn(records=[{
+        "series_id": "hound", "search_title": "Revenge of the Iron-Blooded Sword Hound",
+        "hook": "Disposable Hound Returns For VENGEANCE", "hook_b": "Vikir Returns To Burn The Baskervilles",
+        "hashtags": ["#IronBloodedSwordHound", "#ManhwaRecap", "#Regression"]}]))
+    server._auto_append_pass()
+    assert _wait(root, "hound_ch22-23")["build"]["status"] == "done"
+    pdir = os.path.join(root, "hound_ch22-23")
+    md = server.load_publish(pdir)["final_range_22-23.mp4"]
+    assert md["title"] == "[22-23] Disposable Hound Returns For VENGEANCE | Revenge of the Iron-Blooded Sword Hound"
+    note = server._ab_test_note(pdir, "final_range_22-23.mp4")
+    assert "Test & compare" in note and "B = \"[22-23] Vikir Returns To Burn The Baskervilles | " in note
+    assert server._ab_test_note(os.path.join(root, "hound_ch20-21"), "final_range_20-21.mp4") is not None
+
+
+def test_abtest_queue_and_mark(lib):
+    """Owner 2026-11-15: every posted video gets a YouTube Test & compare; the
+    queue lists posted videos with no test yet and what to set up."""
+    import thumbnail_studio as tstudio
+    root, tmp_path = lib
+    pdir = os.path.join(root, "hound_ch20-21")
+    tstudio.put_concepts(pdir, "final_range_20-21.mp4", {
+        "chosen": {"concept_id": "c0", "composition": "cover-badge", "focal_panel": "p1"},
+        "concepts": [{"id": "c0", "composition": "cover-badge", "focal_panel": "p1", "name": "Cover"},
+                     {"id": "c1", "composition": "panel-hero", "focal_panel": "p2", "name": "Panel"},
+                     {"id": "c2", "composition": "chapter-card", "focal_panel": "p1", "name": "Card"}]})
+    q = server.api_abtest_queue(days=100000)
+    row = next(r for r in q["todo"] if r["video_id"] == "abcdefghijk")
+    assert row["plan"]["type"] == "thumbnail" and row["plan"]["thumbnails"] == ["c1", "c2"]
+    assert row["plan"]["thumbnail_urls"]["B"].startswith("/thumbconcept?") and "concept_id=c1" in row["plan"]["thumbnail_urls"]["B"]
+    # series gets title B: the posted video's test becomes a title test, A = its live title
+    server.api_series_search_pack_save(server.SearchPackIn(records=[{
+        "series_id": "hound", "search_title": "Revenge of the Iron-Blooded Sword Hound",
+        "hook": "Disposable Hound Returns For VENGEANCE", "hook_b": "Vikir Returns To Burn The Baskervilles",
+        "hashtags": ["#IronBloodedSwordHound", "#ManhwaRecap", "#Regression"]}]))
+    row = next(r for r in server.api_abtest_queue(days=100000)["todo"] if r["video_id"] == "abcdefghijk")
+    assert row["plan"]["titles"] == ["[20-21] Hound Returns For VENGEANCE | Flamingo Recap",
+                                     "[20-21] Vikir Returns To Burn The Baskervilles | Revenge of the Iron-Blooded Sword Hound"]
+    assert server.load_publish(pdir)["final_range_20-21.mp4"]["title"] == "[20-21] Hound Returns For VENGEANCE | Flamingo Recap"
+    server.api_abtest_mark(server.AbMarkIn(video_id="abcdefghijk", status="running", test_type="title",
+                                           project="hound_ch20-21", name="final_range_20-21.mp4"))
+    q = server.api_abtest_queue(days=100000)
+    assert not any(r["video_id"] == "abcdefghijk" for r in q["todo"])
+    assert q["have"][0]["test"]["status"] == "running"
+    with pytest.raises(server.HTTPException):
+        server.api_abtest_mark(server.AbMarkIn(video_id="abcdefghijk", status="maybe"))

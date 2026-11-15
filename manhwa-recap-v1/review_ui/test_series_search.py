@@ -173,3 +173,48 @@ def test_export_snapshot_carries_the_pack_and_matches_series_ids(tmp_path, monke
     assert row["made_through"] == 119 and row["hook_locked"] and row["hook_text"].startswith("Disowned Noble")
     assert row["search_title"] == "The Extra's Academy Survival Guide" and row["hook_status"] == "locked"
     assert row["pack_hashtags"] == EXTRA["hashtags"] and row["characters"] == ["Ed Rothstaylor"]
+
+
+# ---- HOOKS_FINAL_20261115_v2 (owner, Nov 15): title A/B test + closing "!" only when it doesn't fit
+DK_V2 = {**DK, "search_title": "The Apocalypse-Level Death Knight Returns",
+         "aka_names": ["Return of the Apocalypse-Class Death Knight"],
+         "hashtags": ["#TheApocalypseLevelDeathKnightReturns", "#ManhwaRecap", "#Regression"],
+         "hook_b": "Brainwashed Knight Returns To SAVE His Family"}
+
+
+def test_closing_exclamation_goes_only_when_the_title_would_not_fit():
+    rec = S.get(_root(DK_V2), DK_V2["series_id"])
+    assert S.title_for(rec, "96")[0] == ("[96] He Destroyed The World, But Regressed To Save It! | "
+                                         "The Apocalypse-Level Death Knight Returns")
+    t, why = S.title_for(rec, "88-95")
+    assert t == "[88-95] He Destroyed The World, But Regressed To Save It | The Apocalypse-Level Death Knight Returns"
+    assert len(t) == 100 and why is None
+    t, why = S.title_for(rec, "96-102")          # 101 even without the "!": refused, words never cut
+    assert t is None and "101 characters" not in why and "102 characters" in why
+
+
+def test_ab_titles_for_a_series_with_title_b():
+    rec = S.get(_root(DK_V2), DK_V2["series_id"])
+    assert rec["hook_b"] == "Brainwashed Knight Returns To SAVE His Family"
+    ab, probs = S.ab_titles(rec, "96-99")
+    assert probs == [] and ab == {
+        "a": "[96-99] He Destroyed The World, But Regressed To Save It | The Apocalypse-Level Death Knight Returns",
+        "b": "[96-99] Brainwashed Knight Returns To SAVE His Family | The Apocalypse-Level Death Knight Returns"}
+    ab, probs = S.ab_titles(rec, "96-102")
+    assert ab is None and len(probs) == 1 and probs[0].startswith("title A: ")
+    assert S.ab_titles(S.get(_root(EXTRA), EXTRA["series_id"]), "120") == (None, [])
+
+
+def test_title_b_is_checked_like_the_hook():
+    with pytest.raises(S.PackError):
+        S.upsert(_root(), [{**DK_V2, "hook_b": DK_V2["hook"]}])
+    with pytest.raises(S.PackError):
+        S.upsert(_root(), [{**DK_V2, "hook_b": "x" * 60}])
+    with pytest.raises(S.PackError):
+        S.upsert(_root(), [{**DK_V2, "hook_b": "Knight <Returns>"}])
+
+
+def test_apply_uploads_with_title_a():
+    rec = S.get(_root(DK_V2), DK_V2["series_id"])
+    new, changed, probs = S.apply({"title": "old", "description": DESC}, rec, "96-99")
+    assert new["title"].startswith("[96-99] He Destroyed The World") and "title" in changed and probs == []
