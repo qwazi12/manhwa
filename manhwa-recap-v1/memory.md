@@ -2225,5 +2225,6 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
   - Death Knight 88-95 (5sOZldtbX4Q): Title only test RUNNING — A "[88-95] He Destroyed The World, But Regressed To Save It | The Apocalypse-Level Death Knight Returns", B "[88-95] Brainwashed Knight Returns To SAVE His Family | The Apocalypse-Level Death Knight Returns" (97 chars).
   - Mount Hua 180-187 (VkCHU9yQqwo): Thumbnail only test RUNNING — A = live thumbnail, B = concept c2 (cover art + "FAILED CLAN STRONGEST"). Concepts c3 (panel-hero, faces cut) and c4 (chapter-card, side character + Korean SFX) looked weak and were left out.
 - Learned: the studio's concept picks can be weak; whoever sets up a test looks at each image first and drops weak ones. Studio needs Save after "Set test".
-- Daily pass scheduled in THIS Claude session (CronCreate 5abeed4d, 3:47 PM local daily, session-only, expires in 7 days): queue → set up tests in Chrome → mark.
+- Daily pass scheduled in THIS Claude session (CronCreate a786051a, 3:47 PM local daily, session-only, expires in 7 days; videos published from Nov 15 on only): queue → look at variants → set up tests in Chrome → mark. Live as of 18:38Z: DK record re-saved with hook_b; both tests recorded in the ledger.
+- Back-catalog NOT tested (needs owner): 28 other videos posted in the last 14 days are in the queue (16 thumbnail plans, 1 title plan = an older DK video, 11 with no plan: no concepts).
 - Only Death Knight has an approved title B; other series get thumbnail tests until title B hooks are approved.
