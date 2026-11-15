@@ -4989,7 +4989,110 @@ def _ab_test_note(pdir, name):
                 f"A = \"{ab['a']}\", B = \"{ab['b']}\"")
     if probs:
         return "title A/B test can't be set up — " + "; ".join(probs)
+    try:
+        p = _abtest_plan(pdir, name)
+        if p.get("type") == "thumbnail":
+            return (f"thumbnail A/B test: {len(p['thumbnails'])} more thumbnail(s) ready for YouTube Studio > "
+                    f"Test & compare (GET /api/abtest/queue)")
+    except Exception:  # noqa — a reminder must never stop a post
+        pass
     return None
+
+
+# ---- YouTube A/B tests (owner, 2026-11-15: every video going out gets one; see abtest.py)
+import abtest as _abt
+
+
+def _abtest_plan(pdir, name, title=""):
+    """The Test & compare set-up for one video: title test when the series has
+    title B, else thumbnail test with the video's two most different concepts."""
+    import ingest as _i
+    import thumbnail_studio as tstudio
+    from urllib.parse import urlencode
+    sid, label = _search_label(pdir)
+    rec = _ssp.get(_i.PROJECTS, sid) if sid else None
+    cur = title or (load_publish(pdir).get(name) or {}).get("title") or ""
+    b, probs = None, []
+    if rec and rec.get("hook_b") and label:
+        b, why = _ssp.title_for(rec, label, hook=rec["hook_b"])
+        if why:
+            probs.append("title B: " + why)
+    cs = _abt.thumb_variants(tstudio.get_concepts(pdir, name))
+    p = _abt.plan(cur, b, [c["id"] for c in cs], probs)
+    proj = os.path.basename(pdir.rstrip("/"))
+    p["thumbnail_urls"] = {"A": "/thumbnail?" + urlencode({"project": proj, "name": name})}
+    p["thumbnail_designs"] = {"A": "the thumbnail it went out with"}
+    for i, c in enumerate(c for c in cs if c["id"] in p["thumbnails"]):
+        k = "BC"[i]
+        p["thumbnail_urls"][k] = "/thumbconcept?" + urlencode({"project": proj, "name": name, "concept_id": c["id"]})
+        p["thumbnail_designs"][k] = c.get("name") or c.get("composition") or ""
+    return p
+
+
+@app.get("/api/abtest/queue")
+def api_abtest_queue(days: int = 14):
+    """Posted YouTube videos (last `days` days, scheduled ones included) and
+    their A/B test: `todo` = no test recorded yet, with the plan to set up;
+    `have` = the ledger entry. The agent or a person sets the test up in
+    YouTube Studio, then records it with POST /api/abtest/mark."""
+    import ingest as _i
+    now, todo, have = time.time(), [], []
+    ledger = _abt.load(_i.PROJECTS)
+    for pid in sorted(os.listdir(_i.PROJECTS)) if os.path.isdir(_i.PROJECTS) else []:
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(pdir):
+            continue
+        md_store = load_publish(pdir)
+        for name, rec in (load_publishes(pdir) or {}).items():
+            for res in (rec or {}).get("results") or []:
+                if res.get("status") != "published" or res.get("network") != "youtube":
+                    continue
+                at = (rec or {}).get("publish_at") or res.get("published_at") or 0
+                if at and now - at > days * 86400:
+                    continue
+                vid = _yt_id(res.get("url")) or ""
+                if not vid:
+                    continue
+                row = {"video_id": vid, "url": res.get("url"), "project": pid, "name": name,
+                       "title": (md_store.get(name) or {}).get("title") or "",
+                       "publish_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)) if at else ""}
+                if vid in ledger:
+                    have.append({**row, "test": ledger[vid]})
+                    continue
+                try:
+                    row["plan"] = _abtest_plan(pdir, name, row["title"])
+                except Exception as e:  # noqa — one video must not hide the rest
+                    row["plan"] = {"type": None, "why": f"plan failed: {str(e)[:160]}"}
+                todo.append(row)
+    todo.sort(key=lambda r: r["publish_at_utc"])
+    return {"days": days, "todo": todo, "have": have}
+
+
+class AbMarkIn(BaseModel):
+    video_id: str
+    status: str                       # running | done | not_available | failed | skipped
+    project: str = ""
+    name: str = ""
+    test_type: str = ""               # title | thumbnail | both
+    variants: list = []               # what was entered in Test & compare
+    note: str = ""
+    by: str = "agent"
+
+
+@app.post("/api/abtest/mark")
+def api_abtest_mark(body: AbMarkIn):
+    """Record a video's YouTube A/B test (set up, finished, not possible)."""
+    import ingest as _i
+    try:
+        e = _abt.mark(_i.PROJECTS, body.video_id, body.status, actor=body.by[:40],
+                      project=body.project or None, name=body.name or None, test_type=body.test_type or None,
+                      variants=body.variants or None, note=body.note[:500] or None)
+    except ValueError as err:
+        raise HTTPException(400, str(err))
+    _ev("publish", f"A/B test {body.video_id}: {body.status}"
+                   + (f" ({body.test_type})" if body.test_type else "") + (f" — {body.note[:160]}" if body.note else ""),
+        "ok" if body.status in ("running", "done") else "warn")
+    return {"ok": True, "video_id": body.video_id, "test": e}
 
 
 class SearchPackIn(BaseModel):
