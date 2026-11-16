@@ -2306,3 +2306,10 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 
 ### 2026-11-16 21:17Z — Daily YouTube A/B pass: nothing to do
 - Approval page `decisions` collection: empty (the owner has not decided on any video yet). `/api/abtest/queue?days=60`: 49 todo, 2 have. No video posted on or after 2026-11-15, so nothing new to add to the page. YouTube Studio not opened; nothing changed.
+
+### 2026-11-16 22:40Z — Owner set `INGEST_WORKERS` in Railway (value is 3, not 2); 3-at-once test started with 4 chapters
+- Owner asked where to set it; given the Railway Variables link and steps. Owner: "Done and deploying". Railway deployment fa861336 (same commit 6f64b7b, variable change only): created 22:29:41Z, SUCCESS 22:35:34Z. Job bar was empty before (checked 22:17Z and 22:38Z).
+- The value read back from Railway is `INGEST_WORKERS=3` (`INGEST_LINE_MAX` unset, so the line holds 4). So this run measures 3 at once, not 2.
+- 22:38:25Z to 22:38:30Z: queued with Make now (`POST /api/autopilot/run`), next chapters of the owner's Make-next list from series already in production: Stellar Swordmaster 137 (job 3368b23a3a79, WEBTOON), Fated Villain 368 (f31458b2d9c1), 369 (0ab8aa7e4587), Bountiful Harvest 92 (d1ba80853902). Extra's 120 to 122 skipped (120 is "stopped by you"). None of the four has an extra link on mgeko.
+- 22:38:40Z: three running together (137 split, 368 and 369 scrape), the fourth queued. Autopilot still OFF. Spend before the test: $7.69 of $15.
+- Recording: scratchpad `stage_log.py` (every 20 s), summary with `level.py`. Rollback: set `INGEST_WORKERS` back to 1 (or delete it) in Railway.
