@@ -2314,7 +2314,7 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - 22:38:40Z: three running together (137 split, 368 and 369 scrape), the fourth queued. Autopilot still OFF. Spend before the test: $7.69 of $15.
 - Recording: scratchpad `stage_log.py` (every 20 s), summary with `level.py`. Rollback: set `INGEST_WORKERS` back to 1 (or delete it) in Railway.
 
-### 2026-11-16 23:25Z — 3-at-once test done: 4 of 4 chapters made, no errors, 6.0 chapters/hour (1 at once was 3.8)
+### 2026-11-16 23:21Z — 3-at-once test done: 4 of 4 chapters made, no errors, 6.0 chapters/hour (1 at once was 3.8)
 - All four finished and wait for the owner's review (no video rendered, nothing posted): Stellar Swordmaster 137 (67 segments, 442.6 s, $0.66), Fated Villain 368 (87, 642.2 s, $0.75), 369 (83, 632.0 s, $0.82), Bountiful Harvest 92 (132, 791.1 s, $1.07). Total $3.30, $0.83 average (same as at 1 at once). Spend today $11.24 of $15. Autopilot OFF. Line empty 23:19Z.
 - Speed: queued 22:38:26Z, last one ended 23:18:31Z = 40.1 min for 4 = 6.0 chapters/hour, 1.6x the 3.8 measured at 1 at once. The model predicted 9.0. Stage recorder: 3 running for 24 min, 2 for 5 min, 1 for 8 min (only 4 chapters, so the fourth ran alone at the end; a longer queue would do somewhat better: not measured).
 - Where the gap to the prediction came from:
