@@ -2280,3 +2280,16 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Until that is deployed, ORV 309 and 311 cannot be remade correctly from the backup (Asura is still bot-checked).
 - 20:14Z: retried with Make now (inside the owner's approved 10): Death Knight 96 (job d8d1bb652e94), Fog Land 46 (5c372a215611), ORV 310 (64d3090d71dc; its link `chapter-310` is the right one). Autopilot still OFF.
 - Concurrency test: NOT started. `INGEST_WORKERS` could not be set through the Railway connector (the permission system refused the write; not worked around). The owner has to set it in Railway (recap-studio > Variables) when the job bar is empty. Plan unchanged: levels 2, 3, 4 on the next chapters of the owner's make order, measuring chapters/hour, errors, cost, CPU and memory; rollback = set `INGEST_WORKERS` back to 1 (or delete it).
+
+### 2026-11-16 20:39Z — Retries: Death Knight 96 done, Fog Land 46 resumed past the changed-panel check; where a chapter's time goes (predicts the worker limit)
+- Owner: "Why not use alternative sites for the manhwas if you are being blocked? Ensure to track everything and cost and fix errors and complete the task."
+- Answer on sources: the studio already switches to the backup (mgeko) when Asura answers 403; all 8 Asura chapters today came from mgeko. Today's failures were not "no source": 2 were the mgeko extra-link bug (fixed on the branch, needs a deploy), 2 were Gemini errors, 1 was a bad page image that downloaded fine on the retry.
+- Death Knight 96 (job d8d1bb652e94): done 20:30:56Z, 72 segments, 523.5 s, $0.70, 16.5 min.
+- Fog Land 46 (job 5c372a215611): the Make-now retry scraped and split again, 10 panels (page001_panel_032 to 041) were cut differently from the first run, and describe stopped on "Description cache is stale" (the deliberate no-silent-respend check). Used the studio's own step `POST /api/chapter/redescribe-changed` at 20:37:47Z (estimate $0.21; old file kept as descriptions.json.previous-57735da3….json); the job resumed.
+  - Lesson: after a failure late in a chapter, use Resume on the failed job (`POST /api/jobs/resume`, reuses every finished stage), not Make now again.
+- ORV 310 (job 64d3090d71dc): running, narrate, at 20:38Z.
+- Spend today 20:37Z: $6.48 of $15.
+- Where the time goes at 1 worker (first and last paid call per stage, usage log; scratchpad `stage_spans.py`), 6 chapters:
+  - script (narrate) 4.2 to 10.2 min = 29 to 42% of a chapter (about 40%); framing 1.7 to 4.6 min = 13 to 19%; split 0.2 to 3 min; describe 1.1 to 2.4; voice about 1; match about 0.8; crops about 0.3.
+  - Script and framing each run one chapter at a time (`ingest._STAGE_LOCKS`), so the script stage caps throughput at about 1/0.40 = 2.5x one worker. Prediction: 2 workers give most of the gain, 3 reach the cap, 4 add nothing. To be confirmed by the real test.
+- `INGEST_WORKERS` still unset (no new Railway deployment since 11-15 18:33Z). Scratchpad `stage_log.py` now records every job's stage every 20 s to `stages.jsonl`.
