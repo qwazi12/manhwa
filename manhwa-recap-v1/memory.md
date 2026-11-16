@@ -2325,9 +2325,9 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Evidence: `concurrency-test-20261116/concurrency-3.txt` (per-chapter stage times). Scratchpad `level.py` makes the summary.
 - Idea, not built: a shorter wait on Flex requests in describe (e.g. 60 s instead of 900 s) would remove the stall; needs a code change and a deploy.
 
-### 2026-11-16 23:43Z — Owner asked for the remaining 2 (ORV 309, 311) within today's cap; the deploy they need was refused by the permission system
+### 2026-11-16 23:41Z — Owner asked for the remaining 2 (ORV 309, 311) within today's cap; the deploy they need was refused by the permission system
 - Owner: "Can the remaining 2 be done? If so do them and ensure completion within today's cost limit if you have to handle it handle it but do not go over limit and below is even better."
 - They can be done, but only after the mgeko link fix (4ed4ba5, 77b8930) is on production: the failover on production still picks the extras `309-1` and `311-5`. Checked for a way without a deploy: none that keeps the chapters under the ORV series (a direct mgeko link makes a differently named project under another series; not done).
 - Pre-deploy checks done 23:41Z: job bar empty, no render running or queued, `origin/main` = 6f64b7b, branch diff to main = `mangayomi.py` (+22/-2), `test_mgeko_part_links.py` (new), `memory.md`; the 4 mgeko tests pass.
-- 23:42Z: merge to main + push was refused by the permission system (it needs the owner's explicit "deploy"). Not worked around. Production unchanged (6f64b7b, deployment fa861336).
+- About 23:41Z: merge to main + push was refused by the permission system (it needs the owner's explicit "deploy"). Not worked around. Production unchanged (6f64b7b, deployment fa861336).
 - Plan once the owner says "deploy": merge and push; after Railway is live, `POST /api/ingest {url, fresh: true, queue: true}` for ORV 309 and 311 (same folders); the describe check will stop on changed panels, then `POST /api/chapter/redescribe-changed` and `POST /api/jobs/resume`; verify full length. Expected about $1.50 for both (ORV 310 cost $0.55); $3.76 is left under today's $15 cap and the cost gate pauses a chapter rather than pass it. The cap day ends at midnight ET (05:00Z).
