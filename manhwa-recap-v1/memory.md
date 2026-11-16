@@ -2313,3 +2313,14 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - 22:38:25Z to 22:38:30Z: queued with Make now (`POST /api/autopilot/run`), next chapters of the owner's Make-next list from series already in production: Stellar Swordmaster 137 (job 3368b23a3a79, WEBTOON), Fated Villain 368 (f31458b2d9c1), 369 (0ab8aa7e4587), Bountiful Harvest 92 (d1ba80853902). Extra's 120 to 122 skipped (120 is "stopped by you"). None of the four has an extra link on mgeko.
 - 22:38:40Z: three running together (137 split, 368 and 369 scrape), the fourth queued. Autopilot still OFF. Spend before the test: $7.69 of $15.
 - Recording: scratchpad `stage_log.py` (every 20 s), summary with `level.py`. Rollback: set `INGEST_WORKERS` back to 1 (or delete it) in Railway.
+
+### 2026-11-16 23:25Z — 3-at-once test done: 4 of 4 chapters made, no errors, 6.0 chapters/hour (1 at once was 3.8)
+- All four finished and wait for the owner's review (no video rendered, nothing posted): Stellar Swordmaster 137 (67 segments, 442.6 s, $0.66), Fated Villain 368 (87, 642.2 s, $0.75), 369 (83, 632.0 s, $0.82), Bountiful Harvest 92 (132, 791.1 s, $1.07). Total $3.30, $0.83 average (same as at 1 at once). Spend today $11.24 of $15. Autopilot OFF. Line empty 23:19Z.
+- Speed: queued 22:38:26Z, last one ended 23:18:31Z = 40.1 min for 4 = 6.0 chapters/hour, 1.6x the 3.8 measured at 1 at once. The model predicted 9.0. Stage recorder: 3 running for 24 min, 2 for 5 min, 1 for 8 min (only 4 chapters, so the fourth ran alone at the end; a longer queue would do somewhat better: not measured).
+- Where the gap to the prediction came from:
+  - Describe took about 10 min for each of the three chapters running together (1.7 min for the fourth, alone; 1.1 to 2.4 min at 1 at once). Calls flowed normally until about 22:46Z, then each chapter's last few calls landed 214 to 228 s later. Railway log 22:51:17Z: "Flex refused 3 times in a row — using Standard for 600s". Most likely cause (not proven): Flex-tier requests queued at Google for minutes before being refused or served (`describe.py` waits up to 900 s on a Flex request). 29 of about 2,300 calls were served on Flex (26 in split, 3 in describe).
+  - The script step ran one chapter at a time as designed: Fated Villain 368 waited 8.4 min between describe and script.
+- Machine is not the limit: Railway CPU max 0.56 vCPU, memory max 1.15 GB in the hour.
+- Levels 2 and 4 were not run: about $3.76 is left under today's cap and another 4 chapters would pause on it. `INGEST_WORKERS` is still 3 (the owner's value; not changed by this session).
+- Evidence: `concurrency-test-20261116/concurrency-3.txt` (per-chapter stage times). Scratchpad `level.py` makes the summary.
+- Idea, not built: a shorter wait on Flex requests in describe (e.g. 60 s instead of 900 s) would remove the stall; needs a code change and a deploy.
