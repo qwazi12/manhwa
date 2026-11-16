@@ -2303,3 +2303,6 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
   - 1 at once 3.9 chapters/hour; 2 at once 7.1 (1.8x); 3 at once 9.0 (2.3x); 4 at once 10.1 (2.6x); 6 at once 10.2 (no further gain).
   - Share of chapter time: script 37%, framing 15%, everything else 48%.
   - The $15 daily cap is about 18 chapters at today's $0.83 average, which is about 4.6 hours at 1 at once and about 2 hours at 3. More workers shorten the wait; they do not raise the daily total unless the cap rises.
+
+### 2026-11-16 21:17Z — Daily YouTube A/B pass: nothing to do
+- Approval page `decisions` collection: empty (the owner has not decided on any video yet). `/api/abtest/queue?days=60`: 49 todo, 2 have. No video posted on or after 2026-11-15, so nothing new to add to the page. YouTube Studio not opened; nothing changed.
