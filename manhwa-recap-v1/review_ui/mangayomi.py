@@ -168,6 +168,14 @@ def get_source_for_url(url: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _is_part_link(m):
+    """True when the link is a part or extra of the chapter, not the chapter:
+    'manga-1003-chapter-309-1-eng-li' is 309.1 and 'chapter-311-5' is 311.5.
+    2026-11-16: mgeko lists those first, so chapter 309 was made from the
+    7-page extra 309.1 (a 50 s video) and 311 from the 2-page 311.5."""
+    return bool(re.match(r'[-_]\d{1,2}(?!\d)', m.group(1)[m.end(2) - m.start(1):]))
+
+
 def create_mangayomi_provider(base_provider_cls):
     """Factory to create MangayomiProvider deriving from Provider."""
     class MangayomiProvider(base_provider_cls):
@@ -226,12 +234,17 @@ def create_mangayomi_provider(base_provider_cls):
             # Extract chapter URLs and numbers
             pattern = re.compile(r'href=["\']([^"\']*(?:chapter|ch|episode|ep)[/-]?(\d+(?:\.\d+)?)[^"\']*)["\']', re.I)
             found = {}
+            parts = {}
             for m in pattern.finditer(html):
                 href, c_num = m.group(1), m.group(2)
                 full_url = urllib.parse.urljoin(series_url, href)
                 c_norm = self.normalize_chapter_id(c_num)
-                if c_norm not in found:
+                if _is_part_link(m):
+                    parts.setdefault(c_norm, full_url)
+                elif c_norm not in found:
                     found[c_norm] = full_url
+            for c_norm, full_url in parts.items():   # only when the chapter itself is not listed
+                found.setdefault(c_norm, full_url)
 
             if not found:
                 raise ValueError("no chapters discovered on series page")
@@ -256,9 +269,14 @@ def create_mangayomi_provider(base_provider_cls):
                     with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
                         h = resp.read().decode('utf-8', errors='ignore')
                     pat = re.compile('href=["\x27]([^"\x27]*(?:chapter|ch|episode|ep)[/-]?(\d+(?:\.\d+)?)[^"\x27]*)["\x27]', re.I)
+                    part = None
                     for m in pat.finditer(h):
                         if self.normalize_chapter_id(m.group(2)) == c:
-                            return urllib.parse.urljoin(all_url, m.group(1))
+                            if not _is_part_link(m):
+                                return urllib.parse.urljoin(all_url, m.group(1))
+                            part = part or urllib.parse.urljoin(all_url, m.group(1))
+                    if part:
+                        return part
                 except Exception:
                     pass
             return f"{series_url.rstrip('/')}/chapter/{c}"

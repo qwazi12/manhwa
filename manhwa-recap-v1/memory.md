@@ -2215,3 +2215,119 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - **DK title A/B test:** commit 6e850cb (hook_b on series record, ab_titles, upload-time note with both titles for YouTube Studio Test & compare, closing-"!" fallback, snapshot hook_b), 665 tests pass. **Not deployed: push to main refused by the permission system** (owner did not say deploy this time). After deploy: re-save the DK record (live code drops hook_b). Title A does not fit 3-digit range labels (101 chars at [96-102]).
 - RESULT: RESULT_FLAMINGO_20261115T1418Z.md in ops/results (md5 ok).
 - NEEDS OWNER: deploy go for 6e850cb; catch-up / full-story format; series section 4 leaves out (Sword Hound 188 etc.); turn autopilot on; Heavenly Demon hook; DK title A length on 3-digit ranges.
+
+### 2026-11-15 18:20–18:45Z — YouTube A/B tests: deployed; first two tests running (owner: "Let's do 1, yes and deploy")
+- Owner chose option 1 (YouTube Studio Test & compare, set up through the owner's Chrome), said YES to test winners changing a posted video's title/thumbnail (exception to "never re-title posted videos", only through Test & compare), and said deploy.
+- Checked: Upload-Post has no A/B option (one title/thumbnail per upload; thumbnail-replace endpoint only); vidIQ can edit title/thumbnail but cannot create a test; YouTube has no public API for Test & compare.
+- **Code (9a3394e, branch):** `abtest.py` — thumbnails B/C = the video's own Thumbnail Studio concepts least like the posted one (cover-badge/cover-center count as one look); title test when the series has hook_b, else thumbnail test; ledger `_abtests.json` (per YouTube id, with history). `GET /api/abtest/queue?days=N` (posted videos with no test + plan with thumbnail URLs), `POST /api/abtest/mark` (running/done/not_available/failed/skipped; event logged). Upload note mentions the thumbnail test. Tests: test_abtest.py 6, test_auto_append_server.py +1; review_ui 672 passed / 2 skipped.
+- **Deploy:** jobs bar empty; merge 6f64b7b (branch → main, includes 6e850cb DK title A/B + 9a3394e) pushed 18:33Z. Rollback: revert 6f64b7b (previous main 24fa8cb).
+- **YouTube Studio (Chrome, channel Flamingo Recap — Chrome was on another channel at first; switched via Switch account):**
+  - Death Knight 88-95 (5sOZldtbX4Q): Title only test RUNNING — A "[88-95] He Destroyed The World, But Regressed To Save It | The Apocalypse-Level Death Knight Returns", B "[88-95] Brainwashed Knight Returns To SAVE His Family | The Apocalypse-Level Death Knight Returns" (97 chars).
+  - Mount Hua 180-187 (VkCHU9yQqwo): Thumbnail only test RUNNING — A = live thumbnail, B = concept c2 (cover art + "FAILED CLAN STRONGEST"). Concepts c3 (panel-hero, faces cut) and c4 (chapter-card, side character + Korean SFX) looked weak and were left out.
+- Learned: the studio's concept picks can be weak; whoever sets up a test looks at each image first and drops weak ones. Studio needs Save after "Set test".
+- Daily pass scheduled in THIS Claude session (CronCreate a786051a, 3:47 PM local daily, session-only, expires in 7 days; videos published from Nov 15 on only): queue → look at variants → set up tests in Chrome → mark. Live as of 18:38Z: DK record re-saved with hook_b; both tests recorded in the ledger.
+- Back-catalog NOT tested (needs owner): 28 other videos posted in the last 14 days are in the queue (16 thumbnail plans, 1 title plan = an older DK video, 11 with no plan: no concepts).
+- Only Death Knight has an approved title B; other series get thumbnail tests until title B hooks are approved.
+
+### 2026-11-15 ~18:45–19:05Z — Older videos into A/B; owner approves every thumbnail first (owner: "Let's do ab test on older videos … titles and thumbnail tests but I need to see and approve the thumbnails … dot … prompt and ideal structure")
+- 49 posted videos (Oct 12–Nov 10) had no test. 2 are not public on YouTube (oEmbed 403, no thumbnail): Demon King 32-33 bMEj19NzMmI, Fog Land 42 Xz1_49YM46I — left out.
+- Title B for older videos = the approved HOOKS_FINAL v2 hook + search name (Death Knight: hook_b "Brainwashed Knight Returns To SAVE His Family"); title A = the live YouTube title (oEmbed; the studio's stored titles differ from what is live on several older videos).
+- Thumbnail options: 148 renders of each video's non-chosen Thumbnail Studio concepts (/thumbconcept, local renderer, no paid calls) + live thumbnails from i.ytimg.com. 9 single-chapter videos (Murim Psychopath 44-47 singles etc.) have no concepts: title test only until dot makes art.
+- **Approval page (private artifact):** https://claude.ai/artifact/6UWLW82FBMHHJod5g521Ne — per video: title A/B with Test B / Skip, live thumbnail + options with Approve / No (max 2), choices stored in the page's db (`decisions/<video_id>`, write = owner/editors only; checked: a Contributor-level write is refused). Includes the brief for dot.
+- **Brief for dot:** two designs per series (B emotion close-up, C stakes), 1280x720 PNG < 2 MB, official art only, top-left 480x170 left empty for the studio's CH badge, bottom-right 220x70 clear, 2–4 words from the locked hook, Anton-style yellow/white with black stroke, readable at 168x94. Files in Drive Researcher/research/flamingo/thumbnails/<series_id>/VARIANT_<series_id>_B.png, _C.png + VARIANTS_<series_id>.json (the folder the studio already reads MASTER_ from); never overwrite MASTER_/BADGE_; RESULT_DOT_<UTC>.md when done. Not wired into the studio yet: the studio stamps badges only on MASTER_ (series_master.stamp could stamp variants too — small change, not built).
+- Daily job replaced (CronCreate 8a82d71e, 3:47 PM local, this session only, 7-day expiry): applies approved choices from the page to YouTube Studio, adds newly posted videos to the page; never uses an unapproved thumbnail.
+- Note: Mount Hua 180-187 thumbnail test (VkCHU9yQqwo) was started before the owner asked to approve thumbnails; reported to the owner.
+
+### 2026-11-16 ~13:00Z — Sources checked; Asura cause found; MGeko backups attached for 3 WEBTOON series
+- Asura 403 cause: a plain request from this Mac gets `HTTP/2 403`, `cf-mitigated: challenge`, `server: cloudflare`. So it is Cloudflare's bot challenge, not a block on the server's address. The studio's urllib reader can't pass it. Getting past it would mean bypassing bot detection, which we won't do, so MGeko stays the backup.
+- `POST /api/watchlist/refresh_all` at 12:53Z: 6 WEBTOON series read directly; 17 Asura series 403, all answered by MGeko. The stale MGeko lists were re-read: Extra's MGeko goes to 132 (WEBTOON 123), Fog Land MGeko to 63 (WEBTOON 46).
+- `auto_mirrors` attached nothing: the strict title match misses alternate titles. Found by hand on MGeko and attached with `POST /api/watchlist/mirror`:
+  - Stellar Swordmaster = star-embracing-swordmaster-frjzo, to ch 146 (WEBTOON 137).
+  - Regressed Mercenary = the-regressed-mercenarys-machinations, to ch 114 (WEBTOON 104).
+  - Too Many Heroes = bg73-the-demon-king-overrun-by-heroes, to ch 56 (WEBTOON 36).
+  - Doom Breaker is not on MGeko.
+- A backup only supplies chapters when the main source fails, and WEBTOON works, so autopilot won't make chapters past WEBTOON's latest unless MGeko is made the preferred source or the chapter is ingested by URL. Chapter numbering on MGeko vs WEBTOON has not been checked yet.
+- Nothing made, nothing spent; autopilot still OFF. Owner asked for the first 6 series (10 ch ≈ $14); waiting on "go".
+
+### 2026-11-16 ~13:45Z — Owner: "Yes make them" (first 6 series, 10 chapters ≈ $14); queued with Make now, autopilot left OFF
+- Queued in the owner's order with `POST /api/autopilot/run` (one explicit request per chapter; skips the daily chapter limit, never the spend caps): Sword Hound 188 (job 3ea50d111546), 189 (79f91ec2b075), Murim Psychopath 50 (fd0ec3b5aa4c), ORV 309 (241d1e8755fe), 310 (44e6b0e9aeae), 311 (4eda58b338a9), Regressor's Tale 37 (78da78fb5bc4), 38 (d45d72a2de26), Death Knight 96 (37072c3408a7), Fog Land 46 (8bfe6492acb8). Job bar was empty before. 13:47Z: 188 running (split), 9 queued.
+- Why not autopilot ON: once the list is done autopilot goes on to round robin and the 19-chapter Make-next list, which the owner has not approved. Make now gives exactly these 10. Autopilot still OFF; the Make-next list (19) is untouched.
+- Caps seen today: site cap $15.00 and autopilot budget $15.00 (were $7.50 / $6.00 on 11-15; not changed by this session). A cap hit pauses a chapter until midnight ET, then it resumes by itself.
+- ORV has never been made: 309 is its first chapter and first video. MGeko page `manga-1003` checked: it is Omniscient Reader's Viewpoint. Fog Land 46 posts as a single (AUTO_APPEND_HOLD fog-land-9299:46 still set).
+- This Mac's DNS returned SERVFAIL for the studio host from ~13:20Z (site up: manhwa.nodepilot.dev answered). Scratchpad helper `viaip.py` looks the host up on 1.1.1.1 and runs sget/spost unchanged (TLS still checks the hostname).
+- Alternative sources (owner's list of ~20 sites): plain-request probe 13:40Z. Reachable: mangakatana, manganato.gg, zinmanga, topmanhua, mangahere, comix.to, vortexscans, flamecomics, roliascan, comick. Bot check (not worked around): manhuatop, manhwaclan. Closed/down: bato.to (closed notice), kunmanga, reaperscans (522), mangapark (436), mangareader.to, mangabuddy (redirects). Per-series latest chapters being collected.
+
+### 2026-11-16 18:45Z — Correction to the entry above + alternative-source results + progress
+- CORRECTION: the times in the entry above were guessed and are wrong. The 10 chapters were queued at about 18:15Z (job bar "elapsed" 1413 s at 18:39Z), not 13:45Z; the DNS failure and the site probe were shortly before that.
+- Progress 18:39Z: Sword Hound 188 done ($0.75), 189 running (match 96%), Murim Psychopath 50 queued, the other 7 "held" (the line holds at most 2; they start by themselves). Spent today $1.50 of $15.
+- Alternative sources (subagent, plain requests only, chapter lists only, no chapter pages opened):
+  - Most complete and current: roliascan.com (all 23 series, at or ahead of the studio's numbers; JSON `POST /auth/search`, `GET /auth/manga-chapters?manga_id=`). Also searchable: mangakatana, zinmanga/topmanhua, mangahere, MangaDex API (far behind), flamecomics and vortexscans (own series only). manganato.gg: search is bot-checked, series pages answer.
+  - Not usable: manhuatop, manhwaclan, comick (bot check); bato.to, kunmanga, reaperscans, mangareader.to, harimanga (closed/dead); comix.to (needs a token); mangapark/mangabuddy (redirect chains, not followed).
+  - Ahead of what the studio sees: The Former Supreme 24 (roliascan, manganato, vortex, zinmanga, mangahere; MGeko 21, made 22), Indomitable Martial King 160 (MGeko 159), Solo Leveling: Ragnarok 72 (MGeko 71), Fog Land 64 (manganato, zinmanga; MGeko 63), Heavenly Demon 210 (manganato only, under "Descended from Divinity"; unconfirmed).
+  - Nothing newer anywhere: Mount Hua (only "187.2", a second part of 187), Doom Breaker (only old side stories 101.x). Every other series matches MGeko.
+- The studio reads Asura, WEBTOON and MGeko only (MangaDex attached but never works). Reading RoliaScan would need a new provider and a deploy: not built, owner decision.
+
+### 2026-11-16 20:18Z — Batch of 10 finished (5 good, 2 wrong, 3 failed); mgeko extra-link bug fixed on the branch (NOT deployed); concurrency test blocked on a Railway variable
+- Owner (about 19:00Z): how many chapters can run at once, then "When it's all done test and see what's the optimal number to have running at once."
+- Batch at 1 worker, 18:15:48Z to 20:09:21Z (times from the ingest log):
+  - Done: Sword Hound 188 (13.8 min, 548 s video, $0.75), 189 (11.4 min, 482 s, $0.69), Murim Psychopath 50 (27.1 min, 831 s, $1.32), Regressor's Tale 37 (13.2 min, 437 s, $0.62), 38 (13.3 min, 531 s, $0.79). 5 chapters in 78.8 min = 3.8 chapters/hour, $0.83 average.
+  - WRONG, do not approve: ORV 309 (5 segments, 50 s, $0.07) and ORV 311 (2 segments, 17.5 s, $0.03). Asura answered 403, the failover went to mgeko and took `manga-1003-chapter-309-1` (the extra 309.1, 7 pages) and `chapter-311-5` (311.5, 2 pages) instead of `chapter-309` and `chapter-311`.
+  - Failed: ORV 310 (narrate: "Remote end closed connection without response"), Fog Land 46 (narrate: Gemini 504 deadline_exceeded), Death Knight 96 (split: mgeko page 116.jpg is not a readable image; 122 of 123 pages downloaded).
+  - Railway over the batch: CPU max 3.7 of 32 vCPU, memory max 3.6 of 32 GB. Flex tier: 26 refused, 7 served.
+  - Spend today after the batch: $5.54 of $15.
+- Cause of the ORV fragments (`review_ui/mangayomi.py`): the link pattern reads `chapter-309-1-eng-li` as chapter 309 and both `chapter_url` and `discover_chapters` kept the FIRST link per number; mgeko lists newest first, so the extra came before the chapter.
+- Fix on the branch, not deployed: `_is_part_link` marks `chapter-<n>-<d>` links; the chapter's own link wins and an extra is used only when the chapter itself is not listed (as before). New `test_mgeko_part_links.py` (3 tests; 2 fail without the fix). On the live ORV page the fix changes 3 links only (142, 309, 311) and the chapter list keeps its 312 ids. review_ui suite: 675 passed, 2 skipped.
+- Until that is deployed, ORV 309 and 311 cannot be remade correctly from the backup (Asura is still bot-checked).
+- 20:14Z: retried with Make now (inside the owner's approved 10): Death Knight 96 (job d8d1bb652e94), Fog Land 46 (5c372a215611), ORV 310 (64d3090d71dc; its link `chapter-310` is the right one). Autopilot still OFF.
+- Concurrency test: NOT started. `INGEST_WORKERS` could not be set through the Railway connector (the permission system refused the write; not worked around). The owner has to set it in Railway (recap-studio > Variables) when the job bar is empty. Plan unchanged: levels 2, 3, 4 on the next chapters of the owner's make order, measuring chapters/hour, errors, cost, CPU and memory; rollback = set `INGEST_WORKERS` back to 1 (or delete it).
+
+### 2026-11-16 20:39Z — Retries: Death Knight 96 done, Fog Land 46 resumed past the changed-panel check; where a chapter's time goes (predicts the worker limit)
+- Owner: "Why not use alternative sites for the manhwas if you are being blocked? Ensure to track everything and cost and fix errors and complete the task."
+- Answer on sources: the studio already switches to the backup (mgeko) when Asura answers 403; all 8 Asura chapters today came from mgeko. Today's failures were not "no source": 2 were the mgeko extra-link bug (fixed on the branch, needs a deploy), 2 were Gemini errors, 1 was a bad page image that downloaded fine on the retry.
+- Death Knight 96 (job d8d1bb652e94): done 20:30:56Z, 72 segments, 523.5 s, $0.70, 16.5 min.
+- Fog Land 46 (job 5c372a215611): the Make-now retry scraped and split again, 10 panels (page001_panel_032 to 041) were cut differently from the first run, and describe stopped on "Description cache is stale" (the deliberate no-silent-respend check). Used the studio's own step `POST /api/chapter/redescribe-changed` at 20:37:47Z (estimate $0.21; old file kept as descriptions.json.previous-57735da3….json); the job resumed.
+  - Lesson: after a failure late in a chapter, use Resume on the failed job (`POST /api/jobs/resume`, reuses every finished stage), not Make now again.
+- ORV 310 (job 64d3090d71dc): running, narrate, at 20:38Z.
+- Spend today 20:37Z: $6.48 of $15.
+- Where the time goes at 1 worker (first and last paid call per stage, usage log; scratchpad `stage_spans.py`), 6 chapters:
+  - script (narrate) 4.2 to 10.2 min = 29 to 42% of a chapter (about 40%); framing 1.7 to 4.6 min = 13 to 19%; split 0.2 to 3 min; describe 1.1 to 2.4; voice about 1; match about 0.8; crops about 0.3.
+  - Script and framing each run one chapter at a time (`ingest._STAGE_LOCKS`), so the script stage caps throughput at about 1/0.40 = 2.5x one worker. Prediction: 2 workers give most of the gain, 3 reach the cap, 4 add nothing. To be confirmed by the real test.
+- `INGEST_WORKERS` still unset (no new Railway deployment since 11-15 18:33Z). Scratchpad `stage_log.py` now records every job's stage every 20 s to `stages.jsonl`.
+
+### 2026-11-16 21:02Z — All 3 retries done; the Railway write was refused a second time; predicted chapters/hour from measured stage times
+- ORV 310 (job 64d3090d71dc): done 20:46:12Z, 82 segments, 554.2 s, $0.55. Fog Land 46 (job 5c372a215611): done 21:00:36Z, 101 segments, 643.4 s, $0.79. Line empty at 21:01Z. Spend today $7.70 of $15.
+- State of the owner's first 6 series: made and waiting for review: Sword Hound 188, 189; Murim Psychopath 50; Regressor's Tale 37, 38; Death Knight 96; Fog Land 46; ORV 310. Still wrong: ORV 309 and 311 (extras; remake needs the mgeko fix deployed).
+- Checked all 28 mgeko backup pages for extra links (`chapter-<n>-<d>`): the only upcoming chapter in the owner's make order that the bug would hit is Damn Reincarnation 81 (mgeko lists 81.5 before "81-s2-end"); the fix picks the right link (4th test added, commit 77b8930). All 171 finished ingests checked for the symptom (video under 200 s): only ORV 309 and 311 (plus a September test).
+- `INGEST_WORKERS=2` tried again through the Railway connector at 21:02Z with the line empty: refused again by the permission system. Not worked around. The real test cannot start until the owner sets the variable (or allows the connector write).
+- Prediction instead (scratchpad `simulate.py`; 7 chapters' measured stage times, script and framing one chapter at a time, everything else overlapping; assumes Gemini does not slow down under parallel calls, which is NOT tested):
+  - 1 at once 3.9 chapters/hour; 2 at once 7.1 (1.8x); 3 at once 9.0 (2.3x); 4 at once 10.1 (2.6x); 6 at once 10.2 (no further gain).
+  - Share of chapter time: script 37%, framing 15%, everything else 48%.
+  - The $15 daily cap is about 18 chapters at today's $0.83 average, which is about 4.6 hours at 1 at once and about 2 hours at 3. More workers shorten the wait; they do not raise the daily total unless the cap rises.
+
+### 2026-11-16 21:17Z — Daily YouTube A/B pass: nothing to do
+- Approval page `decisions` collection: empty (the owner has not decided on any video yet). `/api/abtest/queue?days=60`: 49 todo, 2 have. No video posted on or after 2026-11-15, so nothing new to add to the page. YouTube Studio not opened; nothing changed.
+
+### 2026-11-16 22:40Z — Owner set `INGEST_WORKERS` in Railway (value is 3, not 2); 3-at-once test started with 4 chapters
+- Owner asked where to set it; given the Railway Variables link and steps. Owner: "Done and deploying". Railway deployment fa861336 (same commit 6f64b7b, variable change only): created 22:29:41Z, SUCCESS 22:35:34Z. Job bar was empty before (checked 22:17Z and 22:38Z).
+- The value read back from Railway is `INGEST_WORKERS=3` (`INGEST_LINE_MAX` unset, so the line holds 4). So this run measures 3 at once, not 2.
+- 22:38:25Z to 22:38:30Z: queued with Make now (`POST /api/autopilot/run`), next chapters of the owner's Make-next list from series already in production: Stellar Swordmaster 137 (job 3368b23a3a79, WEBTOON), Fated Villain 368 (f31458b2d9c1), 369 (0ab8aa7e4587), Bountiful Harvest 92 (d1ba80853902). Extra's 120 to 122 skipped (120 is "stopped by you"). None of the four has an extra link on mgeko.
+- 22:38:40Z: three running together (137 split, 368 and 369 scrape), the fourth queued. Autopilot still OFF. Spend before the test: $7.69 of $15.
+- Recording: scratchpad `stage_log.py` (every 20 s), summary with `level.py`. Rollback: set `INGEST_WORKERS` back to 1 (or delete it) in Railway.
+
+### 2026-11-16 23:21Z — 3-at-once test done: 4 of 4 chapters made, no errors, 6.0 chapters/hour (1 at once was 3.8)
+- All four finished and wait for the owner's review (no video rendered, nothing posted): Stellar Swordmaster 137 (67 segments, 442.6 s, $0.66), Fated Villain 368 (87, 642.2 s, $0.75), 369 (83, 632.0 s, $0.82), Bountiful Harvest 92 (132, 791.1 s, $1.07). Total $3.30, $0.83 average (same as at 1 at once). Spend today $11.24 of $15. Autopilot OFF. Line empty 23:19Z.
+- Speed: queued 22:38:26Z, last one ended 23:18:31Z = 40.1 min for 4 = 6.0 chapters/hour, 1.6x the 3.8 measured at 1 at once. The model predicted 9.0. Stage recorder: 3 running for 24 min, 2 for 5 min, 1 for 8 min (only 4 chapters, so the fourth ran alone at the end; a longer queue would do somewhat better: not measured).
+- Where the gap to the prediction came from:
+  - Describe took about 10 min for each of the three chapters running together (1.7 min for the fourth, alone; 1.1 to 2.4 min at 1 at once). Calls flowed normally until about 22:46Z, then each chapter's last few calls landed 214 to 228 s later. Railway log 22:51:17Z: "Flex refused 3 times in a row — using Standard for 600s". Most likely cause (not proven): Flex-tier requests queued at Google for minutes before being refused or served (`describe.py` waits up to 900 s on a Flex request). 29 of about 2,300 calls were served on Flex (26 in split, 3 in describe).
+  - The script step ran one chapter at a time as designed: Fated Villain 368 waited 8.4 min between describe and script.
+- Machine is not the limit: Railway CPU max 0.56 vCPU, memory max 1.15 GB in the hour.
+- Levels 2 and 4 were not run: about $3.76 is left under today's cap and another 4 chapters would pause on it. `INGEST_WORKERS` is still 3 (the owner's value; not changed by this session).
+- Evidence: `concurrency-test-20261116/concurrency-3.txt` (per-chapter stage times). Scratchpad `level.py` makes the summary.
+- Idea, not built: a shorter wait on Flex requests in describe (e.g. 60 s instead of 900 s) would remove the stall; needs a code change and a deploy.
+
+### 2026-11-16 23:41Z — Owner asked for the remaining 2 (ORV 309, 311) within today's cap; the deploy they need was refused by the permission system
+- Owner: "Can the remaining 2 be done? If so do them and ensure completion within today's cost limit if you have to handle it handle it but do not go over limit and below is even better."
+- They can be done, but only after the mgeko link fix (4ed4ba5, 77b8930) is on production: the failover on production still picks the extras `309-1` and `311-5`. Checked for a way without a deploy: none that keeps the chapters under the ORV series (a direct mgeko link makes a differently named project under another series; not done).
+- Pre-deploy checks done 23:41Z: job bar empty, no render running or queued, `origin/main` = 6f64b7b, branch diff to main = `mangayomi.py` (+22/-2), `test_mgeko_part_links.py` (new), `memory.md`; the 4 mgeko tests pass.
+- About 23:41Z: merge to main + push was refused by the permission system (it needs the owner's explicit "deploy"). Not worked around. Production unchanged (6f64b7b, deployment fa861336).
+- Plan once the owner says "deploy": merge and push; after Railway is live, `POST /api/ingest {url, fresh: true, queue: true}` for ORV 309 and 311 (same folders); the describe check will stop on changed panels, then `POST /api/chapter/redescribe-changed` and `POST /api/jobs/resume`; verify full length. Expected about $1.50 for both (ORV 310 cost $0.55); $3.76 is left under today's $15 cap and the cost gate pauses a chapter rather than pass it. The cap day ends at midnight ET (05:00Z).
