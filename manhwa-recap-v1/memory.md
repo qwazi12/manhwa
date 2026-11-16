@@ -2237,3 +2237,14 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - **Brief for dot:** two designs per series (B emotion close-up, C stakes), 1280x720 PNG < 2 MB, official art only, top-left 480x170 left empty for the studio's CH badge, bottom-right 220x70 clear, 2–4 words from the locked hook, Anton-style yellow/white with black stroke, readable at 168x94. Files in Drive Researcher/research/flamingo/thumbnails/<series_id>/VARIANT_<series_id>_B.png, _C.png + VARIANTS_<series_id>.json (the folder the studio already reads MASTER_ from); never overwrite MASTER_/BADGE_; RESULT_DOT_<UTC>.md when done. Not wired into the studio yet: the studio stamps badges only on MASTER_ (series_master.stamp could stamp variants too — small change, not built).
 - Daily job replaced (CronCreate 8a82d71e, 3:47 PM local, this session only, 7-day expiry): applies approved choices from the page to YouTube Studio, adds newly posted videos to the page; never uses an unapproved thumbnail.
 - Note: Mount Hua 180-187 thumbnail test (VkCHU9yQqwo) was started before the owner asked to approve thumbnails; reported to the owner.
+
+### 2026-11-16 ~13:00Z — Sources checked; Asura cause found; MGeko backups attached for 3 WEBTOON series
+- Asura 403 cause: a plain request from this Mac gets `HTTP/2 403`, `cf-mitigated: challenge`, `server: cloudflare`. So it is Cloudflare's bot challenge, not a block on the server's address. The studio's urllib reader can't pass it. Getting past it would mean bypassing bot detection, which we won't do, so MGeko stays the backup.
+- `POST /api/watchlist/refresh_all` at 12:53Z: 6 WEBTOON series read directly; 17 Asura series 403, all answered by MGeko. The stale MGeko lists were re-read: Extra's MGeko goes to 132 (WEBTOON 123), Fog Land MGeko to 63 (WEBTOON 46).
+- `auto_mirrors` attached nothing: the strict title match misses alternate titles. Found by hand on MGeko and attached with `POST /api/watchlist/mirror`:
+  - Stellar Swordmaster = star-embracing-swordmaster-frjzo, to ch 146 (WEBTOON 137).
+  - Regressed Mercenary = the-regressed-mercenarys-machinations, to ch 114 (WEBTOON 104).
+  - Too Many Heroes = bg73-the-demon-king-overrun-by-heroes, to ch 56 (WEBTOON 36).
+  - Doom Breaker is not on MGeko.
+- A backup only supplies chapters when the main source fails, and WEBTOON works, so autopilot won't make chapters past WEBTOON's latest unless MGeko is made the preferred source or the chapter is ingested by URL. Chapter numbering on MGeko vs WEBTOON has not been checked yet.
+- Nothing made, nothing spent; autopilot still OFF. Owner asked for the first 6 series (10 ch ≈ $14); waiting on "go".
