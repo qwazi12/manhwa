@@ -2267,7 +2267,7 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
   - Nothing newer anywhere: Mount Hua (only "187.2", a second part of 187), Doom Breaker (only old side stories 101.x). Every other series matches MGeko.
 - The studio reads Asura, WEBTOON and MGeko only (MangaDex attached but never works). Reading RoliaScan would need a new provider and a deploy: not built, owner decision.
 
-### 2026-11-16 20:20Z — Batch of 10 finished (5 good, 2 wrong, 3 failed); mgeko extra-link bug fixed on the branch (NOT deployed); concurrency test blocked on a Railway variable
+### 2026-11-16 20:18Z — Batch of 10 finished (5 good, 2 wrong, 3 failed); mgeko extra-link bug fixed on the branch (NOT deployed); concurrency test blocked on a Railway variable
 - Owner (about 19:00Z): how many chapters can run at once, then "When it's all done test and see what's the optimal number to have running at once."
 - Batch at 1 worker, 18:15:48Z to 20:09:21Z (times from the ingest log):
   - Done: Sword Hound 188 (13.8 min, 548 s video, $0.75), 189 (11.4 min, 482 s, $0.69), Murim Psychopath 50 (27.1 min, 831 s, $1.32), Regressor's Tale 37 (13.2 min, 437 s, $0.62), 38 (13.3 min, 531 s, $0.79). 5 chapters in 78.8 min = 3.8 chapters/hour, $0.83 average.
