@@ -41,3 +41,11 @@ def test_the_failover_link_is_the_chapter_not_its_extra(monkeypatch):
     assert P.chapter_url(SERIES, "309") == _url("309")
     assert P.chapter_url(SERIES, "311") == _url("311")
     assert P.chapter_url(SERIES, "308") == _url("308-5")
+
+
+def test_a_named_chapter_link_is_still_the_chapter():
+    # Damn Reincarnation on mgeko: 81.5 is listed before "81 (season 2 end)"
+    page = "".join(f'<a href="/reader/en/damn-reincarnation-chapter-{c}-eng-li/">x</a>'
+                   for c in ("82", "81-5", "81-s2-end", "80"))
+    got = dict(P.discover_chapters("https://www.mgeko.cc/manga/damn-reincarnation", _fetcher=lambda u: page))
+    assert got["81"].endswith("damn-reincarnation-chapter-81-s2-end-eng-li/")
