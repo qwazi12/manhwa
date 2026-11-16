@@ -2293,3 +2293,13 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
   - script (narrate) 4.2 to 10.2 min = 29 to 42% of a chapter (about 40%); framing 1.7 to 4.6 min = 13 to 19%; split 0.2 to 3 min; describe 1.1 to 2.4; voice about 1; match about 0.8; crops about 0.3.
   - Script and framing each run one chapter at a time (`ingest._STAGE_LOCKS`), so the script stage caps throughput at about 1/0.40 = 2.5x one worker. Prediction: 2 workers give most of the gain, 3 reach the cap, 4 add nothing. To be confirmed by the real test.
 - `INGEST_WORKERS` still unset (no new Railway deployment since 11-15 18:33Z). Scratchpad `stage_log.py` now records every job's stage every 20 s to `stages.jsonl`.
+
+### 2026-11-16 21:02Z — All 3 retries done; the Railway write was refused a second time; predicted chapters/hour from measured stage times
+- ORV 310 (job 64d3090d71dc): done 20:46:12Z, 82 segments, 554.2 s, $0.55. Fog Land 46 (job 5c372a215611): done 21:00:36Z, 101 segments, 643.4 s, $0.79. Line empty at 21:01Z. Spend today $7.70 of $15.
+- State of the owner's first 6 series: made and waiting for review: Sword Hound 188, 189; Murim Psychopath 50; Regressor's Tale 37, 38; Death Knight 96; Fog Land 46; ORV 310. Still wrong: ORV 309 and 311 (extras; remake needs the mgeko fix deployed).
+- Checked all 28 mgeko backup pages for extra links (`chapter-<n>-<d>`): the only upcoming chapter in the owner's make order that the bug would hit is Damn Reincarnation 81 (mgeko lists 81.5 before "81-s2-end"); the fix picks the right link (4th test added, commit 77b8930). All 171 finished ingests checked for the symptom (video under 200 s): only ORV 309 and 311 (plus a September test).
+- `INGEST_WORKERS=2` tried again through the Railway connector at 21:02Z with the line empty: refused again by the permission system. Not worked around. The real test cannot start until the owner sets the variable (or allows the connector write).
+- Prediction instead (scratchpad `simulate.py`; 7 chapters' measured stage times, script and framing one chapter at a time, everything else overlapping; assumes Gemini does not slow down under parallel calls, which is NOT tested):
+  - 1 at once 3.9 chapters/hour; 2 at once 7.1 (1.8x); 3 at once 9.0 (2.3x); 4 at once 10.1 (2.6x); 6 at once 10.2 (no further gain).
+  - Share of chapter time: script 37%, framing 15%, everything else 48%.
+  - The $15 daily cap is about 18 chapters at today's $0.83 average, which is about 4.6 hours at 1 at once and about 2 hours at 3. More workers shorten the wait; they do not raise the daily total unless the cap rises.
