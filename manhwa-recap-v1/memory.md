@@ -2266,3 +2266,17 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
   - Ahead of what the studio sees: The Former Supreme 24 (roliascan, manganato, vortex, zinmanga, mangahere; MGeko 21, made 22), Indomitable Martial King 160 (MGeko 159), Solo Leveling: Ragnarok 72 (MGeko 71), Fog Land 64 (manganato, zinmanga; MGeko 63), Heavenly Demon 210 (manganato only, under "Descended from Divinity"; unconfirmed).
   - Nothing newer anywhere: Mount Hua (only "187.2", a second part of 187), Doom Breaker (only old side stories 101.x). Every other series matches MGeko.
 - The studio reads Asura, WEBTOON and MGeko only (MangaDex attached but never works). Reading RoliaScan would need a new provider and a deploy: not built, owner decision.
+
+### 2026-11-16 20:20Z — Batch of 10 finished (5 good, 2 wrong, 3 failed); mgeko extra-link bug fixed on the branch (NOT deployed); concurrency test blocked on a Railway variable
+- Owner (about 19:00Z): how many chapters can run at once, then "When it's all done test and see what's the optimal number to have running at once."
+- Batch at 1 worker, 18:15:48Z to 20:09:21Z (times from the ingest log):
+  - Done: Sword Hound 188 (13.8 min, 548 s video, $0.75), 189 (11.4 min, 482 s, $0.69), Murim Psychopath 50 (27.1 min, 831 s, $1.32), Regressor's Tale 37 (13.2 min, 437 s, $0.62), 38 (13.3 min, 531 s, $0.79). 5 chapters in 78.8 min = 3.8 chapters/hour, $0.83 average.
+  - WRONG, do not approve: ORV 309 (5 segments, 50 s, $0.07) and ORV 311 (2 segments, 17.5 s, $0.03). Asura answered 403, the failover went to mgeko and took `manga-1003-chapter-309-1` (the extra 309.1, 7 pages) and `chapter-311-5` (311.5, 2 pages) instead of `chapter-309` and `chapter-311`.
+  - Failed: ORV 310 (narrate: "Remote end closed connection without response"), Fog Land 46 (narrate: Gemini 504 deadline_exceeded), Death Knight 96 (split: mgeko page 116.jpg is not a readable image; 122 of 123 pages downloaded).
+  - Railway over the batch: CPU max 3.7 of 32 vCPU, memory max 3.6 of 32 GB. Flex tier: 26 refused, 7 served.
+  - Spend today after the batch: $5.54 of $15.
+- Cause of the ORV fragments (`review_ui/mangayomi.py`): the link pattern reads `chapter-309-1-eng-li` as chapter 309 and both `chapter_url` and `discover_chapters` kept the FIRST link per number; mgeko lists newest first, so the extra came before the chapter.
+- Fix on the branch, not deployed: `_is_part_link` marks `chapter-<n>-<d>` links; the chapter's own link wins and an extra is used only when the chapter itself is not listed (as before). New `test_mgeko_part_links.py` (3 tests; 2 fail without the fix). On the live ORV page the fix changes 3 links only (142, 309, 311) and the chapter list keeps its 312 ids. review_ui suite: 675 passed, 2 skipped.
+- Until that is deployed, ORV 309 and 311 cannot be remade correctly from the backup (Asura is still bot-checked).
+- 20:14Z: retried with Make now (inside the owner's approved 10): Death Knight 96 (job d8d1bb652e94), Fog Land 46 (5c372a215611), ORV 310 (64d3090d71dc; its link `chapter-310` is the right one). Autopilot still OFF.
+- Concurrency test: NOT started. `INGEST_WORKERS` could not be set through the Railway connector (the permission system refused the write; not worked around). The owner has to set it in Railway (recap-studio > Variables) when the job bar is empty. Plan unchanged: levels 2, 3, 4 on the next chapters of the owner's make order, measuring chapters/hour, errors, cost, CPU and memory; rollback = set `INGEST_WORKERS` back to 1 (or delete it).
