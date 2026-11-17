@@ -63,8 +63,13 @@ RUN curl -fsSL -o panel-split/yolov8n.pt \
 # startup, measured) and, more importantly, resolved the package fresh on every
 # render: a new release could change output or break rendering with no commit
 # here. `npm ci` installs exactly what package-lock.json pins.
+# ONNXRUNTIME_NODE_INSTALL_CUDA=skip: onnxruntime-node's install script
+# downloads GPU (CUDA) binaries from a GitHub release on Linux x64. This
+# container has no GPU, and on 2026-11-17 that download answered 404 (the
+# upstream release was not reachable), which failed the whole build. The CPU
+# binaries the renderer uses are inside the npm package itself.
 RUN cd manhwa-recap-v1/hyperframes \
-    && npm ci --omit=dev --no-audit --no-fund \
+    && ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm ci --omit=dev --no-audit --no-fund \
     && ./node_modules/.bin/hyperframes --version
 ENV HYPERFRAMES_BIN=/app/manhwa-recap-v1/hyperframes/node_modules/.bin/hyperframes
 # Bake Chrome-for-testing into the image so renders never download at runtime
