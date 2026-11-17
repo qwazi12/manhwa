@@ -155,9 +155,12 @@ def voice_inputs(beats, engine):
             "code": code_identity(Path(__file__).parent, ["gemini_tts.py", "speech_text.py"])}
 
 
-def described_source(pdir):
-    """{"restored": archive name or None} when the chapter's panels on disk are
-    exactly the files its descriptions were made from; None otherwise.
+def described_source(pdir, dry_run=False):
+    """{"restored": archive name or None} when every panel that has a
+    description is, on disk, exactly the file that description was made from;
+    None otherwise. Panels not described yet (a describe step that was cut
+    short) do not count against it: the same cut is kept and they are
+    described next. `dry_run` only reports; nothing is moved.
 
     Re-running a later step (voice, timeline) used to download and cut the
     chapter again. Cutting asks a model where tall strips divide, so a second
@@ -189,7 +192,7 @@ def described_source(pdir):
             return False
         have = {p.name for p in crops.iterdir()
                 if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")}
-        return have == set(want) and all(file_digest(crops / n) == h for n, h in want.items())
+        return set(want) <= have and all(file_digest(crops / n) == h for n, h in want.items())
 
     def has_pages(d):
         return d.is_dir() and any(d.iterdir())
@@ -200,6 +203,8 @@ def described_source(pdir):
     for rev in sorted(revs, key=lambda p: p.stat().st_mtime, reverse=True):
         if not same(rev / "crops") or not (has_pages(rev / "pages") or has_pages(pdir / "pages")):
             continue
+        if dry_run:
+            return {"restored": rev.name}
         later = pdir / "_revisions" / ("source-" + uuid.uuid4().hex)
         moved = []
         try:

@@ -274,6 +274,17 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     import tempfile
     import generation_cache as cache
     os.makedirs(proj, exist_ok=True)
+    # Staging folders of runs that died before their source was promoted hold
+    # a copy of the pages and part of a cut; nothing ever removed them.
+    import glob as _glob
+    import shutil as _shutil
+    import time as _time
+    for _old in _glob.glob(os.path.join(proj, ".source-staging-*")):
+        try:
+            if _time.time() - os.path.getmtime(_old) > 6 * 3600:
+                _shutil.rmtree(_old, ignore_errors=True)
+        except OSError:
+            pass
     kept = cache.described_source(proj) if keep_source and not fresh else None
     if kept:
         pages, crops = os.path.join(proj, "pages"), os.path.join(proj, "crops")
@@ -368,6 +379,11 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
                 if not n_crops:
                     raise RuntimeError("the splitter produced no panels")
             except Exception as e:
+                # A spend limit pauses the chapter. It used to be taken for a
+                # splitter failure: the old splitter then finished the cut
+                # without the paid calls, on top of crops already written.
+                if isinstance(e, usage.UsageCapExceeded):
+                    raise
                 # Never leave a chapter unsplit because the new path failed:
                 # fall back loudly rather than aborting the ingest.
                 progress("split", f"new splitter failed ({e}) — using legacy", 19)
@@ -695,6 +711,11 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         if p.get("file") and not os.path.isabs(p["file"]):
             p["file"] = os.path.join(crops, p["file"])
     pj = [p for p in pj if p.get("ok", True) and p.get("width") and p.get("height")]
+    # matcher appends its notes to module lists that are never cleared: every
+    # chapter made since the server started used to inherit earlier chapters'
+    # notes in project.json. Only what THIS match adds is recorded below.
+    _n_fallback = len(getattr(matcher, "EMBED_FALLBACK_REASON", []))
+    _n_holds = len(getattr(matcher, "HOLD_CAP_REPORT", []))
     assigns, method = matcher.match_beats_to_panels(beats, pj)
     shots = matcher.build_timeline(beats, pj, assigns)
     progress("match", f"{len({s['panel_id'] for s in shots})} distinct panels "
@@ -767,10 +788,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             # Phase 0 (Session 27): a run that fell back to lexical matching, or
             # a long hold the cap could not split, must be visible in the
             # project record — both used to vanish without trace.
-            "embed_fallback_reason": (matcher.EMBED_FALLBACK_REASON[-1]
-                                      if getattr(matcher, "EMBED_FALLBACK_REASON", None)
-                                      else ""),
-            "unsplit_long_holds": list(getattr(matcher, "HOLD_CAP_REPORT", []))}
+            "embed_fallback_reason": (getattr(matcher, "EMBED_FALLBACK_REASON", [])[_n_fallback:] or [""])[-1],
+            "unsplit_long_holds": list(getattr(matcher, "HOLD_CAP_REPORT", [])[_n_holds:])}
     json.dump(meta, open(os.path.join(proj, "project.json"), "w"), indent=2)
     progress("segment", f"Done — {len(segs)} segments, {meta['duration']}s.", 100)
     return meta

@@ -8679,6 +8679,7 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
                     direct=None):
     import ingest
     INGEST[job_id]["status"] = "running"
+    INGEST[job_id].pop("fresh", None)        # used once it starts: a later resume continues, it does not start over
     _persist_ingest(job_id)
     who = "autopilot" if INGEST[job_id].get("source") == "autopilot" else "ingest"
     name = _pretty(url, variant)
@@ -8704,8 +8705,10 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
         meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh,
                                  engine=engine, variant=variant, direct=direct, tier=tier,
                                  lean=bool(INGEST[job_id].get("lean")),
-                                 # a re-run of one step keeps the panels its descriptions were made from
-                                 keep_source=INGEST[job_id].get("source") == "rerun")
+                                 # a re-run of one step, or a job being continued, keeps the
+                                 # panels its descriptions were made from
+                                 keep_source=(INGEST[job_id].get("source") == "rerun"
+                                              or bool(INGEST[job_id].get("resumed"))))
         INGEST[job_id].update(status="done", project=meta, pct=100)
         if isinstance(meta, dict) and meta.get("id"):     # title/description/tags while making
             threading.Thread(target=_prepare_publish, args=(project_dir_for(meta["id"]), DRAFT),
@@ -8895,6 +8898,12 @@ def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
         rec.update(stage="queued", msg=why or "waiting for its turn (resumed)",
                    status="queued", error=None, control=control)
         rec.pop("ended", None)
+        # "Make again from scratch" rides with the job until it starts: a job
+        # held for its turn, or waiting when the server restarted, used to be
+        # re-queued as a plain run and reported "done" on the old script.
+        fresh = fresh or bool(rec.get("fresh"))
+        # a job that is being continued keeps the panels it already described
+        rec["resumed"] = True
         INGEST[job_id] = rec
     else:
         job_id = uuid.uuid4().hex[:12]
@@ -8905,6 +8914,8 @@ def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
                           "source": source}
         if lean:                         # experiment switch, rides with the job
             INGEST[job_id]["lean"] = True
+        if fresh:
+            INGEST[job_id]["fresh"] = True
     _persist_ingest(job_id)
     with _QUEUE_LOCK:
         # the engine rides with the job — it used to be dropped here, so any
@@ -11496,6 +11507,47 @@ def _resume_budget_paused_old():
     return n
 
 
+def _reworked_since(pdir, when):
+    """True when the chapter has a video or an archived re-run newer than `when`."""
+    if not when:
+        return False
+    for sub, ok in (("exports", lambda f: f.endswith(".mp4")), ("_revisions", lambda f: True)):
+        d = os.path.join(pdir, sub)
+        try:
+            if any(ok(f) and os.path.getmtime(os.path.join(d, f)) > when for f in os.listdir(d)):
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def _rerun_blocker(pdir, step):
+    """Why re-running `step` would fail AFTER its board and audio were put
+    away, or None. Checked before anything is archived (owner review,
+    2026-11-17: the only recorded use of this route left Fog Land 46 Failed
+    with no board)."""
+    import generation_cache as _gc
+    if step == "describe":
+        return None
+    if os.path.exists(os.path.join(pdir, "descriptions.json")) and _gc.described_source(pdir, dry_run=True) is None:
+        return ("the panels on disk are not the ones its descriptions were made from, so this step would stop "
+                "at the description check. Use 'describe the panels again' instead.")
+    if step == "match":
+        rec = _read_json(os.path.join(pdir, "voice.cache.json")) or {}
+        outs = rec.get("outputs") if isinstance(rec, dict) else None
+        audio = os.path.join(pdir, "audio")
+        try:
+            have = {f for f in os.listdir(audio) if f.startswith("beat_") and f.endswith(".mp3")}
+        except OSError:
+            have = set()
+        if isinstance(outs, dict) and (have != set(outs) or any(
+                _gc.file_digest(os.path.join(audio, n)) != h for n, h in outs.items())):
+            return ("a line was edited, removed or re-recorded on this board, so the timeline cannot be rebuilt "
+                    "from the saved voice. Use 'record the voice again' (it rebuilds the lines from the script; "
+                    "edits made on the board are not kept).")
+    return None
+
+
 def _archive_sweep(now=None):
     """Archive published chapters; delete archived folders whose date passed."""
     import ingest
@@ -11519,6 +11571,12 @@ def _archive_sweep(now=None):
             _autopilot.audit("project_archived", project=pid, reason="published")
             out["archived"].append(pid)
         elif st is not None and _archive.due(pdir, now) and pid != active:
+            if _reworked_since(pdir, st.get("archived_at")):
+                # a video made or a step re-run after it was put away (its board
+                # may be only in _revisions after a failed re-run): not deleted
+                _archive.unarchive(pdir)
+                _ev("archive", f"{_pretty(pid)}: back in the library — it was worked on after being put away")
+                continue
             ok, why, mb = _delete_one_project(pid, why="cleaned up after posting (archive)", to_bin=False)
             _autopilot.audit("archived_project_deleted" if ok else "archived_delete_skipped",
                              project=pid, detail=why, freed_mb=mb)
@@ -12536,6 +12594,9 @@ def pipeline_rerun(body: PipelineRerunIn):
     busy = _chapter_busy(pdir)
     if busy:
         raise HTTPException(409, busy + " — wait for it or stop it first")
+    blocker = _rerun_blocker(pdir, body.step)
+    if blocker:
+        raise HTTPException(409, "Nothing was changed: " + blocker)
     base = _i.project_id(url)
     variant = pid[len(base) + 1:] if pid.startswith(base + "-") else ""
     if _i.project_id(url, variant) != pid:

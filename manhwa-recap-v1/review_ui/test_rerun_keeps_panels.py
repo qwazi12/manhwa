@@ -126,14 +126,21 @@ def test_a_later_cut_with_no_matching_archive_is_cut_again_as_before(chapter):
     assert (counts["download"], counts["split"]) == (2, 2)
 
 
-@pytest.mark.parametrize("damage", ["extra panel", "changed panel", "no recorded source", "no descriptions", "no pages"])
+def test_a_panel_not_described_yet_does_not_force_a_new_cut(chapter):
+    """A describe step cut short leaves panels without a description; the same
+    cut is kept and they are described next (a second cut could change the
+    panels already paid for)."""
+    pdir, counts, go = chapter
+    _panel(pdir / "crops" / "page001_panel_002.png", "green")
+    assert cache.described_source(pdir) == {"restored": None}
+
+
+@pytest.mark.parametrize("damage", ["changed panel", "no recorded source", "no descriptions", "no pages"])
 def test_panels_are_kept_only_when_every_one_is_the_file_that_was_described(chapter, damage):
     import shutil
     pdir, counts, go = chapter
     assert cache.described_source(pdir) == {"restored": None}
-    if damage == "extra panel":
-        _panel(pdir / "crops" / "page001_panel_002.png", "green")
-    elif damage == "changed panel":
+    if damage == "changed panel":
         _panel(pdir / "crops" / "page001_panel_001.png", "red")
     elif damage == "no recorded source":
         recs = json.load(open(pdir / "descriptions.json"))
@@ -167,7 +174,73 @@ def test_only_a_step_rerun_asks_to_keep_the_panels(monkeypatch):
         for j in (a, b, c):
             server._run_ingest_job(j, server.INGEST[j]["url"])
         assert got == {a: False, b: True, c: False}
+        # a job that is continued (resume, restart, budget pause) keeps its panels too
+        monkeypatch.setattr(server, "_load_ingest", lambda j: dict(server.INGEST[j]))
+        server._QUEUE.clear()
+        server._enqueue_ingest("https://x/ch/3", job_id=c, why="resumed by you")
+        server._run_ingest_job(c, server.INGEST[c]["url"])
+        assert got[c] is True
     finally:
         server._QUEUE.clear()
         for j in list(got):
             server.INGEST.pop(j, None)
+
+
+def test_make_again_from_scratch_survives_being_held_for_its_turn(monkeypatch):
+    """A queued "make again" job that was held (line full) or waiting at a
+    restart was re-queued as a plain run and reported done on the old script."""
+    import server
+    store = {}
+    monkeypatch.setattr(server, "_persist_ingest", lambda j: store.__setitem__(j, dict(server.INGEST[j])))
+    monkeypatch.setattr(server, "_load_ingest", lambda j: store.get(j))
+    monkeypatch.setattr(server, "_queue_wake", lambda: None)
+    server._QUEUE.clear()
+    try:
+        j = server._enqueue_ingest("https://x/ch/9", fresh=True)
+        assert server.INGEST[j]["fresh"] is True
+        server._QUEUE.clear()                                       # held: taken out of the line
+        server._enqueue_ingest("https://x/ch/9", False, job_id=j, why="resumed: its turn came")
+        assert [q[2] for q in server._QUEUE if q[0] == j] == [True]  # still a make-again run
+    finally:
+        server._QUEUE.clear()
+        server.INGEST.pop(j, None)
+
+
+def test_a_rerun_that_cannot_succeed_is_refused_before_anything_is_put_away(chapter):
+    pdir, counts, go = chapter
+    sys.modules.pop("server", None)            # the harness's stand-in; the real module is wanted here
+    import server
+    (pdir / "audio").mkdir(exist_ok=True)
+    assert server._rerun_blocker(str(pdir), "voice") is None
+    assert server._rerun_blocker(str(pdir), "match") is None
+    # a line edited on the board: its recording is no longer the one the voice step registered
+    rec = json.load(open(pdir / "voice.cache.json"))
+    name = sorted(rec["outputs"])[0]
+    (pdir / "audio" / name).write_bytes(b"re-recorded by a board edit")
+    why = server._rerun_blocker(str(pdir), "match")
+    assert why and "record the voice again" in why
+    assert server._rerun_blocker(str(pdir), "voice") is None        # that step re-records everything
+    # a later cut on disk with no archive that matches the descriptions
+    import shutil
+    rev = _later_cut(pdir)
+    assert server._rerun_blocker(str(pdir), "voice") is None        # the archived cut can be put back
+    assert cache.described_source(pdir, dry_run=True) == {"restored": os.path.basename(rev)}
+    assert sorted(p.name for p in (pdir / "crops").glob("*.png")) == ["page001_panel_001.png", "page001_panel_002.png"]
+    shutil.rmtree(pdir / rev)
+    why = server._rerun_blocker(str(pdir), "voice")
+    assert why and "describe the panels again" in why
+    assert server._rerun_blocker(str(pdir), "describe") is None
+
+
+def test_a_chapter_worked_on_after_it_was_put_away_is_not_swept(tmp_path):
+    import time
+    import server
+    pdir = tmp_path / "ch"
+    (pdir / "exports").mkdir(parents=True)
+    (pdir / "exports" / "old.mp4").write_bytes(b"x")
+    old = time.time() - 30 * 86400
+    os.utime(pdir / "exports" / "old.mp4", (old, old))
+    archived = time.time() - 20 * 86400
+    assert server._reworked_since(str(pdir), archived) is False
+    (pdir / "_revisions" / "20261117T220217Z-abc").mkdir(parents=True)     # a step was re-run and failed
+    assert server._reworked_since(str(pdir), archived) is True
