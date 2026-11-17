@@ -9488,18 +9488,40 @@ def api_watchlist_cover(series_id: str):
             return FileResponse(p, media_type=mt, headers={"Cache-Control": "public, max-age=86400"})
     if srs is None:
         raise HTTPException(404, "not on the watchlist")
-    if not cover:
-        raise HTTPException(404, "no cover yet — check the series first")
-    ch, ph = _up.urlparse(cover).hostname or "", _up.urlparse(page).hostname or ""
-    same_site = ".".join(ch.split(".")[-2:]) == ".".join(ph.split(".")[-2:])
-    if _up.urlparse(cover).scheme != "https" or not (same_site or ch.endswith(".pstatic.net")):
-        raise HTTPException(404, "cover is not on the series' own site")
-    req = _ur.Request(cover, headers={"User-Agent": _pv.UA, "Referer": page})
-    try:
-        with _ur.urlopen(req, timeout=20, context=_pv._ctx()) as r:
-            data, mt = r.read(8_000_000), (r.headers.get_content_type() or "image/jpeg")
-    except Exception:
-        raise HTTPException(502, "could not fetch the cover")
+    # The first source's cover, then every other source's (owner, 2026-11-17:
+    # seven series had a broken picture on Home. Asura refused the studio, so
+    # its share card could not be swapped for the real cover, and the backup
+    # site's own cover was never tried).
+    cands = ([(cover, page)] if cover else []) + [
+        (x["cover"], x.get("series_url") or "") for x in srs.get("mirrors", [])
+        if x.get("cover") and x is not m and not _pv.is_share_card(x["cover"])]
+    data, why = None, (404, "no cover yet — check the series first")
+    for cover, page in cands:
+        ch, ph = _up.urlparse(cover).hostname or "", _up.urlparse(page).hostname or ""
+        same_site = ".".join(ch.split(".")[-2:]) == ".".join(ph.split(".")[-2:])
+        if _up.urlparse(cover).scheme != "https" or not (same_site or ch.endswith(".pstatic.net")):
+            why = (404, "cover is not on the series' own site")
+            continue
+        req = _ur.Request(cover, headers={"User-Agent": _pv.UA, "Referer": page})
+        try:
+            with _ur.urlopen(req, timeout=20, context=_pv._ctx()) as r:
+                got, mt = r.read(8_000_000), (r.headers.get_content_type() or "image/jpeg")
+        except Exception:
+            why = (502, "could not fetch the cover")
+            continue
+        if not got or mt.startswith("text/"):        # a block page, not a picture
+            why = (502, "could not fetch the cover")
+            continue
+        data = got
+        break
+    if data is None:
+        # No source answered: the cover saved earlier, however old, beats a broken picture.
+        if not _pv.is_share_card(cached_src):
+            for ext, mt in (("jpg", "image/jpeg"), ("png", "image/png"), ("webp", "image/webp")):
+                p = os.path.join(d, f"{series_id}.{ext}")
+                if os.path.exists(p):
+                    return FileResponse(p, media_type=mt, headers={"Cache-Control": "public, max-age=3600"})
+        raise HTTPException(*why)
     ext = {"image/png": "png", "image/webp": "webp"}.get(mt, "jpg")
     for old_ext in ("jpg", "png", "webp"):           # one cached cover per series
         if old_ext != ext and os.path.exists(os.path.join(d, f"{series_id}.{old_ext}")):
