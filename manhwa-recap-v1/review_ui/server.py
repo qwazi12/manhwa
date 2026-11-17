@@ -9493,6 +9493,41 @@ def api_watchlist_auto_mirrors(series_id: str | None = None):
     return {"synced": res, "watchlist": _wl_view()}
 
 
+_FLAT_MEMO = {}
+
+
+def _flat_picture(data=None, path=None):
+    """True for a picture that is nearly one flat colour: a site's "loading"
+    placeholder, not cover art (owner review 2026-11-17: mgeko answers
+    damn-reincarnation.png with its loading animation, and the studio saved
+    it as the cover). Real covers measure 0.02-0.42 here; that placeholder
+    0.93. A picture that cannot be read counts as not flat."""
+    import io
+    from collections import Counter
+    key = None
+    try:
+        if path is not None:
+            key = (path, os.path.getmtime(path))
+            if key in _FLAT_MEMO:
+                return _FLAT_MEMO[key]
+            with open(path, "rb") as f:
+                data = f.read()
+        from PIL import Image
+        im = Image.open(io.BytesIO(data))
+        im.seek(0)
+        im = im.convert("RGB").resize((64, 64))
+        px = im.tobytes()
+        top = Counter((px[i] >> 4, px[i + 1] >> 4, px[i + 2] >> 4) for i in range(0, len(px), 3)).most_common(1)[0][1]
+        flat = top / (64 * 64) >= 0.8
+    except Exception:
+        flat = False
+    if key is not None:
+        if len(_FLAT_MEMO) > 500:
+            _FLAT_MEMO.clear()
+        _FLAT_MEMO[key] = flat
+    return flat
+
+
 @app.get("/api/watchlist/cover/{series_id}")
 def api_watchlist_cover(series_id: str):
     """A series' cover, fetched once from its own site (with that site as
@@ -9524,7 +9559,7 @@ def api_watchlist_cover(series_id: str):
     for ext, mt in (("jpg", "image/jpeg"), ("png", "image/png"), ("webp", "image/webp")):
         p = os.path.join(d, f"{series_id}.{ext}")
         if os.path.exists(p) and time.time() - os.path.getmtime(p) < 7 * 86400 \
-                and (not cover or cached_src == cover):
+                and (not cover or cached_src == cover) and not _flat_picture(path=p):
             return FileResponse(p, media_type=mt, headers={"Cache-Control": "public, max-age=86400"})
     if srs is None:
         raise HTTPException(404, "not on the watchlist")
@@ -9536,22 +9571,47 @@ def api_watchlist_cover(series_id: str):
         (x["cover"], x.get("series_url") or "") for x in srs.get("mirrors", [])
         if x.get("cover") and x is not m and not _pv.is_share_card(x["cover"])]
     data, why = None, (404, "no cover yet — check the series first")
+
+    def _get(url, page):
+        req = _ur.Request(url, headers={"User-Agent": _pv.UA, "Referer": page})
+        try:
+            with _ur.urlopen(req, timeout=20, context=_pv._ctx()) as r:
+                got, mt = r.read(8_000_000), (r.headers.get_content_type() or "image/jpeg")
+        except Exception:
+            return None, ""
+        if not got or mt.startswith("text/"):        # a block page, not a picture
+            return None, ""
+        return got, mt
+
     for cover, page in cands:
         ch, ph = _up.urlparse(cover).hostname or "", _up.urlparse(page).hostname or ""
         same_site = ".".join(ch.split(".")[-2:]) == ".".join(ph.split(".")[-2:])
         if _up.urlparse(cover).scheme != "https" or not (same_site or ch.endswith(".pstatic.net")):
             why = (404, "cover is not on the series' own site")
             continue
-        req = _ur.Request(cover, headers={"User-Agent": _pv.UA, "Referer": page})
-        try:
-            with _ur.urlopen(req, timeout=20, context=_pv._ctx()) as r:
-                got, mt = r.read(8_000_000), (r.headers.get_content_type() or "image/jpeg")
-        except Exception:
+        got, mt = _get(cover, page)
+        if got is None:
             why = (502, "could not fetch the cover")
             continue
-        if not got or mt.startswith("text/"):        # a block page, not a picture
-            why = (502, "could not fetch the cover")
-            continue
+        if _flat_picture(got):
+            # The site's "loading" picture. Its series page shows the same file
+            # from its picture server; that copy is the real cover.
+            got, path = None, _up.urlparse(cover).path
+            try:
+                h = _pv.fetch(page)
+                h = h if isinstance(h, str) else h.decode("utf-8", "ignore")
+                alts = [u for u in dict.fromkeys(_re.findall(r'https://[^"\'\s<>]+', h))
+                        if u != cover and len(path) > 8 and _up.urlparse(u).path.endswith(path)]
+            except Exception:
+                alts = []
+            for u in alts[:3]:
+                got, mt = _get(u, page)
+                if got is not None and not _flat_picture(got):
+                    break
+                got = None
+            if got is None:
+                why = (404, "this source has no cover picture")
+                continue
         data = got
         break
     if data is None:
@@ -9559,7 +9619,7 @@ def api_watchlist_cover(series_id: str):
         if not _pv.is_share_card(cached_src):
             for ext, mt in (("jpg", "image/jpeg"), ("png", "image/png"), ("webp", "image/webp")):
                 p = os.path.join(d, f"{series_id}.{ext}")
-                if os.path.exists(p):
+                if os.path.exists(p) and not _flat_picture(path=p):
                     return FileResponse(p, media_type=mt, headers={"Cache-Control": "public, max-age=3600"})
         raise HTTPException(*why)
     ext = {"image/png": "png", "image/webp": "webp"}.get(mt, "jpg")

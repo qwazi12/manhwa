@@ -71,7 +71,7 @@ function SeriesCard({ s, reload, prio, onPrio }: { s: any; reload: () => void; p
   return (
     <Card pad={false}>
       <div id={`series-${s.id}`} style={{ display: "grid", gridTemplateColumns: "84px 1fr", gap: 14, padding: 14 }}>
-        {s.cover ? <img className="cover" src={`/api/watchlist/cover/${enc(s.id)}`} alt="" loading="lazy" /> : <div className="cover" />}
+        {s.cover ? <img className="cover" src={`/api/watchlist/cover/${enc(s.id)}`} alt="" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} /> : <div className="cover" />}
         <div style={{ display: "grid", gap: 7, minWidth: 0 }}>
           <div className="spread">
             <h2 style={{ fontSize: 16 }}>{s.title}</h2>

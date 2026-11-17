@@ -63,7 +63,7 @@ export default function Home() {
               {n.id && CHAPTER_KINDS.includes(n.kind) && <input type="checkbox" aria-label={`Select ${n.title}`}
                 checked={sel.includes(n.id)} onChange={(e) => toggle(n.id, e.target.checked)} />}
               <Link href={ACTION_HREF(n)} className="needcard">
-                {n.series_id && n.cover ? <img src={`/api/watchlist/cover/${encodeURIComponent(n.series_id)}`} alt="" loading="lazy" /> : <div className="ph" style={{ display: "grid", placeItems: "center", fontSize: 34 }}>{n.kind === "demand" ? "📈" : ""}</div>}
+                {n.series_id && n.cover ? <img src={`/api/watchlist/cover/${encodeURIComponent(n.series_id)}`} alt="" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} /> : <div className="ph" style={{ display: "grid", placeItems: "center", fontSize: 34 }}>{n.kind === "demand" ? "📈" : ""}</div>}
                 <div className="nb">
                   <b>{n.title}</b>
                   <StatusPill s={n.status} />
