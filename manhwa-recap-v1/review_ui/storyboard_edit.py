@@ -112,8 +112,19 @@ def _snapshot(pdir):
     """
     src = _segs_path(pdir)
     if not os.path.exists(src):
-        return
+        return False
     d = _undo_dir(pdir)
+    # The board exactly as the newest snapshot already holds it needs no second
+    # copy (a route that snapshots and then calls save() would otherwise need
+    # two Undo presses for one edit).
+    st = _stack(pdir)
+    if st:
+        try:
+            with open(src, "rb") as a, open(os.path.join(d, st[0] + ".json"), "rb") as b:
+                if a.read() == b.read():
+                    return False
+        except OSError:
+            pass
     # One base name, two files: <base>.json is the manifest, <base>.op is its
     # label. Everything else (stack, naming, pruning) keys off the base, so the
     # extension is appended in exactly one place.
@@ -130,6 +141,7 @@ def _snapshot(pdir):
                 os.remove(os.path.join(d, stale_name + suffix))
             except OSError:
                 pass
+    return True
 
 
 def _stack(pdir):

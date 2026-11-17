@@ -4,14 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /** One way to talk to the backend: same-origin paths, forwarded by middleware.ts. */
 export async function api<T = any>(path: string, body?: unknown, method?: string): Promise<T> {
   const init: RequestInit = { method: method || (body !== undefined ? "POST" : "GET"), cache: "no-store" };
+  const headers: Record<string, string> = {};
   if (body !== undefined) {
-    init.headers = { "Content-Type": "application/json" };
+    headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
-    // An edit names the chapter its page shows, so it can never land in another
-    // chapter that was opened meanwhile (owner, 2026-11-17: Fog Land ch.46).
-    const m = typeof location !== "undefined" ? location.pathname.match(/^\/chapter\/([^/]+)/) : null;
-    if (m) (init.headers as Record<string, string>)["x-chapter"] = m[1];
   }
+  // Every request from a Chapter page names the chapter the page shows, so an
+  // edit can never land in another chapter that was opened meanwhile (owner,
+  // 2026-11-17: Fog Land ch.46), and the Issues tab reads and fixes this
+  // chapter, not whichever one was opened last.
+  const m = typeof location !== "undefined" ? location.pathname.match(/^\/chapter\/([^/]+)/) : null;
+  if (m) headers["x-chapter"] = m[1];
+  if (Object.keys(headers).length) init.headers = headers;
   const r = await fetch(path, init);
   if (r.status === 401 && typeof location !== "undefined" && !location.pathname.startsWith("/login")) {
     location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);   // sign-in expired

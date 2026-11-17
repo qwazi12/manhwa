@@ -199,7 +199,26 @@ def active_project_dir():
     return WORK
 
 
-_BOARD_EDIT_PATHS = ("/api/segments/", "/api/storyboard/")
+_BOARD_EDIT_PATHS = ("/api/segments/", "/api/storyboard/", "/api/validate", "/api/validation", "/api/undo")
+_BOARD_LOCKS = {}
+
+
+def _board_lock(pdir):
+    """One lock per chapter: its board edits run one at a time."""
+    lock = _BOARD_LOCKS.get(pdir)
+    if lock is None:
+        if len(_BOARD_LOCKS) > 500:
+            for k in [k for k, v in _BOARD_LOCKS.items() if not v.locked()]:
+                _BOARD_LOCKS.pop(k, None)
+        lock = _BOARD_LOCKS.setdefault(pdir, threading.Lock())
+    return lock
+
+
+def _revoicing(pid):
+    """True while this chapter's render is re-recording every line: that step
+    reads the board, records for minutes, then writes its copy back."""
+    return any(x.get("project") == pid and x.get("type") == "finalize" and x.get("stage") == "revoice"
+               and x.get("status") in ("running", "queued", "paused", "pausing") for x in list(JOBS.values()))
 
 
 @app.middleware("http")
@@ -207,18 +226,35 @@ async def _pin_board_edit(request: Request, call_next):
     """Every board edit acts on ONE chapter from start to finish: the chapter
     the page names (x-chapter, sent by the Chapter page), else the chapter
     that is open when the request arrives. Opening another chapter while an
-    edit is still saving can no longer send that edit into the other chapter."""
-    if request.method in ("GET", "HEAD", "OPTIONS") or not request.url.path.startswith(_BOARD_EDIT_PATHS):
+    edit is still saving can no longer send that edit into the other chapter.
+
+    Owner review 2026-11-17 (issues waiting to happen):
+    - the Issues tab (/api/validate, /api/validation) applied its fixes to
+      whichever chapter was open, not the one on the page: now pinned too;
+    - a read is pinned as well when the page names its chapter (never refused);
+    - two edits to one chapter overlapped (a line edit re-records for seconds,
+      then wrote back its older copy over a tick made meanwhile): edits to one
+      chapter now run one at a time;
+    - edits made while a render re-records the voice were overwritten when it
+      finished: they are refused until it has."""
+    path = request.url.path
+    if request.method == "OPTIONS" or not path.startswith(_BOARD_EDIT_PATHS):
         return await call_next(request)
+    import asyncio
     import urllib.parse as _up
     import ingest
+    reading = request.method in ("GET", "HEAD")
     want = _up.unquote(request.headers.get("x-chapter") or "")
     if want:
         pdir = os.path.join(ingest.PROJECTS, want)
         if not re.fullmatch(r"[A-Za-z0-9._-]{1,200}", want) or want.strip(".") == "" \
                 or not os.path.exists(os.path.join(pdir, "segments.json")):
+            if reading:
+                return await call_next(request)
             return JSONResponse(status_code=409, content={
                 "detail": "This chapter is no longer available for editing. Reload the page."})
+    elif reading:
+        return await call_next(request)
     else:
         pid = get_active_project_id()
         pdir = os.path.join(ingest.PROJECTS, pid) if pid else None
@@ -226,7 +262,21 @@ async def _pin_board_edit(request: Request, call_next):
         return await call_next(request)
     tok = _REQ_PDIR.set(pdir)
     try:
-        return await call_next(request)
+        if reading:
+            return await call_next(request)
+        if _revoicing(os.path.basename(pdir)):
+            return JSONResponse(status_code=409, content={
+                "detail": "This chapter's voice is being re-recorded for its render. "
+                          "Edit it when that has finished (or stop the render first)."})
+        lock = _board_lock(pdir)
+        # waited for off the event loop, so other requests keep being served
+        if not await asyncio.get_running_loop().run_in_executor(None, lock.acquire, True, 90):
+            return JSONResponse(status_code=409, content={
+                "detail": "Another edit to this chapter is still saving. Try again in a moment."})
+        try:
+            return await call_next(request)
+        finally:
+            lock.release()
     finally:
         _REQ_PDIR.reset(tok)
 
@@ -557,6 +607,7 @@ def set_status(seg_index: int, body: StatusIn):
     if body.status == "approved":
         included = True
         segs = load_segments()
+        _snapshot("approve row")
         for s in segs:
             if s["seg_index"] == seg_index and not s.get("user_included"):
                 s["user_included"] = True
@@ -746,8 +797,8 @@ def project_dir_for(project=""):
     import ingest as _ing
     if not project:
         return active_project_dir()
-    if "/" in project or ".." in project:
-        raise HTTPException(400, "bad project id")
+    if "/" in project or ".." in project or project[:1] in (".", "_"):
+        raise HTTPException(400, "bad project id")      # never the projects root or _trash, _covers...
     d = os.path.join(_ing.PROJECTS, project)
     if not os.path.isdir(d):
         raise HTTPException(404, "unknown project")
@@ -7090,12 +7141,16 @@ def _load_descriptions():
         return []
 
 
-def _snapshot():
-    """Save current segments.json as a numbered version for undo."""
-    segs = load_segments()
-    n = len([f for f in os.listdir(VERSIONS) if f.endswith(".json")])
-    with open(os.path.join(VERSIONS, f"v{n:04d}.json"), "w") as f:
-        json.dump(segs, f)
+def _snapshot(op="edit"):
+    """Keep the board as it stands in the CHAPTER's own undo stack, so Undo
+    walks back this edit. It used to go to one folder shared by every chapter
+    that only the old page's /api/undo read: Undo on the Chapter page skipped
+    picture swaps, line edits and ticks and rolled back an older edit instead
+    (owner review, 2026-11-17)."""
+    import storyboard_edit
+    pdir = active_project_dir()
+    if storyboard_edit._snapshot(pdir):
+        storyboard_edit._name_snapshot(pdir, op)
 
 
 def _epochs_path():
@@ -7261,14 +7316,25 @@ def swap_panel(seg_index: int, body: SwapIn):
     new_path = os.path.join(_panel_dir(), f"{body.panel_id}.png")
     if not os.path.exists(new_path):
         raise HTTPException(400, f"panel {body.panel_id} not found")
-    _snapshot()
+    _snapshot("swap picture")
     if seg["panel_id"] != body.panel_id:
         import panel_framing
         panel_framing.clear_picture_edits(seg)
     seg["panel_id"] = body.panel_id
     seg["panel_file"] = new_path
     _write_segments(segs)
-    job = _start_render([seg_index])   # clip re-renders in background; preview is instant
+    # The clip on disk still shows the OLD picture. Remove it before asking
+    # for the re-render: when a render was already running the request used to
+    # stop here with a 409, the swap saved and the old clip kept, so the final
+    # video could ship the old picture (finalize only renders missing clips).
+    import storyboard_edit
+    storyboard_edit._stale(active_project_dir(), [seg_index])
+    try:
+        job = _start_render([seg_index])   # clip re-renders in background; preview is instant
+    except HTTPException as e:
+        if e.status_code != 409:
+            raise
+        job = None                         # the running render, or the next one, makes the missing clip
     return {"ok": True, "seg_index": seg_index, "panel_id": body.panel_id, "job": job}
 
 
@@ -7443,7 +7509,7 @@ def edit_narration(seg_index: int, body: NarrationIn):
     seg = next((s for s in segs if s["seg_index"] == seg_index), None)
     if not seg:
         raise HTTPException(404, "segment not found")
-    _snapshot()
+    _snapshot("edit line")
     edited = {e["index"]: e["text"].strip() for e in body.beats}
     # If any edited beat was SLICED across segments by a storyboard boundary
     # move, merge it back into one whole beat first — an edit always re-TTSes
@@ -7459,15 +7525,27 @@ def edit_narration(seg_index: int, body: NarrationIn):
         next((s for s in segs if any(b["index"] in edited for b in s["beats"])), None)
     if owner is None:
         raise HTTPException(404, "edited beat not found")
-    for b in owner["beats"]:
-        if b["index"] in edited and edited[b["index"]] and edited[b["index"]] != b["text"]:  # noqa: E501
-            b["text"] = edited[b["index"]]
-            b.pop("file", None)
+    # Record every changed line to a side file first and swap them in together:
+    # a failure on the second line used to leave the first line's new recording
+    # playing under its old text and timing.
+    recorded = []
+    try:
+        for b in owner["beats"]:
+            if b["index"] in edited and edited[b["index"]] and edited[b["index"]] != b["text"]:  # noqa: E501
+                b["text"] = edited[b["index"]]
+                b.pop("file", None)
+                dest = os.path.join(_audio_dir(), f"beat_{b['index']:03d}.mp3")
+                _synth_rest(b["text"], dest + ".new.mp3")
+                recorded.append(dest)
+    except Exception as e:
+        for dest in recorded:
             try:
-                _synth_rest(b["text"],
-                            os.path.join(_audio_dir(), f"beat_{b['index']:03d}.mp3"))
-            except Exception as e:
-                raise HTTPException(500, f"TTS failed: {e}")
+                os.remove(dest + ".new.mp3")
+            except OSError:
+                pass
+        raise HTTPException(500, f"TTS failed: {e}")
+    for dest in recorded:
+        os.replace(dest + ".new.mp3", dest)
     _recompute_timeline(segs)          # new audio length ripples downstream
     _write_segments(segs)
     # the clip on disk still carries the OLD narration; finalize only renders
@@ -7563,18 +7641,10 @@ def merge_segments(body: MergeIn):
 
 @app.post("/api/undo")
 def undo():
-    files = sorted(f for f in os.listdir(VERSIONS) if f.endswith(".json"))
-    if not files:
-        raise HTTPException(400, "nothing to undo")
-    last = os.path.join(VERSIONS, files[-1])
-    with open(last) as f:
-        segs = json.load(f)
-    _write_segments(segs)
-    os.remove(last)
-    # re-render every segment whose panel differs from what's now on disk is
-    # overkill; just re-render the ones that changed is unknown here, so the
-    # caller reloads and can re-render as needed. Return restored state.
-    return {"ok": True, "restored": files[-1], "n_segments": len(segs)}
+    """The old page's Undo. It restored the newest snapshot of ANY chapter into
+    the open one; it is now the same per-chapter undo the Chapter page uses."""
+    res = storyboard_undo()
+    return {"ok": True, "restored": res.get("undid"), "n_segments": res.get("segments")}
 
 
 # static SPA last so /api and /clip take precedence
@@ -9687,8 +9757,12 @@ def activate_project(body: ActivateIn):
     # Persist the active project ID
     try:
         os.makedirs(WORK, exist_ok=True)
-        with open(os.path.join(WORK, "active_project.txt"), "w", encoding="utf-8") as f:
+        # written whole or not at all: a reader in the instant after a
+        # truncate saw "" and fell back to the shared work folder
+        _ptr = os.path.join(WORK, "active_project.txt")
+        with open(_ptr + ".tmp", "w", encoding="utf-8") as f:
             f.write(body.id)
+        os.replace(_ptr + ".tmp", _ptr)
     except Exception as e:
         print(f"Failed to save active project file: {e}", file=sys.stderr)
 
@@ -9782,7 +9856,7 @@ def _run_validate_job(job_id, pdir, mode):
         _persist_job(job_id)
 
     try:
-        rep = _validator.validate(pdir, review=load_review(), mode=mode,
+        rep = _validator.validate(pdir, review=_load_reviews_side(pdir), mode=mode,
                                   progress=progress)
         # A report whose own status is 'error' (a refused batch, a missing key,
         # a cap hit) must NOT show as a green job — that is exactly how a
@@ -10499,6 +10573,7 @@ def sb_set_included(body: SetIncludedIn):
             hit += 1
     if not hit:
         raise HTTPException(404, "no segment for that panel")
+    _snapshot("tick")
     _write_segments(segs)
     return {"ok": True, "updated": hit,
             "included": sum(1 for s in segs if s.get("user_included"))}
@@ -10799,10 +10874,23 @@ def storyboard_undo():
     """
     import storyboard_edit as edit
     pdir = active_project_dir()
+    said = {b["index"]: b.get("text") for s in load_segments() for b in s.get("beats", []) if not b.get("file")}
     try:
         res = edit.undo(pdir)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    # A walked-back line edit restores the old words; put the old recording
+    # back too (free: it is in the saved recordings), or the old text would
+    # play with the new voice line.
+    for s in load_segments():
+        for b in s.get("beats", []):
+            if b.get("file") or b["index"] not in said or said[b["index"]] == b.get("text") \
+                    or not (b.get("text") or "").strip():
+                continue
+            try:
+                _synth_rest(b["text"], os.path.join(_audio_dir(), f"beat_{b['index']:03d}.mp3"))
+            except Exception as e:
+                res["voice"] = f"line {b['index']} could not be re-recorded: {e}"
     return res
 
 
