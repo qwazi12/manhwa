@@ -833,6 +833,62 @@ def cut_signature(segs=None, pdir=None):
     return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:12]
 
 
+def text_signature(pdir):
+    """Fingerprint of what the video SAYS: every spoken line of the segments
+    that reach the video. cut_signature leaves the words out, so a corrected
+    line whose new recording fits the old slot left an approved video
+    "current" and it posted with the old line (owner review, 2026-11-17)."""
+    import hashlib
+    review = _load_reviews_side(pdir)
+    parts = []
+    for s_ in _load_segments_from(pdir):
+        if not s_.get("user_included") or (review.get(str(s_["seg_index"])) or {}).get("status") == "rejected":
+            continue
+        parts += [f"{b.get('index')}:{(b.get('text') or '').strip()}" for b in s_.get("beats", [])]
+    return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:12]
+
+
+def _changed_pieces(pdir):
+    """For a merged video that is not posted: the chapters whose board changed
+    after the chapter video that went into it, or that were rendered again
+    since it was built. Regressor's Tale 30-38 (2026-11-17) still read "Watch
+    the video ... Approve" after chapter 37's lines were corrected."""
+    meta = _read_json(os.path.join(pdir, "project.json")) or {}
+    if meta.get("kind") != "range" or not meta.get("merged_from"):
+        return []
+    if _read_json(os.path.join(pdir, UPLOADS_NAME)) or _read_json(os.path.join(pdir, "publishes.json")):
+        return []
+    try:
+        built = max(os.path.getmtime(os.path.join(pdir, "exports", f))
+                    for f in os.listdir(os.path.join(pdir, "exports")) if f.endswith(".mp4"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for pc in meta["merged_from"]:
+        pid = pc.get("project") or ""
+        if not pid or "/" in pid or ".." in pid:
+            continue
+        cp = os.path.join(os.path.dirname(pdir.rstrip("/")), pid)
+        try:
+            used = os.path.getmtime(os.path.join(cp, "exports", pc.get("name") or ""))
+        except OSError:
+            continue                              # its video was put away: nothing to compare
+        try:
+            changed = os.path.getmtime(os.path.join(cp, "segments.json")) > used + 60
+        except OSError:
+            changed = False
+        if not changed:
+            try:
+                changed = any(f.endswith(".mp4") and not f.endswith(".part.mp4") and f != pc.get("name")
+                              and os.path.getmtime(os.path.join(cp, "exports", f)) > built
+                              for f in os.listdir(os.path.join(cp, "exports")))
+            except OSError:
+                changed = False
+        if changed:
+            out.append(pid)
+    return out
+
+
 def _load_segments_from(pdir):
     try:
         with open(os.path.join(pdir, "segments.json"), encoding="utf-8") as f:
@@ -878,6 +934,11 @@ def review_state(pdir, name, rec=None, current_sig=None):
     sig = current_sig if current_sig is not None else cut_signature(pdir=pdir)
     status = rec.get("status") or "review_pending"
     superseded = bool(rec.get("cut_signature") and rec["cut_signature"] != sig)
+    if rec.get("text_signature") and rec["text_signature"] != text_signature(pdir):
+        superseded = True                         # a spoken line changed after the verdict
+    pieces = _changed_pieces(pdir)
+    if pieces:
+        superseded = True                         # a chapter in this merged video changed
     media_changed = bool(rec.get("media_identity") and
                          rec["media_identity"] != _mqa.identity(pdir, name))
     if _mqa.enforcement_enabled():
@@ -887,6 +948,7 @@ def review_state(pdir, name, rec=None, current_sig=None):
             "reviewed_by": rec.get("reviewed_by"),
             "cut_signature": rec.get("cut_signature"),
             "current_signature": sig, "superseded": superseded,
+            "changed_pieces": pieces,
             "media_superseded": media_changed,
             "history": rec.get("history", [])}
 
@@ -1198,6 +1260,12 @@ def api_review_save(body: ReviewIn):
     name = os.path.basename(body.name)
     if not name.endswith(".mp4"):
         raise HTTPException(400, "name must be an export filename")
+    if status == "approved":
+        pieces = _changed_pieces(pdir)
+        if pieces:
+            raise HTTPException(409, "This video was built before "
+                                + ", ".join(_pretty(p) for p in pieces)
+                                + " changed. Render the changed chapter again and rebuild this video, then approve.")
     recs = load_reviews(pdir)
     rec = recs.get(name) or {"history": []}
     if status and rec.get("status") and rec["status"] != status:
@@ -1213,6 +1281,7 @@ def api_review_save(body: ReviewIn):
     rec["export_mtime"] = stat["mtime"] if stat else rec.get("export_mtime")
     if status:                                # a verdict pins the cut it judged
         rec["cut_signature"] = cut_signature(pdir=pdir)
+        rec["text_signature"] = text_signature(pdir)
         rec["media_identity"] = _mqa.identity(pdir, name)
         if status == "approved":
             _pin_packaging(pdir, name, rec)
