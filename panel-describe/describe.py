@@ -159,7 +159,7 @@ def _stash_usage(res):
 
 
 def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, certifi_path: str | None = None,
-                           prompt: str | None = None) -> str:
+                           prompt: str | None = None, more_images=None) -> str:
     """Call the new Interactions API (/v1beta/interactions) with a multimodal input.
     Returns raw response text.
 
@@ -180,10 +180,12 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
         "input": [
             {
                 "type": "user_input",
-                "content": [
-                    {"type": "image", "data": img_b64, "mime_type": mime},
-                    {"type": "text", "text": prompt or VISION_PROMPT},
-                ]
+                "content": (
+                    [{"type": "image", "data": img_b64, "mime_type": mime}]
+                    # more panels in the same request (describe_batch_with_gemini)
+                    + [{"type": "image", "data": b, "mime_type": m} for b, m in (more_images or [])]
+                    + [{"type": "text", "text": prompt or VISION_PROMPT}]
+                )
             }
         ]
     }
@@ -212,7 +214,8 @@ def _call_interactions_api(api_key: str, model: str, img_b64: str, mime: str, ce
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
             method="POST")
-        with urllib.request.urlopen(req, timeout=900 if payload.get("service_tier") == "flex" else 60,
+        with urllib.request.urlopen(req, timeout=900 if payload.get("service_tier") == "flex"
+                                    else 60 + 30 * len(more_images or []),
                                     context=ctx) as resp:
             return json.loads(resp.read())
 
@@ -327,6 +330,63 @@ def describe_with_gemini(path: str, api_key: str, model: str, prompt: str | None
     data = json.loads(raw)
     return (data.get("ocr_text", "").strip(), data.get("visual_description", "").strip(),
             data.get("lines"))
+
+
+# ---- several panels in one request (experiment, 2026-11-17) -----------------
+# The instruction text is about 700 tokens and is sent once per panel: on
+# 2026-11-16 it was roughly 30% of describe's input tokens. With
+# DESCRIBE_BATCH=n (run.py; off by default) n panels share one request. The
+# answer must be a JSON array with one object per panel, in order; anything
+# else and the caller describes those panels one at a time, as before.
+BATCH_HEAD = """You are given {n} separate panels from one manhwa/webtoon chapter, in reading order: the first image is panel 1, the second image is panel 2, and so on.
+Analyze EACH panel on its own, exactly as instructed below, using only what is visible in that one image. Never move text or details from one panel into another.
+Return ONLY a JSON array (no markdown, no code fences) of exactly {n} objects, in the same order as the images. Each object has the key "panel" (its number, 1 to {n}) followed by exactly the keys described below.
+
+--- instructions for each panel ---
+"""
+
+
+def describe_batch_with_gemini(paths, api_key: str, model: str, prompt: str | None = None):
+    """One call for several panels. Returns [(ocr_text, visual_description,
+    raw_lines), ...] in the order of `paths`. Raises when this key type has no
+    path for it, or the answer is not exactly one object per panel, in order."""
+    if not api_key.startswith("AQ."):
+        raise ValueError("several panels per request needs an Interactions API key")
+    imgs = [_encode_image(p) for p in paths]
+    try:
+        import certifi
+        certifi_path = certifi.where()
+    except ImportError:
+        certifi_path = None
+    text = BATCH_HEAD.format(n=len(paths)) + (prompt or VISION_PROMPT)
+
+    def _call():
+        return _call_interactions_api(api_key, model, imgs[0][0], imgs[0][1], certifi_path,
+                                      prompt=text, more_images=imgs[1:])
+
+    if usage:
+        with usage.gate("gemini", 1, model=model) as _m:
+            raw = _call()
+            _m.tokens(LAST_USAGE.get("prompt", 0), LAST_USAGE.get("output", 0),
+                      LAST_USAGE.get("cached", 0))
+    else:
+        raw = _call()
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`").strip()
+        if raw.lower().startswith("json"):
+            raw = raw[4:]
+    data = json.loads(raw)
+    if not isinstance(data, list) or len(data) != len(paths):
+        got = len(data) if isinstance(data, list) else type(data).__name__
+        raise ValueError(f"expected {len(paths)} panel objects, got {got}")
+    out = []
+    for i, d in enumerate(data, 1):
+        if not isinstance(d, dict) or str(d.get("panel")).strip() != str(i):
+            raise ValueError(f"panel {i} of the answer is missing or out of order")
+        out.append(((d.get("ocr_text") or "").strip(),
+                    (d.get("visual_description") or "").strip(), d.get("lines")))
+    return out
 
 
 def ask_image(img_bytes: bytes, mime: str, prompt: str, api_key: str, model: str) -> str:
@@ -450,3 +510,40 @@ def describe_panel(path: str, api_key: str | None, model: str, series_bible: dic
             raise
         rec["error"] = f"{type(e).__name__}: {e}"
     return rec
+
+
+def describe_panels(paths, api_key: str | None, model: str, series_bible: dict | None = None):
+    """describe_panel for several panels with ONE request (DESCRIBE_BATCH).
+    Returns records in the order of `paths`. If the shared request fails for
+    any reason other than a usage cap, each panel is described on its own,
+    exactly as before."""
+    if len(paths) < 2 or not api_key:
+        return [describe_panel(p, api_key, model, series_bible=series_bible) for p in paths]
+    try:
+        custom_prompt = vision_prompt(series_bible)
+        for attempt in range(DESCRIBE_RETRIES + 1):
+            try:
+                got = describe_batch_with_gemini(paths, api_key, model, prompt=custom_prompt)
+                break
+            except Exception as e:
+                if (usage and isinstance(e, usage.UsageCapExceeded)) \
+                        or attempt == DESCRIBE_RETRIES or not _transient(e):
+                    raise
+                time.sleep(min(30, 2 ** attempt * 2) + random.uniform(0, 1))
+    except Exception as e:
+        if usage and isinstance(e, usage.UsageCapExceeded):
+            raise
+        print(f"[describe] one request for {len(paths)} panels failed "
+              f"({type(e).__name__}: {str(e)[:120]}) — describing them one at a time", flush=True)
+        return [describe_panel(p, api_key, model, series_bible=series_bible) for p in paths]
+    recs = []
+    for path, (ocr, desc, raw_lines) in zip(paths, got):
+        w, h = Image.open(path).size
+        lines = ocr_lines.normalize_lines(raw_lines)
+        ocr = (ocr_lines.ocr_from_lines(lines) if lines
+               else " / ".join(ocr_lines.speech_segments(ocr)))
+        recs.append({"panel_id": _panel_id_from_name(path), "file": os.path.basename(path),
+                     "width": w, "height": h, "bbox": [0, 0, w, h],
+                     "ocr_text": ocr, "visual_description": desc, "lines": lines,
+                     "source": "gemini", "ok": True})
+    return recs

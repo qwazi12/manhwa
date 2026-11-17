@@ -8523,7 +8523,8 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
         tier = (os.environ.get("AUTOPILOT_TIER", "flex")
                 if INGEST[job_id].get("source") == "autopilot" else "")
         meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh,
-                                 engine=engine, variant=variant, direct=direct, tier=tier)
+                                 engine=engine, variant=variant, direct=direct, tier=tier,
+                                 lean=bool(INGEST[job_id].get("lean")))
         INGEST[job_id].update(status="done", project=meta, pct=100)
         if isinstance(meta, dict) and meta.get("id"):     # title/description/tags while making
             threading.Thread(target=_prepare_publish, args=(project_dir_for(meta["id"]), DRAFT),
@@ -8703,7 +8704,7 @@ def _queue_worker():
 
 
 def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
-                    source="manual", job_id=None, control="run", why=""):
+                    source="manual", job_id=None, control="run", why="", lean=False):
     """Queue an ingest. With job_id, RE-queue that existing job (resume after a
     stop, a restart or a budget pause) so its history stays one record."""
     global _QUEUE_RUNNING
@@ -8721,6 +8722,8 @@ def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
                           "url": url, "ts": time.time(), "control": "run",
                           "engine": engine, "variant": variant, "direct_speech": direct,
                           "source": source}
+        if lean:                         # experiment switch, rides with the job
+            INGEST[job_id]["lean"] = True
     _persist_ingest(job_id)
     with _QUEUE_LOCK:
         # the engine rides with the job — it used to be dropped here, so any
@@ -8838,6 +8841,9 @@ class IngestIn(BaseModel):
     # Direct speech for this ingest: True/False, or None = the DIRECT_SPEECH
     # env default (off). docs/craft_reconciliation.md P2.
     direct_speech: bool | None = None
+    # Experiment (2026-11-17), this chapter only: less thinking for the script
+    # calls and several panels per describe request (usage.set_lean). Gemini only.
+    lean: bool = False
     allow_duplicate: bool = False   # make a chapter that was already made (on purpose)
     # Narrator voice for this chapter ("gemini:Puck", "chirp:Charon"); empty =
     # the studio default. Applies when the chapter is first voiced or on a
@@ -8892,7 +8898,7 @@ def start_ingest(body: IngestIn):
                                  "set CLAUDE_API_KEY or ANTHROPIC_API_KEY")
     if body.queue:
         job_id = _enqueue_ingest(url, body.fresh, body.engine, variant,
-                                 body.direct_speech)
+                                 body.direct_speech, lean=body.lean)
         return {"job": job_id, "stages": ingest_stages(), "existing": False,
                 "fresh": body.fresh, "queued": True, "engine": body.engine}
     job_id = uuid.uuid4().hex[:12]
@@ -8901,6 +8907,8 @@ def start_ingest(body: IngestIn):
                       "url": url, "ts": time.time(), "control": "run",
                       "engine": body.engine, "variant": variant,
                       "direct_speech": body.direct_speech}
+    if body.lean:
+        INGEST[job_id]["lean"] = True
     _persist_ingest(job_id)
     threading.Thread(target=_run_ingest_job,
                      args=(job_id, url, body.fresh, body.engine, variant,
