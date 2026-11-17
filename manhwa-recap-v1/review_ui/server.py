@@ -157,8 +157,16 @@ def _bound_call(pdir, fn, *a, **k):
         return fn(*a, **k)
 
 
+# 2026-11-17 (owner: Fog Land ch.46's board was replaced by A Regressor's Tale
+# ch.37's): a board edit loaded the open chapter, spent seconds re-voicing a
+# line, then saved to whichever chapter was open BY THEN. A board edit is now
+# pinned to one chapter for the whole request (see _pin_board_edit below).
+import contextvars
+_REQ_PDIR = contextvars.ContextVar("board_edit_chapter", default=None)
+
+
 def get_active_project_id():
-    b = getattr(_BOUND, "pdir", None)
+    b = getattr(_BOUND, "pdir", None) or _REQ_PDIR.get()
     if b:
         return os.path.basename(b.rstrip("/"))
     path = os.path.join(WORK, "active_project.txt")
@@ -181,7 +189,7 @@ def get_active_project_id():
 
 
 def active_project_dir():
-    b = getattr(_BOUND, "pdir", None)
+    b = getattr(_BOUND, "pdir", None) or _REQ_PDIR.get()
     if b:
         return b
     pid = get_active_project_id()
@@ -189,6 +197,38 @@ def active_project_dir():
         import ingest
         return os.path.join(ingest.PROJECTS, pid)
     return WORK
+
+
+_BOARD_EDIT_PATHS = ("/api/segments/", "/api/storyboard/")
+
+
+@app.middleware("http")
+async def _pin_board_edit(request: Request, call_next):
+    """Every board edit acts on ONE chapter from start to finish: the chapter
+    the page names (x-chapter, sent by the Chapter page), else the chapter
+    that is open when the request arrives. Opening another chapter while an
+    edit is still saving can no longer send that edit into the other chapter."""
+    if request.method in ("GET", "HEAD", "OPTIONS") or not request.url.path.startswith(_BOARD_EDIT_PATHS):
+        return await call_next(request)
+    import urllib.parse as _up
+    import ingest
+    want = _up.unquote(request.headers.get("x-chapter") or "")
+    if want:
+        pdir = os.path.join(ingest.PROJECTS, want)
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,200}", want) or want.strip(".") == "" \
+                or not os.path.exists(os.path.join(pdir, "segments.json")):
+            return JSONResponse(status_code=409, content={
+                "detail": "This chapter is no longer available for editing. Reload the page."})
+    else:
+        pid = get_active_project_id()
+        pdir = os.path.join(ingest.PROJECTS, pid) if pid else None
+    if not pdir:
+        return await call_next(request)
+    tok = _REQ_PDIR.set(pdir)
+    try:
+        return await call_next(request)
+    finally:
+        _REQ_PDIR.reset(tok)
 
 
 def active_exports_dir():
