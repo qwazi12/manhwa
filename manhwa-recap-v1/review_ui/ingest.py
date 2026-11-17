@@ -224,7 +224,7 @@ def _releases_stage_locks(fn):
 
 @_releases_stage_locks
 def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
-               engine="gemini", variant="", direct=None, tier=""):
+               engine="gemini", variant="", direct=None, tier="", lean=False):
     """Run the pipeline for one chapter URL. `progress(stage, msg, pct)` is
     called as it advances. Returns the finished project dict.
 
@@ -258,6 +258,9 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     job_id = job_id or "unknown"
     usage.set_job(job_id)
     usage.set_tier(tier)
+    # lean (experiment, 2026-11-17; off unless this ingest asks for it): less
+    # thinking for the script calls, several panels per describe request.
+    usage.set_lean(lean)
 
     proj_id = project_id(url, variant)
     proj = os.path.join(PROJECTS, proj_id)
@@ -442,6 +445,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     progress("describe", "Describing panels (Gemini vision)…", 35)
     usage.set_stage("describe")
     subp_env["RECAP_STAGE"] = "describe"
+    if lean:
+        subp_env["DESCRIBE_BATCH"] = os.environ.get("LEAN_DESCRIBE_BATCH", "4")
     desc_log = os.path.join(proj, "describe.log")
     desc_cmd = [PY, os.path.join(ROOT, "panel-describe", "run.py"),
                 "--input", crops, "--out", desc_path,

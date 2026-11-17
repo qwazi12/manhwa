@@ -262,10 +262,12 @@ def carry(fn):
     stg = getattr(_local, "stage", None)
     proj = getattr(_local, "project", None)
     tier = getattr(_req_local, "tier", "")
+    lean = getattr(_req_local, "lean", False)
 
     def run(*a, **k):
         prev = (getattr(_local, "job_id", None), getattr(_local, "stage", None),
                 getattr(_local, "project", None), getattr(_req_local, "tier", ""))
+        prev_lean = getattr(_req_local, "lean", False)
         if jid:
             _local.job_id = jid
         if stg:
@@ -274,10 +276,13 @@ def carry(fn):
             _local.project = proj
         if tier:
             _req_local.tier = tier
+        if lean:
+            _req_local.lean = True
         try:
             return fn(*a, **k)
         finally:
             _local.job_id, _local.stage, _local.project, _req_local.tier = prev
+            _req_local.lean = prev_lean
     return run
 
 
@@ -598,6 +603,18 @@ def set_tier(tier):
     _req_local.tier = (tier or "").lower()
 
 
+def set_lean(on):
+    """Experiment (2026-11-17), one chapter at a time, off by default: this
+    thread's script calls ask for less thinking (LEAN_SCRIPT_THINKING_LEVEL,
+    default "low"). On 2026-11-16 thinking was 85% of the script step's output
+    tokens. Set per ingest ("lean": true); every other chapter is unchanged."""
+    _req_local.lean = bool(on)
+
+
+def lean():
+    return bool(getattr(_req_local, "lean", False))
+
+
 def requested_tier():
     """Thread setting first; a subprocess (describe) gets RECAP_SERVICE_TIER."""
     return getattr(_req_local, "tier", "") or os.environ.get("RECAP_SERVICE_TIER", "").lower()
@@ -661,6 +678,8 @@ def thinking_level(kind, model=""):
     """'low' | 'medium' | 'high' | '' for a call of this kind ('vision' or
     'script'), from <KIND>_THINKING_LEVEL."""
     lvl = os.environ.get(f"{kind.upper()}_THINKING_LEVEL", _THINKING_DEFAULTS.get(kind, ""))
+    if kind == "script" and lean():      # one chapter's experiment (set_lean)
+        lvl = os.environ.get("LEAN_SCRIPT_THINKING_LEVEL", "low")
     lvl = (lvl or "").strip().lower()
     if lvl in ("", "default", "off") or model in _no_thinking_level:
         return ""

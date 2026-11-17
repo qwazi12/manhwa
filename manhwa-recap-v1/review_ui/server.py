@@ -157,8 +157,16 @@ def _bound_call(pdir, fn, *a, **k):
         return fn(*a, **k)
 
 
+# 2026-11-17 (owner: Fog Land ch.46's board was replaced by A Regressor's Tale
+# ch.37's): a board edit loaded the open chapter, spent seconds re-voicing a
+# line, then saved to whichever chapter was open BY THEN. A board edit is now
+# pinned to one chapter for the whole request (see _pin_board_edit below).
+import contextvars
+_REQ_PDIR = contextvars.ContextVar("board_edit_chapter", default=None)
+
+
 def get_active_project_id():
-    b = getattr(_BOUND, "pdir", None)
+    b = getattr(_BOUND, "pdir", None) or _REQ_PDIR.get()
     if b:
         return os.path.basename(b.rstrip("/"))
     path = os.path.join(WORK, "active_project.txt")
@@ -181,7 +189,7 @@ def get_active_project_id():
 
 
 def active_project_dir():
-    b = getattr(_BOUND, "pdir", None)
+    b = getattr(_BOUND, "pdir", None) or _REQ_PDIR.get()
     if b:
         return b
     pid = get_active_project_id()
@@ -189,6 +197,38 @@ def active_project_dir():
         import ingest
         return os.path.join(ingest.PROJECTS, pid)
     return WORK
+
+
+_BOARD_EDIT_PATHS = ("/api/segments/", "/api/storyboard/")
+
+
+@app.middleware("http")
+async def _pin_board_edit(request: Request, call_next):
+    """Every board edit acts on ONE chapter from start to finish: the chapter
+    the page names (x-chapter, sent by the Chapter page), else the chapter
+    that is open when the request arrives. Opening another chapter while an
+    edit is still saving can no longer send that edit into the other chapter."""
+    if request.method in ("GET", "HEAD", "OPTIONS") or not request.url.path.startswith(_BOARD_EDIT_PATHS):
+        return await call_next(request)
+    import urllib.parse as _up
+    import ingest
+    want = _up.unquote(request.headers.get("x-chapter") or "")
+    if want:
+        pdir = os.path.join(ingest.PROJECTS, want)
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,200}", want) or want.strip(".") == "" \
+                or not os.path.exists(os.path.join(pdir, "segments.json")):
+            return JSONResponse(status_code=409, content={
+                "detail": "This chapter is no longer available for editing. Reload the page."})
+    else:
+        pid = get_active_project_id()
+        pdir = os.path.join(ingest.PROJECTS, pid) if pid else None
+    if not pdir:
+        return await call_next(request)
+    tok = _REQ_PDIR.set(pdir)
+    try:
+        return await call_next(request)
+    finally:
+        _REQ_PDIR.reset(tok)
 
 
 def active_exports_dir():
@@ -8523,7 +8563,8 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
         tier = (os.environ.get("AUTOPILOT_TIER", "flex")
                 if INGEST[job_id].get("source") == "autopilot" else "")
         meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh,
-                                 engine=engine, variant=variant, direct=direct, tier=tier)
+                                 engine=engine, variant=variant, direct=direct, tier=tier,
+                                 lean=bool(INGEST[job_id].get("lean")))
         INGEST[job_id].update(status="done", project=meta, pct=100)
         if isinstance(meta, dict) and meta.get("id"):     # title/description/tags while making
             threading.Thread(target=_prepare_publish, args=(project_dir_for(meta["id"]), DRAFT),
@@ -8703,7 +8744,7 @@ def _queue_worker():
 
 
 def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
-                    source="manual", job_id=None, control="run", why=""):
+                    source="manual", job_id=None, control="run", why="", lean=False):
     """Queue an ingest. With job_id, RE-queue that existing job (resume after a
     stop, a restart or a budget pause) so its history stays one record."""
     global _QUEUE_RUNNING
@@ -8721,6 +8762,8 @@ def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
                           "url": url, "ts": time.time(), "control": "run",
                           "engine": engine, "variant": variant, "direct_speech": direct,
                           "source": source}
+        if lean:                         # experiment switch, rides with the job
+            INGEST[job_id]["lean"] = True
     _persist_ingest(job_id)
     with _QUEUE_LOCK:
         # the engine rides with the job — it used to be dropped here, so any
@@ -8838,6 +8881,9 @@ class IngestIn(BaseModel):
     # Direct speech for this ingest: True/False, or None = the DIRECT_SPEECH
     # env default (off). docs/craft_reconciliation.md P2.
     direct_speech: bool | None = None
+    # Experiment (2026-11-17), this chapter only: less thinking for the script
+    # calls and several panels per describe request (usage.set_lean). Gemini only.
+    lean: bool = False
     allow_duplicate: bool = False   # make a chapter that was already made (on purpose)
     # Narrator voice for this chapter ("gemini:Puck", "chirp:Charon"); empty =
     # the studio default. Applies when the chapter is first voiced or on a
@@ -8892,7 +8938,7 @@ def start_ingest(body: IngestIn):
                                  "set CLAUDE_API_KEY or ANTHROPIC_API_KEY")
     if body.queue:
         job_id = _enqueue_ingest(url, body.fresh, body.engine, variant,
-                                 body.direct_speech)
+                                 body.direct_speech, lean=body.lean)
         return {"job": job_id, "stages": ingest_stages(), "existing": False,
                 "fresh": body.fresh, "queued": True, "engine": body.engine}
     job_id = uuid.uuid4().hex[:12]
@@ -8901,6 +8947,8 @@ def start_ingest(body: IngestIn):
                       "url": url, "ts": time.time(), "control": "run",
                       "engine": body.engine, "variant": variant,
                       "direct_speech": body.direct_speech}
+    if body.lean:
+        INGEST[job_id]["lean"] = True
     _persist_ingest(job_id)
     threading.Thread(target=_run_ingest_job,
                      args=(job_id, url, body.fresh, body.engine, variant,
@@ -9480,18 +9528,40 @@ def api_watchlist_cover(series_id: str):
             return FileResponse(p, media_type=mt, headers={"Cache-Control": "public, max-age=86400"})
     if srs is None:
         raise HTTPException(404, "not on the watchlist")
-    if not cover:
-        raise HTTPException(404, "no cover yet — check the series first")
-    ch, ph = _up.urlparse(cover).hostname or "", _up.urlparse(page).hostname or ""
-    same_site = ".".join(ch.split(".")[-2:]) == ".".join(ph.split(".")[-2:])
-    if _up.urlparse(cover).scheme != "https" or not (same_site or ch.endswith(".pstatic.net")):
-        raise HTTPException(404, "cover is not on the series' own site")
-    req = _ur.Request(cover, headers={"User-Agent": _pv.UA, "Referer": page})
-    try:
-        with _ur.urlopen(req, timeout=20, context=_pv._ctx()) as r:
-            data, mt = r.read(8_000_000), (r.headers.get_content_type() or "image/jpeg")
-    except Exception:
-        raise HTTPException(502, "could not fetch the cover")
+    # The first source's cover, then every other source's (owner, 2026-11-17:
+    # seven series had a broken picture on Home. Asura refused the studio, so
+    # its share card could not be swapped for the real cover, and the backup
+    # site's own cover was never tried).
+    cands = ([(cover, page)] if cover else []) + [
+        (x["cover"], x.get("series_url") or "") for x in srs.get("mirrors", [])
+        if x.get("cover") and x is not m and not _pv.is_share_card(x["cover"])]
+    data, why = None, (404, "no cover yet — check the series first")
+    for cover, page in cands:
+        ch, ph = _up.urlparse(cover).hostname or "", _up.urlparse(page).hostname or ""
+        same_site = ".".join(ch.split(".")[-2:]) == ".".join(ph.split(".")[-2:])
+        if _up.urlparse(cover).scheme != "https" or not (same_site or ch.endswith(".pstatic.net")):
+            why = (404, "cover is not on the series' own site")
+            continue
+        req = _ur.Request(cover, headers={"User-Agent": _pv.UA, "Referer": page})
+        try:
+            with _ur.urlopen(req, timeout=20, context=_pv._ctx()) as r:
+                got, mt = r.read(8_000_000), (r.headers.get_content_type() or "image/jpeg")
+        except Exception:
+            why = (502, "could not fetch the cover")
+            continue
+        if not got or mt.startswith("text/"):        # a block page, not a picture
+            why = (502, "could not fetch the cover")
+            continue
+        data = got
+        break
+    if data is None:
+        # No source answered: the cover saved earlier, however old, beats a broken picture.
+        if not _pv.is_share_card(cached_src):
+            for ext, mt in (("jpg", "image/jpeg"), ("png", "image/png"), ("webp", "image/webp")):
+                p = os.path.join(d, f"{series_id}.{ext}")
+                if os.path.exists(p):
+                    return FileResponse(p, media_type=mt, headers={"Cache-Control": "public, max-age=3600"})
+        raise HTTPException(*why)
     ext = {"image/png": "png", "image/webp": "webp"}.get(mt, "jpg")
     for old_ext in ("jpg", "png", "webp"):           # one cached cover per series
         if old_ext != ext and os.path.exists(os.path.join(d, f"{series_id}.{old_ext}")):

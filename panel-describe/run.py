@@ -159,16 +159,59 @@ def main():
     # DESCRIBE_WORKERS=1 restores the old one-at-a-time behaviour.
     from concurrent.futures import ThreadPoolExecutor
     workers = max(1, int(os.environ.get("DESCRIBE_WORKERS", "6"))) if api_key else 1
+
+    # DESCRIBE_BATCH=n (experiment, 2026-11-17; default 1 = one panel per
+    # request, as always): n panels share one request, so the instruction
+    # text is paid once per group (describe.describe_panels). Slivers still
+    # skip the model, and a group whose answer is not one object per panel is
+    # described one by one.
+    try:
+        batch = max(1, int(os.environ.get("DESCRIBE_BATCH", "1"))) if api_key else 1
+    except ValueError:
+        batch = 1
+
+    def _tiny(fname):
+        try:
+            from PIL import Image
+            with Image.open(os.path.join(args.input, fname)) as _im:
+                _w, _h = _im.size
+        except Exception:
+            return True                  # unreadable: let _one report it
+        return min(_w, _h) < 40 or _w * _h < 10000
+
+    def _group(fnames):
+        paths = [os.path.join(args.input, f) for f in fnames]
+        before = [describe.generation_inputs(p, api_key, args.model, bible_data) for p in paths]
+        recs = describe.describe_panels(paths, api_key, args.model, series_bible=bible_data)
+        out = []
+        for f, p, b, rec in zip(fnames, paths, before, recs):
+            rec["generation"] = {"version": cache.VERSION, "inputs": b}
+            if b != describe.generation_inputs(p, api_key, args.model, bible_data):
+                rec.update(ok=False, error="Source/generation inputs changed during description; retry explicitly")
+            out.append((f, rec))
+        return out
+
+    if batch > 1:
+        real = [f for f in files if not _tiny(f)]
+        _real = set(real)
+        units = [[f] for f in files if f not in _real] + \
+                [real[i:i + batch] for i in range(0, len(real), batch)]
+        print(f"Several panels per request: {batch} ({len(units)} requests or skips for {len(files)} panels)\n")
+    else:
+        units = [[f] for f in files]
+
+    def _unit(u):
+        return [(u[0], _one(u[0]))] if len(u) == 1 else _group(u)
+
     by_name, done_n, cap_err = {}, 0, None
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(_one, f): f for f in files}
+        futs = {ex.submit(_unit, u): u for u in units}
         from concurrent.futures import as_completed
         for fut in as_completed(futs):
-            fname = futs[fut]
             if fut.cancelled():      # dropped after a usage cap tripped
                 continue
             try:
-                rec = fut.result()
+                pairs = fut.result()
             except Exception as e:
                 if UsageCapExceeded and isinstance(e, UsageCapExceeded):
                     cap_err = cap_err or e
@@ -178,20 +221,21 @@ def main():
                 # A corrupt/unreadable panel must not discard other completed
                 # paid descriptions. Persist an explicit failure and stop the
                 # stage after the batch is saved, before narration can run.
-                rec = {"panel_id": os.path.splitext(fname)[0], "file": fname,
-                       "width": 0, "height": 0, "bbox": [0, 0, 0, 0],
-                       "ocr_text": "", "visual_description": "", "lines": [],
-                       "source": "none", "ok": False,
-                       "error": f"{type(e).__name__}: {e}"}
-            by_name[fname] = rec
-            done_n += 1
-            if rec.pop("_note", None):
-                status = "skipped"
-            else:
-                status = "ok" if rec["ok"] else f"FAILED ({rec.get('error','')[:60]})"
-            ocr_preview = (rec["ocr_text"][:40] + "…") if len(rec["ocr_text"]) > 40 else rec["ocr_text"]
-            print(f"[{done_n:>3}/{len(files)}] {fname:32} {status:8} text: {ocr_preview!r}",
-                  flush=True)
+                pairs = [(fname, {"panel_id": os.path.splitext(fname)[0], "file": fname,
+                                  "width": 0, "height": 0, "bbox": [0, 0, 0, 0],
+                                  "ocr_text": "", "visual_description": "", "lines": [],
+                                  "source": "none", "ok": False,
+                                  "error": f"{type(e).__name__}: {e}"}) for fname in futs[fut]]
+            for fname, rec in pairs:
+                by_name[fname] = rec
+                done_n += 1
+                if rec.pop("_note", None):
+                    status = "skipped"
+                else:
+                    status = "ok" if rec["ok"] else f"FAILED ({rec.get('error','')[:60]})"
+                ocr_preview = (rec["ocr_text"][:40] + "…") if len(rec["ocr_text"]) > 40 else rec["ocr_text"]
+                print(f"[{done_n:>3}/{len(files)}] {fname:32} {status:8} text: {ocr_preview!r}",
+                      flush=True)
     records = [by_name[f] for f in files if f in by_name]   # original order
     # If merging, overlay new records on top of existing ones
     # CRITICAL: only replace existing record with new one if new run succeeded

@@ -363,6 +363,13 @@ def opening_rule(series_title, alias):
     its alternate titles (the alias rotates per chapter — series_pack)."""
     if not (series_title and alias):
         return ""
+    same = lambda t: re.sub(r"[^a-z0-9]+", "", t.lower().replace("&", "and"))    # noqa: E731
+    if same(series_title) == same(alias):
+        # the "alias" is the same title spelled another way: five chapters opened
+        # "X, also known as X" (owner review, 2026-11-17)
+        return (f"\nOPENING LINE (this is the chapter's first unit): in its FIRST sentence, name the series "
+                f"exactly once as \"{series_title}\" woven into the story sentence for "
+                f"that panel. Never name the series again, and never use any other title for it.\n")
     return (f"\nOPENING LINE (this is the chapter's first unit): in its FIRST sentence, name the series "
             f"exactly once as \"{series_title}, also known as {alias},\" woven into the story sentence for "
             f"that panel. Never name the series again, and never use any other title for it.\n")
@@ -551,6 +558,29 @@ def narrate_scene(scene_panels, model=DEFAULT_MODEL, global_beatsheet=None,
         return _call()
 
 
+DRAFT_TRIES = 3
+
+
+def draft_or_fail(call, unit_no):
+    """One unit's draft. When the model talks about the task instead of
+    narrating, it is asked again (owner review, 2026-11-17: Regressor's Tale
+    ch.37 — a refusal plus a chapter summary was cut into six spoken lines and
+    the chapter still reached "Check the board"). An answer that is still a
+    refusal with no panel tags after DRAFT_TRIES fails the script step, so a
+    broken script is never voiced. A tagged draft with a stray assistant line
+    is kept: the render check names that line for the owner, as before."""
+    import narration_guard
+    text = ""
+    for _ in range(DRAFT_TRIES):
+        text = call()
+        if not narration_guard.is_assistant_text(text):
+            return text
+    if not re.search(r"^\s*\[(?:ID:)?\s*[^\]]+\]", text or "", re.I | re.M):
+        raise ValueError(f"script unit {unit_no}: the model answered about the task instead of narrating "
+                         f"({DRAFT_TRIES} tries): {(text or '').strip()[:160]!r}")
+    return text
+
+
 MAX_REVISED_UNITS = 3   # A3: cap revision calls per chapter
 
 
@@ -700,10 +730,11 @@ def generate_narration(panels, model=DEFAULT_MODEL, verbose=True,
                   file=sys.stderr)
         if progress_cb:
             progress_cb(i, len(scenes), "draft")
-        text = narrate_scene(scene, model, global_beatsheet,
-                             direct_lines=direct_speech.for_panels(approved, ids),
-                             series_bible_data=series_bible_data,
-                             opening=opening_rule(series_title, opening_alias) if i == 1 else "")
+        text = draft_or_fail(lambda: narrate_scene(
+            scene, model, global_beatsheet,
+            direct_lines=direct_speech.for_panels(approved, ids),
+            series_bible_data=series_bible_data,
+            opening=opening_rule(series_title, opening_alias) if i == 1 else ""), i)
         results.append((scene, text))
 
     def _direct(u):
