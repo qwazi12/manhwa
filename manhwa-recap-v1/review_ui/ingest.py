@@ -224,7 +224,8 @@ def _releases_stage_locks(fn):
 
 @_releases_stage_locks
 def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
-               engine="gemini", variant="", direct=None, tier="", lean=False):
+               engine="gemini", variant="", direct=None, tier="", lean=False,
+               keep_source=False):
     """Run the pipeline for one chapter URL. `progress(stage, msg, pct)` is
     called as it advances. Returns the finished project dict.
 
@@ -238,7 +239,11 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     audio files and clips. Kept: descriptions.json (describe --merge verifies content; changed or
     unknown evidence requires an explicit describe rerun) and the hash-keyed TTS cache (unchanged sentences
     re-synth for free). Needed to re-run a chapter after a pipeline fix —
-    without it the script cache happily replays the old cut."""
+    without it the script cache happily replays the old cut.
+
+    `keep_source=True` (a re-run of one step): when every panel on disk is the
+    file its description was made from, the chapter is not downloaded or cut
+    again; an archived cut that matches the descriptions is put back first."""
     if engine not in ENGINES:
         raise ValueError(f"engine must be one of {ENGINES}")
     if variant and not VARIANT_RE.match(variant):
@@ -269,9 +274,13 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     import tempfile
     import generation_cache as cache
     os.makedirs(proj, exist_ok=True)
-    source_staging = tempfile.mkdtemp(prefix=".source-staging-", dir=proj)
-    pages = os.path.join(source_staging, "pages")
-    crops = os.path.join(source_staging, "crops")
+    kept = cache.described_source(proj) if keep_source and not fresh else None
+    if kept:
+        pages, crops = os.path.join(proj, "pages"), os.path.join(proj, "crops")
+    else:
+        source_staging = tempfile.mkdtemp(prefix=".source-staging-", dir=proj)
+        pages = os.path.join(source_staging, "pages")
+        crops = os.path.join(source_staging, "crops")
     audio = os.path.join(proj, "audio")
     for d in (pages, crops, audio):
         os.makedirs(d, exist_ok=True)
@@ -282,136 +291,157 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
         pipeline_steps.prepare_rerun(proj, "narrate")
     desc_path = os.path.join(proj, "descriptions.json")
 
-    # 1. scrape -----------------------------------------------------------
-    progress("scrape", "Downloading chapter images…", 5)
-    imgs = scraper.download_chapter(url, pages)
-    if not imgs:
-        raise RuntimeError("scraper downloaded no images (blocked or bad URL)")
-    # Surface a short/gappy scrape where a human will actually see it. The
-    # Doctors Rebirth truncation (3 of 11 pages) sat in split.log and nothing
-    # else ever mentioned it, so the run looked entirely successful.
-    scrape_warning = getattr(scraper, "LAST_WARNING", "") or ""
-    if scrape_warning:
-        progress("scrape", f"\u26a0 {len(imgs)} pages — {scrape_warning}", 12)
-    else:
-        progress("scrape", f"Downloaded {len(imgs)} pages.", 12)
-
-    # 2. split (with vision segmentation of tall panels) ------------------
-    progress("split", "Splitting pages into panels…", 18)
-    # Split into a fresh workspace: failed downloads/splits must not destroy
-    # the original source behind an approved cut. Changed successful source
-    # trees are archived before promotion, never mixed with stale crops.
-    usage.set_stage("split")
-    subp_env = {**os.environ, "RECAP_JOB_ID": job_id, "RECAP_PROJECT": proj_id,
-                "RECAP_STAGE": "split"}
-    if tier:                                   # describe runs as a subprocess
-        subp_env["RECAP_SERVICE_TIER"] = tier
-    split_log = os.path.join(proj, "split.log")
-
-    # SPLITTER. The background-registration splitter is now the production
-    # path. It registers the gutter colour PER PAGE from the modal row-mean
-    # instead of voting near-white against near-black, and assembles WEBTOON
-    # CDN tiles into one scroll before cutting — a tile is an arbitrary slice,
-    # not a page, and per-tile registration produced sliver fragments.
-    #
-    # Evidence for the swap is the cut arbitration on the pinned Murim ch.43
-    # fixture: of 161 cuts the two splitters disagree on, 143 are interior
-    # features the legacy splitter was shredding (bubble bands, frame strokes,
-    # tonal transitions) and 18 are real gutters this one misses. Better on
-    # net, not strictly better — the 18 are a known cost.
-    #
-    # SPLIT_ENGINE=legacy restores the old subprocess in one env var.
-    use_legacy = os.environ.get("SPLIT_ENGINE", "new").lower() == "legacy"
-    split_stats = None
-    if not use_legacy:
+    if kept:
+        # Re-running a later step: the pages and panels are the ones the saved
+        # descriptions were made from, so nothing is downloaded or cut again
+        # (generation_cache.described_source).
+        imgs = sorted(f for f in os.listdir(pages)
+                      if os.path.splitext(f)[1].lower() in (".png", ".jpg", ".jpeg", ".webp"))
         try:
-            import splitlab
-            page_files = sorted(
-                os.path.join(pages, f) for f in os.listdir(pages)
-                if os.path.splitext(f)[1].lower()
-                in (".png", ".jpg", ".jpeg", ".webp"))
-            n_crops, split_stats = splitlab.split_into(
-                page_files, crops, slug=proj_id,
-                on_progress=lambda m: progress("split", m, 20))
-            with open(split_log, "w", encoding="utf-8") as f_log:
-                json.dump(split_stats, f_log, indent=2)
-            if not n_crops:
-                raise RuntimeError("the splitter produced no panels")
-        except Exception as e:
-            # Never leave a chapter unsplit because the new path failed:
-            # fall back loudly rather than aborting the ingest.
-            progress("split", f"new splitter failed ({e}) — using legacy", 19)
-            use_legacy = True
-            split_stats = None
-
-    if use_legacy:
-        with open(split_log, "w", encoding="utf-8") as f_log:
-            split_p = subprocess.run(
-                [PY, os.path.join(ROOT, "panel-split", "split_panels.py"),
-                 "--input", pages, "--out", crops, "--batch"],
-                cwd=os.path.join(ROOT, "panel-split"),
-                env=subp_env, stdout=f_log, stderr=f_log)
-        if split_p.returncode != 0:
-            err_text = open(split_log, encoding="utf-8").read()
-            if "USAGE CAP EXCEEDED" in err_text:
-                raise usage.UsageCapExceeded(err_text.strip().splitlines()[-1])
-            raise subprocess.CalledProcessError(split_p.returncode, split_p.args,
-                                                "", err_text)
-    n_crops = len([f for f in os.listdir(crops) if f.lower().endswith(".png")])
-    if not n_crops:
-        raise RuntimeError("the splitter produced no panel crops")
-    # S2: read the splitter's per-page coverage stats and surface them —
-    # a page whose art wasn't fully cropped must be VISIBLE, not a log line.
-    split_coverage = None
-    if split_stats is not None:
-        # The new splitter reports format and per-page panel counts rather
-        # than the legacy coverage ratio; surface what it does measure so
-        # the record does not go dark.
-        split_coverage = {"engine": "background-registration",
-                          "format": split_stats.get("format"),
-                          "pages": split_stats.get("pages"),
-                          "panels": split_stats.get("panels"),
-                          # the refinement pass (bubble-crossed cuts, merged
-                          # monologue strips) — shown on the board's
-                          # "built with" line so its effect is visible
-                          "refine": split_stats.get("refine") or {}}
-    try:
-        pj = json.load(open(os.path.join(crops, "panels.json")))
-        covs = [(pg["prefix"], pg.get("coverage", {}).get("coverage_final"))
-                for pg in pj.get("pages", []) if pg.get("coverage")]
-        vals = [c for _, c in covs if c is not None]
-        if vals:
-            worst_page, worst = min(covs, key=lambda t: t[1] if t[1] is not None else 1)
-            split_coverage = {
-                "min": round(min(vals), 3), "mean": round(sum(vals) / len(vals), 3),
-                "worst_page": worst_page,
-                "pages_below_85": sum(1 for v in vals if v < 0.85),
-            }
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        pass
-    # TWO SHAPES LIVE HERE. The legacy splitter reports an art-coverage ratio
-    # per page; the background-registration splitter reports format/pages/
-    # panels instead, because "coverage" is not a quantity it computes. Reading
-    # a legacy-only key unconditionally is what made a successful split fail
-    # the whole ingest with KeyError: 'pages_below_85' AFTER every page had
-    # already been cut.
-    if split_coverage and "pages_below_85" in split_coverage:
-        warn = (f" ⚠ {split_coverage['pages_below_85']} page(s) under 85%"
-                if split_coverage["pages_below_85"] else "")
-        progress("split", f"{n_crops} panel crops · art coverage "
-                          f"min {split_coverage['min']:.0%} / "
-                          f"mean {split_coverage['mean']:.0%}{warn}", 30)
-    elif split_coverage:
-        progress("split", f"{n_crops} panel crops · "
-                          f"{split_coverage.get('format')} format · "
-                          f"{split_coverage.get('pages')} page(s)", 30)
+            _prev = json.load(open(os.path.join(proj, "project.json")))
+        except (OSError, ValueError):
+            _prev = {}
+        scrape_warning = _prev.get("scrape_warning") or ""
+        split_coverage = _prev.get("split_coverage")
+        subp_env = {**os.environ, "RECAP_JOB_ID": job_id, "RECAP_PROJECT": proj_id,
+                    "RECAP_STAGE": "split"}
+        if tier:
+            subp_env["RECAP_SERVICE_TIER"] = tier
+        n_crops = len([f for f in os.listdir(crops) if f.lower().endswith(".png")])
+        progress("scrape", f"{len(imgs)} pages kept as downloaded.", 12)
+        progress("split", f"{n_crops} panel crops kept as they were described"
+                          + (f" (put back from {kept['restored']})." if kept.get("restored") else "."), 30)
     else:
-        progress("split", f"{n_crops} panel crops.", 30)
+        # 1. scrape -----------------------------------------------------------
+        progress("scrape", "Downloading chapter images…", 5)
+        imgs = scraper.download_chapter(url, pages)
+        if not imgs:
+            raise RuntimeError("scraper downloaded no images (blocked or bad URL)")
+        # Surface a short/gappy scrape where a human will actually see it. The
+        # Doctors Rebirth truncation (3 of 11 pages) sat in split.log and nothing
+        # else ever mentioned it, so the run looked entirely successful.
+        scrape_warning = getattr(scraper, "LAST_WARNING", "") or ""
+        if scrape_warning:
+            progress("scrape", f"\u26a0 {len(imgs)} pages — {scrape_warning}", 12)
+        else:
+            progress("scrape", f"Downloaded {len(imgs)} pages.", 12)
 
-    source_revision = cache.promote_sources(proj, source_staging)
-    pages, crops = os.path.join(proj, "pages"), os.path.join(proj, "crops")
-    if source_revision:
-        progress("split", f"Previous source preserved in {source_revision}", 31)
+        # 2. split (with vision segmentation of tall panels) ------------------
+        progress("split", "Splitting pages into panels…", 18)
+        # Split into a fresh workspace: failed downloads/splits must not destroy
+        # the original source behind an approved cut. Changed successful source
+        # trees are archived before promotion, never mixed with stale crops.
+        usage.set_stage("split")
+        subp_env = {**os.environ, "RECAP_JOB_ID": job_id, "RECAP_PROJECT": proj_id,
+                    "RECAP_STAGE": "split"}
+        if tier:                                   # describe runs as a subprocess
+            subp_env["RECAP_SERVICE_TIER"] = tier
+        split_log = os.path.join(proj, "split.log")
+
+        # SPLITTER. The background-registration splitter is now the production
+        # path. It registers the gutter colour PER PAGE from the modal row-mean
+        # instead of voting near-white against near-black, and assembles WEBTOON
+        # CDN tiles into one scroll before cutting — a tile is an arbitrary slice,
+        # not a page, and per-tile registration produced sliver fragments.
+        #
+        # Evidence for the swap is the cut arbitration on the pinned Murim ch.43
+        # fixture: of 161 cuts the two splitters disagree on, 143 are interior
+        # features the legacy splitter was shredding (bubble bands, frame strokes,
+        # tonal transitions) and 18 are real gutters this one misses. Better on
+        # net, not strictly better — the 18 are a known cost.
+        #
+        # SPLIT_ENGINE=legacy restores the old subprocess in one env var.
+        use_legacy = os.environ.get("SPLIT_ENGINE", "new").lower() == "legacy"
+        split_stats = None
+        if not use_legacy:
+            try:
+                import splitlab
+                page_files = sorted(
+                    os.path.join(pages, f) for f in os.listdir(pages)
+                    if os.path.splitext(f)[1].lower()
+                    in (".png", ".jpg", ".jpeg", ".webp"))
+                n_crops, split_stats = splitlab.split_into(
+                    page_files, crops, slug=proj_id,
+                    on_progress=lambda m: progress("split", m, 20))
+                with open(split_log, "w", encoding="utf-8") as f_log:
+                    json.dump(split_stats, f_log, indent=2)
+                if not n_crops:
+                    raise RuntimeError("the splitter produced no panels")
+            except Exception as e:
+                # Never leave a chapter unsplit because the new path failed:
+                # fall back loudly rather than aborting the ingest.
+                progress("split", f"new splitter failed ({e}) — using legacy", 19)
+                use_legacy = True
+                split_stats = None
+
+        if use_legacy:
+            with open(split_log, "w", encoding="utf-8") as f_log:
+                split_p = subprocess.run(
+                    [PY, os.path.join(ROOT, "panel-split", "split_panels.py"),
+                     "--input", pages, "--out", crops, "--batch"],
+                    cwd=os.path.join(ROOT, "panel-split"),
+                    env=subp_env, stdout=f_log, stderr=f_log)
+            if split_p.returncode != 0:
+                err_text = open(split_log, encoding="utf-8").read()
+                if "USAGE CAP EXCEEDED" in err_text:
+                    raise usage.UsageCapExceeded(err_text.strip().splitlines()[-1])
+                raise subprocess.CalledProcessError(split_p.returncode, split_p.args,
+                                                    "", err_text)
+        n_crops = len([f for f in os.listdir(crops) if f.lower().endswith(".png")])
+        if not n_crops:
+            raise RuntimeError("the splitter produced no panel crops")
+        # S2: read the splitter's per-page coverage stats and surface them —
+        # a page whose art wasn't fully cropped must be VISIBLE, not a log line.
+        split_coverage = None
+        if split_stats is not None:
+            # The new splitter reports format and per-page panel counts rather
+            # than the legacy coverage ratio; surface what it does measure so
+            # the record does not go dark.
+            split_coverage = {"engine": "background-registration",
+                              "format": split_stats.get("format"),
+                              "pages": split_stats.get("pages"),
+                              "panels": split_stats.get("panels"),
+                              # the refinement pass (bubble-crossed cuts, merged
+                              # monologue strips) — shown on the board's
+                              # "built with" line so its effect is visible
+                              "refine": split_stats.get("refine") or {}}
+        try:
+            pj = json.load(open(os.path.join(crops, "panels.json")))
+            covs = [(pg["prefix"], pg.get("coverage", {}).get("coverage_final"))
+                    for pg in pj.get("pages", []) if pg.get("coverage")]
+            vals = [c for _, c in covs if c is not None]
+            if vals:
+                worst_page, worst = min(covs, key=lambda t: t[1] if t[1] is not None else 1)
+                split_coverage = {
+                    "min": round(min(vals), 3), "mean": round(sum(vals) / len(vals), 3),
+                    "worst_page": worst_page,
+                    "pages_below_85": sum(1 for v in vals if v < 0.85),
+                }
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            pass
+        # TWO SHAPES LIVE HERE. The legacy splitter reports an art-coverage ratio
+        # per page; the background-registration splitter reports format/pages/
+        # panels instead, because "coverage" is not a quantity it computes. Reading
+        # a legacy-only key unconditionally is what made a successful split fail
+        # the whole ingest with KeyError: 'pages_below_85' AFTER every page had
+        # already been cut.
+        if split_coverage and "pages_below_85" in split_coverage:
+            warn = (f" ⚠ {split_coverage['pages_below_85']} page(s) under 85%"
+                    if split_coverage["pages_below_85"] else "")
+            progress("split", f"{n_crops} panel crops · art coverage "
+                              f"min {split_coverage['min']:.0%} / "
+                              f"mean {split_coverage['mean']:.0%}{warn}", 30)
+        elif split_coverage:
+            progress("split", f"{n_crops} panel crops · "
+                              f"{split_coverage.get('format')} format · "
+                              f"{split_coverage.get('pages')} page(s)", 30)
+        else:
+            progress("split", f"{n_crops} panel crops.", 30)
+
+        source_revision = cache.promote_sources(proj, source_staging)
+        pages, crops = os.path.join(proj, "pages"), os.path.join(proj, "crops")
+        if source_revision:
+            progress("split", f"Previous source preserved in {source_revision}", 31)
 
     # 3. describe ---------------------------------------------------------
     # Resolve Series Bible (character cheat-sheet, setting tropes, costume vs monster rules)

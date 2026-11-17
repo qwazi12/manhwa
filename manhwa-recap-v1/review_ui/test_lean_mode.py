@@ -179,7 +179,7 @@ def test_lean_is_recorded_on_the_job_and_reaches_the_pipeline(monkeypatch):
     got = {}
 
     def fake_run(url, progress, job_id=None, fresh=False, engine="gemini", variant="", direct=None,
-                 tier="", lean=False):
+                 tier="", lean=False, keep_source=False):
         got[job_id] = lean
         return {"id": None}
     monkeypatch.setattr(server, "_persist_ingest", lambda j: None)

@@ -8564,7 +8564,9 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
                 if INGEST[job_id].get("source") == "autopilot" else "")
         meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh,
                                  engine=engine, variant=variant, direct=direct, tier=tier,
-                                 lean=bool(INGEST[job_id].get("lean")))
+                                 lean=bool(INGEST[job_id].get("lean")),
+                                 # a re-run of one step keeps the panels its descriptions were made from
+                                 keep_source=INGEST[job_id].get("source") == "rerun")
         INGEST[job_id].update(status="done", project=meta, pct=100)
         if isinstance(meta, dict) and meta.get("id"):     # title/description/tags while making
             threading.Thread(target=_prepare_publish, args=(project_dir_for(meta["id"]), DRAFT),
