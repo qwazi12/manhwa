@@ -141,7 +141,7 @@ def test_both_panel_swap_paths_drop_other_pictures_crop_and_rotation(tmp_path, m
     reset()
     monkeypatch.setattr(server, "load_segments", lambda: se.load(str(tmp_path)))
     monkeypatch.setattr(server, "_panel_dir", lambda: str(tmp_path / "crops"))
-    monkeypatch.setattr(server, "_snapshot", lambda: None)
+    monkeypatch.setattr(server, "_snapshot", lambda *a: None)
     monkeypatch.setattr(server, "_write_segments", lambda s: (tmp_path / "segments.json").write_text(json.dumps(s)))
     monkeypatch.setattr(server, "_start_render", lambda _: "offline")
     server.swap_panel(0, server.SwapIn(panel_id="new"))
@@ -177,7 +177,7 @@ def test_orientation_endpoint_is_bound_to_named_chapter_not_current_selection(tm
     original = (tmp_path / "original/segments.json").read_bytes()
     monkeypatch.setattr(ingest, "PROJECTS", str(tmp_path))
     monkeypatch.setattr(server, "get_active_project_id", lambda: "original")
-    monkeypatch.setattr(server, "_snapshot", lambda: None)
+    monkeypatch.setattr(server, "_snapshot", lambda *a: None)
     client = TestClient(server.app)
     result = client.post("/api/storyboard/rotation", json={"project": "isolated", "seg_index": 0, "degrees": 90})
     assert result.status_code == 200
