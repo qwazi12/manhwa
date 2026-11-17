@@ -2368,3 +2368,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Without the flag nothing changes: default path covered by the old tests (8/8 describe runner) and a new one (9 panels = 9 requests).
 - Tests: new `test_lean_mode.py` (9). CI python set locally: 685 passed, 2 skipped; 17 script suites pass.
 - Not verified yet: that the live API accepts several images in one request (no paid call made). If it refuses, the fallback describes panel by panel at the normal price.
+
+### 2026-11-17 00:48Z — Lean mode ready on the branch; the deploy for the live test was refused by the permission system (needs the owner's "deploy")
+- GitHub CI on 5ad2b22 (lean mode + tests): success at 00:47Z. Job bar empty, no render running at 00:42Z. Spend $13.09 of $15.
+- Merge to main + push refused by the permission system at about 00:47Z. Not worked around. Production is unchanged: main 5caab74, Railway deployment d055c8b9, `INGEST_WORKERS` 3.
+- Once the owner says "deploy": merge + push, wait for Railway, then `POST /api/ingest {"url": "<Asura ORV 310 link>", "variant": "v2", "lean": true}` (saved beside the original `omniscient-readers-viewpoint_310`, which is not touched). Then compare cost, time, script and descriptions with the original (job 64d3090d71dc: $0.55, 82 segments, 554.2 s). Budget for it: $1.
