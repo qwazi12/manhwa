@@ -27,7 +27,10 @@ def build(root, pid, engine="gemini"):
         open(os.path.join(p, "crops", f"p{i}.png"), "wb").write(b"x")
         open(os.path.join(p, "audio", f"beat_{i:03d}.mp3"), "wb").write(b"x")
     open(os.path.join(p, "audio", "slices", "s.mp3"), "wb").write(b"x")
-    json.dump([{"panel_id": "p0", "role": "art"}, {"panel_id": "p1", "role": "bubble"}],
+    import hashlib
+    src = {"generation": {"inputs": {"source_sha256": hashlib.sha256(b"x").hexdigest()}}}   # each panel's own file
+    json.dump([{"panel_id": "p0", "file": "p0.png", "role": "art", **src},
+               {"panel_id": "p1", "file": "p1.png", "role": "bubble", **src}],
               open(os.path.join(p, "descriptions.json"), "w"))
     open(os.path.join(p, "script.txt"), "w").write("He walks in. She waits.")
     for f in ("script.json", "direct_speech.json", "beatsheet.json", "review.json", "storyboard.json", "edits.log.jsonl"):
@@ -111,6 +114,14 @@ def main():
         server.INGEST["busy2"] = {"status": "queued", "url": URL, "variant": "v2"}
         r = c.post("/api/pipeline/rerun", json={"project": pid, "step": "match"})
         check("a queued SAVED VERSION (same link) doesn't block the original", r.status_code == 200)
+        # owner review 2026-11-17: a re-run that cannot succeed is refused BEFORE anything is put away
+        v3 = build(root, pid + "-v3")
+        open(os.path.join(v3, "crops", "p1.png"), "wb").write(b"cut again")
+        n = len(queued)
+        r = c.post("/api/pipeline/rerun", json={"project": pid + "-v3", "step": "voice"})
+        check("a re-run whose panels no longer match their descriptions is refused, nothing archived",
+              r.status_code == 409 and "Nothing was changed" in r.json()["detail"] and len(queued) == n
+              and os.path.exists(os.path.join(v3, "segments.json")) and not os.path.isdir(os.path.join(v3, "_revisions")))
         server.INGEST.pop("busy2")
         lab = build(root, "murim-lab-1", engine="claude")
         r = c.post("/api/pipeline/rerun", json={"project": "murim-lab-1", "step": "match"})

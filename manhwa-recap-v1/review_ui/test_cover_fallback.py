@@ -23,8 +23,19 @@ MGEKO = {"source": "mangayomi", "series_url": "https://www.mgeko.cc/manga/manga-
 
 
 def _jpeg(size=(300, 430)):
+    """A picture with many colours, as cover art has."""
     b = io.BytesIO()
-    Image.new("RGB", size, (30, 60, 200)).save(b, "JPEG")
+    Image.merge("RGB", [Image.linear_gradient("L").resize(size)] * 3).save(b, "JPEG")
+    return b.getvalue()
+
+
+def _loading_picture():
+    """A site's placeholder: one flat colour with a thin ring, as mgeko serves."""
+    from PIL import ImageDraw
+    im = Image.new("RGB", (600, 800), (42, 42, 42))
+    ImageDraw.Draw(im).ellipse((170, 270, 430, 530), outline=(240, 240, 240), width=4)
+    b = io.BytesIO()
+    im.save(b, "GIF")
     return b.getvalue()
 
 
@@ -128,3 +139,47 @@ def test_no_cover_anywhere_is_still_an_error(studio):
     with pytest.raises(server.HTTPException) as e:
         server.api_watchlist_cover("unknown-series")
     assert e.value.status_code == 404
+
+
+def test_a_sites_loading_picture_is_replaced_by_the_cover_its_page_shows(studio):
+    """Damn Reincarnation, 2026-11-17: mgeko answered the stored cover link with
+    its loading animation; the real cover is the same file on its picture server."""
+    server, _, web, asked, covers = studio
+    shown = "https://imgsrv5.com/avatar/288x412/media/manga_covers/l_30.jpg"
+    web[MGEKO["cover"]] = _Reply(_loading_picture(), "image/gif")
+    web[MGEKO["series_url"]] = (f'<meta property="og:image" content="{MGEKO["cover"]}">'
+                                f'<img src="https://imgsrv5.com/avatar/288x412/media/manga_covers/default-placeholder.png" '
+                                f'data-src="{shown}"><a href="https://evil.example/x.jpg">x</a>').encode()
+    web[shown] = _jpeg((288, 412))
+    r = server.api_watchlist_cover("orv")
+    assert r.body == web[shown]
+    assert asked == [ASURA["series_url"], MGEKO["cover"], MGEKO["series_url"], shown]
+    asked.clear()
+    r = server.api_watchlist_cover("orv")                          # second view: the saved file, no site asked
+    assert r.path == str(covers / "orv.jpg") and asked == []
+
+
+def test_a_loading_picture_is_never_shown_as_the_cover(studio):
+    server, _, web, asked, covers = studio
+    web[MGEKO["cover"]] = _Reply(_loading_picture(), "image/gif")
+    web[MGEKO["series_url"]] = b"<html>no other picture</html>"
+    with pytest.raises(server.HTTPException) as e:
+        server.api_watchlist_cover("orv")
+    assert e.value.status_code == 404 and not list(covers.glob("orv.*"))
+    (covers / "orv.jpg").write_bytes(_loading_picture())           # one saved by the earlier version
+    (covers / "orv.src").write_text(MGEKO["cover"])
+    with pytest.raises(server.HTTPException):
+        server.api_watchlist_cover("orv")
+    web[MGEKO["cover"]] = _jpeg()                                  # the site has a real cover again
+    assert server.api_watchlist_cover("orv").body == web[MGEKO["cover"]]
+
+
+def test_real_covers_are_not_mistaken_for_a_loading_picture():
+    import server
+    assert not server._flat_picture(_jpeg()) and server._flat_picture(_loading_picture())
+    dark = Image.new("RGB", (400, 600), (5, 5, 5))                 # a dark cover: 45% black, the rest art
+    dark.paste(Image.merge("RGB", [Image.linear_gradient("L").resize((400, 330))] * 3), (0, 270))
+    b = io.BytesIO()
+    dark.save(b, "PNG")
+    assert not server._flat_picture(b.getvalue())
+    assert not server._flat_picture(b"not a picture")

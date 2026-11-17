@@ -18,7 +18,9 @@ import uuid
 
 # Files a re-run must clear, by the step it restarts from. A later step's set
 # is always inside an earlier one's: re-describing re-writes the script, etc.
-_BOARD = ["segments.json", "review.json", "storyboard.json", "edits.log.jsonl"]
+# _undo/: the board's undo stack belongs to the board it was taken from; left
+# behind, Undo after a re-run restored the old board over the new recordings
+_BOARD = ["segments.json", "review.json", "storyboard.json", "edits.log.jsonl", "_undo/"]
 _VOICE = ["tts.json", "voice.cache.json"]
 _SCRIPT = ["script.txt", "script.json", "script.cache.json", "source_review.json",
            "direct_speech.json", "critique.json", "beatsheet.json"]

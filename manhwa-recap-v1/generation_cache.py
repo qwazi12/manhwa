@@ -155,6 +155,76 @@ def voice_inputs(beats, engine):
             "code": code_identity(Path(__file__).parent, ["gemini_tts.py", "speech_text.py"])}
 
 
+def described_source(pdir, dry_run=False):
+    """{"restored": archive name or None} when every panel that has a
+    description is, on disk, exactly the file that description was made from;
+    None otherwise. Panels not described yet (a describe step that was cut
+    short) do not count against it: the same cut is kept and they are
+    described next. `dry_run` only reports; nothing is moved.
+
+    Re-running a later step (voice, timeline) used to download and cut the
+    chapter again. Cutting asks a model where tall strips divide, so a second
+    cut can differ from the first: the descriptions then no longer match their
+    panels and the chapter stops, after paying for the cut (Fog Land 46,
+    2026-11-17: $0.04 and 78 panels "changed" on a step listed as free).
+    When the panels on disk are such a later cut and an archived one
+    (promote_sources) matches the descriptions, the archived cut is put back
+    and the later one archived in its place. Nothing is deleted."""
+    pdir = Path(pdir)
+    try:
+        recs = json.loads((pdir / "descriptions.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    want = {}
+    for r in recs if isinstance(recs, list) else []:
+        if not isinstance(r, dict):
+            return None
+        sha = ((r.get("generation") or {}).get("inputs") or {}).get("source_sha256")
+        name = Path(r.get("file") or f"{r.get('panel_id')}.png").name
+        if not sha or not r.get("panel_id"):
+            return None                      # described before sources were recorded
+        want[name] = sha
+    if not want:
+        return None
+
+    def same(crops):
+        if not crops.is_dir():
+            return False
+        have = {p.name for p in crops.iterdir()
+                if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")}
+        return set(want) <= have and all(file_digest(crops / n) == h for n, h in want.items())
+
+    def has_pages(d):
+        return d.is_dir() and any(d.iterdir())
+
+    if same(pdir / "crops"):
+        return {"restored": None} if has_pages(pdir / "pages") else None
+    revs = [p for p in (pdir / "_revisions").glob("source-*") if p.is_dir()]
+    for rev in sorted(revs, key=lambda p: p.stat().st_mtime, reverse=True):
+        if not same(rev / "crops") or not (has_pages(rev / "pages") or has_pages(pdir / "pages")):
+            continue
+        if dry_run:
+            return {"restored": rev.name}
+        later = pdir / "_revisions" / ("source-" + uuid.uuid4().hex)
+        moved = []
+        try:
+            for name in ("pages", "crops"):
+                if not (rev / name).is_dir():
+                    continue
+                if (pdir / name).exists():
+                    later.mkdir(parents=True, exist_ok=True)
+                    os.replace(pdir / name, later / name)
+                    moved.append(name)
+                os.replace(rev / name, pdir / name)
+        finally:
+            if moved:
+                write_json(later / "index.json", {"step": "source", "paths": moved,
+                                                  "status": "replaced by the described cut",
+                                                  "restored_from": rev.name})
+        return {"restored": rev.name}
+    return None
+
+
 def promote_sources(pdir, staging):
     """Promote a successful staged scrape/split, archiving replaced originals.
 

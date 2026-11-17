@@ -126,7 +126,8 @@ def _download_single_url(url: str, output_dir: str):
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
     )
     
-    with urllib.request.urlopen(req, context=ctx) as response:
+    # a timeout: a stalled connection used to hang the job, and its place in the line, for good
+    with urllib.request.urlopen(req, context=ctx, timeout=60) as response:
         html_content = response.read().decode('utf-8')
 
     # Unescape HTML entities (e.g. &quot; to ")
@@ -183,7 +184,7 @@ def _download_single_url(url: str, output_dir: str):
                 "User-Agent": "Mozilla/5.0",
                 "Referer": url,
             })
-            with urllib.request.urlopen(img_req, context=ctx) as img_resp, open(filepath, "wb") as out_file:
+            with urllib.request.urlopen(img_req, context=ctx, timeout=60) as img_resp, open(filepath, "wb") as out_file:
                 out_file.write(img_resp.read())
             downloaded_paths.append(filepath)
         except Exception as e:

@@ -120,7 +120,9 @@ export default function VideoTab({ id, name, status, onChange, draft = false }: 
       <div className="vcol vleft">
         {!draft && <Card title="Watch" right={<span className="small muted">{rv.data?.stat?.size_mb} MB · {name}</span>}>
           <video ref={player} controls playsInline preload="metadata" src={`/export/${enc(name)}?project=${enc(id)}&s=${rv.data?.stat?.size_mb ?? ""}`} />
-          {review.superseded && <div className="banner warn">The board changed after this video was approved. Render again, then approve the new video.</div>}
+          {review.changed_pieces?.length > 0
+            ? <div className="banner warn">A chapter in this video changed after it was built ({review.changed_pieces.join(", ")}). Render that chapter again and rebuild this video before approving.</div>
+            : review.superseded && <div className="banner warn">The board changed after this video was approved. Render again, then approve the new video.</div>}
           {review.media_superseded && !review.superseded && <div className="banner warn">The media or narration inputs changed after approval. Recheck this export before posting.</div>}
           <label className="field">Notes for yourself or the next edit
             <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ minHeight: 60 }} />

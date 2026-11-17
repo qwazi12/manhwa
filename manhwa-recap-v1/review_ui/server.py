@@ -199,7 +199,26 @@ def active_project_dir():
     return WORK
 
 
-_BOARD_EDIT_PATHS = ("/api/segments/", "/api/storyboard/")
+_BOARD_EDIT_PATHS = ("/api/segments/", "/api/storyboard/", "/api/validate", "/api/validation", "/api/undo")
+_BOARD_LOCKS = {}
+
+
+def _board_lock(pdir):
+    """One lock per chapter: its board edits run one at a time."""
+    lock = _BOARD_LOCKS.get(pdir)
+    if lock is None:
+        if len(_BOARD_LOCKS) > 500:
+            for k in [k for k, v in _BOARD_LOCKS.items() if not v.locked()]:
+                _BOARD_LOCKS.pop(k, None)
+        lock = _BOARD_LOCKS.setdefault(pdir, threading.Lock())
+    return lock
+
+
+def _revoicing(pid):
+    """True while this chapter's render is re-recording every line: that step
+    reads the board, records for minutes, then writes its copy back."""
+    return any(x.get("project") == pid and x.get("type") == "finalize" and x.get("stage") == "revoice"
+               and x.get("status") in ("running", "queued", "paused", "pausing") for x in list(JOBS.values()))
 
 
 @app.middleware("http")
@@ -207,18 +226,35 @@ async def _pin_board_edit(request: Request, call_next):
     """Every board edit acts on ONE chapter from start to finish: the chapter
     the page names (x-chapter, sent by the Chapter page), else the chapter
     that is open when the request arrives. Opening another chapter while an
-    edit is still saving can no longer send that edit into the other chapter."""
-    if request.method in ("GET", "HEAD", "OPTIONS") or not request.url.path.startswith(_BOARD_EDIT_PATHS):
+    edit is still saving can no longer send that edit into the other chapter.
+
+    Owner review 2026-11-17 (issues waiting to happen):
+    - the Issues tab (/api/validate, /api/validation) applied its fixes to
+      whichever chapter was open, not the one on the page: now pinned too;
+    - a read is pinned as well when the page names its chapter (never refused);
+    - two edits to one chapter overlapped (a line edit re-records for seconds,
+      then wrote back its older copy over a tick made meanwhile): edits to one
+      chapter now run one at a time;
+    - edits made while a render re-records the voice were overwritten when it
+      finished: they are refused until it has."""
+    path = request.url.path
+    if request.method == "OPTIONS" or not path.startswith(_BOARD_EDIT_PATHS):
         return await call_next(request)
+    import asyncio
     import urllib.parse as _up
     import ingest
+    reading = request.method in ("GET", "HEAD")
     want = _up.unquote(request.headers.get("x-chapter") or "")
     if want:
         pdir = os.path.join(ingest.PROJECTS, want)
         if not re.fullmatch(r"[A-Za-z0-9._-]{1,200}", want) or want.strip(".") == "" \
                 or not os.path.exists(os.path.join(pdir, "segments.json")):
+            if reading:
+                return await call_next(request)
             return JSONResponse(status_code=409, content={
                 "detail": "This chapter is no longer available for editing. Reload the page."})
+    elif reading:
+        return await call_next(request)
     else:
         pid = get_active_project_id()
         pdir = os.path.join(ingest.PROJECTS, pid) if pid else None
@@ -226,7 +262,21 @@ async def _pin_board_edit(request: Request, call_next):
         return await call_next(request)
     tok = _REQ_PDIR.set(pdir)
     try:
-        return await call_next(request)
+        if reading:
+            return await call_next(request)
+        if _revoicing(os.path.basename(pdir)):
+            return JSONResponse(status_code=409, content={
+                "detail": "This chapter's voice is being re-recorded for its render. "
+                          "Edit it when that has finished (or stop the render first)."})
+        lock = _board_lock(pdir)
+        # waited for off the event loop, so other requests keep being served
+        if not await asyncio.get_running_loop().run_in_executor(None, lock.acquire, True, 90):
+            return JSONResponse(status_code=409, content={
+                "detail": "Another edit to this chapter is still saving. Try again in a moment."})
+        try:
+            return await call_next(request)
+        finally:
+            lock.release()
     finally:
         _REQ_PDIR.reset(tok)
 
@@ -557,6 +607,7 @@ def set_status(seg_index: int, body: StatusIn):
     if body.status == "approved":
         included = True
         segs = load_segments()
+        _snapshot("approve row")
         for s in segs:
             if s["seg_index"] == seg_index and not s.get("user_included"):
                 s["user_included"] = True
@@ -746,8 +797,8 @@ def project_dir_for(project=""):
     import ingest as _ing
     if not project:
         return active_project_dir()
-    if "/" in project or ".." in project:
-        raise HTTPException(400, "bad project id")
+    if "/" in project or ".." in project or project[:1] in (".", "_"):
+        raise HTTPException(400, "bad project id")      # never the projects root or _trash, _covers...
     d = os.path.join(_ing.PROJECTS, project)
     if not os.path.isdir(d):
         raise HTTPException(404, "unknown project")
@@ -780,6 +831,62 @@ def cut_signature(segs=None, pdir=None):
         if s.get("rotation_deg", 0):
             parts[-1] += f"|rotation:{s['rotation_deg']}"
     return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:12]
+
+
+def text_signature(pdir):
+    """Fingerprint of what the video SAYS: every spoken line of the segments
+    that reach the video. cut_signature leaves the words out, so a corrected
+    line whose new recording fits the old slot left an approved video
+    "current" and it posted with the old line (owner review, 2026-11-17)."""
+    import hashlib
+    review = _load_reviews_side(pdir)
+    parts = []
+    for s_ in _load_segments_from(pdir):
+        if not s_.get("user_included") or (review.get(str(s_["seg_index"])) or {}).get("status") == "rejected":
+            continue
+        parts += [f"{b.get('index')}:{(b.get('text') or '').strip()}" for b in s_.get("beats", [])]
+    return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:12]
+
+
+def _changed_pieces(pdir):
+    """For a merged video that is not posted: the chapters whose board changed
+    after the chapter video that went into it, or that were rendered again
+    since it was built. Regressor's Tale 30-38 (2026-11-17) still read "Watch
+    the video ... Approve" after chapter 37's lines were corrected."""
+    meta = _read_json(os.path.join(pdir, "project.json")) or {}
+    if meta.get("kind") != "range" or not meta.get("merged_from"):
+        return []
+    if _read_json(os.path.join(pdir, UPLOADS_NAME)) or _read_json(os.path.join(pdir, "publishes.json")):
+        return []
+    try:
+        built = max(os.path.getmtime(os.path.join(pdir, "exports", f))
+                    for f in os.listdir(os.path.join(pdir, "exports")) if f.endswith(".mp4"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for pc in meta["merged_from"]:
+        pid = pc.get("project") or ""
+        if not pid or "/" in pid or ".." in pid:
+            continue
+        cp = os.path.join(os.path.dirname(pdir.rstrip("/")), pid)
+        try:
+            used = os.path.getmtime(os.path.join(cp, "exports", pc.get("name") or ""))
+        except OSError:
+            continue                              # its video was put away: nothing to compare
+        try:
+            changed = os.path.getmtime(os.path.join(cp, "segments.json")) > used + 60
+        except OSError:
+            changed = False
+        if not changed:
+            try:
+                changed = any(f.endswith(".mp4") and not f.endswith(".part.mp4") and f != pc.get("name")
+                              and os.path.getmtime(os.path.join(cp, "exports", f)) > built
+                              for f in os.listdir(os.path.join(cp, "exports")))
+            except OSError:
+                changed = False
+        if changed:
+            out.append(pid)
+    return out
 
 
 def _load_segments_from(pdir):
@@ -827,6 +934,11 @@ def review_state(pdir, name, rec=None, current_sig=None):
     sig = current_sig if current_sig is not None else cut_signature(pdir=pdir)
     status = rec.get("status") or "review_pending"
     superseded = bool(rec.get("cut_signature") and rec["cut_signature"] != sig)
+    if rec.get("text_signature") and rec["text_signature"] != text_signature(pdir):
+        superseded = True                         # a spoken line changed after the verdict
+    pieces = _changed_pieces(pdir)
+    if pieces:
+        superseded = True                         # a chapter in this merged video changed
     media_changed = bool(rec.get("media_identity") and
                          rec["media_identity"] != _mqa.identity(pdir, name))
     if _mqa.enforcement_enabled():
@@ -836,6 +948,7 @@ def review_state(pdir, name, rec=None, current_sig=None):
             "reviewed_by": rec.get("reviewed_by"),
             "cut_signature": rec.get("cut_signature"),
             "current_signature": sig, "superseded": superseded,
+            "changed_pieces": pieces,
             "media_superseded": media_changed,
             "history": rec.get("history", [])}
 
@@ -1147,6 +1260,12 @@ def api_review_save(body: ReviewIn):
     name = os.path.basename(body.name)
     if not name.endswith(".mp4"):
         raise HTTPException(400, "name must be an export filename")
+    if status == "approved":
+        pieces = _changed_pieces(pdir)
+        if pieces:
+            raise HTTPException(409, "This video was built before "
+                                + ", ".join(_pretty(p) for p in pieces)
+                                + " changed. Render the changed chapter again and rebuild this video, then approve.")
     recs = load_reviews(pdir)
     rec = recs.get(name) or {"history": []}
     if status and rec.get("status") and rec["status"] != status:
@@ -1162,6 +1281,7 @@ def api_review_save(body: ReviewIn):
     rec["export_mtime"] = stat["mtime"] if stat else rec.get("export_mtime")
     if status:                                # a verdict pins the cut it judged
         rec["cut_signature"] = cut_signature(pdir=pdir)
+        rec["text_signature"] = text_signature(pdir)
         rec["media_identity"] = _mqa.identity(pdir, name)
         if status == "approved":
             _pin_packaging(pdir, name, rec)
@@ -7090,12 +7210,16 @@ def _load_descriptions():
         return []
 
 
-def _snapshot():
-    """Save current segments.json as a numbered version for undo."""
-    segs = load_segments()
-    n = len([f for f in os.listdir(VERSIONS) if f.endswith(".json")])
-    with open(os.path.join(VERSIONS, f"v{n:04d}.json"), "w") as f:
-        json.dump(segs, f)
+def _snapshot(op="edit"):
+    """Keep the board as it stands in the CHAPTER's own undo stack, so Undo
+    walks back this edit. It used to go to one folder shared by every chapter
+    that only the old page's /api/undo read: Undo on the Chapter page skipped
+    picture swaps, line edits and ticks and rolled back an older edit instead
+    (owner review, 2026-11-17)."""
+    import storyboard_edit
+    pdir = active_project_dir()
+    if storyboard_edit._snapshot(pdir):
+        storyboard_edit._name_snapshot(pdir, op)
 
 
 def _epochs_path():
@@ -7261,14 +7385,25 @@ def swap_panel(seg_index: int, body: SwapIn):
     new_path = os.path.join(_panel_dir(), f"{body.panel_id}.png")
     if not os.path.exists(new_path):
         raise HTTPException(400, f"panel {body.panel_id} not found")
-    _snapshot()
+    _snapshot("swap picture")
     if seg["panel_id"] != body.panel_id:
         import panel_framing
         panel_framing.clear_picture_edits(seg)
     seg["panel_id"] = body.panel_id
     seg["panel_file"] = new_path
     _write_segments(segs)
-    job = _start_render([seg_index])   # clip re-renders in background; preview is instant
+    # The clip on disk still shows the OLD picture. Remove it before asking
+    # for the re-render: when a render was already running the request used to
+    # stop here with a 409, the swap saved and the old clip kept, so the final
+    # video could ship the old picture (finalize only renders missing clips).
+    import storyboard_edit
+    storyboard_edit._stale(active_project_dir(), [seg_index])
+    try:
+        job = _start_render([seg_index])   # clip re-renders in background; preview is instant
+    except HTTPException as e:
+        if e.status_code != 409:
+            raise
+        job = None                         # the running render, or the next one, makes the missing clip
     return {"ok": True, "seg_index": seg_index, "panel_id": body.panel_id, "job": job}
 
 
@@ -7443,7 +7578,7 @@ def edit_narration(seg_index: int, body: NarrationIn):
     seg = next((s for s in segs if s["seg_index"] == seg_index), None)
     if not seg:
         raise HTTPException(404, "segment not found")
-    _snapshot()
+    _snapshot("edit line")
     edited = {e["index"]: e["text"].strip() for e in body.beats}
     # If any edited beat was SLICED across segments by a storyboard boundary
     # move, merge it back into one whole beat first — an edit always re-TTSes
@@ -7459,15 +7594,27 @@ def edit_narration(seg_index: int, body: NarrationIn):
         next((s for s in segs if any(b["index"] in edited for b in s["beats"])), None)
     if owner is None:
         raise HTTPException(404, "edited beat not found")
-    for b in owner["beats"]:
-        if b["index"] in edited and edited[b["index"]] and edited[b["index"]] != b["text"]:  # noqa: E501
-            b["text"] = edited[b["index"]]
-            b.pop("file", None)
+    # Record every changed line to a side file first and swap them in together:
+    # a failure on the second line used to leave the first line's new recording
+    # playing under its old text and timing.
+    recorded = []
+    try:
+        for b in owner["beats"]:
+            if b["index"] in edited and edited[b["index"]] and edited[b["index"]] != b["text"]:  # noqa: E501
+                b["text"] = edited[b["index"]]
+                b.pop("file", None)
+                dest = os.path.join(_audio_dir(), f"beat_{b['index']:03d}.mp3")
+                _synth_rest(b["text"], dest + ".new.mp3")
+                recorded.append(dest)
+    except Exception as e:
+        for dest in recorded:
             try:
-                _synth_rest(b["text"],
-                            os.path.join(_audio_dir(), f"beat_{b['index']:03d}.mp3"))
-            except Exception as e:
-                raise HTTPException(500, f"TTS failed: {e}")
+                os.remove(dest + ".new.mp3")
+            except OSError:
+                pass
+        raise HTTPException(500, f"TTS failed: {e}")
+    for dest in recorded:
+        os.replace(dest + ".new.mp3", dest)
     _recompute_timeline(segs)          # new audio length ripples downstream
     _write_segments(segs)
     # the clip on disk still carries the OLD narration; finalize only renders
@@ -7563,18 +7710,10 @@ def merge_segments(body: MergeIn):
 
 @app.post("/api/undo")
 def undo():
-    files = sorted(f for f in os.listdir(VERSIONS) if f.endswith(".json"))
-    if not files:
-        raise HTTPException(400, "nothing to undo")
-    last = os.path.join(VERSIONS, files[-1])
-    with open(last) as f:
-        segs = json.load(f)
-    _write_segments(segs)
-    os.remove(last)
-    # re-render every segment whose panel differs from what's now on disk is
-    # overkill; just re-render the ones that changed is unknown here, so the
-    # caller reloads and can re-render as needed. Return restored state.
-    return {"ok": True, "restored": files[-1], "n_segments": len(segs)}
+    """The old page's Undo. It restored the newest snapshot of ANY chapter into
+    the open one; it is now the same per-chapter undo the Chapter page uses."""
+    res = storyboard_undo()
+    return {"ok": True, "restored": res.get("undid"), "n_segments": res.get("segments")}
 
 
 # static SPA last so /api and /clip take precedence
@@ -8540,6 +8679,7 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
                     direct=None):
     import ingest
     INGEST[job_id]["status"] = "running"
+    INGEST[job_id].pop("fresh", None)        # used once it starts: a later resume continues, it does not start over
     _persist_ingest(job_id)
     who = "autopilot" if INGEST[job_id].get("source") == "autopilot" else "ingest"
     name = _pretty(url, variant)
@@ -8564,7 +8704,11 @@ def _run_ingest_job(job_id, url, fresh=False, engine="gemini", variant="",
                 if INGEST[job_id].get("source") == "autopilot" else "")
         meta = ingest.run_ingest(url, progress, job_id=job_id, fresh=fresh,
                                  engine=engine, variant=variant, direct=direct, tier=tier,
-                                 lean=bool(INGEST[job_id].get("lean")))
+                                 lean=bool(INGEST[job_id].get("lean")),
+                                 # a re-run of one step, or a job being continued, keeps the
+                                 # panels its descriptions were made from
+                                 keep_source=(INGEST[job_id].get("source") == "rerun"
+                                              or bool(INGEST[job_id].get("resumed"))))
         INGEST[job_id].update(status="done", project=meta, pct=100)
         if isinstance(meta, dict) and meta.get("id"):     # title/description/tags while making
             threading.Thread(target=_prepare_publish, args=(project_dir_for(meta["id"]), DRAFT),
@@ -8754,6 +8898,12 @@ def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
         rec.update(stage="queued", msg=why or "waiting for its turn (resumed)",
                    status="queued", error=None, control=control)
         rec.pop("ended", None)
+        # "Make again from scratch" rides with the job until it starts: a job
+        # held for its turn, or waiting when the server restarted, used to be
+        # re-queued as a plain run and reported "done" on the old script.
+        fresh = fresh or bool(rec.get("fresh"))
+        # a job that is being continued keeps the panels it already described
+        rec["resumed"] = True
         INGEST[job_id] = rec
     else:
         job_id = uuid.uuid4().hex[:12]
@@ -8764,6 +8914,8 @@ def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
                           "source": source}
         if lean:                         # experiment switch, rides with the job
             INGEST[job_id]["lean"] = True
+        if fresh:
+            INGEST[job_id]["fresh"] = True
     _persist_ingest(job_id)
     with _QUEUE_LOCK:
         # the engine rides with the job — it used to be dropped here, so any
@@ -9493,6 +9645,41 @@ def api_watchlist_auto_mirrors(series_id: str | None = None):
     return {"synced": res, "watchlist": _wl_view()}
 
 
+_FLAT_MEMO = {}
+
+
+def _flat_picture(data=None, path=None):
+    """True for a picture that is nearly one flat colour: a site's "loading"
+    placeholder, not cover art (owner review 2026-11-17: mgeko answers
+    damn-reincarnation.png with its loading animation, and the studio saved
+    it as the cover). Real covers measure 0.02-0.42 here; that placeholder
+    0.93. A picture that cannot be read counts as not flat."""
+    import io
+    from collections import Counter
+    key = None
+    try:
+        if path is not None:
+            key = (path, os.path.getmtime(path))
+            if key in _FLAT_MEMO:
+                return _FLAT_MEMO[key]
+            with open(path, "rb") as f:
+                data = f.read()
+        from PIL import Image
+        im = Image.open(io.BytesIO(data))
+        im.seek(0)
+        im = im.convert("RGB").resize((64, 64))
+        px = im.tobytes()
+        top = Counter((px[i] >> 4, px[i + 1] >> 4, px[i + 2] >> 4) for i in range(0, len(px), 3)).most_common(1)[0][1]
+        flat = top / (64 * 64) >= 0.8
+    except Exception:
+        flat = False
+    if key is not None:
+        if len(_FLAT_MEMO) > 500:
+            _FLAT_MEMO.clear()
+        _FLAT_MEMO[key] = flat
+    return flat
+
+
 @app.get("/api/watchlist/cover/{series_id}")
 def api_watchlist_cover(series_id: str):
     """A series' cover, fetched once from its own site (with that site as
@@ -9524,7 +9711,7 @@ def api_watchlist_cover(series_id: str):
     for ext, mt in (("jpg", "image/jpeg"), ("png", "image/png"), ("webp", "image/webp")):
         p = os.path.join(d, f"{series_id}.{ext}")
         if os.path.exists(p) and time.time() - os.path.getmtime(p) < 7 * 86400 \
-                and (not cover or cached_src == cover):
+                and (not cover or cached_src == cover) and not _flat_picture(path=p):
             return FileResponse(p, media_type=mt, headers={"Cache-Control": "public, max-age=86400"})
     if srs is None:
         raise HTTPException(404, "not on the watchlist")
@@ -9536,22 +9723,47 @@ def api_watchlist_cover(series_id: str):
         (x["cover"], x.get("series_url") or "") for x in srs.get("mirrors", [])
         if x.get("cover") and x is not m and not _pv.is_share_card(x["cover"])]
     data, why = None, (404, "no cover yet — check the series first")
+
+    def _get(url, page):
+        req = _ur.Request(url, headers={"User-Agent": _pv.UA, "Referer": page})
+        try:
+            with _ur.urlopen(req, timeout=20, context=_pv._ctx()) as r:
+                got, mt = r.read(8_000_000), (r.headers.get_content_type() or "image/jpeg")
+        except Exception:
+            return None, ""
+        if not got or mt.startswith("text/"):        # a block page, not a picture
+            return None, ""
+        return got, mt
+
     for cover, page in cands:
         ch, ph = _up.urlparse(cover).hostname or "", _up.urlparse(page).hostname or ""
         same_site = ".".join(ch.split(".")[-2:]) == ".".join(ph.split(".")[-2:])
         if _up.urlparse(cover).scheme != "https" or not (same_site or ch.endswith(".pstatic.net")):
             why = (404, "cover is not on the series' own site")
             continue
-        req = _ur.Request(cover, headers={"User-Agent": _pv.UA, "Referer": page})
-        try:
-            with _ur.urlopen(req, timeout=20, context=_pv._ctx()) as r:
-                got, mt = r.read(8_000_000), (r.headers.get_content_type() or "image/jpeg")
-        except Exception:
+        got, mt = _get(cover, page)
+        if got is None:
             why = (502, "could not fetch the cover")
             continue
-        if not got or mt.startswith("text/"):        # a block page, not a picture
-            why = (502, "could not fetch the cover")
-            continue
+        if _flat_picture(got):
+            # The site's "loading" picture. Its series page shows the same file
+            # from its picture server; that copy is the real cover.
+            got, path = None, _up.urlparse(cover).path
+            try:
+                h = _pv.fetch(page)
+                h = h if isinstance(h, str) else h.decode("utf-8", "ignore")
+                alts = [u for u in dict.fromkeys(_re.findall(r'https://[^"\'\s<>]+', h))
+                        if u != cover and len(path) > 8 and _up.urlparse(u).path.endswith(path)]
+            except Exception:
+                alts = []
+            for u in alts[:3]:
+                got, mt = _get(u, page)
+                if got is not None and not _flat_picture(got):
+                    break
+                got = None
+            if got is None:
+                why = (404, "this source has no cover picture")
+                continue
         data = got
         break
     if data is None:
@@ -9559,7 +9771,7 @@ def api_watchlist_cover(series_id: str):
         if not _pv.is_share_card(cached_src):
             for ext, mt in (("jpg", "image/jpeg"), ("png", "image/png"), ("webp", "image/webp")):
                 p = os.path.join(d, f"{series_id}.{ext}")
-                if os.path.exists(p):
+                if os.path.exists(p) and not _flat_picture(path=p):
                     return FileResponse(p, media_type=mt, headers={"Cache-Control": "public, max-age=3600"})
         raise HTTPException(*why)
     ext = {"image/png": "png", "image/webp": "webp"}.get(mt, "jpg")
@@ -9625,8 +9837,12 @@ def activate_project(body: ActivateIn):
     # Persist the active project ID
     try:
         os.makedirs(WORK, exist_ok=True)
-        with open(os.path.join(WORK, "active_project.txt"), "w", encoding="utf-8") as f:
+        # written whole or not at all: a reader in the instant after a
+        # truncate saw "" and fell back to the shared work folder
+        _ptr = os.path.join(WORK, "active_project.txt")
+        with open(_ptr + ".tmp", "w", encoding="utf-8") as f:
             f.write(body.id)
+        os.replace(_ptr + ".tmp", _ptr)
     except Exception as e:
         print(f"Failed to save active project file: {e}", file=sys.stderr)
 
@@ -9720,7 +9936,7 @@ def _run_validate_job(job_id, pdir, mode):
         _persist_job(job_id)
 
     try:
-        rep = _validator.validate(pdir, review=load_review(), mode=mode,
+        rep = _validator.validate(pdir, review=_load_reviews_side(pdir), mode=mode,
                                   progress=progress)
         # A report whose own status is 'error' (a refused batch, a missing key,
         # a cap hit) must NOT show as a green job — that is exactly how a
@@ -10437,6 +10653,7 @@ def sb_set_included(body: SetIncludedIn):
             hit += 1
     if not hit:
         raise HTTPException(404, "no segment for that panel")
+    _snapshot("tick")
     _write_segments(segs)
     return {"ok": True, "updated": hit,
             "included": sum(1 for s in segs if s.get("user_included"))}
@@ -10737,10 +10954,23 @@ def storyboard_undo():
     """
     import storyboard_edit as edit
     pdir = active_project_dir()
+    said = {b["index"]: b.get("text") for s in load_segments() for b in s.get("beats", []) if not b.get("file")}
     try:
         res = edit.undo(pdir)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    # A walked-back line edit restores the old words; put the old recording
+    # back too (free: it is in the saved recordings), or the old text would
+    # play with the new voice line.
+    for s in load_segments():
+        for b in s.get("beats", []):
+            if b.get("file") or b["index"] not in said or said[b["index"]] == b.get("text") \
+                    or not (b.get("text") or "").strip():
+                continue
+            try:
+                _synth_rest(b["text"], os.path.join(_audio_dir(), f"beat_{b['index']:03d}.mp3"))
+            except Exception as e:
+                res["voice"] = f"line {b['index']} could not be re-recorded: {e}"
     return res
 
 
@@ -11277,6 +11507,47 @@ def _resume_budget_paused_old():
     return n
 
 
+def _reworked_since(pdir, when):
+    """True when the chapter has a video or an archived re-run newer than `when`."""
+    if not when:
+        return False
+    for sub, ok in (("exports", lambda f: f.endswith(".mp4")), ("_revisions", lambda f: True)):
+        d = os.path.join(pdir, sub)
+        try:
+            if any(ok(f) and os.path.getmtime(os.path.join(d, f)) > when for f in os.listdir(d)):
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def _rerun_blocker(pdir, step):
+    """Why re-running `step` would fail AFTER its board and audio were put
+    away, or None. Checked before anything is archived (owner review,
+    2026-11-17: the only recorded use of this route left Fog Land 46 Failed
+    with no board)."""
+    import generation_cache as _gc
+    if step == "describe":
+        return None
+    if os.path.exists(os.path.join(pdir, "descriptions.json")) and _gc.described_source(pdir, dry_run=True) is None:
+        return ("the panels on disk are not the ones its descriptions were made from, so this step would stop "
+                "at the description check. Use 'describe the panels again' instead.")
+    if step == "match":
+        rec = _read_json(os.path.join(pdir, "voice.cache.json")) or {}
+        outs = rec.get("outputs") if isinstance(rec, dict) else None
+        audio = os.path.join(pdir, "audio")
+        try:
+            have = {f for f in os.listdir(audio) if f.startswith("beat_") and f.endswith(".mp3")}
+        except OSError:
+            have = set()
+        if isinstance(outs, dict) and (have != set(outs) or any(
+                _gc.file_digest(os.path.join(audio, n)) != h for n, h in outs.items())):
+            return ("a line was edited, removed or re-recorded on this board, so the timeline cannot be rebuilt "
+                    "from the saved voice. Use 'record the voice again' (it rebuilds the lines from the script; "
+                    "edits made on the board are not kept).")
+    return None
+
+
 def _archive_sweep(now=None):
     """Archive published chapters; delete archived folders whose date passed."""
     import ingest
@@ -11300,6 +11571,12 @@ def _archive_sweep(now=None):
             _autopilot.audit("project_archived", project=pid, reason="published")
             out["archived"].append(pid)
         elif st is not None and _archive.due(pdir, now) and pid != active:
+            if _reworked_since(pdir, st.get("archived_at")):
+                # a video made or a step re-run after it was put away (its board
+                # may be only in _revisions after a failed re-run): not deleted
+                _archive.unarchive(pdir)
+                _ev("archive", f"{_pretty(pid)}: back in the library — it was worked on after being put away")
+                continue
             ok, why, mb = _delete_one_project(pid, why="cleaned up after posting (archive)", to_bin=False)
             _autopilot.audit("archived_project_deleted" if ok else "archived_delete_skipped",
                              project=pid, detail=why, freed_mb=mb)
@@ -12317,6 +12594,9 @@ def pipeline_rerun(body: PipelineRerunIn):
     busy = _chapter_busy(pdir)
     if busy:
         raise HTTPException(409, busy + " — wait for it or stop it first")
+    blocker = _rerun_blocker(pdir, body.step)
+    if blocker:
+        raise HTTPException(409, "Nothing was changed: " + blocker)
     base = _i.project_id(url)
     variant = pid[len(base) + 1:] if pid.startswith(base + "-") else ""
     if _i.project_id(url, variant) != pid:
