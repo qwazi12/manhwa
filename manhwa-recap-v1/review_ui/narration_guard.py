@@ -22,6 +22,12 @@ PATTERNS = [
     r"\b(?:i hope this helps|happy to help)\b",
     r"\b(?:shall|should) i (?:continue|write|summari[sz]e|proceed)\b",
     r"\bnarration for (?:panel|chapter|this panel)\b",
+    # a refusal (Regressor's Tale ch.37, 2026-11-16: "I cannot write a line-by-line or
+    # panel-by-panel script for this work, but I can provide a concise summary...")
+    r"\b(?:line-by-line|panel-by-panel) (?:script|narration|recap|summary)\b",
+    r"\bi (?:cannot|can't|can not|am unable to|won't) (?:write|provide|create|generate|produce) "
+    r"(?:(?:a|an|the|this|that|any|your) )?(?:[a-z-]+ ){0,4}(?:script|narration|recap|summary)\b",
+    r"\bbut i can (?:provide|offer|give you|write) (?:(?:a|an|the) )?(?:[a-z]+ )?(?:summary|overview|recap)\b",
 ]
 _RE = re.compile("|".join(PATTERNS), re.I)
 
