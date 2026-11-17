@@ -2341,7 +2341,7 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Verified on production 23:53Z (Railway log): Asura 403 -> failover picked `manga-1003-chapter-309-eng-li` (15 pages) and `manga-1003-chapter-311-eng-li` (32 pages).
 - Re-make started 23:53:21Z with `POST /api/ingest {url, fresh: true, queue: true}` (same folders): ORV 309 job 2f6331eaa6a6, ORV 311 job 6b512dc6b108. Spend before: $11.24 of $15. Expected stop at describe on changed panels (then `redescribe-changed`).
 
-### 2026-11-17 00:16Z — ORV 309 and 311 re-made at full length; all 10 chapters of the owner's first 6 series are now made; spend $13.09 of $15
+### 2026-11-17 00:15Z — ORV 309 and 311 re-made at full length; all 10 chapters of the owner's first 6 series are now made; spend $13.09 of $15
 - Both stopped once at describe on changed panels as expected (309: 7 panels, est $0.147; 311: 5 panels, est $0.105). Used `POST /api/chapter/redescribe-changed` at 23:54:26Z and 23:54:59Z (old files kept as `descriptions.json.previous-*.json`); both jobs resumed by themselves.
 - ORV 309 (job 2f6331eaa6a6): done 00:08:35Z, 81 segments, 541.5 s, $0.91. ORV 311 (job 6b512dc6b108): done 00:14:41Z, 86 segments, 575.9 s, $0.94. Before: 50.4 s and 17.5 s. Total $1.85. No video rendered, nothing posted; they wait for the owner's review with ORV 310.
 - Spend for the 2026-11-16 ET day: $13.09 of the $15 cap (not exceeded). Line empty 00:15Z. Autopilot OFF. `INGEST_WORKERS` still 3.
