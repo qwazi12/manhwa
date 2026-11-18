@@ -224,6 +224,26 @@ def test_subject_boxes_are_used_by_the_framing_rules_without_a_question(studio, 
     assert shot_planner.LAST_AUTO_FRAMING.get("framed") == 1
 
 
+def test_a_line_can_name_the_part_of_its_panel_to_show(studio):
+    """The free cut leaves some tall strips whole; two lines on one strip each show their own picture."""
+    pdir, counts, ingest = studio
+    body = _body()
+    body["lines"][0]["box"] = [0.0, 0.0, 1.0, 0.5]
+    body["lines"][1]["box"] = [0.0, 0.5, 1.0, 1.0]
+    rec, problems = hand_made.validate(str(pdir), body)
+    assert not problems and rec["lines"][0]["box"] == [0.0, 0.0, 1.0, 0.5] and "box" not in rec["lines"][2]
+    hand_made.save(str(pdir), rec)
+    ingest.run_ingest(URL, lambda *a: None, direct=False)
+    beats = [(b["text"], s["crop_bbox_norm"], s.get("focus_source"))
+             for s in json.load(open(pdir / "segments.json")) for b in s["beats"]]
+    assert beats[0] == (LINES[0][1], [0.0, 0.0, 1.0, 0.5], "hand")
+    assert beats[1] == (LINES[1][1], [0.0, 0.5, 1.0, 1.0], "hand")
+    assert beats[2][2] != "hand"
+    bad = _body()
+    bad["lines"][0]["box"] = [0.5, 0.5, 0.52, 2]
+    assert any("lines[0]: box must be" in p for p in hand_made.validate(str(pdir), bad)[1])
+
+
 def test_the_packaging_answer_and_the_tease_come_from_the_hand_over(studio):
     pdir, counts, ingest = studio
     assert hand_made.seo_answer(str(pdir)) is None

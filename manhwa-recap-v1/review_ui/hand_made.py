@@ -47,13 +47,15 @@ GUIDE = """Write a chapter by hand. Only the voice is paid.
                 "ocr_text": "the words printed in the panel, as printed",
                 "subject_box": [x0, y0, x1, y1],      (optional; fractions of the picture, without balloons)
                 "turn_cw": 90}],                      (optional; a panel drawn sideways)
-    "lines": [{"panel": "page001_panel_003", "text": "one spoken line", "scene": 1}],
+    "lines": [{"panel": "page001_panel_003", "text": "one spoken line", "scene": 1,
+               "box": [x0, y0, x1, y1]}],            (box optional: the part of the panel to show for this line)
     "packaging": {...}}                               (optional; see below)
    Every panel needs an entry (an empty or bubble-only panel still gets a
    description saying so). Every line names the one panel shown while it is
    spoken; lines play in the order given; a panel may carry several lines or
    none. "scene" changes when the place or time changes (a longer breath is
-   left there). One line is at most 45 words. Names: only those printed in
+   left there). A tall panel that holds several pictures: give each line the
+   "box" of its own picture. One line is at most 45 words. Names: only those printed in
    the chapter or listed under "cast".
    "packaging": {"titles": [{"text": "hook only", "why": "...", "recommended": true}],
                  "summary": "", "description": "", "description_short": "", "tags": [], "hashtags": [],
@@ -208,7 +210,14 @@ def validate(pdir, body):
             scene = int(ln.get("scene") or 0)
         except (TypeError, ValueError):
             scene = 0
-        lines.append({"panel": pid, "text": text, "scene": scene})
+        rec_ln = {"panel": pid, "text": text, "scene": scene}
+        if ln.get("box") is not None:
+            box = _box(ln["box"])
+            if box is None:
+                problems.append(f"lines[{i}]: box must be [x0, y0, x1, y1], fractions between 0 and 1")
+            else:
+                rec_ln["box"] = box
+        lines.append(rec_ln)
     if len(lines) < MIN_LINES:
         problems.append(f"{len(lines)} line(s): a chapter needs at least {MIN_LINES}")
     pk = body.get("packaging")
@@ -319,6 +328,23 @@ def assignments(beat_list, panels):
         out.append({"beat_index": b["index"], "panel_index": where[pid], "score": 1.0, "held": pid == prev})
         prev = pid
     return out
+
+
+def apply_line_boxes(shots, hand):
+    """A line that names the part of its panel to show (a tall strip the free
+    cut left whole holds several pictures) gets exactly that part. Runs after
+    the shot planner, so nothing replaces it. Returns how many were set."""
+    boxes = {i: ln["box"] for i, ln in enumerate(hand["lines"]) if ln.get("box")}
+    n = 0
+    for s in shots:
+        box = boxes.get(s.get("index"))
+        if box:
+            s["crop_bbox_norm"] = list(box)
+            s["focus_source"] = "hand"
+            s["focus_reason"] = "part of the panel chosen by the writer"
+            s["focus_confidence"] = 1.0
+            n += 1
+    return n
 
 
 def seed_framing(pdir, hand, crops):
