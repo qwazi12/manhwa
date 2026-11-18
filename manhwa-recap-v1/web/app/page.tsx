@@ -6,6 +6,7 @@ import { ago, money } from "@/lib/fmt";
 import { Card, ConfirmButton, Empty, PageHead, StatusPill, useAct, useToast } from "@/components/ui";
 import PasteBox from "@/components/PasteBox";
 import AllChapters from "@/components/AllChapters";
+import MonitorStrip from "@/components/MonitorStrip";
 
 // Needs-you cards that are chapters (not suggestions/hooks) can be selected.
 const CHAPTER_KINDS = ["to_review", "video_ready", "failed", "waiting"];
@@ -77,6 +78,7 @@ export default function Home() {
           </div>
         )}
       </Card>
+      <MonitorStrip />
       <AllChapters />
       <Card title="Latest activity" right={<Link className="small" href="/activity">All activity →</Link>} pad={false}>
         <div className="list">

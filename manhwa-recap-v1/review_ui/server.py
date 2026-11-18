@@ -2954,7 +2954,11 @@ def api_seo_generate(body: SeoGenIn):
 
     _seo_stage(pdir, name, "writing the title, description and tags")
     try:
-        out = _seo.generate(pdir, name, card, style, res, usage=usage)
+        # a chapter written by hand brings its own answer: no model call (hand_made.py)
+        import hand_made as _hm
+        _hand_ans = _hm.seo_answer(pdir)
+        out = _seo.generate(pdir, name, card, style, res, usage=usage,
+                            _call=(lambda _prompt, _model: _hand_ans) if _hand_ans else None)
     except usage.UsageCapExceeded:
         raise
     except Exception as e:
@@ -8929,6 +8933,187 @@ def _enqueue_ingest(url, fresh=False, engine="gemini", variant="", direct=None,
     return job_id
 
 
+# ---- chapters written by hand: only the voice is paid (hand_made.py) --------
+# Owner, 2026-11-18: "can't you handle everything so the only thing we need to
+# pay for is voice?" The studio downloads and cuts the chapter; the writer (a
+# person, or an agent looking at the panels) sends what each panel shows and
+# the spoken lines; the studio records the voice and builds the board.
+class HandPrepareIn(BaseModel):
+    url: str
+    variant: str = ""
+
+
+_HAND_PREPARING = set()
+
+
+def _hand_dir(pid, must_exist=True):
+    import ingest as _ing
+    if not pid or "/" in pid or ".." in pid or pid[:1] in (".", "_"):
+        raise HTTPException(400, "bad chapter id")
+    d = os.path.join(_ing.PROJECTS, pid)
+    if must_exist and not os.path.isdir(d):
+        raise HTTPException(404, "unknown chapter: prepare it first (POST /api/hand/prepare)")
+    return d
+
+
+def _hand_live_job(pid):
+    for jid, j in list(INGEST.items()):
+        if j.get("status") in ("queued", "running", "paused", "pausing") and _job_pid(j) == pid:
+            return jid
+    return None
+
+
+def _hand_prepare_run(url, pid, pdir, variant):
+    import hand_made as _hm
+    base = {"url": url, "variant": variant, "at": time.time()}
+
+    def say(msg):
+        try:
+            _hm.prep_save(pdir, {**base, "state": "preparing", "msg": str(msg)[:200]})
+        except OSError:
+            pass
+    try:
+        with usage.scope(job_id="hand:" + pid, stage="split", project=pid):
+            res = _hm.prepare(url, pdir, slug=pid, say=say)
+        _hm.prep_save(pdir, {**base, **res, "state": "ready", "ready_at": time.time(),
+                             "msg": f"{res['n_panels']} panels from {res['n_pages']} pages"})
+        _ev("ingest", f"{_pretty(pid)}: prepared to be written by hand ({res['n_panels']} panels from "
+                      f"{res['n_pages']} pages, nothing paid)", "ok")
+    except Exception as e:  # noqa
+        _hm.prep_save(pdir, {**base, "state": "failed", "error": str(e)[:300]})
+        _ev("ingest", f"{_pretty(pid)}: could not be prepared to be written by hand: {str(e)[:200]}", "warn")
+    finally:
+        _HAND_PREPARING.discard(pid)
+
+
+@app.post("/api/hand/prepare")
+def api_hand_prepare(body: HandPrepareIn):
+    """Download a chapter and cut it into panels so it can be written by hand.
+    Free: the paid check of the cuts is not made."""
+    import hand_made as _hm
+    import ingest as _ing
+    url = (body.url or "").strip()
+    if not re.match(r"^https?://", url):
+        raise HTTPException(400, "please give a full chapter URL (http/https)")
+    variant = (body.variant or "").strip().lower()
+    if variant and not _ing.VARIANT_RE.match(variant):
+        raise HTTPException(400, "version must be 1-16 lowercase letters, digits or dashes (e.g. hand)")
+    pid = _ing.project_id(url, variant)
+    pdir = _hand_dir(pid, must_exist=False)
+    if _hand_live_job(pid):
+        raise HTTPException(409, "this chapter is being made right now")
+    if pid in _HAND_PREPARING:
+        return {"ok": True, "chapter": pid, "state": "preparing", "existing": True}
+    if os.path.exists(os.path.join(pdir, "segments.json")):
+        raise HTTPException(409, "this chapter already has a board. Send a new script for it (POST /api/hand/"
+                                 f"{pid}) or save a version beside it (\"variant\").")
+    if not variant and not os.path.isdir(pdir):
+        made = _already_made(url)
+        if made:
+            raise HTTPException(409, f"ch.{made[1]} of this series is already made — {made[2]}. "
+                                     "Save a version beside it (\"variant\") to write it by hand.")
+    _HAND_PREPARING.add(pid)
+    _hm.prep_save(pdir, {"url": url, "variant": variant, "at": time.time(), "state": "preparing",
+                         "msg": "waiting to start"})
+    threading.Thread(target=_hand_prepare_run, args=(url, pid, pdir, variant), daemon=True).start()
+    return {"ok": True, "chapter": pid, "state": "preparing"}
+
+
+@app.get("/api/hand/{pid}")
+def api_hand_status(pid: str):
+    """Where a hand-written chapter stands, its panels, and how to write it."""
+    import hand_made as _hm
+    import ingest as _ing
+    pdir = _hand_dir(pid)
+    prep = _hm.prep_load(pdir) or {}
+    meta = _read_json(os.path.join(pdir, "project.json")) or {}
+    try:
+        hand = _hm.load(pdir)
+        hand_err = None
+    except _hm.HandError as e:
+        hand, hand_err = None, str(e)
+    state = prep.get("state") or ("ready" if os.path.isdir(os.path.join(pdir, "crops")) else "unknown")
+    if hand and state == "ready":
+        state = "written"
+    url = prep.get("url") or meta.get("url") or ""
+    out = {"chapter": pid, "state": state, "url": url, "msg": prep.get("msg"),
+           "error": prep.get("error") or hand_err, "job": _hand_live_job(pid),
+           "prepared": {k: prep.get(k) for k in ("n_pages", "n_panels", "scrape_warning", "ready_at") if k in prep},
+           "written": ({"at": hand.get("at"), "by": hand.get("by"), "lines": len(hand["lines"]),
+                        "panels_shown": len({ln["panel"] for ln in hand["lines"]}),
+                        "packaging": bool(hand.get("packaging"))} if hand else None),
+           "voice_only": usage.voice_only(pid), "made": bool(meta.get("n_segments")),
+           "guide": _hm.GUIDE}
+    if state in ("ready", "written"):
+        out["panels"] = [{**p, "picture": f"/api/hand/{pid}/panel/{p['panel_id']}"} for p in _hm.panel_listing(pdir)]
+        series = {}
+        try:
+            import series_bible as _sb
+            import series_pack as _sp
+            s_raw, ch = _ing.parse_series_chapter(url)
+            pack = _sp.load(_ing.PROJECTS, _ing.clean_series_slug(s_raw)) or {}
+            bible = _sb.load_series_bible(s_raw, pdir=pdir) or {}
+            series = {"title": pack.get("title_en") or _ing.to_title_case(_ing.clean_series_slug(s_raw)),
+                      "spoken_alias": _sp.spoken_alias(pack, ch), "chapter": ch,
+                      "cast": [{k: c.get(k) for k in ("name", "aliases", "pronouns", "role", "looks") if c.get(k)}
+                               for c in (bible.get("characters") or []) if isinstance(c, dict)][:40]}
+        except Exception as e:  # noqa — the panels are what matters
+            series = {"error": str(e)[:160]}
+        out["series"] = series
+    return out
+
+
+@app.get("/api/hand/{pid}/panel/{panel_id}")
+def api_hand_panel(pid: str, panel_id: str):
+    path = os.path.join(_hand_dir(pid), "crops", os.path.basename(panel_id) + ".png")
+    if not os.path.exists(path):
+        raise HTTPException(404, "panel not found")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.post("/api/hand/{pid}")
+def api_hand_write(pid: str, body: dict):
+    """Hand over a chapter's descriptions and spoken lines. The studio then
+    records the voice (the only paid step) and builds the board."""
+    import hand_made as _hm
+    pdir = _hand_dir(pid)
+    prep = _hm.prep_load(pdir) or {}
+    if prep.get("state") == "preparing" or pid in _HAND_PREPARING:
+        raise HTTPException(409, "this chapter is still being prepared")
+    if _hand_live_job(pid):
+        raise HTTPException(409, "this chapter is being made right now; send the script again when it has finished")
+    meta = _read_json(os.path.join(pdir, "project.json")) or {}
+    url = prep.get("url") or meta.get("url") or ""
+    if not re.match(r"^https?://", url):
+        raise HTTPException(409, "this chapter has no source link on record: prepare it first (POST /api/hand/prepare)")
+    rec, problems = _hm.validate(pdir, body)
+    if problems:
+        return JSONResponse({"ok": False, "problems": problems[:60], "n_problems": len(problems)}, status_code=422)
+    variant = prep.get("variant") if "variant" in prep else (meta.get("variant") or "")
+    again = os.path.exists(os.path.join(pdir, "script.txt"))
+    _hm.save(pdir, rec)
+    # a script that replaces one: the old script, voice and board are put away
+    # first; lines that did not change are not recorded again (voice cache)
+    job = _enqueue_ingest(url, fresh=again, variant=variant or "", source="hand")
+    _ev("ingest", f"{_pretty(pid)}: script written by hand received ({len(rec['lines'])} lines on "
+                  f"{len({ln['panel'] for ln in rec['lines']})} panels) — only the voice is paid", "ok")
+    return {"ok": True, "job": job, "chapter": pid, "lines": len(rec["lines"]), "replaced": again}
+
+
+@app.delete("/api/hand/{pid}")
+def api_hand_remove(pid: str):
+    """Give the chapter back to the paid pipeline (its next run describes and
+    writes it with the models). The hand-over is kept in the chapter's _revisions."""
+    import hand_made as _hm
+    pdir = _hand_dir(pid)
+    if _hand_live_job(pid):
+        raise HTTPException(409, "this chapter is being made right now")
+    gone = _hm.remove(pdir)
+    if gone:
+        _ev("ingest", f"{_pretty(pid)}: no longer voice only — its next run uses the paid steps", "warn")
+    return {"ok": True, "removed": gone}
+
+
 class JobControlIn(BaseModel):
     job_id: str
     action: str            # pause | resume | stop
@@ -11814,6 +11999,7 @@ def _scheduler_pass():
                      ("new sources", _check_new_sources), ("publish prep", _publish_prep_pass),
                      ("drive archive", _drive_archive_pass),
                      ("auto append", _auto_append_pass),
+                     ("new-chapter check", _monitor_watchdog),
                      ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps())),
                      ("backup", lambda: __import__("backup").maybe_run_nightly_backup())):
         try:
@@ -11829,6 +12015,75 @@ def _scheduler_loop():
     while True:
         _scheduler_pass()
         time.sleep(_autopilot.TICK_SECONDS)
+
+
+# ---- new-chapter monitor (chapter_monitor.py) -------------------------------
+# Owner, 2026-11-18: "a monitor for new chapters that runs constantly and is
+# consistent". Its own thread and clock; the scheduler above only checks that
+# it is still alive (_monitor_watchdog).
+import chapter_monitor as _monitor
+
+
+def _monitor_root():
+    return _ingest_mod.PROJECTS
+
+
+def _monitor_series():
+    return _wl_view()["series"]
+
+
+def _monitor_refresh(series_id):
+    import watchlist as _wl
+    m = _wl.refresh_series(_wl_root(), series_id)
+    # autopilot's own 6-hourly read of every source is not needed on top of this
+    _autopilot.runtime["last_refresh"] = time.time()
+    return m
+
+
+def _monitor_say(kind, text, level="info"):
+    _ev(kind, text, level)
+
+
+def _monitor_watchdog(first_wait=0.0):
+    if _monitor.ensure_running(_monitor_root, _monitor_series, _monitor_refresh, _monitor_say,
+                               first_wait=first_wait):
+        _ev("tracker", "the new-chapter check had stopped; it was started again", "warn")
+
+
+def _monitor_made(series_id, chapter):
+    return bool((_made_registry().get(series_id) or {}).get(_autopilot.norm_chapter(chapter)))
+
+
+class MonitorIn(BaseModel):
+    enabled: bool | None = None
+    every_minutes: int | None = None
+
+
+@app.get("/api/monitor")
+def api_monitor():
+    """The new-chapter check: on or off, when it last ran, when it runs next,
+    which series could not be read, and the chapters it found."""
+    return _monitor.status(_monitor_root(), made=_monitor_made)
+
+
+@app.post("/api/monitor")
+def api_monitor_set(body: MonitorIn):
+    try:
+        s = _monitor.update_settings(_monitor_root(), body.enabled, body.every_minutes)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _ev("settings", "New-chapter check " + (f"on, every {s['every_minutes']} minutes" if s["enabled"] else "switched off"))
+    return {"ok": True, **_monitor.status(_monitor_root(), made=_monitor_made)}
+
+
+@app.post("/api/monitor/run")
+def api_monitor_run():
+    """Check every series now (free). One pass at a time."""
+    if _monitor.runtime["running"]:
+        return {"ok": True, "started": False, "running": True}
+    threading.Thread(target=_monitor.run_pass, args=(_monitor_root(), _monitor_series, _monitor_refresh),
+                     kwargs={"say": _monitor_say}, daemon=True).start()
+    return {"ok": True, "started": True}
 
 
 def _heal_project_folders():
@@ -12065,6 +12320,10 @@ def _start_background_work():
     except Exception as e:  # noqa
         print(f"[boot] resume failed: {e}", flush=True)
     threading.Thread(target=_scheduler_loop, daemon=True).start()
+    try:
+        _monitor_watchdog(first_wait=90.0)     # the new-chapter check, on its own clock
+    except Exception as e:  # noqa
+        print(f"[boot] new-chapter check failed to start: {e}", flush=True)
     try:
         if _rq.next_waiting(_ingest_mod.PROJECTS) or any(
                 i["status"] == "rendering" for i in _rq.load(_ingest_mod.PROJECTS)["items"]):
@@ -12981,6 +13240,7 @@ def chapter_view(pid: str):
             out["sent_back"] = {"video": v["name"], "notes": (load_reviews(pdir).get(v["name"]) or {}).get("notes", "")}
             break
     out["built_with"] = {"match": meta.get("match_method"), "engine": meta.get("engine") or "gemini",
+                         "made_by": meta.get("made_by") or None,
                          "split": (meta.get("split_coverage") or {}).get("engine") or (meta.get("split_coverage") or {}).get("format"),
                          "pages": meta.get("n_pages"), "scrape_warning": meta.get("scrape_warning") or None}
     if row.get("video"):

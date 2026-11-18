@@ -285,7 +285,18 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
                 _shutil.rmtree(_old, ignore_errors=True)
         except OSError:
             pass
-    kept = cache.described_source(proj) if keep_source and not fresh else None
+    # A chapter written by hand (hand_made.py): its panels were cut when it was
+    # prepared and its text is in hand.json. Nothing is downloaded, cut,
+    # described or written here; usage.gate refuses any paid call but voice.
+    import hand_made
+    hand = hand_made.load(proj)
+    if hand:
+        _why = hand_made.source_problem(proj, hand)
+        if _why:
+            raise RuntimeError(_why)
+        kept = {"restored": None, "hand": True}
+    else:
+        kept = cache.described_source(proj) if keep_source and not fresh else None
     if kept:
         pages, crops = os.path.join(proj, "pages"), os.path.join(proj, "crops")
     else:
@@ -312,6 +323,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             _prev = json.load(open(os.path.join(proj, "project.json")))
         except (OSError, ValueError):
             _prev = {}
+        if hand:                        # what the prepare step recorded about the download and the cut
+            _prev = {**(hand_made.prep_load(proj) or {}), **_prev}
         scrape_warning = _prev.get("scrape_warning") or ""
         split_coverage = _prev.get("split_coverage")
         subp_env = {**os.environ, "RECAP_JOB_ID": job_id, "RECAP_PROJECT": proj_id,
@@ -320,7 +333,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             subp_env["RECAP_SERVICE_TIER"] = tier
         n_crops = len([f for f in os.listdir(crops) if f.lower().endswith(".png")])
         progress("scrape", f"{len(imgs)} pages kept as downloaded.", 12)
-        progress("split", f"{n_crops} panel crops kept as they were described"
+        progress("split", f"{n_crops} panel crops kept as they were "
+                          + ("written about (chapter written by hand)" if hand else "described")
                           + (f" (put back from {kept['restored']})." if kept.get("restored") else "."), 30)
     else:
         # 1. scrape -----------------------------------------------------------
@@ -465,7 +479,7 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     series_raw, _ = parse_series_chapter(url)
     import series_bible
     bible = series_bible.load_series_bible(series_raw, pdir=proj)
-    if bible is None or not bible.get("characters"):
+    if (bible is None or not bible.get("characters")) and not hand:
         # First chapter of a series with no bible (or one with no cast): research it now (sourced
         # cast, pronouns, looks, world — series_research.py), so describe and
         # narrate know who is who. ~$0.02, once per series.
@@ -488,30 +502,35 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     if bible and (not os.path.exists(bible_path) or (not _local_cast and bible.get("characters"))):
         series_bible.save_series_bible(series_raw, bible, pdir=proj)
 
-    progress("describe", "Describing panels (Gemini vision)…", 35)
-    usage.set_stage("describe")
-    subp_env["RECAP_STAGE"] = "describe"
-    if lean:
-        subp_env["DESCRIBE_BATCH"] = os.environ.get("LEAN_DESCRIBE_BATCH", "4")
-    desc_log = os.path.join(proj, "describe.log")
-    desc_cmd = [PY, os.path.join(ROOT, "panel-describe", "run.py"),
-                "--input", crops, "--out", desc_path,
-                "--model", os.environ.get("PIPELINE_MODEL", "gemini-3.8-flash"),
-                "--merge"]
-    if os.path.exists(bible_path):
-        desc_cmd.extend(["--series-bible", bible_path])
+    if hand:
+        progress("describe", "Descriptions written by hand: no model call.", 35)
+        usage.set_stage("describe")
+        hand_made.write_descriptions(proj, hand, desc_path)
+    else:
+        progress("describe", "Describing panels (Gemini vision)…", 35)
+        usage.set_stage("describe")
+        subp_env["RECAP_STAGE"] = "describe"
+        if lean:
+            subp_env["DESCRIBE_BATCH"] = os.environ.get("LEAN_DESCRIBE_BATCH", "4")
+        desc_log = os.path.join(proj, "describe.log")
+        desc_cmd = [PY, os.path.join(ROOT, "panel-describe", "run.py"),
+                    "--input", crops, "--out", desc_path,
+                    "--model", os.environ.get("PIPELINE_MODEL", "gemini-3.8-flash"),
+                    "--merge"]
+        if os.path.exists(bible_path):
+            desc_cmd.extend(["--series-bible", bible_path])
 
-    with open(desc_log, "w", encoding="utf-8") as f_log:
-        desc_p = subprocess.run(
-            desc_cmd,
-            cwd=os.path.join(ROOT, "panel-describe"),
-            env=subp_env, stdout=f_log, stderr=f_log)
-    if desc_p.returncode != 0:
-        err_text = open(desc_log, encoding="utf-8").read()
-        if "USAGE CAP EXCEEDED" in err_text:
-            raise usage.UsageCapExceeded(err_text.strip().splitlines()[-1])
-        raise subprocess.CalledProcessError(desc_p.returncode, desc_p.args,
-                                            "", err_text)
+        with open(desc_log, "w", encoding="utf-8") as f_log:
+            desc_p = subprocess.run(
+                desc_cmd,
+                cwd=os.path.join(ROOT, "panel-describe"),
+                env=subp_env, stdout=f_log, stderr=f_log)
+        if desc_p.returncode != 0:
+            err_text = open(desc_log, encoding="utf-8").read()
+            if "USAGE CAP EXCEEDED" in err_text:
+                raise usage.UsageCapExceeded(err_text.strip().splitlines()[-1])
+            raise subprocess.CalledProcessError(desc_p.returncode, desc_p.args,
+                                                "", err_text)
     progress("describe", "Descriptions ready.", 55)
     # Image check (free, no API calls): bubble/text cards, near-blank fragments
     # and credits are tagged so they stay off the timeline, and bubble dialogue
@@ -557,7 +576,12 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     # rerun reports THIS chapter's lines, never the previous run's module state
     ds_path = os.path.join(proj, "direct_speech.json")
     direct_record = {}
-    if os.path.exists(script_path) or os.path.exists(prov_path):
+    if hand:
+        progress("narrate", "Script written by hand: no model call.", 60)
+        script, scenes, direct_record = hand_made.write_script(proj, hand)
+        cache.record(script_cache, script_inputs, script_outputs)
+        hand_made.seed_packaging(proj, hand)
+    elif os.path.exists(script_path) or os.path.exists(prov_path):
         cache.require_current(script_cache, script_inputs, script_outputs, "narrate")
         if not _cached_script:
             raise RuntimeError("Cached narration is empty; work preserved, explicitly rerun narrate")
@@ -605,7 +629,9 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             research_service.note_suggestions(url, script)
         except Exception:
             pass
-    if scenes:
+    if hand:
+        beats = hand_made.beats(scenes)          # one line = one shot, as written
+    elif scenes:
         beats = beat_segmenter.segment_beats_scenes(scenes)
     else:
         beats = beat_segmenter.segment_beats(script)
@@ -716,7 +742,17 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     # notes in project.json. Only what THIS match adds is recorded below.
     _n_fallback = len(getattr(matcher, "EMBED_FALLBACK_REASON", []))
     _n_holds = len(getattr(matcher, "HOLD_CAP_REPORT", []))
-    assigns, method = matcher.match_beats_to_panels(beats, pj)
+    hand_junk = []
+    if hand:
+        assigns, method = hand_made.assignments(beats, pj), "by hand"
+        # the free image check can disagree with the writer: say so, change nothing
+        hand_junk = sorted({pj[a["panel_index"]]["panel_id"] for a in assigns
+                            if matcher.is_junk_panel(pj[a["panel_index"]])})
+        if hand_junk:
+            progress("match", f"\u26a0 {len(hand_junk)} panel(s) carrying a line look like a balloon or a "
+                              f"fragment to the image check: {', '.join(hand_junk[:6])}", 91)
+    else:
+        assigns, method = matcher.match_beats_to_panels(beats, pj)
     shots = matcher.build_timeline(beats, pj, assigns)
     progress("match", f"{len({s['panel_id'] for s in shots})} distinct panels "
                       f"({method}).", 95)
@@ -729,7 +765,9 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     usage.set_stage("crops")
     progress("match", "Planning precise shot crops…", 96)
     _stage_enter("framing")
-    shots = shot_planner.plan_shots(shots, desc_path, crops)
+    if hand:
+        hand_made.seed_framing(proj, hand, crops)
+    shots = shot_planner.plan_shots(shots, desc_path, crops, paid=not hand)
     af = shot_planner.LAST_AUTO_FRAMING or {}
     _stage_exit("framing")
     if af.get("skipped"):
@@ -775,6 +813,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
             "series": series_title, "chapter": chapter_title,
             "match_method": match_method,
             "engine": "gemini",
+            # "hand": written by hand, voice only (hand_made.py)
+            **({"made_by": "hand", "hand_junk_panels": hand_junk} if hand else {}),
             "variant": variant,
             "timeline": timeline,
             # P2: which 2-3 lines were quoted, and whether any quote strayed

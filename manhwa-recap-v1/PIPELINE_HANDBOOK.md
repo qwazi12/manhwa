@@ -1479,3 +1479,37 @@ Full account: `docs/AUDIT_2026-11-13.md`; switches: `docs/CONFIG.md`; operator s
 - **Cumulative releases (`auto_append.py`, `server.api_range_build`)** — the last posted video plus the new chapters; one build per release; a signed-off release is never rebuilt over.
 - **Chapter workers (`INGEST_WORKERS`)**, **channel registry (`channels.py`)**, **release calendar (`release_calendar.py`)**, **storage retention (`retention.py`)**.
 
+
+## E-hand. A chapter written by hand: only the voice is paid (2026-11-18) — `review_ui/hand_made.py`
+
+Owner: "can't you handle everything so the only thing we need to pay for is voice?"
+
+- **What it replaces.** Describe (about 25 cents), script (about 20), framing (about 19), the check of the
+  cuts (about 3) and packaging (about 8). The voice (about 12 to 15 cents) stays.
+- **How.** `POST /api/hand/prepare {"url", "variant"}` downloads and cuts the chapter with no paid check
+  (`splitlab.split_into(vision=False)`). `GET /api/hand/<chapter>` lists the panels and carries the written
+  guide (`hand_made.GUIDE`). `POST /api/hand/<chapter>` takes what each panel shows and says, the spoken
+  lines (each on one panel, in playing order), optional subject boxes and an optional packaging answer.
+  It is validated as a whole; a fault refuses it and nothing is saved. A good one is saved as `hand.json`
+  in the chapter folder and a normal chapter job is queued.
+- **In the pipeline** (`ingest.run_ingest`, `hand = hand_made.load(proj)`): nothing is downloaded or cut
+  again (the panels must be the files the script was written about), descriptions and script are written
+  from `hand.json`, one line is one shot on the panel it names (no matcher), subject boxes are placed in
+  auto framing's own cache so its rules position the shot, and the packaging answer is used in place of
+  the model call.
+- **The lock.** `usage.gate` raises `usage.VoiceOnly` for any paid call that is not voice and is labelled
+  with a chapter that has a `hand.json` (`usage.voice_only`). It is not a spend pause: the step that asked
+  takes its free path. A `hand.json` that cannot be read fails the chapter; it never falls back to the paid steps.
+- **Undo.** `DELETE /api/hand/<chapter>` (the hand-over moves to `_revisions`); the chapter's next run uses the paid steps.
+- **Not covered.** The writer is not part of the studio: nothing is made unless someone (or an agent session) writes it.
+
+## E-monitor. New-chapter check (2026-11-18) — `review_ui/chapter_monitor.py`
+
+- Its own thread, every `every_minutes` (default 30, 10 to 720), counted on the clock from the start of the
+  last pass and saved in `projects/_monitor.json`. Before this the sources were read every 6 hours from
+  inside the autopilot tick, counted from a value in memory.
+- One Activity line per new chapter, per series that could not be read 3 checks in a row, and when it answers again.
+- The scheduler restarts the thread if it stops (`_monitor_watchdog`) and says so.
+- `GET /api/monitor` (state, last pass, next pass, late, failing series, chapters found and not made),
+  `POST /api/monitor {"enabled", "every_minutes"}`, `POST /api/monitor/run`. Home shows the same.
+- Free: one series page per series per pass (two when the main source cannot be read and a backup is asked).
