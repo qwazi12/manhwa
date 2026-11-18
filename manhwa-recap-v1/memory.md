@@ -2434,3 +2434,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Seen while checking spend: 3 unlabelled gemini-3.8-flash calls at 12:13–12:16Z ($0.117, no job/stage/project) — not from this session; source not identified.
 - Evidence: hand-made-20261118/story-vs-captions.txt, orv310-story-hand-over.json, story-version-frames.jpg.
 - Waiting for the owner's "deploy": acb038c, f5dc4c8, d59e241. After it: re-render ORV 310 (hand) free so the tall strips show the right picture.
+
+### 2026-11-18 13:18Z — Deployed b2d11d8 (tall-panel boxes, monitor grid, hand writing brief); ORV 310 (hand) re-rendered
+- Owner (looking at seg 3 "tall strip scroll" on the board): "I think you need to [redo the] scripting unless the fixes are in what's supposed to be deployed. If so then deploy". They were (acb038c), so deployed: CI green on 595cdff, job bar empty, main 8aff973 → b2d11d8 pushed 13:09:22Z (Railway 053db7b1); new code answered 13:10:49Z (the hand route's `writing` brief: contract 10,610 chars, ch.309 ending 2,998 chars, research 8,000). Monitor alive after the restart, next pass 13:40Z. Rollback: revert b2d11d8 (main back to 8aff973).
+- Same story script re-sent 13:11:03Z (job 53cecbbf8496): 100 segments in order, boxed tall panels now "planned crop" (e.g. seg 3 dragon keeps 83%) instead of a scroll; 7 tall panels without a box still scroll, each checked: one picture each, so scrolling is right. Rendered: `final_Nov18_08.16AM_1.15x.mp4`, 446 s, 150.7 MB, 13:18:13Z. **0 paid calls from the re-send and the render.** 12 frames from tall-panel shots looked at: each shows its own part (frame-to-line mapping is approximate by about one shot near the end).
+- Evidence: hand-made-20261118/tall-panels-after-deploy.jpg.
