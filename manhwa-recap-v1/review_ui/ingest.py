@@ -768,6 +768,8 @@ def run_ingest(url, progress, tts_key=None, job_id=None, fresh=False,
     if hand:
         hand_made.seed_framing(proj, hand, crops)
     shots = shot_planner.plan_shots(shots, desc_path, crops, paid=not hand)
+    if hand:
+        hand_made.apply_line_boxes(shots, hand)
     af = shot_planner.LAST_AUTO_FRAMING or {}
     _stage_exit("framing")
     if af.get("skipped"):

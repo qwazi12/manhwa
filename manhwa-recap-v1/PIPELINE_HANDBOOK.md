@@ -1500,6 +1500,12 @@ Owner: "can't you handle everything so the only thing we need to pay for is voic
 - **The lock.** `usage.gate` raises `usage.VoiceOnly` for any paid call that is not voice and is labelled
   with a chapter that has a `hand.json` (`usage.voice_only`). It is not a spend pause: the step that asked
   takes its free path. A `hand.json` that cannot be read fails the chapter; it never falls back to the paid steps.
+- **The writing brief** (owner, 2026-11-18: the first one read as a caption per picture, "This is supposed
+  to be a story with world building"). `GET /api/hand/<chapter>` also carries `writing`: `how` (one story,
+  past tense, world from the notes only, 2-3 quoted lines, silent pictures allowed), `contract` (built by
+  `narrate.build_prompt` itself with this series' bible and opening rule, minus the model's panel list and
+  output format, so the two can never drift), `world` and `research` from the series bible, and
+  `story_so_far` (the end of `<series>_<chapter-1>/script.txt`). `hand_made.writing_brief`, `previous_script`.
 - **Undo.** `DELETE /api/hand/<chapter>` (the hand-over moves to `_revisions`); the chapter's next run uses the paid steps.
 - **Not covered.** The writer is not part of the studio: nothing is made unless someone (or an agent session) writes it.
 

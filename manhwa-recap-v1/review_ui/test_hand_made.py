@@ -224,6 +224,26 @@ def test_subject_boxes_are_used_by_the_framing_rules_without_a_question(studio, 
     assert shot_planner.LAST_AUTO_FRAMING.get("framed") == 1
 
 
+def test_a_line_can_name_the_part_of_its_panel_to_show(studio):
+    """The free cut leaves some tall strips whole; two lines on one strip each show their own picture."""
+    pdir, counts, ingest = studio
+    body = _body()
+    body["lines"][0]["box"] = [0.0, 0.0, 1.0, 0.5]
+    body["lines"][1]["box"] = [0.0, 0.5, 1.0, 1.0]
+    rec, problems = hand_made.validate(str(pdir), body)
+    assert not problems and rec["lines"][0]["box"] == [0.0, 0.0, 1.0, 0.5] and "box" not in rec["lines"][2]
+    hand_made.save(str(pdir), rec)
+    ingest.run_ingest(URL, lambda *a: None, direct=False)
+    beats = [(b["text"], s["crop_bbox_norm"], s.get("focus_source"))
+             for s in json.load(open(pdir / "segments.json")) for b in s["beats"]]
+    assert beats[0] == (LINES[0][1], [0.0, 0.0, 1.0, 0.5], "hand")
+    assert beats[1] == (LINES[1][1], [0.0, 0.5, 1.0, 1.0], "hand")
+    assert beats[2][2] != "hand"
+    bad = _body()
+    bad["lines"][0]["box"] = [0.5, 0.5, 0.52, 2]
+    assert any("lines[0]: box must be" in p for p in hand_made.validate(str(pdir), bad)[1])
+
+
 def test_the_packaging_answer_and_the_tease_come_from_the_hand_over(studio):
     pdir, counts, ingest = studio
     assert hand_made.seo_answer(str(pdir)) is None
@@ -290,3 +310,51 @@ def test_the_routes(studio, monkeypatch):
     assert c.request("DELETE", f"/api/hand/{pid}-hand", headers=h).json() == {"ok": True, "removed": True}
     assert c.get(f"/api/hand/{pid}-hand", headers=h).json()["voice_only"] is False
     assert c.get("/api/hand/..%2Fx", headers=h).status_code in (400, 404)
+
+
+def test_the_writer_gets_the_studios_script_rules_the_world_and_the_story_so_far(tmp_path):
+    """Owner, 2026-11-18: the first chapter written by hand read as a caption per
+    picture, with no world building. The writer now gets the studio's own
+    contract (built by narrate.build_prompt), the world notes and how the
+    previous chapter ended."""
+    import narrate
+    bible = {"canonical_title": "Offline Story", "characters": [{"name": "Ash", "role": "prince", "pronouns": "he/him"}],
+             "world_setting": {"universe": "The Five Kingdoms", "premise": "A prince with no magic."},
+             "research": {"text": "The throne goes to the strongest heir."}}
+    (tmp_path / "offline-story_11").mkdir()
+    (tmp_path / "offline-story_11" / "script.txt").write_text("Ash fled the castle. " * 300 + "The gate closed behind him.")
+    prev = hand_made.previous_script(str(tmp_path), "offline-story", "12")
+    assert prev.endswith("The gate closed behind him.") and len(prev) <= hand_made.BRIEF_PREVIOUS_CHARS + 3
+    assert hand_made.previous_script(str(tmp_path), "offline-story", "1") == ""
+    assert hand_made.previous_script(str(tmp_path), "offline-story", "x") == ""
+    b = hand_made.writing_brief(bible, "Offline Story", "The Offline Tale", prev)
+    whole = narrate.build_prompt([], series_bible_data=bible, opening=narrate.opening_rule("Offline Story", "The Offline Tale"))
+    assert b["contract"] and whole.startswith(b["contract"])                     # the studio's own words
+    assert "past tense" in b["contract"] and "Ash" in b["contract"] and "The Offline Tale" in b["contract"]
+    assert "OUTPUT FORMAT" not in b["contract"] and "[ID:" not in b["contract"].split("STYLE CONTRACT")[0]
+    assert b["world"]["universe"] == "The Five Kingdoms" and "strongest heir" in b["research"]
+    assert b["story_so_far"] == prev and "ONE story" in b["how"]
+    assert hand_made.writing_brief(None, "", "")["world"] == {}                  # no bible yet: still the rules
+
+
+def test_the_hand_route_serves_the_writing_brief(studio, monkeypatch):
+    pdir, counts, ingest = studio
+    sys.modules.pop("server", None)
+    import server
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("SHARED_SECRET", "s")
+    st = TestClient(server.app).get(f"/api/hand/{pdir.name}", headers={"x-shared-secret": "s"}).json()
+    assert st["state"] == "ready" and "error" not in st["series"], st.get("series")
+    w = st["writing"]
+    assert set(w) == {"how", "contract", "world", "research", "story_so_far"}
+    assert "STYLE CONTRACT" in w["contract"] and "OUTPUT FORMAT" not in w["contract"]
+    assert '"writing"' in st["guide"]
+
+
+def test_the_brief_builds_in_a_fresh_process():
+    """The server imports hand_made with only review_ui on the path; narrate.py
+    lives one level up. A failure here would hide the brief on the live route."""
+    import subprocess
+    r = subprocess.run([sys.executable, "-c", "import hand_made; print(len(hand_made.writing_brief(None, '', '')['contract']))"],
+                       cwd=HERE, capture_output=True, text=True, env={**os.environ, "PYTHONPATH": ""})
+    assert r.returncode == 0 and int(r.stdout.strip()) > 1000, r.stderr[-400:]

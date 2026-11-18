@@ -84,7 +84,11 @@ def update_settings(root, enabled=None, every_minutes=None):
 def next_due(st):
     """Clock time of the next pass: one interval after the START of the last
     one (so a slow pass does not push the schedule later and later)."""
-    last = (st.get("last_pass") or {}).get("started")
+    lp = st.get("last_pass") or {}
+    # "slot" is the time the last pass was DUE; counting from it (not from the
+    # few seconds later at which the thread noticed) keeps the passes on a
+    # fixed grid instead of sliding a little later every time.
+    last = lp.get("slot") or lp.get("started")
     return (float(last) + st["settings"]["every_minutes"] * 60) if last else 0.0
 
 
@@ -116,7 +120,11 @@ def run_pass(root, series_view, refresh, now=None, sleep=time.sleep, say=None, g
             return None                                  # one pass at a time
         runtime.update(running=True, pass_started=started)
         st = load(root)
-        st["last_pass"] = {**(st.get("last_pass") or {}), "started": started, "running": True}
+        was_due = next_due(st)
+        # on time (less than one interval after it was due): keep the grid;
+        # first pass, a manual "check now" before it was due, or a long gap: a new grid starts here
+        slot = was_due if was_due and 0 <= started - was_due < st["settings"]["every_minutes"] * 60 else started
+        st["last_pass"] = {**(st.get("last_pass") or {}), "started": started, "slot": slot, "running": True}
         save(root, st)                                   # the schedule moves on even if this pass dies
     checked = failed = 0
     new_total, results, rows, listed = [], {}, [], False
@@ -183,7 +191,7 @@ def run_pass(root, series_view, refresh, now=None, sleep=time.sleep, say=None, g
                 followed = {s["id"] for s in rows}
                 st["series"] = {k: v for k, v in st["series"].items() if k in followed}
             st["found"] = st["found"][-FOUND_KEEP:]
-            pass_rec = {"started": started, "ended": ended, "running": False, "checked": checked,
+            pass_rec = {"started": started, "slot": slot, "ended": ended, "running": False, "checked": checked,
                         "failed": failed, "new": sum(len(n[3]) for n in new_total)}
             st["last_pass"] = pass_rec
             st["passes"] = int(st.get("passes") or 0) + 1
