@@ -119,3 +119,18 @@ Storage clean-up (manual, never scheduled): `GET /api/storage/retention` lists w
 
 Where to look: `GET /api/release-calendar` for each chapter's path to publication and the 24–48 h target; `/api/spend` and `/api/logs/usage` for confirmed / estimated / uncertain / held money; `<chapter>/packaging_revisions.jsonl` for packaging history.
 
+
+## Added 2026-11-18
+
+**New-chapter check.** Home → "New-chapter check" shows on/off, the last check, the next one, the series
+that could not be read and the chapters found and not made. Pause: "Turn off" (or
+`POST /api/monitor {"enabled": false}`). Run now: "Check now". Record: `projects/_monitor.json`. If Home
+says the check is late, the scheduler restarts it within 10 minutes and writes an Activity line; if it
+stays late, look for `[monitor]` in the Railway log.
+
+**A chapter written by hand (voice only).** Steps and format: `GET /api/hand/<chapter>` → `guide`.
+Send the script again to replace it (the old script, voice and board go to the chapter's `_revisions`;
+unchanged lines are not recorded twice). If the chapter fails with "the panels changed after the script
+was written", prepare was run again after the script was written: look at the panels again and send the
+script again. A paid step refused with "written by hand and pays for voice only" is the lock working; to
+let the chapter use the paid steps, `DELETE /api/hand/<chapter>`.

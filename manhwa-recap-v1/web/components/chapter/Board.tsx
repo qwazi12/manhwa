@@ -86,7 +86,7 @@ export default function Board({ id, onChange, sentBack, builtWith }:
             <Pill tone={sm.unplaced ? "bad" : "muted"}>{sm.unplaced} not on the timeline</Pill>
             <Pill tone="muted">{sm.left_out} left out</Pill>
             <Pill tone={sm.long_holds ? "warn" : "muted"}>{sm.long_holds} long hold(s)</Pill>
-            {builtWith && <span className="faint">built with: {[builtWith.engine, builtWith.match, builtWith.split, builtWith.pages ? `${builtWith.pages} pages` : null].filter(Boolean).join(" · ")}</span>}
+            {builtWith && <span className="faint">built with: {[builtWith.made_by === "hand" ? "written by hand (voice only)" : builtWith.engine, builtWith.match, builtWith.split, builtWith.pages ? `${builtWith.pages} pages` : null].filter(Boolean).join(" · ")}</span>}
             {builtWith?.scrape_warning && <span style={{ color: "var(--yellow)" }}>⚠ {builtWith.scrape_warning}</span>}
           </div>
           <Chips<F> value={f} onChange={setF} items={[["video", `In the video (${sm.in_video})`], ["flagged", `Needs a look (${flagged.length})`],

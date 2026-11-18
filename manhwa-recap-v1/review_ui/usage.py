@@ -181,6 +181,40 @@ class UsageCapExceeded(RuntimeError):
     """A guardrail cap would be breached — raised BEFORE the API call fires."""
 
 
+class VoiceOnly(RuntimeError):
+    """A paid call that is not voice was about to be made for a chapter that is
+    written by hand. Raised BEFORE the call; nothing is charged. Not a spend
+    limit: the job is not paused, the step that asked takes its free path."""
+
+
+PROJECTS_DIR = os.path.join(HERE, "projects")
+_VOICE_ONLY_MEMO = {}
+
+
+def voice_only(project):
+    """True when the chapter has a hand-over (hand_made.py: hand.json in its
+    folder) that has not switched the rule off. Such a chapter pays for voice
+    and nothing else (owner, 2026-11-18)."""
+    if not project or "/" in str(project) or str(project)[:1] in (".", "_"):
+        return False
+    path = os.path.join(PROJECTS_DIR, str(project), "hand.json")
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    key = (path, st.st_mtime_ns, st.st_size)
+    if key not in _VOICE_ONLY_MEMO:
+        try:
+            with open(path, encoding="utf-8") as f:
+                on = json.load(f).get("voice_only", True) is not False
+        except (OSError, ValueError, AttributeError):
+            on = True                       # unreadable: the safe reading is "do not spend"
+        if len(_VOICE_ONLY_MEMO) > 64:
+            _VOICE_ONLY_MEMO.clear()
+        _VOICE_ONLY_MEMO[key] = on
+    return _VOICE_ONLY_MEMO[key]
+
+
 def set_job(job_id):
     """Call once at the start of an in-process job (ingestion thread)."""
     _local.job_id = job_id
@@ -976,6 +1010,9 @@ def gate(kind, units, model=""):
                                     -> uncertain_usd (the amount held)"""
     job_id = get_job_id()
     stage, project = get_stage(), get_project()
+    if kind != "tts" and voice_only(project):
+        raise VoiceOnly(f"'{project}' is written by hand and pays for voice only: the paid "
+                        f"{stage or kind} call ({model or kind}) was not made")
     ukey = _UNIT_KEY.get(kind, "tts_chars")
     rid = uuid.uuid4().hex
 

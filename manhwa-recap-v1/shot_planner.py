@@ -344,9 +344,19 @@ def _cache_stale(cached_beats, pshots):
     return False
 
 
-def plan_shots(shots, desc_path, crops_dir, api_key=None):
-    if not api_key:
+def _no_vision(*_a, **_k):
+    raise RuntimeError("no vision call: this chapter is written by hand")
+
+
+def plan_shots(shots, desc_path, crops_dir, api_key=None, paid=True):
+    """paid=False (a chapter written by hand, review_ui/hand_made.py): no
+    close-up question and no framing question is asked. Shots start whole;
+    auto framing then places only the panels whose answer is already in its
+    cache (the subject boxes handed over with the script)."""
+    if not api_key and paid:
         api_key = os.environ.get("GEMINI_API_KEY")
+    if not paid:
+        api_key = None
     
     # 1. Apply fast local hybrid routing (saliency/keyword detection & sub-shot check)
     to_plan = []
@@ -361,8 +371,8 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
         if not os.path.exists(img_path) or not api_key:
             for s in pshots:
                 s["crop_bbox_norm"] = [0.0, 0.0, 1.0, 1.0]
-                s["focus_source"] = "fallback_full" if api_key else "no_api_key_fallback"
-                s["focus_reason"] = "default full panel"
+                s["focus_source"] = "fallback_full" if (api_key or not paid) else "no_api_key_fallback"
+                s["focus_reason"] = "default full panel" if paid else "whole panel (chapter written by hand)"
                 s["focus_confidence"] = 1.0
             continue
 
@@ -502,7 +512,7 @@ def plan_shots(shots, desc_path, crops_dir, api_key=None):
         if usage:
             usage.set_stage("framing")
         LAST_AUTO_FRAMING = auto_framing.apply_to_shots(
-            shots, crops_dir, desc_path,
+            shots, crops_dir, desc_path, ask=None if paid else _no_vision,
             cache_path=os.path.join(os.path.dirname(desc_path), "auto_framing_cache.json"))
         LAST_AUTO_FRAMING.pop("changed", None)
     except Exception as e:

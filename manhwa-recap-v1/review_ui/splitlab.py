@@ -546,7 +546,7 @@ def refine_crops(crops, ask="default", on_progress=None, budget=None):
     return out, st
 
 
-def split_into(pages, crops_dir, slug="", on_progress=None):
+def split_into(pages, crops_dir, slug="", on_progress=None, vision=True):
     """Split `pages` into `crops_dir` using PRODUCTION's filename convention.
 
     This is the same algorithm the Split Lab preview uses, writing
@@ -561,7 +561,9 @@ def split_into(pages, crops_dir, slug="", on_progress=None):
     FLAT_STD = flat_std_for(slug)
     strip = is_strip(pages)
     made, per_page = 0, []
-    ask = _default_ask()            # None without a key -> no extra cuts
+    # vision=False (a chapter written by hand, hand_made.py): no paid check of
+    # tall panels; whoever writes the chapter sees every panel anyway.
+    ask = _default_ask() if vision else None    # None without a key -> no extra cuts
     refine_total = {}
 
     def _refine(crops):

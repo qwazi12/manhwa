@@ -137,3 +137,21 @@ Read-only reports: `GET /api/spend` (now also by stage, thinking tokens, Flex re
 | `GET /api/storage/retention`, `POST /api/storage/retention/apply` | dry-run retention plan; apply named categories (moves to trash; `trash` needs `confirm="purge"`) |
 | `POST /api/series/defaults/retroactive` | preview (`apply=false`) and apply series defaults to named videos, locked ones included |
 
+
+## Added 2026-11-18: chapters written by hand, new-chapter check
+
+| What | Where | Default |
+|---|---|---|
+| New-chapter check (reads every followed series' source page; free) | `projects/_monitor.json`, `review_ui/chapter_monitor.py`; own thread, restarted by the scheduler | on, every 30 minutes (10 to 720), counted from the start of the last pass |
+| A chapter written by hand (voice only) | `<chapter>/hand.json` (the hand-over), `<chapter>/hand_prep.json` (the free download and cut) | none; a chapter has one only after `POST /api/hand/<chapter>` |
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/monitor` | state, last pass, next pass, late, series that cannot be read, chapters found and not made |
+| `POST /api/monitor` `{"enabled", "every_minutes"}` | switch the check on or off, change the interval |
+| `POST /api/monitor/run` | check every series now |
+| `POST /api/hand/prepare` `{"url", "variant"}` | download and cut a chapter with no paid step |
+| `GET /api/hand/<chapter>` | state, panels, the cast, and the written guide to the format |
+| `GET /api/hand/<chapter>/panel/<panel_id>` | one panel picture |
+| `POST /api/hand/<chapter>` | hand over descriptions, spoken lines, optional framing and packaging; queues the chapter (voice is the only paid step) |
+| `DELETE /api/hand/<chapter>` | give the chapter back to the paid pipeline |
