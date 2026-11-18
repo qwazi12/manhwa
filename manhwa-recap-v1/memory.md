@@ -2421,3 +2421,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - **Not measured:** how much of the Claude plan's allowance one hand-written chapter uses. **Not built:** anything that writes chapters without a session; the monitor only finds them.
 - Spend for the ET day 2026-11-17: $1.13 of $15 (1.03 before the trial). Autopilot off; nothing running at 03:59Z.
 - Pending the owner: "deploy" for acb038c, then the free re-send and re-render; watch the hand version and compare it with the original; whether new chapters should be written by hand from now on (and by a scheduled session or on request); add Jang Hayoung and Surya to the Omniscient Reader cast list if the names are wanted; the lean test version and the earlier open items are unchanged.
+
+### 2026-11-18 04:12Z — Monitor's second pass on time; small schedule fix on the branch (not deployed)
+- Second pass on production: due 04:08:35Z, started 04:08:42Z, ended 04:09:46Z, 23 series read, 0 failed, 0 new; next 04:38:42Z. The 7 s are the thread's 30 s look interval, and each pass was counted from its own start, so the schedule would slide a few seconds later every pass.
+- Fix on the branch, not deployed: `chapter_monitor.next_due` counts from the time the last pass was due (`slot`), so passes stay on a fixed grid; a first pass, an early "Check now" or a gap longer than one interval starts a new grid. Test added (13 in `test_chapter_monitor.py`; with `test_hand_made.py`: 35 passed).
+- Waiting for the owner's "deploy": acb038c (a line can name the part of its panel) and this.

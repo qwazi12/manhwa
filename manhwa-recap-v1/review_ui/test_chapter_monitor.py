@@ -156,6 +156,24 @@ def test_the_schedule_is_counted_on_the_clock_from_the_start_of_the_last_pass(mo
     assert cm.status(root, now=start + 31 * 60)["late"] is False
 
 
+def test_a_pass_that_starts_a_few_seconds_late_does_not_move_the_schedule(mon):
+    """Production, 2026-11-18: due 04:08:35Z, started 04:08:42Z (the thread looks every 30 s).
+    Counted from the start, every pass would slide a little later."""
+    root, src, said, go = mon
+    go()
+    first = src.clock
+    src.clock = first + 30 * 60 + 7                       # noticed 7 s after it was due
+    go()
+    assert cm.next_due(cm.load(root)) == first + 60 * 60   # still on the half-hour grid
+    src.clock = first + 60 * 60 + 29
+    go()
+    assert cm.next_due(cm.load(root)) == first + 90 * 60
+    # after a long gap (the server was down for hours) a new grid starts at the pass
+    src.clock = first + 300 * 60 + 5
+    go()
+    assert cm.next_due(cm.load(root)) == src.clock + 30 * 60
+
+
 def test_settings_are_bounded_and_off_means_never_due(mon):
     root, src, said, go = mon
     with pytest.raises(ValueError):
