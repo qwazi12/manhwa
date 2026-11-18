@@ -9057,6 +9057,9 @@ def api_hand_status(pid: str):
                       "spoken_alias": _sp.spoken_alias(pack, ch), "chapter": ch,
                       "cast": [{k: c.get(k) for k in ("name", "aliases", "pronouns", "role", "looks") if c.get(k)}
                                for c in (bible.get("characters") or []) if isinstance(c, dict)][:40]}
+            out["writing"] = _hm.writing_brief(
+                bible, series["title"], series["spoken_alias"],
+                _hm.previous_script(_ing.PROJECTS, _ing.clean_series_slug(s_raw), ch))
         except Exception as e:  # noqa — the panels are what matters
             series = {"error": str(e)[:160]}
         out["series"] = series

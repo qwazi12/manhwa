@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 import time
 
@@ -41,9 +42,13 @@ GUIDE = """Write a chapter by hand. Only the voice is paid.
    The studio downloads the pages and cuts them into panels (free).
 2. GET /api/hand/<chapter> until "state" is "ready". "panels" lists every panel;
    its picture is at /api/hand/<chapter>/panel/<panel_id>.
-3. Look at every panel, in order, then POST /api/hand/<chapter> with:
+3. Read "writing" in the answer first: the studio's own script rules for this
+   series (the same contract its model writes under), the world notes and how
+   the previous chapter ended. The script is ONE story told by a narrator, not
+   a caption for each picture.
+4. Look at every panel, in order, then POST /api/hand/<chapter> with:
    {"panels": [{"panel_id": "page001_panel_001",
-                "visual_description": "who and what the picture shows, one or two sentences",
+                "visual_description": "who is in it (by name), what they do and what it means for the story",
                 "ocr_text": "the words printed in the panel, as printed",
                 "subject_box": [x0, y0, x1, y1],      (optional; fractions of the picture, without balloons)
                 "turn_cw": 90}],                      (optional; a panel drawn sideways)
@@ -53,7 +58,7 @@ GUIDE = """Write a chapter by hand. Only the voice is paid.
    Every panel needs an entry (an empty or bubble-only panel still gets a
    description saying so). Every line names the one panel shown while it is
    spoken; lines play in the order given; a panel may carry several lines or
-   none. "scene" changes when the place or time changes (a longer breath is
+   none (a picture that adds nothing gets no line). "scene" changes when the place or time changes (a longer breath is
    left there). A tall panel that holds several pictures: give each line the
    "box" of its own picture. One line is at most 45 words. Names: only those printed in
    the chapter or listed under "cast".
@@ -61,10 +66,71 @@ GUIDE = """Write a chapter by hand. Only the voice is paid.
                  "summary": "", "description": "", "description_short": "", "tags": [], "hashtags": [],
                  "tease": "max 180 characters, no spoiler", "thumbnail_text": "MAX 4 WORDS",
                  "dramatic_beat": "", "new_entities": []}
-4. The answer names the job. The chapter then appears with the others; the
+5. The answer names the job. The chapter then appears with the others; the
    board, the render and the review are the usual ones.
 Send step 3 again to replace the script (unchanged lines are not recorded twice).
 DELETE /api/hand/<chapter> gives the chapter back to the paid pipeline."""
+
+
+# Owner, 2026-11-18, on the first chapter written by hand: "The scripting and
+# description needs work ... This is supposed to be a story with world
+# building". It had been written as a caption per picture, in the present
+# tense, without the studio's style contract, the series' world notes or the
+# previous chapter. The writer now gets all three with the panels.
+WRITING = """Write the chapter as ONE story told by a narrator, not a caption for each picture.
+- Past tense, third person. Every line carries an event, a reaction, a realization, an
+  intention or a consequence: what people want, fear and decide, and what it costs them.
+  A line that only says how something looks is cut or folded into an action.
+- Build the world where the story needs it: who the sides are, what the powers and rules
+  are, why this fight matters. Take it from "world", "research" and "story_so_far" only;
+  never invent names, events or rules the chapter and these notes do not support.
+- Continue from "story_so_far" without retelling it.
+- Reported speech, except the two or three lines the chapter turns on, quoted.
+- A picture that adds nothing gets no line; a line may stay on one picture while the
+  story moves. Lines are spoken one after another, so they must read as one text.
+- "contract" is the exact rule set the studio's model writes under for this series:
+  follow all of it except its output format (the hand-over format replaces it).
+- The packaging description follows the studio's rules too: the series' English title,
+  its other names and its original title in the first two lines, then the story."""
+BRIEF_RESEARCH_CHARS = 8000
+BRIEF_PREVIOUS_CHARS = 3000
+
+
+def previous_script(projects_root, series_slug, chapter):
+    """How the previous chapter ended: the last part of its script, or ""."""
+    try:
+        prev = int(str(chapter).split(".")[0]) - 1
+    except (TypeError, ValueError):
+        return ""
+    if prev < 1 or not series_slug:
+        return ""
+    try:
+        with open(os.path.join(projects_root, f"{series_slug}_{prev}", "script.txt"), encoding="utf-8") as f:
+            text = f.read().strip()
+    except OSError:
+        return ""
+    if len(text) <= BRIEF_PREVIOUS_CHARS:
+        return text
+    cut = text[-BRIEF_PREVIOUS_CHARS:]
+    return "..." + cut[cut.find(" ") + 1:]
+
+
+def writing_brief(bible, title, alias, story_so_far=""):
+    """The studio's own script rules for a writer by hand. "contract" is built
+    by narrate.build_prompt itself (no panels, this series' bible and opening
+    rule), so the hand-written chapters and the model's can never drift apart."""
+    recap = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if recap not in sys.path:                 # narrate.py lives one level up (as in server.api_get_series_bible)
+        sys.path.insert(0, recap)
+    import narrate
+    bible = bible if isinstance(bible, dict) else {}
+    contract = narrate.build_prompt([], series_bible_data=bible or None,
+                                    opening=narrate.opening_rule(title, alias))
+    contract = contract.split("\nPANELS (in order):")[0].rstrip()    # the model's panel list and output format
+    return {"how": WRITING, "contract": contract,
+            "world": bible.get("world_setting") or {},
+            "research": ((bible.get("research") or {}).get("text") or "")[:BRIEF_RESEARCH_CHARS],
+            "story_so_far": story_so_far or ""}
 
 
 class HandError(ValueError):
