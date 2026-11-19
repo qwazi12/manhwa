@@ -983,6 +983,8 @@ def hook_from_title(title, card=None):
     if m and m.start() > 0:
         t = t[:m.start()]
     t = re.sub(r"^\s*(\*\*[^*]*\*\*|\*[^*]*\*|\([^)]*\)|\[[^\]]*\])\s*", "", t)
+    # a curly apostrophe was cut into a space: "Reader’s" became "READER S" (ORV 309-311, 2026-11-19)
+    t = t.replace("’", "'").replace("‘", "'")
     t = re.sub(r"[^A-Za-z0-9' ]+", " ", t)
     words = [w for w in t.split() if w]
     caps = [w for w in words if w.isupper() and len(w) > 2 and w.lower() not in _WEAK]

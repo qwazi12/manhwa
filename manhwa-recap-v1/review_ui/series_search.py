@@ -28,7 +28,7 @@ import time
 NAME = "_series_search_pack.json"
 TITLE_MAX = 100
 FIELDS = ("search_title", "hook", "hook_status", "aka_names", "characters", "hashtags", "evidence",
-          "library_title", "notes", "hook_b")
+          "library_title", "notes", "hook_b", "hook_c")
 _LOCK = threading.RLock()
 _APOS = str.maketrans({"’": "'", "‘": "'", "`": "'"})
 _TAG = re.compile(r"#[^\s#]+")
@@ -117,6 +117,17 @@ def _clean(rec):
             raise PackError(f"{sid}: hook_b (title B) is the same as the hook (title A)")
         if len(f"[1] {hook_b} | {name}") > TITLE_MAX:
             raise PackError(f"{sid}: hook_b and name alone are over {TITLE_MAX} characters")
+    # Title C (owner, 2026-11-19: "make 3 titles for each manhwa"): the third title of the test.
+    hook_c = straight(" ".join(str(rec.get("hook_c") or "").split()))
+    if hook_c:
+        if not hook_b:
+            raise PackError(f"{sid}: hook_c (title C) needs hook_b (title B) first")
+        if any(ch in hook_c for ch in "<>"):
+            raise PackError(f"{sid}: YouTube refuses < or > in a title")
+        if hook_c.lower() in (hook.lower(), hook_b.lower()):
+            raise PackError(f"{sid}: hook_c (title C) is the same as title A or B")
+        if len(f"[1] {hook_c} | {name}") > TITLE_MAX:
+            raise PackError(f"{sid}: hook_c and name alone are over {TITLE_MAX} characters")
 
     def names(key):
         out, seen = [], {name.lower()}
@@ -130,7 +141,7 @@ def _clean(rec):
                  "hook_status": str(rec.get("hook_status") or "locked"),
                  "aka_names": names("aka_names"), "characters": names("characters"), "hashtags": tags,
                  "evidence": str(rec.get("evidence") or ""), "library_title": str(rec.get("library_title") or ""),
-                 "notes": str(rec.get("notes") or ""), "hook_b": hook_b}
+                 "notes": str(rec.get("notes") or ""), "hook_b": hook_b, "hook_c": hook_c}
 
 
 def upsert(root, records, source=""):
@@ -166,7 +177,7 @@ def title_for(rec, label, hook=None):
 
 
 def ab_titles(rec, label):
-    """Title A/B test for a video of this series: -> ({"a", "b"}, [problems]),
+    """Title A/B test for a video of this series: -> ({"a", "b"[, "c"]}, [problems]),
     or (None, []) when the series has no test. YouTube runs the test (Studio >
     the video > Test & compare); the studio uploads with title A."""
     if not (rec or {}).get("hook_b"):
@@ -174,7 +185,14 @@ def ab_titles(rec, label):
     a, why_a = title_for(rec, label)
     b, why_b = title_for(rec, label, hook=rec["hook_b"])
     probs = [w for w in (why_a and "title A: " + why_a, why_b and "title B: " + why_b) if w]
-    return ({"a": a, "b": b} if a and b else None), probs
+    out = {"a": a, "b": b} if a and b else None
+    if out and rec.get("hook_c"):                      # title C is optional: a test runs with two
+        c, why_c = title_for(rec, label, hook=rec["hook_c"])
+        if c:
+            out["c"] = c
+        else:
+            probs.append("title C: " + why_c)
+    return out, probs
 
 
 def _is_tag_line(line):

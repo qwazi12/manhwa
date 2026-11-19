@@ -53,3 +53,10 @@ def test_ledger_keeps_history(tmp_path):
         ab.mark(root, "abcdefghijk", "won")
     with pytest.raises(ValueError):
         ab.mark(root, "short", "running")
+
+
+def test_a_third_title_joins_the_title_test():
+    import abtest
+    p = abtest.plan("[1-2] A | S", "[1-2] B | S", ["c1"], title_c="[1-2] C | S")
+    assert p["type"] == "title" and p["titles"] == ["[1-2] A | S", "[1-2] B | S", "[1-2] C | S"]
+    assert abtest.plan("[1-2] A | S", "[1-2] B | S", title_c="[1-2] B | S")["titles"] == ["[1-2] A | S", "[1-2] B | S"]

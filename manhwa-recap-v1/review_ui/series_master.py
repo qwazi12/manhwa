@@ -179,12 +179,131 @@ def stamp(master_path, fill, text, out_path):
     return out_path, fill
 
 
-def upload_thumbnail(series_id, label, fallback, work_dir, ds=None, log=None):
-    """The thumbnail file to upload: master + badge when HEAD has a master
-    for this series, else `fallback` (today's behaviour)."""
+# ---- the series' A/B set (owner, 2026-11-19: "Let's use these for the ab thumbnail
+# tests ... We need to add the correct chapter numbers ... thumbnails in the studio
+# to adhere to ab tests"). Up to three wordless pictures per series, kept on the
+# studio's volume. A video of that series carries variant A (or the test's winner,
+# once recorded) with its own chapter badge; YouTube's Test & compare gets A, B
+# and C with the same badge. It comes before the Drive master.
+AB_DIR = "_series_ab"
+AB_VARIANTS = ("A", "B", "C")
+AB_META = "set.json"
+
+
+def _ab_dir(root, series_id):
+    sid = re.sub(r"[^0-9a-z-]", "", str(series_id or "").lower())
+    if not sid:
+        raise ValueError("no series id")
+    return os.path.join(root, AB_DIR, sid)
+
+
+def ab_set(root, series_id):
+    """-> {"series_id", "variants": {"A": path, ...}, "winner", "options", "updated_at"}
+    or None when the series has no set (variant A is required)."""
+    try:
+        d = _ab_dir(root, series_id)
+    except ValueError:
+        return None
+    files = {v: os.path.join(d, v + ".jpg") for v in AB_VARIANTS}
+    files = {v: p for v, p in files.items() if os.path.isfile(p)}
+    if "A" not in files:
+        return None
+    try:
+        with open(os.path.join(d, AB_META), encoding="utf-8") as f:
+            meta = json.load(f)
+    except (OSError, ValueError):
+        meta = {}
+    win = meta.get("winner") if meta.get("winner") in files else None
+    return {"series_id": os.path.basename(d), "variants": files, "winner": win,
+            "options": meta.get("options") or {}, "source": meta.get("source") or "",
+            "updated_at": meta.get("updated_at")}
+
+
+def _ab_write_meta(d, **changes):
+    path = os.path.join(d, AB_META)
+    try:
+        with open(path, encoding="utf-8") as f:
+            meta = json.load(f)
+    except (OSError, ValueError):
+        meta = {}
+    meta.update(changes)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=1)
+    os.replace(tmp, path)
+    return meta
+
+
+def ab_save(root, series_id, variant, data, option="", source="", now=None):
+    """Store one picture of the set as a 1280x720 JPEG (no badge on it)."""
+    import io
+    import time
+    from PIL import Image
+    if variant not in AB_VARIANTS:
+        raise ValueError("variant must be A, B or C")
+    try:
+        im = Image.open(io.BytesIO(data)).convert("RGB")
+    except Exception:
+        raise ValueError("that file is not a picture")
+    if abs(im.width / im.height - SIZE[0] / SIZE[1]) > 0.02:
+        raise ValueError(f"the picture is {im.width}x{im.height}, not 16:9")
+    if im.width < 640:
+        raise ValueError(f"the picture is only {im.width} px wide (640 at least)")
+    if im.size != SIZE:
+        im = im.resize(SIZE, Image.LANCZOS)
+    d = _ab_dir(root, series_id)
+    os.makedirs(d, exist_ok=True)
+    tmp = os.path.join(d, variant + ".jpg.tmp")
+    im.save(tmp, "JPEG", quality=93)
+    os.replace(tmp, os.path.join(d, variant + ".jpg"))
+    meta = _ab_write_meta(d)
+    opts = dict(meta.get("options") or {})
+    opts[variant] = str(option or "")
+    _ab_write_meta(d, options=opts, source=str(source or meta.get("source") or ""),
+                   updated_at=now if now is not None else time.time())
+    return ab_set(root, series_id)
+
+
+def ab_winner(root, series_id, variant):
+    """Record the test's winner ("" clears it): new videos of the series then carry it."""
+    st = ab_set(root, series_id)
+    if not st:
+        raise ValueError("the series has no A/B set")
+    if variant and variant not in st["variants"]:
+        raise ValueError(f"the set has no variant {variant}")
+    _ab_write_meta(_ab_dir(root, series_id), winner=variant or None)
+    return ab_set(root, series_id)
+
+
+def ab_thumbnail(root, series_id, label, out_path, variant=None):
+    """The set's picture (variant, else the winner, else A) with this video's
+    chapter badge -> (path, variant used, badge colour), or None without a set."""
+    st = ab_set(root, series_id)
+    if not st or label in (None, ""):
+        return None
+    v = variant or st["winner"] or "A"
+    if v not in st["variants"]:
+        raise ValueError(f"the set has no variant {v}")
+    out, fill = stamp(st["variants"][v], None, badge_text(label), out_path)
+    return out, v, fill
+
+
+def upload_thumbnail(series_id, label, fallback, work_dir, ds=None, log=None, ab_root=None, ab_series=None):
+    """The thumbnail file to upload: the series' A/B set (studio volume) with
+    the chapter badge when it has one, else master + badge when HEAD has a
+    master for this series in Drive, else `fallback`."""
     say = log or (lambda msg, level="ok": None)
     if not enabled() or not series_id or label in (None, ""):
         return fallback
+    if ab_root:
+        try:
+            got = ab_thumbnail(ab_root, ab_series or series_id, label, os.path.join(
+                work_dir, f"series_ab_{re.sub(r'[^0-9A-Za-z-]', '_', str(label))}.jpg"))
+            if got:
+                say(f"thumbnail = the series' A/B picture {got[1]} + “{badge_text(label)}” badge ({got[2]})", "ok")
+                return got[0]
+        except Exception as e:      # never block an upload on the set
+            say(f"the series' A/B picture was not used — {str(e)[:200]}", "warn")
     try:
         if ds is None:
             import drive_store as ds

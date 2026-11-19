@@ -4143,7 +4143,10 @@ def api_range_build(body: RangeIn):
                 import chapter_seo as _cseo
                 import description_blocks as _db
                 desc = _db.build(hook=f"Full recap of {series} chapters {a} to {b}", series=series,
-                                 chapter=f"{a}-{b}", summary="", pack={**pack, **sp}, arcs=_rc.arcs(marks),
+                                 chapter=f"{a}-{b}", summary="", pack={**pack, **sp},
+                                 # one timestamp per chapter (2026-11-19: grouped by 5, a merge of
+                                 # 5 or fewer chapters got none — ORV 309-311 had no timestamps)
+                                 arcs=_rc.arcs(marks, every=1),
                                  footer=sp.get("description_footer") or _studio.load().get("description_footer") or "",
                                  hashtags=_cseo.hashtags(series, {**pack, **sp}),
                                  limit=YT_DESC_MAX)
@@ -4238,6 +4241,11 @@ def api_range_build(body: RangeIn):
                 except Exception as e:  # noqa — the video is still fine; say so
                     _ev("publish", f"{series} chapters {a}-{b}: couldn't copy the posted video's "
                                    f"title/tags/thumbnail — {str(e)[:160]}", "warn")
+            try:
+                _series_ab_apply(rdir, name)       # over the carried-over thumbnail (2026-11-19)
+            except Exception as e:  # noqa — the carried-over thumbnail stays
+                _ev("publish", f"{series} chapters {a}-{b}: the series' A/B thumbnail was not used — "
+                               f"{str(e)[:160]}", "warn")
             try:
                 # the series' search name, locked hook, other names and three hashtags (owner, 2026-11-14)
                 sp = _apply_search_pack(rdir, name, why="series search pack (new merged video)")
@@ -5053,6 +5061,7 @@ def api_growth_snapshot(days: int = 14):
                            "hook": sp.get("hook") or "", "hook_status": sp.get("hook_status") or "",
                            "evidence": sp.get("evidence") or "", "characters": sp.get("characters") or [],
                            "pack_hashtags": sp.get("hashtags") or [], "hook_b": sp.get("hook_b") or "",
+                           "hook_c": sp.get("hook_c") or "",
                            "series_id": sx["id"], "title": sx.get("title"), "tier": sx.get("tier"),
                            "production_source": key, "latest_source_chapter": latest,
                            "latest_source_date": ((m.get("release_dates") or {}).get(str(int(latest)) if latest is not None else "") or [None])[0],
@@ -5176,13 +5185,17 @@ def _abtest_plan(pdir, name, title=""):
     sid, label = _search_label(pdir)
     rec = _ssp.get(_i.PROJECTS, sid) if sid else None
     cur = title or (load_publish(pdir).get(name) or {}).get("title") or ""
-    b, probs = None, []
+    b, c_title, probs = None, None, []
     if rec and rec.get("hook_b") and label:
         b, why = _ssp.title_for(rec, label, hook=rec["hook_b"])
         if why:
             probs.append("title B: " + why)
+        if rec.get("hook_c"):
+            c_title, why = _ssp.title_for(rec, label, hook=rec["hook_c"])
+            if why:
+                probs.append("title C: " + why)
     cs = _abt.thumb_variants(tstudio.get_concepts(pdir, name))
-    p = _abt.plan(cur, b, [c["id"] for c in cs], probs)
+    p = _abt.plan(cur, b, [c["id"] for c in cs], probs, title_c=c_title)
     proj = os.path.basename(pdir.rstrip("/"))
     p["thumbnail_urls"] = {"A": "/thumbnail?" + urlencode({"project": proj, "name": name})}
     p["thumbnail_designs"] = {"A": "the thumbnail it went out with"}
@@ -5190,7 +5203,130 @@ def _abtest_plan(pdir, name, title=""):
         k = "BC"[i]
         p["thumbnail_urls"][k] = "/thumbconcept?" + urlencode({"project": proj, "name": name, "concept_id": c["id"]})
         p["thumbnail_designs"][k] = c.get("name") or c.get("composition") or ""
+    # The series' own A/B set (owner, 2026-11-19) replaces the concepts: its
+    # pictures with this video's chapter badge, paired with titles A/B/C.
+    import series_master as _sm
+    st = _sm.ab_set(_i.PROJECTS, _series_ab_sid(pdir)) if _sm.enabled() else None
+    if st and label and len(st["variants"]) >= 2:
+        vs = [v for v in _sm.AB_VARIANTS if v in st["variants"]]
+        p["thumbnails"] = vs
+        p["thumbnail_urls"] = {v: "/seriesab?" + urlencode({"project": proj, "name": name, "variant": v}) for v in vs}
+        p["thumbnail_designs"] = {v: "the series' A/B picture " + v + (f" (option {st['options'].get(v)})"
+                                                                       if st["options"].get(v) else "") + f" + CH {label}"
+                                  for v in vs}
+        p["type"] = "both" if len(p["titles"]) >= 2 else "thumbnail"
+        p["why"] = ("title and thumbnail pairs: the series' A/B pictures with titles A/B/C" if p["type"] == "both"
+                    else "the series' A/B pictures (no title B on the series record)")
     return p
+
+
+class SeriesAbWinnerIn(BaseModel):
+    variant: str = ""
+
+
+class SeriesAbApplyIn(BaseModel):
+    apply: bool = False
+    replace_hand: bool = False        # also replace thumbnails uploaded by hand
+
+
+@app.get("/api/series/ab_thumbs")
+def api_series_ab_thumbs():
+    """Every series' A/B thumbnail set: which pictures it has, the recorded
+    winner, what a new video of the series will carry, how to undo."""
+    import ingest as _i
+    import series_master as _sm
+    root, out = os.path.join(_i.PROJECTS, _sm.AB_DIR), []
+    for sid in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        st = _sm.ab_set(_i.PROJECTS, sid)
+        if st:
+            out.append({"series_id": sid, "variants": sorted(st["variants"]), "options": st["options"],
+                        "winner": st["winner"], "carries": st["winner"] or "A", "source": st["source"],
+                        "updated_at": st["updated_at"],
+                        "pictures": {v: f"/seriesab?series={sid}&variant={v}" for v in sorted(st["variants"])}})
+    return {"enabled": _sm.enabled(), "series": out,
+            "what_happens": "a video of a series with a set carries its winner (else A) with the chapter badge; "
+                            "Test & compare gets A, B and C with the same badge",
+            "undo": "SERIES_MASTER_OFF=1 turns it off; a thumbnail uploaded by hand for a video is not replaced"}
+
+
+@app.post("/api/series/ab_thumbs/apply")
+def api_series_ab_apply(body: SeriesAbApplyIn):
+    """Give every video that has not gone out the A/B picture of its series
+    (dry run unless apply). A thumbnail uploaded by hand is kept unless replace_hand."""
+    import ingest as _i
+    import series_master as _sm
+    import thumbnail as _tb
+    rows = []
+    for pid in sorted(os.listdir(_i.PROJECTS)) if os.path.isdir(_i.PROJECTS) else []:
+        pdir = os.path.join(_i.PROJECTS, pid)
+        if pid.startswith("_") or not os.path.isdir(os.path.join(pdir, "exports")):
+            continue
+        try:
+            name = latest_export(pid)[0]
+            if not name or _went_out(pdir, name) or review_state(pdir, name)["status"] == "merged":
+                continue
+            sid = _series_ab_sid(pdir)
+            if not sid or not _sm.ab_set(_i.PROJECTS, sid):
+                continue
+            row = {"project": pid, "name": name, "series_id": sid,
+                   "kept": (_tb.get(pdir, name) or {}).get("source") == "upload" and not body.replace_hand}
+            if body.apply and not row["kept"]:
+                row["variant"] = _series_ab_apply(pdir, name, actor="owner" if body.replace_hand else "auto")
+            rows.append(row)
+        except Exception as e:  # noqa — one video must not stop the rest
+            rows.append({"project": pid, "error": str(e)[:160]})
+    return {"applied": bool(body.apply), "videos": rows}
+
+
+@app.post("/api/series/ab_thumbs/{series_id}/winner")
+def api_series_ab_winner(series_id: str, body: SeriesAbWinnerIn):
+    import ingest as _i
+    import series_master as _sm
+    try:
+        st = _sm.ab_winner(_i.PROJECTS, series_id, body.variant.strip().upper())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _ev("publish", f"A/B thumbnails {series_id}: winner " + (st["winner"] or "cleared (new videos carry A)"), "ok")
+    return {"ok": True, "series_id": st["series_id"], "winner": st["winner"]}
+
+
+@app.post("/api/series/ab_thumbs/{series_id}/{variant}")
+async def api_series_ab_upload(series_id: str, variant: str, request: Request, option: str = "", source: str = ""):
+    """One picture of a series' A/B set: raw image bytes, 16:9, no text on it."""
+    import ingest as _i
+    import series_master as _sm
+    data = await request.body()
+    try:
+        st = _sm.ab_save(_i.PROJECTS, series_id, variant.strip().upper(), data, option=option[:40], source=source[:120])
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    _ev("publish", f"A/B thumbnails {st['series_id']}: picture {variant.upper()} stored"
+                   + (f" (option {option})" if option else ""), "ok")
+    return {"ok": True, "series_id": st["series_id"], "variants": sorted(st["variants"]), "options": st["options"]}
+
+
+@app.get("/seriesab")
+def seriesab(series: str = "", variant: str = "A", label: str = "", project: str = "", name: str = ""):
+    """A picture of a series' A/B set: bare (series=), or with a video's chapter
+    badge (project= and name=, or series= and label=). Preview only."""
+    import ingest as _i
+    import series_master as _sm
+    import tempfile as _tf
+    if project:
+        pdir = project_dir_for(project)
+        series, label = _series_ab_sid(pdir), _search_label(pdir)[1]
+    st = _sm.ab_set(_i.PROJECTS, series)
+    v = (variant or "A").strip().upper()
+    if not st or v not in st["variants"]:
+        raise HTTPException(404, "no such A/B picture")
+    if not label:
+        return FileResponse(st["variants"][v], headers={"Cache-Control": "no-store"})
+    out = os.path.join(_tf.gettempdir(), f"seriesab_{st['series_id']}_{v}_{re.sub(r'[^0-9A-Za-z-]', '_', str(label))}.jpg")
+    try:
+        _sm.ab_thumbnail(_i.PROJECTS, series, label, out, variant=v)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return FileResponse(out, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/abtest/queue")
@@ -5366,6 +5502,44 @@ def _apply_prior_seo(rdir, name, ap, marks, a, b):
     _prior_thumbnail(rdir, name, bdir, bname, live.get("thumbnail") or "", a, b)
 
 
+def _posted_badge(im):
+    """The badge a posted thumbnail carries at the badge origin, read along its
+    flat top and left padding (no text there): (colour, right, bottom), or None
+    when no flat badge-sized patch sits there."""
+    import thumbnail_studio as _ts
+    rgb = im.convert("RGB")
+    x0, y0 = _ts.BADGE["origin"]
+    px, py = x0 + 6, y0 + 6
+    c = rgb.getpixel((px, py))
+
+    def near(p):
+        return max(abs(int(u) - int(v)) for u, v in zip(p, c)) <= 40
+    x = px
+    while x + 1 < rgb.width and near(rgb.getpixel((x + 1, py))):
+        x += 1
+    y = py
+    while y + 1 < rgb.height and near(rgb.getpixel((px, y + 1))):
+        y += 1
+    w, h = x - x0, y - y0
+    if not (60 <= w <= rgb.width * 0.5 and 30 <= h <= rgb.height * 0.3):
+        return None
+    return tuple(int(v) for v in c), x, y
+
+
+def _covering_cap(label, right, bottom):
+    """The smallest badge cap height whose box reaches (right, bottom)."""
+    import thumbnail_studio as _ts
+    bd = _ts.BADGE
+    x0, y0 = bd["origin"]
+    for cap in range(bd["cap"], 161):
+        pad = max(1.0, cap / float(bd["cap"]))
+        bw = int(_ts.font_for_cap(cap).getlength(label)) + int(2 * bd["pad_x"] * pad)
+        bh = cap + int(2 * bd["pad_y"] * pad)
+        if x0 + bw >= right + 1 and y0 + bh >= bottom + 1:
+            return cap
+    return 160
+
+
 def _prior_thumbnail(rdir, name, bdir, bname, url, a, b):
     """The posted video's thumbnail art with a new 'CH a-b' badge drawn over
     its old one, in the same colour."""
@@ -5392,10 +5566,19 @@ def _prior_thumbnail(rdir, name, bdir, bname, url, a, b):
     im = Image.open(io.BytesIO(data)).convert("RGBA")
     if im.size != (_ts.W, _ts.H):
         im = im.resize((_ts.W, _ts.H))
-    st = ImageStat.Stat(im.convert("RGB").crop((36, 36, 60, 60)))
-    colour = tuple(int(v) for v in st.mean)
-    old_badge = max(st.stddev) < 14          # a flat patch where the posted badge sits
-    _ts.draw_badge(im, f"CH {a}-{b}", colour, keep_colour=old_badge)
+    label = f"CH {a}-{b}"
+    found = _posted_badge(im)
+    if found:
+        # 2026-11-19: the new badge was always drawn at the standard size, so a
+        # posted thumbnail with a bigger badge kept its old numbers showing
+        # around the new one (FV 361-369 showed "367", Bountiful 85-92 "91"),
+        # and the colour sample sat on the old "CH" text, so every re-badge
+        # changed colour. Now: the old badge's own colour, at a size that covers it.
+        colour, right, bottom = found
+        _ts.draw_badge(im, label, colour, cap=_covering_cap(label, right, bottom), keep_colour=True)
+    else:
+        st = ImageStat.Stat(im.convert("RGB").crop((36, 36, 60, 60)))
+        _ts.draw_badge(im, label, tuple(int(v) for v in st.mean), keep_colour=False)
     buf = io.BytesIO()
     im.convert("RGB").save(buf, "JPEG", quality=92)
     _tb.save(rdir, name, buf.getvalue(), source="auto")
@@ -5993,8 +6176,49 @@ def _series_master_thumb(pdir, fallback):
     else:
         label = n
     pid = os.path.basename(pdir.rstrip("/"))
+    import ingest as _i
+    import thumbnail as _tb
+    # a thumbnail a person uploaded by hand for this video is not replaced by the series' A/B picture
+    by_hand = any(r.get("file") == os.path.basename(fallback or "") and r.get("source") == "upload"
+                  for r in (_tb._load_index(pdir) or {}).values())
     return _sm.upload_thumbnail(sid, label, fallback, os.path.join(pdir, "exports", "_thumbs"),
-                                log=lambda msg, level="ok": _ev("publish", f"{_pretty(pid)}: {msg}", level))
+                                log=lambda msg, level="ok": _ev("publish", f"{_pretty(pid)}: {msg}", level),
+                                ab_root=None if by_hand else _i.PROJECTS, ab_series=_series_ab_sid(pdir))
+
+
+def _series_ab_sid(pdir):
+    """The id the series' A/B thumbnail set is kept under: its search-pack id
+    (one per series, whatever id the chapter's source gives), else its own."""
+    import ingest as _i
+    sid = _series_ident(pdir)[0]
+    rec = _ssp.get(_i.PROJECTS, sid) if sid else None
+    return (rec or {}).get("series_id") or sid
+
+
+def _series_ab_apply(pdir, name, actor="auto", variant=None):
+    """Make this video's thumbnail the series' A/B picture with its chapter
+    badge (owner, 2026-11-19: "thumbnails in the studio to adhere to ab tests").
+    Not for a posted video, and not over a thumbnail a person uploaded by
+    hand unless a person asks (actor="owner"). -> the variant used, or None."""
+    import ingest as _i
+    import series_master as _sm
+    import thumbnail as _tb
+    if not name or name == DRAFT or not _sm.enabled() or _went_out(pdir, name):
+        return None
+    sid, label = _series_ab_sid(pdir), _search_label(pdir)[1]
+    if not sid or not label or not _sm.ab_set(_i.PROJECTS, sid):
+        return None
+    if actor != "owner" and (_tb.get(pdir, name) or {}).get("source") == "upload":
+        return None
+    out = os.path.join(pdir, "exports", "_thumbs", "series_ab_apply.jpg")
+    got = _sm.ab_thumbnail(_i.PROJECTS, sid, label, out, variant=variant)
+    if not got:
+        return None
+    before = _thumb_sha(pdir, name)
+    with open(got[0], "rb") as f:
+        _tb.save(pdir, name, f.read(), source="auto")
+    _thumbnail_changed(pdir, name, before, actor, f"the series' A/B picture {got[1]} + CH {label} badge")
+    return got[1]
 
 
 def _run_publish_job(job_id, pdir, name, publish_at=None):
@@ -6588,6 +6812,11 @@ def _prepare_publish_labelled(pdir, name, do_seo=True):
             pass
         except Exception as e:  # noqa
             _ev("publish", f"{label}: thumbnail options failed — {str(e)[:160]}", "warn")
+        try:
+            if _series_ab_apply(pdir, name) and "thumbnail" not in filled:
+                filled.append("thumbnail")
+        except Exception as e:  # noqa — the studio's own thumbnail stays
+            _ev("publish", f"{label}: the series' A/B thumbnail was not used — {str(e)[:160]}", "warn")
         if filled:
             _ev("publish", f"{label}: ready to review — filled in {', '.join(filled)} (change anything on Watch the video)", "ok")
     finally:
