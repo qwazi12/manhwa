@@ -5366,6 +5366,44 @@ def _apply_prior_seo(rdir, name, ap, marks, a, b):
     _prior_thumbnail(rdir, name, bdir, bname, live.get("thumbnail") or "", a, b)
 
 
+def _posted_badge(im):
+    """The badge a posted thumbnail carries at the badge origin, read along its
+    flat top and left padding (no text there): (colour, right, bottom), or None
+    when no flat badge-sized patch sits there."""
+    import thumbnail_studio as _ts
+    rgb = im.convert("RGB")
+    x0, y0 = _ts.BADGE["origin"]
+    px, py = x0 + 6, y0 + 6
+    c = rgb.getpixel((px, py))
+
+    def near(p):
+        return max(abs(int(u) - int(v)) for u, v in zip(p, c)) <= 40
+    x = px
+    while x + 1 < rgb.width and near(rgb.getpixel((x + 1, py))):
+        x += 1
+    y = py
+    while y + 1 < rgb.height and near(rgb.getpixel((px, y + 1))):
+        y += 1
+    w, h = x - x0, y - y0
+    if not (60 <= w <= rgb.width * 0.5 and 30 <= h <= rgb.height * 0.3):
+        return None
+    return tuple(int(v) for v in c), x, y
+
+
+def _covering_cap(label, right, bottom):
+    """The smallest badge cap height whose box reaches (right, bottom)."""
+    import thumbnail_studio as _ts
+    bd = _ts.BADGE
+    x0, y0 = bd["origin"]
+    for cap in range(bd["cap"], 161):
+        pad = max(1.0, cap / float(bd["cap"]))
+        bw = int(_ts.font_for_cap(cap).getlength(label)) + int(2 * bd["pad_x"] * pad)
+        bh = cap + int(2 * bd["pad_y"] * pad)
+        if x0 + bw >= right + 1 and y0 + bh >= bottom + 1:
+            return cap
+    return 160
+
+
 def _prior_thumbnail(rdir, name, bdir, bname, url, a, b):
     """The posted video's thumbnail art with a new 'CH a-b' badge drawn over
     its old one, in the same colour."""
@@ -5392,10 +5430,19 @@ def _prior_thumbnail(rdir, name, bdir, bname, url, a, b):
     im = Image.open(io.BytesIO(data)).convert("RGBA")
     if im.size != (_ts.W, _ts.H):
         im = im.resize((_ts.W, _ts.H))
-    st = ImageStat.Stat(im.convert("RGB").crop((36, 36, 60, 60)))
-    colour = tuple(int(v) for v in st.mean)
-    old_badge = max(st.stddev) < 14          # a flat patch where the posted badge sits
-    _ts.draw_badge(im, f"CH {a}-{b}", colour, keep_colour=old_badge)
+    label = f"CH {a}-{b}"
+    found = _posted_badge(im)
+    if found:
+        # 2026-11-19: the new badge was always drawn at the standard size, so a
+        # posted thumbnail with a bigger badge kept its old numbers showing
+        # around the new one (FV 361-369 showed "367", Bountiful 85-92 "91"),
+        # and the colour sample sat on the old "CH" text, so every re-badge
+        # changed colour. Now: the old badge's own colour, at a size that covers it.
+        colour, right, bottom = found
+        _ts.draw_badge(im, label, colour, cap=_covering_cap(label, right, bottom), keep_colour=True)
+    else:
+        st = ImageStat.Stat(im.convert("RGB").crop((36, 36, 60, 60)))
+        _ts.draw_badge(im, label, tuple(int(v) for v in st.mean), keep_colour=False)
     buf = io.BytesIO()
     im.convert("RGB").save(buf, "JPEG", quality=92)
     _tb.save(rdir, name, buf.getvalue(), source="auto")
