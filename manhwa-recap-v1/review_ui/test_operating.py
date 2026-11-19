@@ -280,3 +280,20 @@ def test_windows_come_from_the_environment():
     assert ret.windows({})["WORK_DAYS"] == 14
     assert ret.windows({"RETENTION_WORK_DAYS": "45", "RETENTION_TRASH_DAYS": "junk"}) == {
         **ret.DEFAULTS, "WORK_DAYS": 45}
+
+
+def test_a_chapter_without_a_series_id_is_covered_by_its_posted_compilation(tmp_path):
+    """Live 2026-11-19: a chapter's project.json carries only the display name;
+    the compilation carries the slug. 57 chapters inside posted merges were kept
+    as "not posted yet" (8 GB) because the two never matched."""
+    root = str(tmp_path)
+    d = _project(root, "a-tale_36", "a-tale", 36)
+    json.dump({"id": "a-tale_36", "series": "A Tale Of Things", "chapter": "36"}, open(os.path.join(d, "project.json"), "w"))
+    _project(root, "a-tale_ch30-36", "a-tale", span=(30, 36), posted_days=20, export="r.mp4")
+    _project(root, "a-tale_37", "a-tale", 37)                                  # not in any posted compilation
+    work = _paths(ret.plan(root, now=NOW), "work_files")
+    assert "a-tale_36/crops" in work and "a-tale_37/crops" not in work
+    soon = _paths(ret.plan(root, now=NOW - 10 * DAY), "work_files")           # posted 10 days ago: inside 14
+    assert "a-tale_36/crops" not in soon
+    short = _paths(ret.plan(root, now=NOW - 10 * DAY, environ={"RETENTION_WORK_DAYS": "3"}), "work_files")
+    assert "a-tale_36/crops" in short

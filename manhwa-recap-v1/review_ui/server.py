@@ -4956,6 +4956,7 @@ def api_storage_retention(detail: int = 0):
         p["kept"] = len(p["kept"])
         p["candidates"] = sorted(p["candidates"], key=lambda c: -c["bytes"])[:50]
     p["guard"] = {"enabled": os.environ.get("STORAGE_GUARD", "1") != "0", "low_disk_free_gb": LOW_DISK_FREE_GB,
+                  "low_disk_work_days": LOW_DISK_WORK_DAYS,
                   "every_seconds": STORAGE_GUARD_SECONDS, "categories": list(GUARD_CATEGORIES),
                   "last": _STORAGE_GUARD["last"],
                   "undo": "set STORAGE_GUARD=0 on Railway; a binned item is restored from the Deleted tab until it is emptied"}
@@ -7159,6 +7160,10 @@ LOW_DISK_FREE_GB = float(os.environ.get("LOW_DISK_FREE_GB", "6"))
 UNMERGED_BIN_HOURS = 6
 STORAGE_GUARD_SECONDS = 120
 GUARD_CATEGORIES = ("split_lab", "revisions", "work_files")   # never read again (retention.py)
+# While the disk is low, render inputs (crops/pages/clips) of a chapter count as
+# done this many days after it was posted (itself or inside a posted merge),
+# not retention's 14 (owner, 2026-11-19: "It should be free up the space").
+LOW_DISK_WORK_DAYS = int(os.environ.get("LOW_DISK_WORK_DAYS", "3"))
 _STORAGE_GUARD = {"last": None, "last_warn": 0.0}
 
 
@@ -7192,7 +7197,8 @@ def _storage_guard(now=None):
         out["purged"] += _purge_trash(now, min_free_gb=LOW_DISK_FREE_GB)
     if free() < LOW_DISK_FREE_GB:
         r = _ret.apply(root, list(GUARD_CATEGORIES), max_bytes=50 * 1024 ** 3, now=now,
-                       queued=_retention_queued())
+                       queued=_retention_queued(),
+                       environ={**os.environ, "RETENTION_WORK_DAYS": str(LOW_DISK_WORK_DAYS)})
         out["retention"] = {"items": len(r["items"]), "freed_bytes": r["freed_bytes"]}
         if r["items"]:
             out["purged"] += _purge_trash(now, min_free_gb=LOW_DISK_FREE_GB)
