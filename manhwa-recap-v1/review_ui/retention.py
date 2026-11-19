@@ -140,7 +140,13 @@ def survey(root, queued=()):
                 (int(float(meta.get("chapter"))),) * 2
         except (KeyError, TypeError, ValueError):
             span = None
-        projects[pid] = {"dir": pdir, "series": meta.get("series_id") or meta.get("series") or "", "range": is_range,
+        # A chapter's project.json often has only the display name ("A Regressors
+        # Tale Of Cultivation") while a compilation's has the slug, so no posted
+        # compilation ever covered a chapter (live 2026-11-19: 57 chapters inside
+        # posted merges kept as "not posted yet", 8 GB). The folder name carries
+        # the slug for both.
+        series = meta.get("series_id") or (pid.rsplit("_", 1)[0] if "_" in pid else "") or meta.get("series") or ""
+        projects[pid] = {"dir": pdir, "series": series, "range": is_range,
                          "span": span, "posted": posted, "drive": _read(os.path.join(pdir, "drive.json"))}
     # a chapter counts as posted when it is, or when a posted compilation covers it
     covers = {}

@@ -84,6 +84,7 @@ def test_still_low_after_the_bin_clears_old_work_folders(lib, monkeypatch):
 
     def fake_apply(root, cats, **k):
         calls.append(sorted(cats))
+        assert k["environ"]["RETENTION_WORK_DAYS"] == str(server.LOW_DISK_WORK_DAYS)   # shorter window while low
         d = os.path.join(root, "_trash", "retention-x")
         os.makedirs(d, exist_ok=True)
         return {"items": [{"path": "_splitlab/old"}], "freed_bytes": 10, "skipped": []}
