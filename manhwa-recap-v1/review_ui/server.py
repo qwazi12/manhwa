@@ -4143,7 +4143,10 @@ def api_range_build(body: RangeIn):
                 import chapter_seo as _cseo
                 import description_blocks as _db
                 desc = _db.build(hook=f"Full recap of {series} chapters {a} to {b}", series=series,
-                                 chapter=f"{a}-{b}", summary="", pack={**pack, **sp}, arcs=_rc.arcs(marks),
+                                 chapter=f"{a}-{b}", summary="", pack={**pack, **sp},
+                                 # one timestamp per chapter (2026-11-19: grouped by 5, a merge of
+                                 # 5 or fewer chapters got none — ORV 309-311 had no timestamps)
+                                 arcs=_rc.arcs(marks, every=1),
                                  footer=sp.get("description_footer") or _studio.load().get("description_footer") or "",
                                  hashtags=_cseo.hashtags(series, {**pack, **sp}),
                                  limit=YT_DESC_MAX)

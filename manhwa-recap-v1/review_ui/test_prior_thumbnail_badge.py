@@ -41,3 +41,18 @@ def test_a_thumbnail_without_a_flat_badge_is_left_to_the_old_path():
 def test_flat_art_bigger_than_a_badge_is_not_taken_for_one():
     im = Image.new("RGBA", (ts.W, ts.H), (0, 0, 0, 255))
     assert server._posted_badge(im) is None
+
+
+def test_a_curly_apostrophe_stays_in_the_thumbnail_hook():
+    """ORV 309-311 (2026-11-19): "Omniscient Reader’s Viewpoint" became "READER S"."""
+    assert "READER S" not in ts.hook_from_title("Omniscient Reader’s Viewpoint")
+    assert "READER'S" in ts.hook_from_title("Omniscient Reader’s Viewpoint")
+
+
+def test_a_short_merge_gets_one_timestamp_per_chapter():
+    """ORV 309-311 (2026-11-19): chapters grouped by 5 left a 3-chapter merge with none."""
+    import description_blocks as db
+    import range_compile as rc
+    marks = [(309, 0.0), (310, 483.6), (311, 975.4)]
+    assert db.block3(rc.arcs(marks, every=1)).splitlines() == ["0:00 Chapter 309", "8:03 Chapter 310",
+                                                              "16:15 Chapter 311"]
