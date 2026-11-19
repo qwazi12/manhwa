@@ -5056,6 +5056,7 @@ def api_growth_snapshot(days: int = 14):
                            "hook": sp.get("hook") or "", "hook_status": sp.get("hook_status") or "",
                            "evidence": sp.get("evidence") or "", "characters": sp.get("characters") or [],
                            "pack_hashtags": sp.get("hashtags") or [], "hook_b": sp.get("hook_b") or "",
+                           "hook_c": sp.get("hook_c") or "",
                            "series_id": sx["id"], "title": sx.get("title"), "tier": sx.get("tier"),
                            "production_source": key, "latest_source_chapter": latest,
                            "latest_source_date": ((m.get("release_dates") or {}).get(str(int(latest)) if latest is not None else "") or [None])[0],
@@ -5179,13 +5180,17 @@ def _abtest_plan(pdir, name, title=""):
     sid, label = _search_label(pdir)
     rec = _ssp.get(_i.PROJECTS, sid) if sid else None
     cur = title or (load_publish(pdir).get(name) or {}).get("title") or ""
-    b, probs = None, []
+    b, c_title, probs = None, None, []
     if rec and rec.get("hook_b") and label:
         b, why = _ssp.title_for(rec, label, hook=rec["hook_b"])
         if why:
             probs.append("title B: " + why)
+        if rec.get("hook_c"):
+            c_title, why = _ssp.title_for(rec, label, hook=rec["hook_c"])
+            if why:
+                probs.append("title C: " + why)
     cs = _abt.thumb_variants(tstudio.get_concepts(pdir, name))
-    p = _abt.plan(cur, b, [c["id"] for c in cs], probs)
+    p = _abt.plan(cur, b, [c["id"] for c in cs], probs, title_c=c_title)
     proj = os.path.basename(pdir.rstrip("/"))
     p["thumbnail_urls"] = {"A": "/thumbnail?" + urlencode({"project": proj, "name": name})}
     p["thumbnail_designs"] = {"A": "the thumbnail it went out with"}

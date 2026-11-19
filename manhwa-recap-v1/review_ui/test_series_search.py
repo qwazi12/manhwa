@@ -218,3 +218,16 @@ def test_apply_uploads_with_title_a():
     rec = S.get(_root(DK_V2), DK_V2["series_id"])
     new, changed, probs = S.apply({"title": "old", "description": DESC}, rec, "96-99")
     assert new["title"].startswith("[96-99] He Destroyed The World") and "title" in changed and probs == []
+
+
+def test_title_c_is_the_third_title_of_the_test():
+    """Owner, 2026-11-19: "make 3 titles for each manhwa"."""
+    rec = {**DK_V2, "hook_c": "Hero Turned Death Knight Gets A SECOND Chance"}
+    saved = S.get(_root(rec), DK_V2["series_id"])
+    assert saved["hook_c"] == "Hero Turned Death Knight Gets A SECOND Chance"
+    ab, probs = S.ab_titles(saved, "88-95")
+    assert ab["c"] == "[88-95] Hero Turned Death Knight Gets A SECOND Chance | " + saved["search_title"] and not probs
+    with pytest.raises(S.PackError):
+        S.upsert(_root(), [{**DK_V2, "hook_c": DK_V2["hook_b"]}])                 # same as title B
+    with pytest.raises(S.PackError):
+        S.upsert(_root(), [{k: v for k, v in rec.items() if k != "hook_b"}])       # C without B

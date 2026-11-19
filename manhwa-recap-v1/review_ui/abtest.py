@@ -63,7 +63,7 @@ def thumb_variants(concepts_rec, n=MAX_VARIANTS - 1):
     return out
 
 
-def plan(current_title, title_b=None, thumbs=(), title_problems=()):
+def plan(current_title, title_b=None, thumbs=(), title_problems=(), title_c=None):
     """What to set up in Test & compare for one video.
 
     A title test when the series has title B (its hook_b), else a thumbnail
@@ -72,8 +72,11 @@ def plan(current_title, title_b=None, thumbs=(), title_problems=()):
     "thumbnails": [concept ids for B, C], "why": "..."}"""
     thumbs = [t for t in thumbs if t][:MAX_VARIANTS - 1]
     if title_b and current_title and title_b.strip() != current_title.strip():
-        return {"type": "title", "titles": [current_title, title_b], "thumbnails": [],
-                "why": "the series has an approved title B (hook_b)"}
+        titles = [current_title, title_b]
+        if title_c and title_c.strip() not in (current_title.strip(), title_b.strip()):
+            titles.append(title_c)                       # owner, 2026-11-19: three titles per series
+        return {"type": "title", "titles": titles, "thumbnails": [],
+                "why": "the series has an approved title B (hook_b)" + (" and C (hook_c)" if len(titles) == 3 else "")}
     if thumbs:
         why = "thumbnails from this video's own concepts"
         if title_problems:
