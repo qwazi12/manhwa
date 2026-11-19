@@ -4955,6 +4955,10 @@ def api_storage_retention(detail: int = 0):
     if not detail:
         p["kept"] = len(p["kept"])
         p["candidates"] = sorted(p["candidates"], key=lambda c: -c["bytes"])[:50]
+    p["guard"] = {"enabled": os.environ.get("STORAGE_GUARD", "1") != "0", "low_disk_free_gb": LOW_DISK_FREE_GB,
+                  "every_seconds": STORAGE_GUARD_SECONDS, "categories": list(GUARD_CATEGORIES),
+                  "last": _STORAGE_GUARD["last"],
+                  "undo": "set STORAGE_GUARD=0 on Railway; a binned item is restored from the Deleted tab until it is emptied"}
     return p
 
 
@@ -7123,11 +7127,13 @@ def _dir_mb(d):
     return round(size / 1e6, 1)
 
 
-def _purge_trash(now=None):
+def _purge_trash(now=None, min_free_gb=None):
     """Empty the bin: anything older than TRASH_DAYS, and the oldest first
-    while free space is under TRASH_MIN_FREE_GB. Returns purged names."""
+    while free space is under min_free_gb (default TRASH_MIN_FREE_GB).
+    Returns purged names."""
     import shutil as _sh
     now = now or time.time()
+    floor = TRASH_MIN_FREE_GB if min_free_gb is None else min_free_gb
     d = _trash_root()
     items = sorted((n for n in os.listdir(d) if os.path.isdir(os.path.join(d, n))),
                    key=lambda n: os.path.getmtime(os.path.join(d, n)))
@@ -7135,13 +7141,82 @@ def _purge_trash(now=None):
     for n in items:
         p = os.path.join(d, n)
         old = now - os.path.getmtime(p) > TRASH_DAYS * 86400
-        low = _sh.disk_usage(d).free < TRASH_MIN_FREE_GB * 1e9
+        low = _sh.disk_usage(d).free < floor * 1e9
         if old or low:
             _sh.rmtree(p, ignore_errors=True)
             gone.append(n)
     if gone:
         print(f"[trash] emptied {len(gone)} item(s): {gone}", flush=True)
     return gone
+
+
+# Owner, 2026-11-19: "Why is the disk filling up? It should free up the space."
+# The volume reached 0 bytes free (renders and voice failed: No space left on
+# device) while 5.4 GB sat in the Deleted bin — it only emptied when something
+# new was deleted — and 4 GB in merged videos set aside by unmerge
+# (_unmerged_*: never cleaned, not in the Deleted tab). Retention never ran.
+LOW_DISK_FREE_GB = float(os.environ.get("LOW_DISK_FREE_GB", "6"))
+UNMERGED_BIN_HOURS = 6
+STORAGE_GUARD_SECONDS = 120
+GUARD_CATEGORIES = ("split_lab", "revisions", "work_files")   # never read again (retention.py)
+_STORAGE_GUARD = {"last": None, "last_warn": 0.0}
+
+
+def _storage_guard(now=None):
+    """Keep the volume from filling. 1) A merged video set aside by unmerge
+    goes to the Deleted bin after UNMERGED_BIN_HOURS (restorable there, as the
+    auto-append path does since 2026-11-05). 2) While free space is under
+    LOW_DISK_FREE_GB: the bin empties oldest-first, then GUARD_CATEGORIES go to
+    the bin and are emptied the same way. Unposted, queued and posting videos
+    are never touched (retention.plan's rules). Returns what it did."""
+    import ingest as _i
+    import retention as _ret
+    import shutil as _sh
+    now = now or time.time()
+    root = _i.PROJECTS
+    free = lambda: _sh.disk_usage(root).free / 1e9      # noqa: E731
+    out = {"at": now, "free_gb_before": round(free(), 2), "binned": [], "purged": [], "retention": None}
+    for n in sorted(os.listdir(root)):
+        m = re.fullmatch(r"_unmerged_(.+)_(\d{9,11})", n)
+        p = os.path.join(root, n)
+        if not m or not os.path.isdir(p) or now - int(m.group(2)) < UNMERGED_BIN_HOURS * 3600:
+            continue
+        name = f"{m.group(1)}__{m.group(2)}"
+        try:
+            os.replace(p, os.path.join(_trash_root(), name))
+            os.utime(os.path.join(_trash_root(), name))      # its days in the bin start now
+            out["binned"].append(name)
+        except OSError as e:
+            print(f"[storage] could not bin {n}: {e}", flush=True)
+    if free() < LOW_DISK_FREE_GB:
+        out["purged"] += _purge_trash(now, min_free_gb=LOW_DISK_FREE_GB)
+    if free() < LOW_DISK_FREE_GB:
+        r = _ret.apply(root, list(GUARD_CATEGORIES), max_bytes=50 * 1024 ** 3, now=now,
+                       queued=_retention_queued())
+        out["retention"] = {"items": len(r["items"]), "freed_bytes": r["freed_bytes"]}
+        if r["items"]:
+            out["purged"] += _purge_trash(now, min_free_gb=LOW_DISK_FREE_GB)
+    out["free_gb_after"] = round(free(), 2)
+    _STORAGE_GUARD["last"] = out
+    if out["binned"] or out["purged"] or (out["retention"] or {}).get("items"):
+        _ev("storage", f"disk guard: {len(out['binned'])} set-aside merged video(s) to the Deleted bin, "
+                       f"{len(out['purged'])} bin item(s) emptied, "
+                       f"{(out['retention'] or {}).get('items', 0)} old work folder(s) cleared — "
+                       f"free {out['free_gb_before']} → {out['free_gb_after']} GB", "ok")
+    if out["free_gb_after"] < LOW_DISK_FREE_GB and now - _STORAGE_GUARD["last_warn"] > 3600:
+        _STORAGE_GUARD["last_warn"] = now
+        _ev("storage", f"disk still low after clean-up: {out['free_gb_after']} GB free (wanted {LOW_DISK_FREE_GB}); "
+                       "everything left is unposted or queued work — post, delete or grow the volume", "warn")
+    return out
+
+
+def _storage_guard_loop():
+    while True:
+        try:
+            _storage_guard()
+        except Exception as e:  # noqa
+            print(f"[storage] guard failed: {e}", flush=True)
+        time.sleep(STORAGE_GUARD_SECONDS)
 
 
 def _delete_one_project(pid, why="deleted by you", to_bin=True):
@@ -12552,6 +12627,8 @@ def _start_background_work():
     except Exception as e:  # noqa
         print(f"[boot] resume failed: {e}", flush=True)
     threading.Thread(target=_scheduler_loop, daemon=True).start()
+    if os.environ.get("STORAGE_GUARD", "1") != "0":
+        threading.Thread(target=_storage_guard_loop, daemon=True).start()   # owner, 2026-11-19: disk full
     try:
         _monitor_watchdog(first_wait=90.0)     # the new-chapter check, on its own clock
     except Exception as e:  # noqa
