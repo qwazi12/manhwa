@@ -196,8 +196,21 @@ def tags_with_aliases(tags, aliases, cap=500):
 
 def spoken_alias(pack, chapter):
     """One alias for the narration's opening line, rotating by chapter so a
-    series' whole alias list is spoken across its chapters."""
-    names = [a for a in (pack or {}).get("aliases") or [] if re.search(r"[A-Za-z]", a)]
+    series' whole alias list is spoken across its chapters.
+
+    Only real other TITLES: the cleaned `series_name_alt` list when the pack has
+    one, and in any case never a character's name or the series' own name
+    re-spelled. Live 2026-11-19 the raw alias list had chapters open "also
+    known as The Stellar Swordmaster 5988", "... also known as Dong Bongsu"
+    (the protagonist) and "... also known as Dante Kang"."""
+    pack = pack or {}
+    pool = pack["series_name_alt"] if "series_name_alt" in pack else pack.get("aliases")
+    people = {str(n).lower() for c in pack.get("characters") or [] if isinstance(c, dict)
+              for n in [c.get("name")] + list(c.get("aliases") or []) if n}
+    core = lambda x: re.sub(r"[^a-z]", "", re.sub(r"\s+\d+\s*$", "", (x or "").lower()))    # noqa: E731
+    own = {core(pack.get("title_en")), core(pack.get("series_name_en"))} - {""}
+    names = [a for a in pool or [] if re.search(r"[A-Za-z]", a)
+             and a.lower() not in people and core(a) not in own]
     if not names:
         return ""
     try:

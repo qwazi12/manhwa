@@ -248,6 +248,29 @@ def is_strip(pages):
     return heights.count(common) / len(heights) >= STRIP_UNIFORM_FRAC
 
 
+def _strip_width(pages):
+    """The scroll's width: the width most of its tiles share. NOT the first
+    tile's: a scan-group page of another width at the top (Dark Mage 111: 1532
+    over 899-wide art; Regressor 37: 1920) made every panel that wide, the art
+    padded with black (owner sent Regressor 30-38 back, 2026-11-19)."""
+    ws = []
+    for p in pages:
+        try:
+            ws.append(Image.open(p).size[0])
+        except Exception:
+            continue
+    return max(set(ws), key=ws.count) if ws else None
+
+
+def _tile(p, W, mode="RGB"):
+    """One tile at the scroll's width: a tile of another width is SCALED to it
+    (proportions kept), never padded with black."""
+    im = Image.open(p).convert(mode)
+    if W and im.width != W:
+        im = im.resize((W, max(1, round(im.height * W / im.width))), Image.LANCZOS)
+    return im
+
+
 def _save_panel(img, path, blur):
     """Write a panel, plus a bubble-blurred twin when asked.
 
@@ -580,13 +603,12 @@ def split_into(pages, crops_dir, slug="", on_progress=None, vision=True):
         # once and stitch panels back across tile seams.
         if on_progress:
             on_progress(f"assembling {len(pages)} tiles into one scroll")
-        means, edges, offs, hs, W = [], [], [], [], None
+        means, edges, offs, hs = [], [], [], []
+        W = _strip_width(pages)
         stds = []
         y = 0
         for p in pages:
-            g = np.array(Image.open(p).convert("L"))
-            if W is None:
-                W = g.shape[1]
+            g = np.array(_tile(p, W, "L"))
             r, e = _profile(g)
             means.append(r); edges.append(e); offs.append(y); hs.append(g.shape[0])
             stds.append(row_std(g))
@@ -602,7 +624,7 @@ def split_into(pages, crops_dir, slug="", on_progress=None, vision=True):
             for p, o, hh in zip(pages, offs, hs):
                 if o + hh <= a or o >= b:
                     continue
-                im = Image.open(p).convert("RGB")
+                im = _tile(p, W)
                 parts.append(im.crop((0, max(0, a - o), W, min(hh, b - o))))
             if not parts:
                 continue
@@ -687,13 +709,12 @@ def run(slug, pages, on_progress=None, blur=False):
 
     if strip:
         prog(f"assembling {len(pages)} tiles into one scroll")
-        means, edges, offs, hs, W = [], [], [], [], None
+        means, edges, offs, hs = [], [], [], []
+        W = _strip_width(pages)
         stds = []
         y = 0
         for p in pages:
-            g = np.array(Image.open(p).convert("L"))
-            if W is None:
-                W = g.shape[1]
+            g = np.array(_tile(p, W, "L"))
             r, e = _profile(g)
             means.append(r)
             edges.append(e)
@@ -716,7 +737,7 @@ def run(slug, pages, on_progress=None, blur=False):
             for p, o, hh in zip(pages, offs, hs):
                 if o + hh <= a or o >= b:
                     continue
-                im = Image.open(p).convert("RGB")
+                im = _tile(p, W)
                 parts.append(im.crop((0, max(0, a - o), W, min(hh, b - o))))
             if not parts:
                 continue
