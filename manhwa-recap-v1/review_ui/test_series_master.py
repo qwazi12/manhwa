@@ -128,7 +128,7 @@ def test_publish_job_hook_passes_series_and_merged_label(tmp_path, monkeypatch):
     import server
     seen = []
     monkeypatch.setattr(sm, "upload_thumbnail",
-                        lambda sid, label, fb, work, ds=None, log=None: seen.append((sid, label, fb)) or "M.jpg")
+                        lambda sid, label, fb, work, ds=None, log=None, **ab: seen.append((sid, label, fb)) or "M.jpg")
     for meta, want in (({"kind": "range", "series_id": "murim-login", "chapters_start": 251, "chapters_end": 252},
                         ("murim-login", "251-252", "own.jpg")),
                        ({"series_id": "fog-land", "chapter": "46"}, ("fog-land", 46, "own.jpg"))):
