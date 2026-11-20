@@ -647,6 +647,16 @@ def export(body: ExportIn):
 EXPORT_SPEED = float(os.environ.get("EXPORT_SPEED", "1.15"))
 
 
+def _card_series_name(series):
+    """The series name on a chapter's title card. Some sources end the slug
+    with the site's number ("doom-breaker-3197"); the card showed it as
+    "Doom Breaker 3197" (owner, 2026-11-20). Only the card drops it; project
+    ids still come from ingest.clean_series_slug unchanged."""
+    import ingest as _ing
+    slug = re.sub(r"-\d{4}$", "", _ing.clean_series_slug(series or ""))
+    return _ing.to_title_case(slug)
+
+
 def _do_export(speed=1.0):
     """Concat ONLY user-included (checkbox, T3) clips, in timeline order."""
     segs = load_segments()
@@ -675,7 +685,7 @@ def _do_export(speed=1.0):
         # suffix ("Swordmasters Youngest Son F886A8Af") because this path
         # title-cased the raw slug. Reuse ingest's cleaner — the same one the
         # project id already uses — so the card shows just the series name.
-        title = _ing.to_title_case(_ing.clean_series_slug(series or ""))
+        title = _card_series_name(series)
         if title:
             env = os.environ.copy()
             env.update({"HF_WORKSPACE": pdir,
