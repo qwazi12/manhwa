@@ -20,7 +20,18 @@ How it picks (the owner's rules):
     and under the site-wide cap (MAX_DAILY_SPEND_USD, owner: $10). The budget
     decides whether a chapter STARTS; the site cap is the hard stop on every
     call, so a chapter started under budget can finish a little above it.
-  * Gemini engine.
+  * Engine (owner, 2026-11-21: "Autopilot should rely on you and when I choose
+    it should be able to go back to its usual way"):
+      gemini (default) — the paid ingest, exactly as before;
+      agent            — the pick is NOT ingested: the chapter is downloaded
+                         and cut for free (hand_made.prepare) and waits for a
+                         writer (a Claude Code session) to hand it over through
+                         /api/hand (GET /api/hand/queue lists what waits). Only
+                         the voice is paid. It counts toward per_day like any
+                         pick. `agent_fallback_hours` (0 = never, the default)
+                         hands a chapter that waited longer to the paid ingest.
+    Switching back to gemini gives the waiting chapters no writer claimed or
+    wrote back to Gemini (server.autopilot_settings → release_writer).
 
 Never repeat: a ledger of every chapter autopilot queued or a finished ingest
 produced (`_autopilot.json`). It survives project deletes, so a chapter the
@@ -52,10 +63,17 @@ from datetime import datetime, timezone
 STATE_NAME = "_autopilot.json"
 DEFAULTS = {"enabled": False, "per_day": 4, "engine": "gemini", "window": 3,
             "paused_series": [], "budget_usd": 6.0,
+            # "agent": a chapter waiting longer than this for the writer goes to
+            # the paid ingest instead; 0 = never (owner's question still open)
+            "agent_fallback_hours": 0,
             # owner, 2026-10-12: Asura keeps a new chapter behind its early-access
             # paywall for ~12-24 h, so scraping it on release day hits a block
             "release_wait_hours": {"asura": 24, "default": 2}}
 MAX_WAIT_HOURS = 72
+ENGINES = ("gemini", "agent")
+MAX_FALLBACK_HOURS = 168
+WRITER = "writer"           # ledger status: prepared for free, waiting for the writer's hand-over
+SWITCH_BACK = 'POST /api/autopilot/settings {"engine": "gemini"} — autopilot ingests with Gemini again'
 
 
 def release_wait_left(settings, mirror, chapter, now=None):
@@ -130,7 +148,7 @@ UNDO = ("Switch OFF: nothing new starts. A chapter already running finishes "
 
 # statuses a ledger entry can hold
 LIVE = ("queued", "running", "paused", "pausing")
-MADE = ("done",) + LIVE + ("budget_paused",)
+MADE = ("done",) + LIVE + ("budget_paused", WRITER)
 
 _lock = threading.RLock()
 runtime = {"last_tick": None, "last_result": None, "last_refresh": 0.0,
@@ -208,6 +226,14 @@ _SAY = {
     "priority_undo": lambda f: ("Scheduled for processing: last change undone", "info"),
     "priority_group_top": lambda f: (f"Scheduled for processing: {f.get('series')} moved to the top", "info"),
     "priority_group_remove": lambda f: (f"Scheduled for processing: {f.get('series')} removed", "info"),
+    "chapter_for_writer": lambda f: (f"picked {f.get('series')} ch.{f.get('chapter')} ({f.get('why') or 'round robin'}) "
+                                     "for the writer: downloaded and cut for free, waiting for the hand-over", "info"),
+    "chapter_writer_failed": lambda f: (f"{f.get('key')} could not be prepared for the writer: {f.get('error')}", "error"),
+    "chapter_writer_handed": lambda f: (f"{f.get('key')} handed over by the writer (job {f.get('job')})", "ok"),
+    "chapter_fallback": lambda f: (f"{f.get('series')} ch.{f.get('chapter')} waited {f.get('hours')} h for the writer "
+                                   "— handed to the paid ingest (agent_fallback_hours)", "warn"),
+    "writer_released": lambda f: (f"engine back to Gemini: {len(f.get('keys') or [])} chapter(s) no writer had "
+                                  "taken go back to the paid ingest", "info"),
     "chapter_requested": lambda f: (f"made on request: {f.get('series')} ch.{f.get('chapter')}", "info"),
     "chapter_done": lambda f: (f"{f.get('key')} done", "ok"),
     "chapter_failed": lambda f: (f"{f.get('key')} failed: {f.get('error')}", "error"),
@@ -274,9 +300,14 @@ def update_settings(root, patch):
             clean_w[str(k)] = h
         clean["release_wait_hours"] = {**DEFAULTS["release_wait_hours"], **clean_w}
     if patch.get("engine") is not None:
-        if patch["engine"] != "gemini":
-            raise ValueError("autopilot runs on Gemini only")
-        clean["engine"] = "gemini"
+        if patch["engine"] not in ENGINES:
+            raise ValueError("autopilot engine must be gemini or agent")
+        clean["engine"] = patch["engine"]
+    if patch.get("agent_fallback_hours") is not None:
+        h = float(patch["agent_fallback_hours"])
+        if not 0 <= h <= MAX_FALLBACK_HOURS:
+            raise ValueError(f"writer fallback must be 0–{MAX_FALLBACK_HOURS} hours (0 = never)")
+        clean["agent_fallback_hours"] = h
     with _lock:
         st = load(root)
         before = dict(st["settings"])
@@ -394,6 +425,99 @@ def set_status_for_job(root, job_id, status):
                 save(root, st)
                 return True
     return False
+
+
+def record_writer(root, key, *, series_id, chapter, project, url, error=None, now=None):
+    """engine "agent": the chapter was prepared for free and waits for the
+    writer (status WRITER), or could not be prepared (failed, one strike)."""
+    now = time.time() if now is None else now
+    with _lock:
+        st = load(root)
+        prev = st["ledger"].get(key) or {}
+        e = {**prev, "series_id": series_id, "chapter": norm_chapter(chapter), "project": project,
+             "job": None, "source": "autopilot", "url": url, "engine": "agent", "status": WRITER,
+             "queued_at": prev.get("queued_at") or now, "writer_at": now, "updated_at": now,
+             "error": None, "fails": prev.get("fails", 0)}
+        if error:
+            e.update(status="failed", error=str(error)[:300], failed_at=now, fail_kind="transient",
+                     fails=e["fails"] + 1)
+        st["ledger"][key] = e
+        save(root, st)
+        return dict(e)
+
+
+def _writer_entry(st, project):
+    return next(((k, e) for k, e in st["ledger"].items()
+                 if e.get("project") == project and e.get("status") == WRITER), (None, None))
+
+
+def writer_handed(root, project, job, now=None):
+    """The writer handed the chapter over: the voice + board job now carries
+    the ledger entry (on_job_end settles it like any ingest). None when no
+    autopilot pick waited for this chapter."""
+    now = time.time() if now is None else now
+    with _lock:
+        st = load(root)
+        k, e = _writer_entry(st, project)
+        if k is None:
+            return None
+        e.update(status="queued", job=job, handed_at=now, updated_at=now)
+        save(root, st)
+    audit("chapter_writer_handed", key=k, job=job)
+    return dict(e)
+
+
+def writer_prepare_failed(root, project, error, now=None):
+    """The free download/cut failed: one strike, as for a failed ingest."""
+    now = time.time() if now is None else now
+    with _lock:
+        st = load(root)
+        k, e = _writer_entry(st, project)
+        if k is None:
+            return None
+        e.update(status="failed", error=str(error or "")[:300], failed_at=now, fail_kind="transient",
+                 fails=e.get("fails", 0) + 1, updated_at=now)
+        save(root, st)
+    audit("chapter_writer_failed", key=k, error=e["error"])
+    return dict(e)
+
+
+def writer_waiting(ledger, now=None):
+    """Autopilot picks waiting for the writer, oldest first."""
+    now = time.time() if now is None else now
+    out = [dict(e, key=k, waited_seconds=int(now - (e.get("writer_at") or e.get("queued_at") or now)))
+           for k, e in ledger.items() if e.get("source") == "autopilot" and e.get("status") == WRITER]
+    return sorted(out, key=lambda e: -e["waited_seconds"])
+
+
+def release_writer(root, keep=()):
+    """Engine switched back to gemini: picks still waiting for the writer, that
+    no writer claimed or wrote (`keep`), leave the ledger so Gemini picks them
+    as usual. Returns the keys released."""
+    keep = set(keep or ())
+    with _lock:
+        st = load(root)
+        gone = [k for k, e in st["ledger"].items()
+                if e.get("status") == WRITER and e.get("project") not in keep]
+        for k in gone:
+            del st["ledger"][k]
+        if gone:
+            save(root, st)
+    if gone:
+        audit("writer_released", keys=gone)
+    return gone
+
+
+def fallback_due(st, now=None, busy=()):
+    """Picks that waited longer than agent_fallback_hours for the writer and
+    that no writer holds (`busy`: claimed or handed-over projects), oldest
+    first. Empty when the setting is 0 (the default: never)."""
+    hours = float(st["settings"].get("agent_fallback_hours") or 0)
+    if hours <= 0:
+        return []
+    busy = set(busy or ())
+    return [e for e in writer_waiting(st["ledger"], now)
+            if e["waited_seconds"] > hours * 3600 and e.get("project") not in busy]
 
 
 def today_count(ledger, now=None):
@@ -638,6 +762,8 @@ def priority_rows(st, series_view, canon, live_projects=(), now=None, running=No
                                                "or Resume it in the jobs bar")
         elif le and le.get("status") == "queued" and (running is None or le.get("project") not in running):
             row.update(state="queued", reason="in line — starts when the one before it finishes")
+        elif le and le.get("status") == WRITER:
+            row.update(state="running", reason="prepared — waiting for the writer's hand-over")
         elif le and le.get("status") in LIVE:
             row.update(state="running", reason="being made now")
         elif ch not in listed:
@@ -741,6 +867,61 @@ def decide(st, rows, *, queue_busy, spent, cap, now=None, ap_spent=0.0, prio=Non
     return None, p
 
 
+def _pick_for_writer(root, deps, p, url, pid, key, now):
+    """engine "agent": prepare the pick for free (deps["prepare"](url)) instead
+    of ingesting it; the ledger holds it as waiting for the writer."""
+    why = "your scheduled list" if p.get("priority") else "round robin"
+    try:
+        deps["prepare"](url)
+        error = None
+    except Exception as e:  # noqa — a refused or failed prepare is a strike, never a crash
+        error = str(getattr(e, "detail", None) or e) or type(e).__name__
+    record_writer(root, key, series_id=p["series_id"], chapter=p["next"], project=pid, url=url,
+                  error=error, now=now)
+    started = {"series": p["title"], "chapter": p["next"], "job": None, "project": pid, "at": now,
+               "engine": "agent", "waiting_for": "writer"}
+    if error:
+        runtime["last_result"] = f"could not prepare {p['title']} ch.{p['next']} for the writer: {error[:160]}"
+        audit("chapter_writer_failed", key=key, error=error[:300])
+        return None
+    runtime["last_started"] = started
+    runtime["last_result"] = (f"prepared {p['title']} ch.{p['next']} for the writer"
+                              + (" (your scheduled list)" if p.get("priority") else ""))
+    audit("chapter_for_writer", **started, why=why)
+    return started
+
+
+def _fallback(root, st, deps, now, spent, cap):
+    """agent_fallback_hours > 0: the oldest pick that waited longer for the
+    writer goes to the paid ingest, under the same money and line rules as a
+    normal start (not the per-day count: it was counted when it was picked)."""
+    due = fallback_due(st, now, deps.get("writer_busy", lambda: set())())
+    if not due:
+        return None
+    if deps["queue_busy"]() or hold_left(st, now):
+        return None
+    est = estimate(st["ledger"])
+    if deps.get("ap_spend", lambda: 0.0)() + est > float(st["settings"].get("budget_usd") or 0) \
+            or (cap and spent + est > cap):
+        return None
+    e = due[0]
+    with _lock:
+        cur = load(root)
+        le = cur["ledger"].get(e["key"])
+        if le is None or le.get("status") != WRITER:
+            return None
+        job = deps["enqueue"](e["url"], "gemini")
+        le.update(status="queued", job=job, engine="gemini", fallback_at=now, updated_at=now, error=None)
+        save(root, cur)
+    hours = round(e["waited_seconds"] / 3600, 1)
+    started = {"series": e.get("series_id"), "chapter": e.get("chapter"), "job": job,
+               "project": e.get("project"), "at": now, "fallback": True}
+    runtime["last_started"] = started
+    runtime["last_result"] = f"handed {e.get('project')} to the paid ingest after {hours} h waiting for the writer"
+    audit("chapter_fallback", **started, hours=hours)
+    return started
+
+
 def tick(root, deps, now=None):
     """One scheduler pass. Starts at most one chapter. Returns what it did.
 
@@ -774,14 +955,22 @@ def tick(root, deps, now=None):
         prows = priority_rows(st, view, deps["canon"], live, now, deps.get("running_projects", lambda: None)())
         save(root, st)                              # start_from for new series, pruned Next up
         spent, cap = deps["spend"]()
+        fb = _fallback(root, st, deps, now, spent, cap)
+        if fb:
+            return fb
         reason, p = decide(st, rows, queue_busy=deps["queue_busy"](), spent=spent, cap=cap, now=now,
                            ap_spent=deps.get("ap_spend", lambda: 0.0)(), prio=priority_pick(prows))
+        engine = st["settings"].get("engine", "gemini")
+        if not reason and engine == "agent" and deps.get("preparing", lambda: False)():
+            reason = "a chapter is being downloaded and cut for the writer — the next one is prepared after it"
         if reason:
             runtime["last_result"] = "waiting: " + reason
             return None
         url = deps["chapter_url"](p, p["next"])
         pid = deps["project_id"](url)
         key = ledger_key(deps["canon"](p["mirror"]["series_key"]), p["next"])
+        if engine == "agent":
+            return _pick_for_writer(root, deps, p, url, pid, key, now)
         job = deps["enqueue"](url, st["settings"].get("engine", "gemini"))
         record_queued(root, key, series_id=p["series_id"], chapter=p["next"], project=pid,
                       job=job, source="autopilot", url=url)
@@ -845,9 +1034,19 @@ def run_now(root, deps, series_id, chapter, now=None, remake=False):
             # (Murim Psychopath ch.46, 2026-10-11): move it aside — kept, not
             # deleted ("_" folders are ignored) — so the new run starts clean
             os.replace(os.path.join(root, pid), os.path.join(root, f"_partial_{pid}_{int(now)}"))
-        job = deps["enqueue"](url, st["settings"].get("engine", "gemini"))
-        record_queued(root, key, series_id=series_id, chapter=chapter, project=pid,
-                      job=job, source="autopilot", url=url)
+        if st["settings"].get("engine") == "agent":
+            # the request goes to the writer too: prepared for free, no ingest
+            try:
+                deps["prepare"](url)
+            except Exception as e:  # noqa
+                raise ValueError(f"ch.{chapter} could not be prepared for the writer: "
+                                 f"{getattr(e, 'detail', None) or e}")
+            record_writer(root, key, series_id=series_id, chapter=chapter, project=pid, url=url, now=now)
+            job = None
+        else:
+            job = deps["enqueue"](url, st["settings"].get("engine", "gemini"))
+            record_queued(root, key, series_id=series_id, chapter=chapter, project=pid,
+                          job=job, source="autopilot", url=url)
         save_req = load(root)
         save_req["ledger"][key]["requested"] = True       # made on request, not by the picker
         save(root, save_req)
@@ -876,8 +1075,27 @@ def status(root, deps, now=None):
     ap_spent = deps.get("ap_spend", lambda: 0.0)()
     reason, p = decide(st, rows, queue_busy=deps["queue_busy"](), spent=spent, cap=cap, now=now,
                        ap_spent=ap_spent, prio=priority_pick(prows))
+    engine = st["settings"].get("engine", "gemini")
+    if not reason and engine == "agent" and deps.get("preparing", lambda: False)():
+        reason = "a chapter is being downloaded and cut for the writer — the next one is prepared after it"
     nxt = p or ((priority_pick(prows) or pick(rows)) if st["settings"].get("enabled") else None)
     ledger = st["ledger"]
+    waiting_w = writer_waiting(ledger, now)
+    fb_h = float(st["settings"].get("agent_fallback_hours") or 0)
+    agent = {"waiting_for_writer": len(waiting_w),
+             "oldest_wait_seconds": waiting_w[0]["waited_seconds"] if waiting_w else None,
+             "oldest": ({k: waiting_w[0].get(k) for k in ("project", "series_id", "chapter", "writer_at")}
+                        if waiting_w else None),
+             "fallback_hours": fb_h,
+             "fallback": (f"a chapter waiting more than {fb_h:g} h for the writer goes to the paid ingest"
+                          if fb_h > 0 else "off — a chapter waits for the writer however long it takes"),
+             "queue": "GET /api/hand/queue",
+             "next_step": ("each pick is downloaded and cut for free and waits in GET /api/hand/queue until a "
+                           "writer hands it over (POST /api/hand/<chapter>); only the voice is paid, then it "
+                           "renders by itself") if engine == "agent" else
+                          "picks go to the paid Gemini ingest",
+             "switch_back": SWITCH_BACK,
+             "switch_to_agent": 'POST /api/autopilot/settings {"engine": "agent"}'}
     recent = sorted((dict(e, key=k) for k, e in ledger.items() if e.get("source") == "autopilot"),
                     key=lambda e: e.get("updated_at") or 0, reverse=True)[:8]
     return {
@@ -897,4 +1115,5 @@ def status(root, deps, now=None):
         "tick_seconds": TICK_SECONDS,
         "hold": dict(st["hold"], left_seconds=hold_left(st, now)) if hold_left(st, now) else None,
         "series": rows, "recent": recent, "undo": UNDO,
+        "engine": engine, "agent": agent,
     }
