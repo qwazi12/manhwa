@@ -2593,3 +2593,7 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Cleanup: deleted the 3 superseded renders (fog 46 06.39PM, MP 51 11.37PM, DB 97 07.57AM; /api/exports/delete, permanent); old DM 111 board (black band) binned; voice cache entries untouched >30 days moved via /api/storage/retention/apply (1.23 GB, 11198 files); Deleted bin purged (10 items incl. DK 88-96 1.37 GB, ORV 310 test copies, the failed merges). Free 11.3 → 15.1 GB.
 - DB 97 and 98 re-render queued (keep_voice) for the card fix; DB 97-98 merge is approved+queued (Wed Nov 25 10 PM) and the build refuses to rebuild over a queued release → owner decision needed.
 - Owner asked: can the system run as usual with Claude as the substitute for every AI step except the voice? Not built yet; design proposed in chat.
+
+### 2026-11-21 20:08Z — Slot A/B pass (3 PM ET): Martial King 152-160 test running
+- Martial King 152-160 (oE3hW8x01J8) went live 3 PM ET; helper agent set up "Title and thumbnail" (plan titles A/B/C, series pictures with CH 152-160), "All changes saved", Studio shows Running; /api/abtest/mark 200. Queue todo now only nem5uWt4JMo.
+- Still open with the owner: DB 97-98 (pull + rebuild with fixed cards vs post as is; ch 97/98 re-renders queued), and the hand-engine fallback choice (wait free vs Gemini after N hours).
