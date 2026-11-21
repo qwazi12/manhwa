@@ -3938,10 +3938,17 @@ def _range_ctx(body):
                 s_slug, s_ch = _pq.series_chapter(p)
                 sid = s_slug
                 ch = s_ch
+            if ch is None and meta.get("variant"):
+                # a saved version beside the chapter ("111 (recut)") is that
+                # chapter; it was dropped silently and Dark Mage [111-recut,
+                # 112] came out as "112-112" (2026-11-21)
+                m_ = re.match(r"\s*(\d+)", str(meta.get("chapter") or ""))
+                ch = int(m_.group(1)) if m_ else None
             if sid:
                 series_ids.add(sid)
-            if ch is not None:
-                ch_list.append((int(ch), pd, p))
+            if ch is None:
+                raise HTTPException(400, f"couldn't tell which chapter {p} is")
+            ch_list.append((int(ch), pd, p))
             if not primary_pdir or _read_json(os.path.join(primary_pdir, "project.json")).get("kind") == "range":
                 primary_pdir = pd
         if not primary_pdir and ch_list:
