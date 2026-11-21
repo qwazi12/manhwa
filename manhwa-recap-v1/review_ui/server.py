@@ -647,6 +647,16 @@ def export(body: ExportIn):
 EXPORT_SPEED = float(os.environ.get("EXPORT_SPEED", "1.15"))
 
 
+def _card_series_name(series):
+    """The series name on a chapter's title card. Some sources end the slug
+    with the site's number ("doom-breaker-3197"); the card showed it as
+    "Doom Breaker 3197" (owner, 2026-11-20). Only the card drops it; project
+    ids still come from ingest.clean_series_slug unchanged."""
+    import ingest as _ing
+    slug = re.sub(r"-\d{4}$", "", _ing.clean_series_slug(series or ""))
+    return _ing.to_title_case(slug)
+
+
 def _do_export(speed=1.0):
     """Concat ONLY user-included (checkbox, T3) clips, in timeline order."""
     segs = load_segments()
@@ -675,7 +685,7 @@ def _do_export(speed=1.0):
         # suffix ("Swordmasters Youngest Son F886A8Af") because this path
         # title-cased the raw slug. Reuse ingest's cleaner — the same one the
         # project id already uses — so the card shows just the series name.
-        title = _ing.to_title_case(_ing.clean_series_slug(series or ""))
+        title = _card_series_name(series)
         if title:
             env = os.environ.copy()
             env.update({"HF_WORKSPACE": pdir,
@@ -3928,10 +3938,17 @@ def _range_ctx(body):
                 s_slug, s_ch = _pq.series_chapter(p)
                 sid = s_slug
                 ch = s_ch
+            if ch is None and meta.get("variant"):
+                # a saved version beside the chapter ("111 (recut)") is that
+                # chapter; it was dropped silently and Dark Mage [111-recut,
+                # 112] came out as "112-112" (2026-11-21)
+                m_ = re.match(r"\s*(\d+)", str(meta.get("chapter") or ""))
+                ch = int(m_.group(1)) if m_ else None
             if sid:
                 series_ids.add(sid)
-            if ch is not None:
-                ch_list.append((int(ch), pd, p))
+            if ch is None:
+                raise HTTPException(400, f"couldn't tell which chapter {p} is")
+            ch_list.append((int(ch), pd, p))
             if not primary_pdir or _read_json(os.path.join(primary_pdir, "project.json")).get("kind") == "range":
                 primary_pdir = pd
         if not primary_pdir and ch_list:
