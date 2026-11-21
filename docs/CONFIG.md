@@ -45,6 +45,23 @@ Added 2026-11-13 (branch `feat/audit-fixes-20261113`):
 | source check | each check, every 6 hours, **whether or not autopilot is on** | reads every series page for new chapters (free) |
 | account hold | after an AI-provider account failure (out of credits, bad key) | autopilot starts nothing for 30 minutes, says why, then tries one chapter; no chapter is struck for it |
 
+Added 2026-11-21 (branch `feat/autopilot-agent-engine`) — autopilot engine:
+
+| Setting (`projects/_autopilot.json` → `settings`) | Values | What it does |
+|---|---|---|
+| `engine` | `gemini` (default) · `agent` | `gemini`: each pick is the paid ingest, exactly as before. `agent`: each pick is downloaded and cut for free (the same as `POST /api/hand/prepare {url, variant: ""}`, same chapter id the paid path would use) and waits for a writer (a Claude Code session) to hand it over; only the voice is paid. Release wait, Make next, paused series, window and chapters a day are the same for both; an `agent` pick counts toward chapters a day. While one chapter is being cut, the next waits. Anything else is refused (400). |
+| `agent_fallback_hours` | `0` (default = never) … `168` | with a value above 0, a pick that has waited longer than that for the writer (and that no writer has claimed or handed over) is handed to the paid Gemini ingest, one per check, under the same line / budget / site-cap rules as a normal start. Owner's question still open; off until decided. |
+
+Set both with `POST /api/autopilot/settings {"engine": "agent"}` / `{"agent_fallback_hours": 12}`. **Undo:** `POST /api/autopilot/settings {"engine": "gemini"}`: autopilot ingests with Gemini again, and the picks still waiting for the writer that no writer claimed or handed over leave the ledger so Gemini picks them as usual (their cut panels stay; the paid ingest makes them again). Claimed or handed-over ones stay with the writer.
+
+| Flow (engine `agent`) | Steps |
+|---|---|
+| Writer's chapter | autopilot pick → free download + cut (`hand_prep.json`, state `preparing` → `ready`) → listed in `GET /api/hand/queue` → writer claims it (`POST /api/hand/queue/claim`, optional, runs out after 2 h) → `GET /api/hand/<chapter>` (panels + brief) → `POST /api/hand/<chapter>` (hand-over) → voice + board job (the autopilot ledger entry follows this job) → **render queued by itself** (keep voice) → review / auto-append / posting as usual |
+
+`GET /api/hand/queue` returns `waiting` (cut, no hand-over yet, oldest first; each with `chapter_id`, `series`, `chapter`, `prepared_at`, `waited_seconds`, `claim`, `picked_by`), `sent` (a hand-over was sent but no board was built — its job failed or was stopped), `preparing`, `failed` (prepare failed in the last 48 h), `next` (oldest unclaimed waiting chapter), `counts`. `GET /api/autopilot` → `engine`, and `agent`: `waiting_for_writer`, `oldest_wait_seconds`, `oldest`, `fallback`, `next_step`, `switch_back`.
+
+Every hand-over (autopilot's or not) whose voice + board job ends **done** joins the render queue by itself in its own voice, with the checks of `POST /api/render-queue/add` (board finished, not inside a posted video, not busy; a skip is said in Activity). A failed, stopped or budget-paused job queues nothing. Paid (Gemini) chapters are unchanged: their render still starts from Render / the render queue.
+
 Production Python packages are pinned in `deploy/requirements.txt` (the image used to install the newest release of each on every rebuild).
 
 Read-only reports: `GET /api/spend` (now also by stage, thinking tokens, Flex requested vs served), `GET /api/scorecard` (quality, corrections, cost, release timeliness; kept 5 minutes, `?fresh=1` recomputes).
