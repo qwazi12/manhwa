@@ -16,7 +16,8 @@ that has one is voice only: usage.gate refuses every paid call labelled with
 it that is not voice (usage.voice_only).
 
 Routes: POST /api/hand/prepare, GET /api/hand/<chapter>, POST /api/hand/<chapter>,
-DELETE /api/hand/<chapter> (server.py). No model call is made in this file.
+DELETE /api/hand/<chapter>, GET /api/hand/queue, POST /api/hand/queue/claim
+(server.py). No model call is made in this file.
 """
 import hashlib
 import json
@@ -25,6 +26,7 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
 import time
 
 NAME = "hand.json"
@@ -518,3 +520,95 @@ def prepare(url, pdir, slug="", say=None):
             "split_coverage": {"engine": "background-registration", "format": stats.get("format"),
                                "pages": stats.get("pages"), "panels": stats.get("panels"),
                                "refine": stats.get("refine") or {}, "vision": False}}
+
+
+# ------------------------------------------------------------------ the writer's queue
+# Owner, 2026-11-21: autopilot can hand its picks to a writer (a Claude Code
+# session) instead of Gemini. The writer polls GET /api/hand/queue for the
+# chapters that are cut and wait for a hand-over, and may claim one so two
+# writers never write the same chapter. A claim is advisory and runs out by
+# itself after CLAIM_S; a hand-over clears it.
+CLAIMS = "_hand_claims.json"
+CLAIM_S = 2 * 3600
+FAILED_SHOWN_S = 48 * 3600   # a failed prepare stays on the list this long
+_CLAIM_LOCK = threading.Lock()
+
+
+def claims(root, now=None):
+    """{chapter: {"by", "at", "until"}} for the claims that still run."""
+    now = time.time() if now is None else now
+    data = _read_json(os.path.join(root, CLAIMS))
+    data = data if isinstance(data, dict) else {}
+    return {pid: c for pid, c in data.items() if isinstance(c, dict) and float(c.get("until") or 0) > now}
+
+
+def claim(root, pid, by="", now=None):
+    """Claim a chapter for one writer. A claim another writer holds is refused
+    (HandError); the same writer (same non-empty `by`) renews its own."""
+    now = time.time() if now is None else now
+    by = str(by or "")[:80]
+    with _CLAIM_LOCK:
+        cur = claims(root, now)
+        held = cur.get(pid)
+        if held and not (by and held.get("by") == by):
+            left = int(float(held["until"]) - now)
+            raise HandError(f"{pid} is claimed by {held.get('by') or 'another writer'} for another "
+                            f"{left // 60 + 1} min")
+        cur[pid] = {"by": by, "at": now, "until": now + CLAIM_S}
+        _write_json(os.path.join(root, CLAIMS), cur)
+        return dict(cur[pid], chapter=pid)
+
+
+def claim_release(root, pid):
+    """Drop a chapter's claim (a hand-over, or the writer gives it back)."""
+    with _CLAIM_LOCK:
+        cur = claims(root)
+        gone = cur.pop(pid, None) is not None
+        if gone:
+            _write_json(os.path.join(root, CLAIMS), cur)
+        return gone
+
+
+def queue(root, live=(), picked=(), now=None):
+    """Every chapter prepared to be written by hand that has no board yet.
+    live: chapters with an ingest running or waiting (left out: being made);
+    picked: chapters autopilot picked for the writer.
+    Returns {"waiting", "sent", "preparing", "failed"}, each oldest first."""
+    now = time.time() if now is None else now
+    live, picked, held = set(live or ()), set(picked or ()), claims(root, now)
+    out = {"waiting": [], "sent": [], "preparing": [], "failed": []}
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return out
+    for pid in names:
+        if pid[:1] in (".", "_"):
+            continue
+        pdir = os.path.join(root, pid)
+        if not os.path.isfile(os.path.join(pdir, PREP)) or pid in live \
+                or os.path.exists(os.path.join(pdir, "segments.json")):
+            continue
+        rec = prep_load(pdir, now) or {}
+        state = rec.get("state")
+        series, _, chapter = pid.rpartition("_")
+        at = float(rec.get("ready_at") or rec.get("at") or 0)
+        row = {"chapter_id": pid, "series": series, "chapter": chapter, "url": rec.get("url"),
+               "state": state, "prepared_at": at or None, "waited_seconds": int(now - at) if at else None,
+               "n_panels": rec.get("n_panels"), "msg": rec.get("msg"), "error": rec.get("error"),
+               "claim": held.get(pid), "picked_by": "autopilot" if pid in picked else "manual"}
+        if state == "ready":
+            if is_hand(pdir):
+                row["state"] = "sent"
+                row["note"] = ("a hand-over was sent but no board was built (its job failed or was stopped): "
+                               "send it again (POST /api/hand/<chapter>)")
+                out["sent"].append(row)
+            else:
+                row["state"] = "waiting"
+                out["waiting"].append(row)
+        elif state == "preparing":
+            out["preparing"].append(row)
+        elif state == "failed" and now - at < FAILED_SHOWN_S:
+            out["failed"].append(row)
+    for k in out:
+        out[k].sort(key=lambda r: r["prepared_at"] or 0)
+    return out

@@ -77,6 +77,24 @@ How to pause, resume, re-run, read the logs, and recover from the usual failures
 
 Where to look: `/api/scorecard` for quality, corrections, cost and time-to-publish; `/api/spend` for cost by stage, thinking tokens and Flex served vs requested; `/api/autopilot` → `hold`.
 
+### Added 2026-11-21 (branch `feat/autopilot-agent-engine`) — autopilot written by the agent
+
+| What | How | Undo |
+|---|---|---|
+| Autopilot hands its picks to the writer (Claude Code), voice only paid | `POST /api/autopilot/settings {"engine": "agent"}` | `POST /api/autopilot/settings {"engine": "gemini"}` — Gemini again; picks no writer claimed or wrote go back to Gemini |
+| See what waits for the writer | `GET /api/autopilot` → `agent.waiting_for_writer`, `agent.oldest_wait_seconds`; the list: `GET /api/hand/queue` | — |
+| Writer: take a chapter | `GET /api/hand/queue` → `next`; `POST /api/hand/queue/claim {"chapter": "<id>", "by": "<writer name>"}` (409 when another writer holds it; runs out after 2 h) | `POST /api/hand/queue/claim {"chapter": "<id>", "release": true}` |
+| Writer: write and hand over | `GET /api/hand/<id>` (panels, brief), then `POST /api/hand/<id>` — voice, board and render follow by themselves | `DELETE /api/hand/<id>` gives the chapter back to the paid pipeline |
+| Hand a chapter that waits too long to Gemini | `POST /api/autopilot/settings {"agent_fallback_hours": N}` (off by default) | `{"agent_fallback_hours": 0}` |
+
+| What you see | What it means | What to do |
+|---|---|---|
+| Autopilot "waiting: a chapter is being downloaded and cut for the writer" | engine `agent`: one chapter is cut at a time | nothing; the next is prepared after it |
+| `/api/hand/queue` → `failed` | the free download/cut failed (source blocked, bad link); autopilot counts it as one failure and tries again after an hour, as for a failed ingest | same as a failed scrape; Retry the series to clear it |
+| `/api/hand/queue` → `sent` | a hand-over was sent but its voice + board job failed or was stopped | send the hand-over again (`POST /api/hand/<id>`) |
+| Activity: "written by hand and voiced, render NOT queued: …" | the render queue refused it (inside a posted video, busy, board not finished) | the reason is named; Render it by hand when it is fixed |
+| `waiting_for_writer` keeps growing | no writer is polling | start a writer session, or switch back to Gemini, or set `agent_fallback_hours` |
+
 ## Deploy and roll back
 
 - **Before every push** (code or docs): check nothing is running — Activity → Jobs, or `GET /api/jobsbar` returns `{"jobs":[]}`. A push restarts the backend; interrupted ingests resume once on boot, renders don't.
