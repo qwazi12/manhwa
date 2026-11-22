@@ -9113,6 +9113,8 @@ def _after_ingest(job_id):
                               job=job_id)
     except Exception as e:  # noqa
         print(f"[autopilot] ledger update failed for {job_id}: {e}", flush=True)
+    if status == "done" and rec.get("source") == "hand":
+        _hand_auto_render(job_id, rec)
     if status == "done" and rec.get("project"):
         def _check(pid=rec["project"].get("id")):
             try:
@@ -9124,6 +9126,26 @@ def _after_ingest(job_id):
             except Exception as e:  # noqa
                 print(f"[autopilot] story check failed for {pid}: {e}", flush=True)
         threading.Thread(target=_check, daemon=True).start()
+
+
+def _hand_auto_render(job_id, rec):
+    """A hand-over's voice + board job finished: queue the chapter's render in
+    its own voice, as POST /api/render-queue/add {keep_voice: true} would (same
+    checks: board finished, not inside a posted video, not busy). Found
+    2026-11-21: the hand job stops at the board and the render had to be
+    queued by hand (Dark Mage 111-recut waited ~70 min). Never raises."""
+    try:
+        pid = _job_pid(rec)
+        if not pid:
+            return
+        r = render_queue_add(RenderQueueIn(projects=[pid], keep_voice=True))
+        if r.get("added"):
+            _ev("render", f"{_pretty(pid)}: written by hand and voiced → render queued by itself", "ok")
+        else:
+            why = "; ".join(s.get("reason") or "" for s in r.get("skipped") or []) or "not added"
+            _ev("render", f"{_pretty(pid)}: written by hand and voiced, render NOT queued: {why}", "warn")
+    except Exception as e:  # noqa
+        print(f"[hand] {job_id}: render not queued: {e}", flush=True)
 
 
 # ---------------------------------------------------------- ingest queue
@@ -9309,6 +9331,10 @@ def _hand_prepare_run(url, pid, pdir, variant):
     except Exception as e:  # noqa
         _hm.prep_save(pdir, {**base, "state": "failed", "error": str(e)[:300]})
         _ev("ingest", f"{_pretty(pid)}: could not be prepared to be written by hand: {str(e)[:200]}", "warn")
+        try:                                  # an autopilot pick for the writer: one strike, as a failed ingest
+            _autopilot.writer_prepare_failed(_ingest_mod.PROJECTS, pid, str(e))
+        except Exception as e2:  # noqa
+            print(f"[hand] {pid}: autopilot ledger not updated: {e2}", flush=True)
     finally:
         _HAND_PREPARING.discard(pid)
 
@@ -9344,6 +9370,91 @@ def api_hand_prepare(body: HandPrepareIn):
                          "msg": "waiting to start"})
     threading.Thread(target=_hand_prepare_run, args=(url, pid, pdir, variant), daemon=True).start()
     return {"ok": True, "chapter": pid, "state": "preparing"}
+
+
+# ---- the writer's queue (owner, 2026-11-21: autopilot engine "agent") --------
+# Declared before /api/hand/{pid} so "queue" is not taken for a chapter id.
+def _hand_live_projects():
+    return {_job_pid(j) for j in list(INGEST.values())
+            if j.get("status") in ("queued", "running", "paused", "pausing")}
+
+
+def _hand_writer_busy():
+    """Chapters a writer holds: claimed, or handed over (hand.json written)."""
+    import hand_made as _hm
+    root = _ingest_mod.PROJECTS
+    busy = set(_hm.claims(root))
+    for e in _autopilot.load(root)["ledger"].values():
+        if e.get("status") == _autopilot.WRITER and e.get("project") and \
+                _hm.is_hand(os.path.join(root, e["project"])):
+            busy.add(e["project"])
+    return busy
+
+
+def _ap_hand_prepare(url):
+    """Autopilot engine "agent": prepare its pick for the writer (free). A
+    chapter already cut and waiting is not downloaded again."""
+    import hand_made as _hm
+    pid = _ingest_mod.project_id(url, "")
+    pdir = os.path.join(_ingest_mod.PROJECTS, pid)
+    if pid in _HAND_PREPARING or (os.path.isdir(pdir) and
+                                  (_hm.prep_load(pdir) or {}).get("state") in ("ready", "preparing")):
+        return pid
+    try:
+        return api_hand_prepare(HandPrepareIn(url=url, variant=""))["chapter"]
+    except HTTPException as e:
+        raise ValueError(str(e.detail))
+
+
+@app.get("/api/hand/queue")
+def api_hand_queue():
+    """For the writer to poll: chapters cut and waiting for a hand-over (oldest
+    first), ones whose hand-over built no board, ones being prepared and ones
+    whose prepare failed recently. "next" is the oldest unclaimed one."""
+    import hand_made as _hm
+    root = _ingest_mod.PROJECTS
+    picked = {e.get("project") for e in _autopilot.load(root)["ledger"].values()
+              if e.get("status") == _autopilot.WRITER}
+    q = _hm.queue(root, live=_hand_live_projects(), picked=picked)
+    for rows in q.values():
+        for r in rows:
+            r["name"] = _pretty(r["chapter_id"])
+    nxt = next((r["chapter_id"] for r in q["waiting"] if not r["claim"]), None)
+    st = _autopilot.settings(root)
+    return {**q, "next": nxt, "counts": {k: len(v) for k, v in q.items()},
+            "engine": st.get("engine"), "claim_hours": _hm.CLAIM_S / 3600,
+            "how": ("GET /api/hand/<chapter> for the panels and the brief; POST /api/hand/queue/claim "
+                    "{\"chapter\": id, \"by\": your name} first so no other writer takes it (runs out after "
+                    f"{_hm.CLAIM_S // 3600} h; {{\"release\": true}} gives it back); POST /api/hand/<chapter> "
+                    "hands it over: the voice is recorded and the chapter renders by itself.")}
+
+
+class HandClaimIn(BaseModel):
+    chapter: str = ""
+    pid: str = ""                 # same as chapter
+    by: str = ""
+    release: bool = False
+
+
+@app.post("/api/hand/queue/claim")
+def api_hand_claim(body: HandClaimIn):
+    """Claim a waiting chapter for one writer (409 when another writer holds
+    it), or give it back with release=true."""
+    import hand_made as _hm
+    pid = (body.chapter or body.pid or "").strip()
+    pdir = _hand_dir(pid)
+    root = _ingest_mod.PROJECTS
+    if body.release:
+        return {"ok": True, "chapter": pid, "released": _hm.claim_release(root, pid)}
+    if (_hm.prep_load(pdir) or {}).get("state") != "ready":
+        raise HTTPException(409, "this chapter is not prepared (GET /api/hand/queue lists the ones waiting)")
+    if os.path.exists(os.path.join(pdir, "segments.json")) or _hand_live_job(pid):
+        raise HTTPException(409, "this chapter is already made or being made")
+    try:
+        c = _hm.claim(root, pid, body.by)
+    except _hm.HandError as e:
+        raise HTTPException(409, str(e))
+    return {"ok": True, **c, "undo": "POST /api/hand/queue/claim {\"chapter\": id, \"release\": true}"}
 
 
 @app.get("/api/hand/{pid}")
@@ -9425,6 +9536,11 @@ def api_hand_write(pid: str, body: dict):
     # a script that replaces one: the old script, voice and board are put away
     # first; lines that did not change are not recorded again (voice cache)
     job = _enqueue_ingest(url, fresh=again, variant=variant or "", source="hand")
+    try:                     # an autopilot pick: the job now carries its ledger entry; the claim is done
+        _autopilot.writer_handed(_ingest_mod.PROJECTS, pid, job)
+        _hm.claim_release(_ingest_mod.PROJECTS, pid)
+    except Exception as e:  # noqa — bookkeeping must not refuse a hand-over
+        print(f"[hand] {pid}: autopilot ledger / claim not updated: {e}", flush=True)
     _ev("ingest", f"{_pretty(pid)}: script written by hand received ({len(rec['lines'])} lines on "
                   f"{len({ln['panel'] for ln in rec['lines']})} panels) — only the voice is paid", "ok")
     return {"ok": True, "job": job, "chapter": pid, "lines": len(rec["lines"]), "replaced": again}
@@ -11849,7 +11965,10 @@ def _ap_deps():
             "queue_busy": queue_busy, "running_projects": running_projects, "spend": spend, "chapter_url": chapter_url,
             "project_id": lambda url: _ingest_mod.project_id(url),
             "enqueue": lambda url, engine: _enqueue_ingest(url, False, engine, "", None,
-                                                           source="autopilot")}
+                                                           source="autopilot"),
+            # engine "agent": the pick is prepared for the writer, not ingested
+            "prepare": _ap_hand_prepare, "preparing": lambda: bool(_HAND_PREPARING),
+            "writer_busy": _hand_writer_busy}
 
 
 def _ap_spent_today():
@@ -12679,6 +12798,8 @@ class AutopilotSettingsIn(BaseModel):
     per_day: int | None = None
     budget_usd: float | None = None
     release_wait_hours: dict[str, float] | None = None   # {"asura": 24, "default": 2}
+    engine: str | None = None                 # "gemini" (default) | "agent" (the writer, voice only paid)
+    agent_fallback_hours: float | None = None   # 0 = never hand a waiting chapter to Gemini
 
 
 @app.post("/api/autopilot/settings")
@@ -12687,9 +12808,21 @@ def autopilot_settings(body: AutopilotSettingsIn):
         before, after = _autopilot.update_settings(_ingest_mod.PROJECTS, body.model_dump())
     except ValueError as e:
         raise HTTPException(400, str(e))
+    released = []
+    if before.get("engine") == "agent" and after.get("engine") == "gemini":
+        # back to the usual way: picks no writer took go to Gemini as usual
+        released = _autopilot.release_writer(_ingest_mod.PROJECTS, keep=_hand_writer_busy())
     if after.get("enabled") and not before.get("enabled") and _SCHED["started"]:
         threading.Thread(target=_scheduler_pass, daemon=True).start()   # start now, not in 10 min
-    return {"ok": True, "before": before, "settings": after}
+    out = {"ok": True, "before": before, "settings": after}
+    if before.get("engine") != after.get("engine"):
+        out["engine_note"] = (f"engine {before.get('engine')} → {after.get('engine')}; "
+                              + (f"{len(released)} chapter(s) waiting for the writer go back to Gemini; "
+                                 if released else "")
+                              + "undo: " + ('POST /api/autopilot/settings {"engine": "agent"}'
+                                            if after.get("engine") == "gemini" else _autopilot.SWITCH_BACK))
+        out["released"] = released
+    return out
 
 
 class AutopilotSeriesIn(BaseModel):
