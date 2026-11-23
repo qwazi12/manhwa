@@ -2687,3 +2687,10 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Building DR 81-90 (no 85) — accepted 20:11:56Z — then 92-101 (no 91), one at a time, stop below 7 GB free. Not approved/posted; Posting Review row with Decision blank to follow after an eye check.
 - A/B for 8CAxRhRtGVU: Studio still processing ("Pending", A/B Testing hidden) at 20:11Z; retry ~20:32Z. No mark.
 - Rollback: git revert -m 1 3bde571 (or reset main to 0aa2b00) and push; undo a skip with {"chapter": id, "undo": true}.
+
+### 2026-11-23 20:21Z — DR 81-90 built; disk hit 98% while two merges ran at once
+- DR 81-90 (no 85) built 20:11:56Z → video 20:15Z. While a merge stitches, its chapter row reads "failed / no board was built" (the build is a thread, not a listed job) — my first watcher took that for a failure; the second waited for the final_range file.
+- At the same time auto-append built Too Many Heroes 28-37 (28-36 had just posted, ch 37 waiting) — done 20:19Z. The two stitches together took free space 9.42 → 0.91 GB (98%, /api/health CRITICAL) at 20:17Z; temp files cleared when both finished → 6.0 GB free at 20:19Z. Guard found nothing to clean (only tts_cache 45 MB, not a guard category). No failure seen; nothing deleted by me.
+- Checked 81-90 by eye (scratchpad/rel/chk2.py): 1080p + audio, 3813 s, series picture + CH 81-90, frames clean at 3 s/25/48/52/75 %/end; timestamps 81,82,83,84,86…90. Title repeats the 78-80 hook. Posting Review sheet row 24 (Flamingo!A25), Decision blank.
+- DR 92-101 NOT built: needs > 7 GB free (a merge needs ~2-3x its size while it runs); free is 6.0. Room comes when 81-90 is approved (its singles' crops/clips become merged_copies) or after 78-80 posts.
+- Lesson: never start a merge while auto-append may build one (a series just posted with a waiting single), and allow ~5 GB headroom per merge.
