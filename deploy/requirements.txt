@@ -19,3 +19,8 @@ scipy==1.18.1
 Pillow==13.0.0
 certifi==2026.10.23
 SQLAlchemy==2.1.8
+# Media bucket (MEDIA_BUCKET=1, 2026-11-22): S3 client for the Railway
+# Storage Bucket. Imported only when the flag is on.
+boto3==1.40.76
+botocore==1.40.76
+s3transfer==0.14.0
