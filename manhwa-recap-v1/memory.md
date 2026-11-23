@@ -2699,3 +2699,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - 3 PM ET slot video published ~20:08Z (upload retried once after a broken pipe). First try 20:11Z: Studio still processing (Visibility Pending, A/B Testing hidden) — not marked. Retry ~20:32Z: Title and thumbnail test set and saved on Flamingo Recap; Studio shows "Running…" for titles and thumbnails.
 - Pairs: A (continent of heroes) ↔ "An Entire Continent Is Hunting One Demon King"; B (princess) ↔ "The Demon King Kidnapped a Princess. It Backfired."; C (torn rulebook) ↔ "The Demon King Died Playing by the Rules" (all "[28-36] … | The Demon King Overrun by Heroes").
 - /api/abtest/mark 200 ok (running, both). A/B todo now only nem5uWt4JMo (held for the owner's DEMOND decision).
+
+### 2026-11-23 21:15Z — DR 92-101 built (owner: "Damn reincarnation needs to be merged")
+- Free was 7.67 GB at 21:11Z with no jobs → POST /api/ranges/build damn-reincarnation_92..101 at 21:12:08Z (ch 91 skipped, no source) → video 21:14:41Z; free dipped to 5.4 during the stitch, 6.37 after.
+- Checked by eye (chk2.py): 1080p + audio, 3017 s, series picture + CH 92-101, frames clean; timestamps 92…101. Title repeats the 78-80 hook. Posting Review sheet row 25 (Flamingo!A26), Decision blank.
+- DR now: 78-80 queued (Tue Nov 24 10 PM ET); 81-90 and 92-101 waiting for the owner's approval in Video review. Not approved or posted by me.
