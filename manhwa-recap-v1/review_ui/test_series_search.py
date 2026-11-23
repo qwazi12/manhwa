@@ -231,3 +231,46 @@ def test_title_c_is_the_third_title_of_the_test():
         S.upsert(_root(), [{**DK_V2, "hook_c": DK_V2["hook_b"]}])                 # same as title B
     with pytest.raises(S.PackError):
         S.upsert(_root(), [{k: v for k, v in rec.items() if k != "hook_b"}])       # C without B
+
+
+def test_no_hook_to_pick_a_single_takes_the_series_search_pack_hook(tmp_path, monkeypatch):
+    """Owner, 2026-11-22: "Get rid of the need to pick a hook" — a series with
+    no locked title hook gets its saved search-pack hook when its video is
+    prepared; a series without a pack keeps the filled-in title."""
+    import seo
+    import thumbnail
+    import thumbnail_studio
+    server, root, _d = _lib(tmp_path, monkeypatch)
+
+    def chapter(n):
+        d = tmp_path / f"return-of-the-apocalypse-class-death-knight_{n}"
+        (d / "exports").mkdir(parents=True)
+        (d / "exports" / "final.mp4").write_bytes(b"v")
+        (d / "project.json").write_text(json.dumps({"id": d.name, "series": "Return of the Apocalypse-Class Death Knight",
+                                                    "series_id": DK["series_id"], "chapter": str(n)}))
+        return d
+    monkeypatch.setattr(server, "_series_locked", lambda pdir: ({}, None))
+    monkeypatch.setattr(seo, "get", lambda pdir, name: {"titles": []})          # SEO record already there
+    monkeypatch.setattr(server, "_publish_defaults_base", lambda pdir: {})
+    monkeypatch.setattr(server, "publish_defaults", lambda pdir: {})
+
+    def fake_apply(body):          # the automatic fill-in writes the AI text
+        pdir = str(tmp_path / body.project)
+        st = server.load_publish(pdir)
+        st.setdefault(body.name, {})[body.field] = {"title": "AI title", "description": "AI description"}.get(body.field, ["x"])
+        server.save_publish(pdir, st, actor="auto")
+    monkeypatch.setattr(server, "api_seo_apply", fake_apply)
+    monkeypatch.setattr(server, "_chapter_tease", lambda *a: None)
+    monkeypatch.setattr(thumbnail_studio, "get_concepts", lambda *a: {"concepts": [{"id": "c"}]})
+    monkeypatch.setattr(thumbnail, "path_for", lambda *a: "/x.png")
+    monkeypatch.setattr(server, "_series_ab_apply", lambda *a, **k: False)
+    d97 = chapter(97)
+    server._prepare_publish_labelled(str(d97), "final.mp4")
+    assert server.load_publish(str(d97))["final.mp4"]["title"] == "AI title"     # no pack: unchanged
+    hook = "He Destroyed The World, Then Regressed"
+    S.upsert(root, [{**DK, "hook": hook}])
+    d98 = chapter(98)
+    server._prepare_publish_labelled(str(d98), "final.mp4")
+    md = server.load_publish(str(d98))["final.mp4"]
+    assert md["title"] == f"[98] {hook} | {DK['search_title']}" and md["hashtags"] == DK["hashtags"]
+    assert md["tags"] == ["x"]                                                   # tags from the fill-in stay

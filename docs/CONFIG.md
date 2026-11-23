@@ -172,3 +172,7 @@ Read-only reports: `GET /api/spend` (now also by stage, thinking tokens, Flex re
 | `GET /api/hand/<chapter>/panel/<panel_id>` | one panel picture |
 | `POST /api/hand/<chapter>` | hand over descriptions, spoken lines, optional framing and packaging; queues the chapter (voice is the only paid step) |
 | `DELETE /api/hand/<chapter>` | give the chapter back to the paid pipeline |
+
+## Changed 2026-11-22: no title hook to pick
+
+The owner no longer picks a title hook per series. Needs you has no "Pick the title hook" item. When a single chapter's video is prepared and its series has no locked hook (Library → 🏷 Title hook, now optional), the title filled in automatically is replaced by the series' saved search-pack hook: `[N] hook | search name`, plus the pack's description block and three hashtags — the same as merged videos already get. Free (no model call); a series without a search pack keeps the filled-in title; posted, approved and queued videos are not changed. Undo: revert the commit; a picked hook still wins.
