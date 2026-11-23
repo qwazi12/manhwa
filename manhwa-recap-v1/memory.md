@@ -2677,3 +2677,13 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Verified live: /api/home "need" has 0 kind=hook items (38 items: 36 video_ready, 1 to_review, 1 demand); autopilot unchanged {enabled, agent}.
 - Rollback: git revert -m 1 0aa2b00 (or reset main to ea26377) and push.
 - Offered (not done): DR merge (19 singles waiting, no DR merge built), search-pack preview/apply on already-waiting DR/DB/Blinker/TS videos.
+
+### 2026-11-23 20:12Z — Deploy: merges step over no-source chapters + merged-copy cleanup (owner: "Do all 3 and deploy")
+- Owner asked why merges weren't being made and why so many Damn Reincarnation singles. Cause: auto-append only extends a series with a posted video (DR has none yet; 78-80 posts Tue Nov 24 10 PM ET), DR 85 and 91 have no source of their own (pages repeat 84/90) so a range build refused the gap, and the disk (5.2 GB free) was too full to build safely.
+- Code (branch feat/skip-and-merged-copies, 5e26fd9; merge 3bde571 on main): POST /api/hand/skip marks a chapter "no source" (why + undo); auto_append._new_run and /api/ranges/build step over a skipped chapter (never end on one); the hand queue and autopilot.candidates leave it out. New retention category merged_copies: crops/clips/unposted exports of a single that sits inside a posted/approved/queued merge (pages kept; pieces of a waiting merge kept); added to the storage guard's categories. Tests 841 passed, 2 skipped.
+- Waited for the in-flight upload (Too Many Heroes 28-36, attempt 2 after a broken pipe, egress verified moving ~0.5 MB/s) → published 8CAxRhRtGVU ~20:08Z. Pre-checks 20:09Z: jobs/render-queue/ingest idle. Pushed 0aa2b00..3bde571 20:09Z; live 20:11Z (/api/storage/retention lists merged_copies; /api/hand/queue 200).
+- Cleanup: the guard ran at boot 20:10:54Z: retention 90 items, 4.30 GB, free 5.81 → 10.12 GB; it purged that bin entry at once (free was < 6 GB), so those copies are not restorable (duplicates of content inside merges).
+- Marked damn-reincarnation_85 and _91 skipped via /api/hand/skip (hand queue waiting 13 → 11).
+- Building DR 81-90 (no 85) — accepted 20:11:56Z — then 92-101 (no 91), one at a time, stop below 7 GB free. Not approved/posted; Posting Review row with Decision blank to follow after an eye check.
+- A/B for 8CAxRhRtGVU: Studio still processing ("Pending", A/B Testing hidden) at 20:11Z; retry ~20:32Z. No mark.
+- Rollback: git revert -m 1 3bde571 (or reset main to 0aa2b00) and push; undo a skip with {"chapter": id, "undo": true}.
