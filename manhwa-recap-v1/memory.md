@@ -2657,3 +2657,11 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Scratchpad helper hw/hand.py had been wiped from the session scratchpad (~00:00 local); rebuilt from this session's own write of it. Its `wait` now falls back to GET /api/ingest/status/<job> — hand-over jobs are ingest jobs and /api/jobs/<id> answers 404 for them.
 - Skipped: TS 146 (before first video), SLR/HD (paused). Still failed: Mount Hua 189 (asura 403, already re-prepared once).
 - Notes: FS 25 uses alias "The Former Supreme Master" (brief) — 24 used "Former Absolute Supreme"; Extras 124 writes cast spellings Crebin/Sylvania over printed Krepin/Silvenia; DR uses Kristina/Narisa (86-87 had Christina/Narissa).
+
+### 2026-11-23 07:47–08:30Z — Writer pass: Sword Hound 190 + DR 93-101 handed over (10 chapters)
+- Autopilot had picked DR 93-101 (asura URLs) and Sword Hound 190 (extends the 181-189 video). Two writers.
+- Sword Hound 190: job 18f443a11868, done, 91 segments, 466.7 s — Season 2 finale (artist's note: hiatus).
+- DR (all jobs done; each chapter's first/last sheets checked to continue from the one before — no repeats this time):
+  93 8a2a56dc8a13 437.5 s · 94 39aff34faf89 430.9 s · 95 5c74d732eb40 350.5 s · 96 291c81d90bb8 334.2 s · 97 f1f031475591 251.9 s · 98 ff9f34afb27d 309.9 s · 99 f915dadfb748 336.0 s · 100 5b5d492706e1 278.9 s · 101 1ef87451c394 308.3 s.
+- DR spellings mapped to bible/continuity: Molon, Akron, Kristina, Signard, Genos, Gilead, Doynes, Sienna, Narisa.
+- Skipped: TS 146 (before first video), DR 85 + 91 (repeat pages; 91 claim held), SLR/HD (paused). Mount Hua 189 still asura 403. Last 20 jobs: none failed.
