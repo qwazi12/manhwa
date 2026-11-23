@@ -2637,3 +2637,7 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - writer-damn-reincarnation: 83 (106 lines), 84 (99), 86 (116), 87 (64), 88 (76) handed over, all jobs "written"; they render by themselves.
 - DR 85 NOT written: its 119 panels ("from 206 pages", vs 25 pages for 84) tell chapter 84's story again in another translation (Ciel's suspicion, sword draw, farewell, "Saintess" jab, dark elves); no image shared with 84 or 86. The writer's claim lapses ~04:00Z. HOLD: later writer passes skip DR 85 until the source is checked (the asura chapter/85 link may serve the wrong chapter). DR 89 is waiting (next pass).
 - Writer notes: spellings as printed (Noir Jebella, Senya, MORON, Helmud→Helmuth); new names Narissa, Garung tribe, Ujicha, Iblon Jirak.
+
+### 2026-11-23 03:06–03:08Z — A/B pass after the 10 PM slot: Death Knight 88-97 test running
+- Queue: todo = RxdkJmj71-Y (DK 88-97, published 03:00Z, oembed 200) + nem5uWt4JMo (held, DEMOND decision).
+- RxdkJmj71-Y: "Title and thumbnail" test set in Studio and saved (screen: "A/B Testing titles — Running..."), pairs A/B/C = series pictures options 58/59/60 with titles A/B/C (95/82/91 chars); marked running (note "set up in Studio 2026-11-23 03:08Z"). Nothing else on the video changed.
