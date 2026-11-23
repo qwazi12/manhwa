@@ -315,15 +315,21 @@ def _encode_multipart_formdata(fields, files):
 
 
 def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=None, _http=None, on_step=None,
-                      request_id=None):
+                      request_id=None, video_url=None):
     """request_id: the caller's own id for this upload, stored BEFORE the bytes
     are sent, so a publish cut off by a restart can ask Upload-Post whether it
     arrived instead of sending the video a second time (2026-11-13). When
-    omitted, one is made here as before."""
+    omitted, one is made here as before.
+    video_url (media bucket, 2026-11-22): a presigned HTTPS link to the same
+    video; Upload-Post documents `video` as "a file upload or a video URL" and
+    fetches a URL itself, so the bytes never leave this server. Without it the
+    file is streamed from disk as before."""
     cfg = cfg or config()
     if not cfg["api_key"]:
         raise UploadPostError("UPLOADPOST_API_KEY is not set")
-    if not os.path.exists(video_path):
+    if video_url is not None and not str(video_url).startswith("https://"):
+        raise UploadPostError("video_url must be an https link")
+    if not video_url and not os.path.exists(video_path):
         raise UploadPostError(f"Video file not found: {video_path}")
 
     platforms = set()
@@ -419,7 +425,11 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
     if "bluesky" in platforms:
         fields.append(("bluesky_text", (metadata.get("title") or "")[:300]))
 
-    files = [("video", os.path.basename(video_path), "video/mp4", video_path)]   # streamed from disk
+    if video_url:
+        fields.append(("video", str(video_url)))     # Upload-Post fetches it from the bucket
+        files = []
+    else:
+        files = [("video", os.path.basename(video_path), "video/mp4", video_path)]   # streamed from disk
     if thumbnail_path and os.path.exists(thumbnail_path):
         if on_step:
             on_step("Attaching thumbnail")
@@ -427,7 +437,8 @@ def upload_video_post(video_path, metadata, targets, thumbnail_path=None, cfg=No
         files.append(("thumbnail", os.path.basename(thumbnail_path), mime, thumbnail_path))
 
     if on_step:
-        on_step("Uploading multipart payload to Upload-Post")
+        on_step("Sending Upload-Post the media-bucket link to the video" if video_url
+                else "Uploading multipart payload to Upload-Post")
 
     body = _Multipart(fields, files)
 

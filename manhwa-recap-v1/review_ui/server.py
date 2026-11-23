@@ -59,6 +59,11 @@ app = FastAPI(title="Manhwa Recap — Review UI")
 if os.environ.get("RAILWAY_ENVIRONMENT") and not os.environ.get("SHARED_SECRET"):
     raise RuntimeError("Missing SHARED_SECRET environment variable in production")
 
+# Media bucket (2026-11-22): off unless MEDIA_BUCKET=1; on with a missing
+# bucket variable, the boot stops here naming it (media_bucket.check_config).
+import media_bucket as _mb
+_mb.check_config()
+
 
 # Deny by default (2026-10-27): the old allow-list only covered /api, /clip,
 # /thumb, /audio, /panelimg and /export, so the public Railway URL served
@@ -772,7 +777,7 @@ def _do_export(speed=1.0):
 
 
 @app.get("/export/{name}")
-def get_export(name: str, project: str = ""):
+def get_export(name: str, request: Request, project: str = ""):
     """`project` lets the drawer serve exports from any project, not just the
     active one — the reason older exports appeared to vanish."""
     import ingest as _ing
@@ -783,6 +788,15 @@ def get_export(name: str, project: str = ""):
         path = os.path.join(_ing.PROJECTS, project, "exports", safe)
     else:
         path = os.path.join(active_exports_dir(), safe)
+    if _mb.enabled():
+        # Media bucket: the bytes come from the bucket (free egress) through a
+        # short-lived presigned link, never through this server. Only a copy
+        # verified as these exact bytes is used; anything else streams as before.
+        url = _bucket_url(os.path.dirname(os.path.dirname(path)), safe, _mb.url_ttl(),
+                          attachment=request.headers.get("sec-fetch-dest") == "document")
+        if url:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store"})
     if not os.path.exists(path):
         raise HTTPException(404, "export not found")
     return FileResponse(path, media_type="video/mp4")
@@ -3875,6 +3889,8 @@ def _export_or_drive(pdir):
     name = _latest_rendered_export(pdir)
     if name:
         return name
+    if _mb.enabled() and _mb.newest(pdir):
+        return _mb.newest(pdir)          # media bucket: its newest verified copy
     rec = _drive.record(pdir) or {}
     if rec.get("video") and ((rec.get("files") or {}).get("video") or {}).get("id"):
         return rec["video"]
@@ -3885,6 +3901,12 @@ def _restore_from_drive(pdir, name):
     """Make exports/<name> exist again, from its verified Drive copy."""
     dest = os.path.join(pdir, "exports", name)
     if os.path.isfile(dest):
+        return dest
+    if _mb.enabled() and _mb.entry(pdir, name):
+        # media bucket first: fetching from it is free (bucket egress), checked by sha256
+        _mb.download_verified(pdir, name)
+        _ev("bucket", f"{_pretty(os.path.basename(pdir.rstrip('/')))}: fetched {name} back from the media "
+                      f"bucket for a merge (sha256 matched)", "ok")
         return dest
     rec = _drive.record(pdir) or {}
     vid = (rec.get("files") or {}).get("video") or {}
@@ -6375,9 +6397,13 @@ def _run_publish_job(job_id, pdir, name, publish_at=None):
                     hist.append(att)
                 _save_attempts()                       # on record before a byte is sent
                 step("uploading video to Upload-Post (%s)" % ", ".join(todo), 1)
+                # media bucket: Upload-Post fetches the verified bucket copy
+                # itself (free bucket egress) instead of this server sending it
+                vurl = _bucket_url(pdir, name, _mb.post_ttl()) if _mb.post_by_url() else None
                 try:
                     resp = mod.upload_video_post(video, md, todo, thumbnail_path=thumb_file,
-                                                 on_step=lambda m: step(m, 1), request_id=att["id"])
+                                                 on_step=lambda m: step(m, 1), request_id=att["id"],
+                                                 **({"video_url": vurl} if vurl else {}))
                     kind, info = mod.classify_response(resp)
                 except JobCancelled:
                     raise
@@ -6856,6 +6882,8 @@ def _after_export(pdir, name):
     except Exception:
         pass
     import qa_project_policy as policy
+    if name:
+        _bucket_pass_later(BUCKET_MIN_AGE_S + 10)    # media bucket on: the new video goes there too
     if name and not policy.restricted(pdir) and _drive.configured():
         _drive_copy(pdir, name)
     try:
@@ -12447,6 +12475,7 @@ def _scheduler_pass():
                      ("posting", _schedule_post_pass), ("demand", _demand_pass),
                      ("new sources", _check_new_sources), ("publish prep", _publish_prep_pass),
                      ("drive archive", _drive_archive_pass),
+                     ("media bucket", _bucket_pass_later),
                      ("auto append", _auto_append_pass),
                      ("new-chapter check", _monitor_watchdog),
                      ("autopilot", lambda: _autopilot.tick(_ingest_mod.PROJECTS, _ap_deps())),
@@ -13782,6 +13811,9 @@ _DRIVE_RUNNING = set()
 def _drive_copy_later(pdir, name):
     """Copy a finished export to Drive in the background (never blocks or fails the render)."""
     import qa_project_policy as policy
+    _bucket_pass_later(BUCKET_MIN_AGE_S + 10)    # media bucket on: send the new video there too
+    if _mb.skip_drive():
+        return
     if policy.restricted(pdir) or not name or not _drive.configured():
         return
     threading.Thread(target=_drive_copy, args=(pdir, name), daemon=True).start()
@@ -13789,7 +13821,7 @@ def _drive_copy_later(pdir, name):
 
 def _drive_copy(pdir, name):
     import qa_project_policy as policy
-    if policy.restricted(pdir):
+    if policy.restricted(pdir) or _mb.skip_drive():
         return None
     import thumbnail as _tb
     pid = os.path.basename(pdir.rstrip("/"))
@@ -13829,6 +13861,135 @@ def _drive_copy(pdir, name):
         _DRIVE_RUNNING.discard(pid)
 
 
+# ============================================ media bucket (MEDIA_BUCKET=1, 2026-11-22)
+# Off by default: with MEDIA_BUCKET unset nothing below runs. See media_bucket.py.
+_BUCKET_PASS = threading.Lock()
+BUCKET_MIN_AGE_S = 120          # a file this fresh may still be being written
+
+
+def _bucket_url(pdir, name, ttl, attachment=False):
+    """A presigned link to the verified, current bucket copy of exports/<name>,
+    or None (flag off, not uploaded yet, changed since, or the link could not
+    be made) — the caller then serves the file itself, as before."""
+    if not _mb.enabled():
+        return None
+    try:
+        rec = _mb.current(pdir, name)
+        return _mb.presigned_get(rec, ttl, filename=name, attachment=attachment) if rec else None
+    except Exception as e:  # noqa — the video still streams from here
+        _mb.STATUS["last_error"] = f"link for {name}: {str(e)[:200]}"
+        return None
+
+
+def _bucket_pass_later(delay=0):
+    """Run one bucket pass in the background (never blocks a render or the
+    scheduler). After an export `delay` lets the new file pass the age guard."""
+    if not _mb.enabled() or _BUCKET_PASS.locked():
+        return
+
+    def run():
+        if delay:
+            time.sleep(delay)
+        _bucket_pass()
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _bucket_pass(limit=None, now=None):
+    """One pass, MEDIA_BUCKET=1 only. Never two at once.
+    1. Finished videos without a current verified bucket copy are uploaded,
+       newest first, at most `limit` (MEDIA_BUCKET_PASS_LIMIT) per pass. A copy
+       counts only after the bucket's bytes were read back and hashed to the
+       local sha256 (media_bucket.upload_verified).
+    2. A POSTED video, or a chapter inside a merge for MERGED_KEEP_HOURS, then
+       leaves Railway — only after the object is re-checked (size + sha256) and
+       the local file still hashes to the recorded sha256. Unposted, queued and
+       posting videos are never deleted; neither is anything unverified.
+    Returns the number of uploads."""
+    if not _mb.enabled() or not _BUCKET_PASS.acquire(blocking=False):
+        return 0
+    import ingest as _i
+    import qa_project_policy as policy
+    limit = _mb.pass_limit() if limit is None else limit
+    now = now or time.time()
+    sent = 0
+    _mb.STATUS["running"] = True
+    try:
+        keep = _pq.protected(_i.PROJECTS)
+        found = []
+        for pid, d in _all_export_dirs():
+            pdir = os.path.dirname(d)
+            if policy.restricted(pdir):
+                continue
+            for f in os.listdir(d):
+                p = os.path.join(d, f)
+                if not f.endswith(".mp4") or f.endswith(".part.mp4") or not os.path.isfile(p):
+                    continue
+                try:
+                    found.append((os.path.getmtime(p), pid, pdir, f))
+                except OSError:
+                    continue
+        for mt, pid, pdir, f in sorted(found, reverse=True):
+            local = os.path.join(pdir, "exports", f)
+            rec = _mb.current(pdir, f)
+            if not rec:
+                if sent >= limit or now - mt < BUCKET_MIN_AGE_S:
+                    continue
+                try:
+                    rec = _mb.upload_verified(pdir, f)
+                except Exception as e:  # noqa — the local video is untouched
+                    _mb.STATUS["last_error"] = f"{pid}/{f}: {str(e)[:300]}"
+                    _ev("bucket", f"{_pretty(pid)}: {f} could not be put in the media bucket — {str(e)[:200]}",
+                        "error")
+                    continue
+                sent += 1
+                _mb.STATUS["uploaded_total"] += 1
+                _mb.STATUS["bytes_total"] += rec["size"]
+                _ev("bucket", f"{_pretty(pid)}: {f} is in the media bucket ({round(rec['size'] / 1e6)} MB, "
+                              f"sha256 read back and matched)", "ok")
+                if _mb.skip_drive():
+                    # the Drive copy used to free the render clips; with Drive off this does
+                    rendering = any(j.get("type") == "finalize" and j.get("project") == pid
+                                    and j.get("status") in ("queued", "running") for j in JOBS.values())
+                    if _cs._latest_export(pdir) == f and not rendering:
+                        _drive.free_clips(pdir)
+            if (pid, f) in keep:
+                continue
+            posted = any(r.get("status") == "published"
+                         for r in (load_publishes(pdir).get(f) or {}).get("results") or [])
+            revs = _read_json(os.path.join(pdir, "reviews.json")) or {}
+            if not (posted or _inside_a_merge(revs.get(f), now=now)):
+                continue
+            if not _mb.still_there(rec) or _mb.sha256_file(local) != rec.get("sha256"):
+                _ev("bucket", f"{_pretty(pid)}: {f} kept on Railway — its bucket copy could not be "
+                              f"re-confirmed", "warn")
+                continue
+            os.remove(local)
+            _mb.STATUS["deleted_total"] += 1
+            _ev("bucket", f"{_pretty(pid)}: {'posted' if posted else 'merged'} video {f} is safe in the media "
+                          f"bucket (sha256 matched) — removed from Railway, {round(rec['size'] / 1e6)} MB freed", "ok")
+        _mb.STATUS.update(last_pass_at=time.time(), last_pass_uploaded=sent)
+        return sent
+    finally:
+        _mb.STATUS["running"] = False
+        _BUCKET_PASS.release()
+
+
+@app.get("/api/media_bucket/status")
+def media_bucket_status():
+    """Current state of the media bucket switch and its background pass."""
+    out = {"enabled": _mb.enabled(), "skip_drive": _mb.skip_drive(), "post_by_url": _mb.post_by_url(),
+           **{k: v for k, v in _mb.STATUS.items()}}
+    if _mb.enabled():
+        waiting = 0
+        for _pid, d in _all_export_dirs():
+            pdir = os.path.dirname(d)
+            waiting += sum(1 for f in os.listdir(d)
+                           if f.endswith(".mp4") and not f.endswith(".part.mp4") and not _mb.current(pdir, f))
+        out["not_in_bucket_yet"] = waiting
+    out["undo"] = "set MEDIA_BUCKET=0 on Railway (videos then stream and upload from Railway as before)"
+    return out
+
+
 @app.get("/api/drive/status")
 def drive_status():
     import ingest as _i
@@ -13843,6 +14004,9 @@ class DriveCopyIn(BaseModel):
 def drive_copy_now(body: DriveCopyIn):
     """Copy (or re-copy) a chapter's newest video to Drive now."""
     pdir = project_dir_for(body.project)
+    if _mb.skip_drive():
+        raise HTTPException(409, "Drive video copies are off (MEDIA_BUCKET_SKIP_DRIVE=1): videos are archived "
+                                 "in the media bucket instead")
     if not _drive.configured():
         raise HTTPException(409, "Drive is not set up: GOOGLE_SERVICE_ACCOUNT_JSON and the folder id are needed on Railway")
     name = _cs._latest_export(pdir)
