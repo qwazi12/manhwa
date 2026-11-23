@@ -18,6 +18,12 @@ Candidates (each with the rule that makes it one):
   archived     the local .mp4 of a posted chapter that has a verified Drive
                copy WITH its sha256 on record, for ARCHIVE_DAYS, and is not the
                newest posted compilation
+  merged_copies  a single chapter's own video and its crops/ clips/ once a
+               merged video that holds it is posted, approved or in the
+               posting queue — the merge carries it. Kept while it is a piece of
+               a merge still waiting for review (auto-append rebuilds from those
+               pieces), and its pages/, script and voice always stay
+               (owner, 2026-11-23: "Do all 3")
   revisions    <root>/_revisions entries older than REVISION_DAYS
   tts_cache    <root>/_ttscache entries older than CACHE_DAYS
   split_lab    <root>/_splitlab entries older than CACHE_DAYS
@@ -34,7 +40,8 @@ DEFAULTS = {"WORK_DAYS": 14, "ARCHIVE_DAYS": 14, "REVISION_DAYS": 30, "CACHE_DAY
 WORK_DIRS = ("crops", "pages", "clips")
 ROOT_DIRS = {"revisions": ("_revisions", "REVISION_DAYS"), "tts_cache": ("_ttscache", "CACHE_DAYS"),
              "split_lab": ("_splitlab", "CACHE_DAYS"), "trash": ("_trash", "TRASH_DAYS")}
-CATEGORIES = ("work_files", "archived", "revisions", "tts_cache", "split_lab", "trash")
+CATEGORIES = ("work_files", "archived", "merged_copies", "revisions", "tts_cache", "split_lab", "trash")
+MERGED_COPY_DIRS = ("crops", "clips")     # pages/ stay: the chapter can be cut again without a download
 MOVED = "retention"
 
 
@@ -147,7 +154,9 @@ def survey(root, queued=()):
         # the slug for both.
         series = meta.get("series_id") or (pid.rsplit("_", 1)[0] if "_" in pid else "") or meta.get("series") or ""
         projects[pid] = {"dir": pdir, "series": series, "range": is_range,
-                         "span": span, "posted": posted, "drive": _read(os.path.join(pdir, "drive.json"))}
+                         "span": span, "posted": posted, "drive": _read(os.path.join(pdir, "drive.json")),
+                         "pieces": [x.get("project") for x in meta.get("merged_from") or []
+                                    if isinstance(x, dict) and x.get("project")] if is_range else []}
     # a chapter counts as posted when it is, or when a posted compilation covers it
     covers = {}
     for pid, p in projects.items():
@@ -170,6 +179,23 @@ def survey(root, queued=()):
     return projects
 
 
+def _held_merges(projects, queued):
+    """{merged project: {"series", "span", "why"}} for merged videos that are
+    posted, approved, queued or being posted — never rebuilt from their pieces."""
+    out = {}
+    for pid, p in projects.items():
+        if not p["range"] or not p["span"]:
+            continue
+        why = "posted" if p["posted"] else None
+        if not why:
+            exports = os.path.join(p["dir"], "exports")
+            names = [n for n in sorted(os.listdir(exports)) if n.endswith(".mp4")] if os.path.isdir(exports) else []
+            why = next((w for w in (_busy(p["dir"], n, queued) for n in names) if w), None)
+        if why:
+            out[pid] = {"series": p["series"], "span": p["span"], "why": why}
+    return out
+
+
 def plan(root, now=None, queued=(), environ=None):
     """{"candidates": [...], "kept": [...], "totals": {...}} — changes nothing."""
     now = now or time.time()
@@ -183,8 +209,15 @@ def plan(root, now=None, queued=(), environ=None):
     def keep(path, why):
         kept.append({"path": os.path.relpath(path, root), "bytes": _size(path), "why": why})
 
-    for pid, p in survey(root, queued).items():
+    projects = survey(root, queued)
+    held = _held_merges(projects, queued)
+    needed = {pc for pid, p in projects.items() if p["range"] and pid not in held for pc in p["pieces"]}
+    for pid, p in projects.items():
         pdir, settled = p["dir"], p["settled_at"]
+        dup = None
+        if not p["range"] and p["span"] and not p["posted"] and pid not in needed:   # a posted chapter: the rules below
+            dup = next((h for h, hp in held.items() if hp["series"] == p["series"]
+                        and hp["span"][0] <= p["span"][0] <= hp["span"][1]), None)
         age = (now - settled) / 86400.0 if settled else None
         exports = os.path.join(pdir, "exports")
         names = [n for n in sorted(os.listdir(exports)) if n.endswith(".mp4")] if os.path.isdir(exports) else []
@@ -193,7 +226,10 @@ def plan(root, now=None, queued=(), environ=None):
             path = os.path.join(pdir, sub)
             if not os.path.isdir(path) or not os.listdir(path):
                 continue
-            if any(busy.values()):
+            if dup and sub in MERGED_COPY_DIRS and not any(busy.values()):
+                cand("merged_copies", path, f"inside {dup} ({held[dup]['why']}); render inputs of the chapter's "
+                                            "own video, not used again", project=pid)
+            elif any(busy.values()):
                 keep(path, "this chapter has a video " + next(v for v in busy.values() if v))
             elif age is None:
                 keep(path, "not posted yet — still needed to render or re-edit")
@@ -208,6 +244,9 @@ def plan(root, now=None, queued=(), environ=None):
                         and bool(((d.get("files") or {}).get("video") or {}).get("id")))
             if busy[n]:
                 keep(path, busy[n])
+            elif dup and n not in p["posted"]:
+                cand("merged_copies", path, f"inside {dup} ({held[dup]['why']}) — the merged video carries this "
+                                            "chapter", project=pid)
             elif n not in p["posted"]:
                 keep(path, "not posted — the only finished copy of this video" if not p["range"] else
                      "compilation not posted yet")

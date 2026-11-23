@@ -569,13 +569,15 @@ def claim_release(root, pid):
         return gone
 
 
-def queue(root, live=(), picked=(), now=None):
+def queue(root, live=(), picked=(), now=None, skipped=()):
     """Every chapter prepared to be written by hand that has no board yet.
     live: chapters with an ingest running or waiting (left out: being made);
-    picked: chapters autopilot picked for the writer.
+    picked: chapters autopilot picked for the writer;
+    skipped: chapters marked as having no source (left out: nothing to write).
     Returns {"waiting", "sent", "preparing", "failed"}, each oldest first."""
     now = time.time() if now is None else now
     live, picked, held = set(live or ()), set(picked or ()), claims(root, now)
+    skipped = set(skipped or ())
     out = {"waiting": [], "sent": [], "preparing": [], "failed": []}
     try:
         names = sorted(os.listdir(root))
@@ -585,7 +587,7 @@ def queue(root, live=(), picked=(), now=None):
         if pid[:1] in (".", "_"):
             continue
         pdir = os.path.join(root, pid)
-        if not os.path.isfile(os.path.join(pdir, PREP)) or pid in live \
+        if not os.path.isfile(os.path.join(pdir, PREP)) or pid in live or pid in skipped \
                 or os.path.exists(os.path.join(pdir, "segments.json")):
             continue
         rec = prep_load(pdir, now) or {}

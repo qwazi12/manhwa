@@ -85,6 +85,7 @@ Where to look: `/api/scorecard` for quality, corrections, cost and time-to-publi
 | See what waits for the writer | `GET /api/autopilot` → `agent.waiting_for_writer`, `agent.oldest_wait_seconds`; the list: `GET /api/hand/queue` | — |
 | Writer: take a chapter | `GET /api/hand/queue` → `next`; `POST /api/hand/queue/claim {"chapter": "<id>", "by": "<writer name>"}` (409 when another writer holds it; runs out after 2 h) | `POST /api/hand/queue/claim {"chapter": "<id>", "release": true}` |
 | Writer: write and hand over | `GET /api/hand/<id>` (panels, brief), then `POST /api/hand/<id>` — voice, board and render follow by themselves | `DELETE /api/hand/<id>` gives the chapter back to the paid pipeline |
+| A chapter has no source of its own (its pages repeat the chapter before) | `POST /api/hand/skip {"chapter": "<series>_<n>", "why": "..."}` — leaves the writer's queue, autopilot never picks it, merges step over it (81-90 without 85) | `POST /api/hand/skip {"chapter": "<id>", "undo": true}` |
 | Hand a chapter that waits too long to Gemini | `POST /api/autopilot/settings {"agent_fallback_hours": N}` (off by default) | `{"agent_fallback_hours": 0}` |
 
 | What you see | What it means | What to do |
@@ -133,7 +134,7 @@ Secrets live only in Railway and Vercel variables, never in the repo. If one is 
 | Chapters are not made at the same time although `INGEST_WORKERS` > 1 | they are in the script or framing stage (one at a time), or one is paused / held | nothing | `INGEST_WORKERS=1` |
 | Final-media QA of a compilation says "N of M lines not re-measured" | those chapters were cleaned up; their voice files were measured when each chapter was exported | nothing | — |
 
-Storage clean-up (manual, never scheduled): `GET /api/storage/retention` lists what could go and why everything else is kept. `POST /api/storage/retention/apply {"categories": ["work_files"], "max_gb": 5}` moves items to `_trash/retention-<time>/`; to undo, move them back to the `path` shown. Emptying the trash (`"categories": ["trash"], "confirm": "purge"`) deletes for good. Refused while anything is running.
+Storage clean-up (manual, never scheduled): `GET /api/storage/retention` lists what could go and why everything else is kept. `POST /api/storage/retention/apply {"categories": ["work_files"], "max_gb": 5}` moves items to `_trash/retention-<time>/`; to undo, move them back to the `path` shown. Emptying the trash (`"categories": ["trash"], "confirm": "purge"`) deletes for good. Refused while anything is running. `merged_copies` (2026-11-23): a single chapter's own video and crops/clips once a merge holding it is posted, approved or queued (kept while it is a piece of a merge still waiting for review; pages, script and voice stay). The disk guard cleans `split_lab`, `revisions`, `work_files` and `merged_copies` by itself while free space is under `LOW_DISK_FREE_GB`.
 
 Where to look: `GET /api/release-calendar` for each chapter's path to publication and the 24–48 h target; `/api/spend` and `/api/logs/usage` for confirmed / estimated / uncertain / held money; `<chapter>/packaging_revisions.jsonl` for packaging history.
 

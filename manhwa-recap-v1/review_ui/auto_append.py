@@ -45,7 +45,7 @@ ELIGIBLE = ("review_pending",)
 MODES = ("cumulative", "fresh")
 
 
-def decide(posted, singles, pending, min_new=1, mode="fresh"):
+def decide(posted, singles, pending, min_new=1, mode="fresh", skip=()):
     """What to build for one series, or why not.
 
     mode: "fresh" — the merge starts after the last posted video and "base"
@@ -61,6 +61,9 @@ def decide(posted, singles, pending, min_new=1, mode="fresh"):
                "pieces": [{"project", "name"}]}] — merged videos of the
              series that are NOT posted.
     min_new: new chapters needed before a merge is built.
+    skip:    chapters marked as having no source of their own (owner, 2026-11-23:
+             Damn Reincarnation 85 and 91 repeat the chapter before); the run of
+             new chapters steps over them instead of stopping there.
 
     Returns {"action": "build", "base", "start", "end", "projects", "retire"}
     or {"action": "none" | "wait", "why"}. "base" is the posted video whose
@@ -72,24 +75,12 @@ def decide(posted, singles, pending, min_new=1, mode="fresh"):
         return {"action": "none", "why": "nothing posted yet"}
     base = max(posted, key=lambda p: (int(p["end"]), float(p.get("at") or 0)))
     if mode == "cumulative":
-        return _decide_cumulative(base, singles, pending, min_new)
+        return _decide_cumulative(base, singles, pending, min_new, skip)
     b_end = int(base["end"])
     start = b_end + 1
     pend = {p["project"]: p for p in pending}
 
-    run, n = [], start
-    while n in singles:
-        s = singles[n]
-        if not s.get("has_video") or s.get("superseded"):
-            break
-        mi = s.get("merged_into")
-        if s.get("status") == "merged":
-            if mi not in pend:            # inside a posted video, or one that's gone
-                break
-        elif s.get("status") not in ELIGIBLE:
-            break
-        run.append(n)
-        n += 1
+    run = _new_run(singles, pend, start, skip)
     if not run:
         return {"action": "none", "why": f"no new rendered chapter after {b_end}"}
     last = run[-1]
@@ -117,10 +108,15 @@ def decide(posted, singles, pending, min_new=1, mode="fresh"):
             "retire": [p["project"] for p in stale]}
 
 
-def _new_run(singles, pend, first):
-    """Consecutive rendered chapters from `first` that may join a merge."""
+def _new_run(singles, pend, first, skip=()):
+    """Consecutive rendered chapters from `first` that may join a merge; a
+    chapter in `skip` (no source of its own) is stepped over, never ended on."""
     run, n = [], first
-    while n in singles:
+    skip = set(skip or ())
+    while n in singles or (n in skip and any(c > n for c in singles)):
+        if n not in singles:
+            n += 1
+            continue
         s = singles[n]
         if not s.get("has_video") or s.get("superseded"):
             break
@@ -134,13 +130,13 @@ def _new_run(singles, pend, first):
     return run
 
 
-def _decide_cumulative(base, singles, pending, min_new):
+def _decide_cumulative(base, singles, pending, min_new, skip=()):
     """Posted a-b + new chapters b+1..n -> a-n, with the posted video as the
     first piece. A waiting merge that already holds the posted video is
     replaced by the longer one; an approved one is never replaced."""
     b_start, b_end = int(base["start"]), int(base["end"])
     pend = {p["project"]: p for p in pending}
-    run = _new_run(singles, pend, b_end + 1)
+    run = _new_run(singles, pend, b_end + 1, skip)
     if not run:
         return {"action": "none", "why": f"no new rendered chapter after {b_end}"}
     last = run[-1]
