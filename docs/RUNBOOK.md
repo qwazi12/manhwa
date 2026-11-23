@@ -152,3 +152,42 @@ unchanged lines are not recorded twice). If the chapter fails with "the panels c
 was written", prepare was run again after the script was written: look at the panels again and send the
 script again. A paid step refused with "written by hand and pays for voice only" is the lock working; to
 let the chapter use the paid steps, `DELETE /api/hand/<chapter>`.
+
+## Added 2026-11-22 (branch `feat/media-bucket`) — media bucket
+
+What it is, switches and records: CONFIG.md → "media bucket". Off until `MEDIA_BUCKET=1`.
+
+**Turn it on (Railway dashboard, owner).**
+1. Project `recap-studio` → production → service `recap-studio` → **Variables** → **New Variable** → for each of
+   `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `ENDPOINT`, `REGION`: name it exactly that and, as its value,
+   pick the `recap-media` bucket's variable of the same name from the reference picker (it is written as
+   `${{recap-media.BUCKET}}` and so on). Do not paste the values. (Or use the bucket's **Credentials** tab →
+   connect to the service, choosing the AWS SDK preset, and check the five names above exist on the service.)
+2. Add `MEDIA_BUCKET` = `1`. Leave `MEDIA_BUCKET_SKIP_DRIVE` unset for the first week.
+3. Deploy the branch's code (it needs `boto3`, which is in `deploy/requirements.txt`). Check nothing is running first.
+4. Check: deploy log has no `MEDIA_BUCKET=1 but these bucket variables are not set`; `GET /api/media_bucket/status`
+   → `enabled: true`, and after the first pass `uploaded_total` > 0 and `last_error` null; Activity shows
+   "… is in the media bucket (… sha256 read back and matched)". Open a video in the studio: the browser's network
+   tab shows `/export/…` → 302 → `…storageapi.dev/…` and the video plays and seeks.
+5. The first post after that: Activity / publish stage says "Sending Upload-Post the media-bucket link"; confirm
+   the post arrives on YouTube as usual.
+
+**Cost note.** Uploading INTO the bucket is billed service egress, the same as a Drive copy. With Drive still on,
+every finished video goes out twice (Drive + bucket) and the saving is only on site viewing and posting. The real
+saving comes from `MEDIA_BUCKET_SKIP_DRIVE=1` (bucket replaces Drive as the video archive) after a trial week.
+Bucket storage is $0.015/GB-month and grows with every video kept there; there is no bucket clean-up yet.
+
+**Pause / undo.** `MEDIA_BUCKET=0` (or delete it) and redeploy/restart: videos stream and upload from Railway
+exactly as before. Nothing is lost: videos deleted from the volume by the bucket pass are still in the bucket
+(and in Drive when Drive copies were on); while the switch is off those videos show as gone, like videos moved to
+Drive today. To bring one back without the switch, turn it on again (merges fetch from the bucket). Only posting
+back to bytes: `MEDIA_BUCKET_POST_BY_URL=0`. Drive back on: unset `MEDIA_BUCKET_SKIP_DRIVE` (videos made while it
+was set are in the bucket only; `POST /api/drive/copy` copies a chapter's newest video if it is on the volume).
+
+| What you see | What it means | What to do |
+|---|---|---|
+| Deploy fails: `MEDIA_BUCKET=1 but these bucket variables are not set: …` | a variable reference is missing on the service | add the named ones (step 1) or set `MEDIA_BUCKET=0` |
+| Activity: "… could not be put in the media bucket — …" / `last_error` | upload or read-back failed (network, credentials, the copy did not hash to the local sha256); nothing was recorded or deleted | the next pass retries; if it repeats, check the bucket credentials (Credentials tab → reset, then redeploy) |
+| Activity: "… kept on Railway — its bucket copy could not be re-confirmed" | before a delete, the object was missing or its size/sha256 differed, or the local file changed | nothing is deleted; the next pass re-uploads a changed file |
+| A video does not play in the studio, network tab shows 403 from storageapi.dev | the presigned link expired mid-watch (6 h) or the clock/credentials are wrong | reload the page (a new link is made); raise `MEDIA_BUCKET_URL_TTL` if it recurs |
+| A post fails at Upload-Post with a fetch/URL error | Upload-Post could not download the link | `MEDIA_BUCKET_POST_BY_URL=0` and retry the post (bytes as before) |

@@ -172,3 +172,43 @@ Read-only reports: `GET /api/spend` (now also by stage, thinking tokens, Flex re
 | `GET /api/hand/<chapter>/panel/<panel_id>` | one panel picture |
 | `POST /api/hand/<chapter>` | hand over descriptions, spoken lines, optional framing and packaging; queues the chapter (voice is the only paid step) |
 | `DELETE /api/hand/<chapter>` | give the chapter back to the paid pipeline |
+
+## Added 2026-11-22 (branch `feat/media-bucket`) — media bucket (off by default)
+
+Railway bills service egress ($0.05/GB); a Storage Bucket's egress is free. With the switch on, finished
+videos are uploaded once to the `recap-media` bucket (Railway project `recap-studio`, production,
+region iad) and then reach the site, ffmpeg checks and Upload-Post through short-lived presigned links,
+not through the server. Code: `review_ui/media_bucket.py`, `_bucket_pass` / `_bucket_url` in `server.py`.
+
+**Railway (backend) variables.** The five credentials are the bucket's own variable names
+(docs.railway.com/storage-buckets); link them as variable references, never paste values.
+
+| Name | Purpose | Default |
+|---|---|---|
+| `MEDIA_BUCKET` | `1` = on. Anything else = off: none of the variables below are read and the studio behaves as before | off |
+| `BUCKET` | the S3 bucket name (the bucket's `BUCKET` variable — not `RAILWAY_BUCKET_NAME`) | required when on |
+| `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY` | the bucket's S3 credentials (read + write) | required when on |
+| `ENDPOINT` | the bucket's S3 endpoint (`https://t3.storageapi.dev` for new buckets) | required when on |
+| `REGION` | the bucket's region value | required when on |
+| `MEDIA_BUCKET_SKIP_DRIVE` | `1` = stop copying videos to Google Drive; the bucket is then the video archive. Ignored unless `MEDIA_BUCKET=1` | off (Drive copies continue) |
+| `MEDIA_BUCKET_POST_BY_URL` | `0` = keep sending the video bytes to Upload-Post | `1` (send the link) |
+| `MEDIA_BUCKET_URL_TTL` | life of a site/ffmpeg link, seconds (60–604800) | 21600 (6 h) |
+| `MEDIA_BUCKET_POST_TTL` | life of the link given to Upload-Post, seconds (60–604800) | 86400 (24 h) |
+| `MEDIA_BUCKET_PASS_LIMIT` | uploads per background pass | 4 |
+| `MEDIA_BUCKET_PATH_STYLE` | `1` = path-style URLs (the bucket's Credentials tab says if it needs them) | off (virtual-hosted) |
+
+With `MEDIA_BUCKET=1` and any of the five credentials missing, the backend **does not start** and the
+deploy log names the missing variable(s); same for a bad TTL number or a missing `boto3`.
+
+| Step | When | What |
+|---|---|---|
+| media bucket pass | each scheduler check (10 min) and about 2 minutes after every export or merge build — in its own thread, never two at once | uploads finished videos that have no current bucket copy (newest first, at most `MEDIA_BUCKET_PASS_LIMIT`; files younger than 2 minutes wait). A copy counts only after the bucket's bytes are read back and hash to the local sha256. Then a **posted** video, or a chapter inside a merge for `MERGED_KEEP_HOURS`, is deleted from the volume — only after the object is re-checked (size + sha256) and the local file still hashes to the recorded sha256. Unposted, queued and posting videos are never deleted |
+| `/export/<name>` | each request | 302 to a presigned bucket link when a verified copy of exactly that file exists (or the local file is gone); otherwise the file streams from Railway as before. A browser download (`Sec-Fetch-Dest: document`) gets `attachment` |
+| posting | each upload | Upload-Post gets `video=<24 h presigned link>` instead of the bytes (it documents `video` as "a file upload or a video URL"); thumbnails are still sent as files. No current bucket copy → bytes as before |
+| merge restore | when a merge needs a piece that left the volume | fetched from the bucket first (free, sha256-checked), else from Drive as before |
+
+| Record / endpoint | What |
+|---|---|
+| `<chapter>/bucket.json` → `objects[<video>]` | `key`, `size`, `sha256`, `mtime_ns`, `ino`, `at`, `verified` — written only after the read-back matched |
+| `GET /api/media_bucket/status` | `enabled`, `skip_drive`, `post_by_url`, `running`, `last_pass_at`, `last_pass_uploaded`, `uploaded_total`, `bytes_total`, `deleted_total`, `last_error`, `not_in_bucket_yet`, `undo` |
+| Activity kind `bucket` | every upload, delete, failure and fetch-back |
