@@ -2665,3 +2665,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
   93 8a2a56dc8a13 437.5 s · 94 39aff34faf89 430.9 s · 95 5c74d732eb40 350.5 s · 96 291c81d90bb8 334.2 s · 97 f1f031475591 251.9 s · 98 ff9f34afb27d 309.9 s · 99 f915dadfb748 336.0 s · 100 5b5d492706e1 278.9 s · 101 1ef87451c394 308.3 s.
 - DR spellings mapped to bible/continuity: Molon, Akron, Kristina, Signard, Genos, Gilead, Doynes, Sienna, Narisa.
 - Skipped: TS 146 (before first video), DR 85 + 91 (repeat pages; 91 claim held), SLR/HD (paused). Mount Hua 189 still asura 403. Last 20 jobs: none failed.
+
+### 2026-11-23 15:47–15:54Z — Writer pass: Indomitable Martial King 161 handed over
+- IMK 161: job ff0be7198a94 done, 97 segments, 504.3 s; continuity checked by eye (starts the morning after 160's night assassination). Balloons spell the chancellor "Karl" (160's script said "Carl").
+- 10 AM ET A/B pass (15:06Z): nothing posted — /api/schedule shows 0 videos ready; todo only nem5uWt4JMo (held).
+- Skipped: TS 146, DR 85 + 91 (repeats), SLR/HD (paused). Mount Hua 189 still asura 403. Recent jobs: none failed.
