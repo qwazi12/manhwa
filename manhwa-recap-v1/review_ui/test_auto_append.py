@@ -64,7 +64,10 @@ def test_approved_merge_is_never_replaced():
     pend = [{"project": "s_ch31-31", "start": 31, "end": 31, "building": False, "approved": True, "pieces": []}]
     singles = {31: _single("s_31", "merged", "s_ch31-31"), 32: _single("s_32")}
     d = aa.decide(POSTED, singles, pend)
-    assert d["action"] == "wait" and "approved" in d["why"]
+    # owner, 2026-11-23: the approved one stays queued as it is; the longer
+    # video is built next to it and takes its place once approved
+    assert d["action"] == "build" and (d["start"], d["end"]) == (31, 32), d
+    assert d["retire"] == [] and d["extends"] == ["s_ch31-31"]
 
 
 def test_building_waits():
@@ -147,7 +150,9 @@ def test_cumulative_replaces_a_waiting_merge_but_never_an_approved_one():
     assert (d["start"], d["end"]) == (1, 6) and d["retire"] == ["s_ch1-5"]
     assert d["projects"] == ["s_ch1-4", "s_5", "s_6"]
     held = aa.decide(posted, singles, [dict(waiting, approved=True)], mode="cumulative")
-    assert held["action"] == "wait" and "ch 6 will be added" in held["why"]
+    # owner, 2026-11-23: never replaced, but extended beside it (takes its place once approved)
+    assert held["action"] == "build" and (held["start"], held["end"]) == (1, 6)
+    assert held["retire"] == [] and held["extends"] == ["s_ch1-5"]
 
 
 def test_cumulative_waits_for_min_new_and_for_a_build_in_progress():

@@ -1312,6 +1312,7 @@ def _schedule_on_verdict(pid, name, status):
             added, _skip = _pq1.add(_i.PROJECTS, [{"project": pid, "name": name}])
             if added:
                 _ev("publish", f"{_pretty(pid)} approved → scheduled for the next free slot")
+                _take_place_of_extended(pid, name)
             return True
         if status in ("sent_back", "review_pending"):
             for x in _pq1.load(_i.PROJECTS)["items"]:
@@ -1321,6 +1322,45 @@ def _schedule_on_verdict(pid, name, status):
     except Exception as e:  # noqa — the verdict itself is saved
         print(f"[review] queue not updated: {e}", flush=True)
     return False
+
+
+def _take_place_of_extended(pid, name):
+    """A longer video built over a waiting, approved one (auto_append
+    ._extend_waiting, owner 2026-11-23) takes that one's place on the posting
+    schedule once it is approved; the shorter one leaves the queue and goes to
+    the Deleted bin (restorable). One that is already posting is left alone."""
+    import ingest as _i
+    import publish_queue as _pq1
+    meta = _read_json(os.path.join(project_dir_for(pid), "project.json")) or {}
+    olds = [o for o in ((meta.get("append") or {}).get("extends") or []) if o and o != pid]
+    if not olds:
+        return
+    items = _pq1.load(_i.PROJECTS)["items"]
+    queued = [x for x in items if x["status"] == "queued"]
+    mine = next((x for x in queued if (x["project"], x["name"]) == (pid, name)), None)
+    if not mine:
+        return
+    for old in olds:
+        ox = next((x for x in queued if x["project"] == old), None)
+        if any(x["project"] == old and x["status"] == "posting" for x in items):
+            _ev("publish", f"{_pretty(old)} is posting right now — {_pretty(pid)} stays in the next free slot", "warn")
+            continue
+        if ox:
+            order = [x["id"] for x in queued if x["id"] != mine["id"]]
+            order.insert(order.index(ox["id"]), mine["id"])
+            _pq1.reorder(_i.PROJECTS, order)
+            queued = [x for x in _pq1.load(_i.PROJECTS)["items"] if x["status"] == "queued"]
+        try:
+            kept = api_range_unmerge(UnmergeIn(project=old)).get("kept_as")
+            if kept:
+                binned = f"{old}__{int(time.time())}"
+                os.replace(os.path.join(_i.PROJECTS, kept), os.path.join(_trash_root(), binned))
+                os.utime(os.path.join(_trash_root(), binned))
+            _ev("publish", f"{_pretty(pid)} approved → takes {_pretty(old)}'s place on the schedule; "
+                           f"{_pretty(old)} is in Deleted (restorable)", "ok")
+        except Exception as e:  # noqa — the new video is queued either way
+            _ev("publish", f"{_pretty(old)}: couldn't move aside after {_pretty(pid)} was approved — "
+                           f"{getattr(e, 'detail', e)}", "warn")
 
 
 # ====================================================================
@@ -4652,7 +4692,7 @@ def _auto_append_inputs():
                 ex = b.get("export") or ""
                 q_active = any(it.get("project") == pid and it.get("status") in _pq.ACTIVE
                                for it in _pq.load(_i.PROJECTS).get("items", []))
-                pending.append({"project": pid, "start": a_, "end": e_, "building": False,
+                pending.append({"project": pid, "name": ex, "start": a_, "end": e_, "building": False,
                                 "approved": q_active or (bool(ex) and review_state(pdir, ex)["status"] == "approved"),
                                 "pieces": meta.get("merged_from") or []})
             elif b.get("status") != "error":
@@ -4667,7 +4707,7 @@ def _auto_append_inputs():
     # chapter details only where they can matter: after the series' last posted chapter
     for (sid, n), pdir in chapters.items():
         posted, singles, _p = series[sid]
-        if not posted or n <= max(int(p["end"]) for p in posted):
+        if posted and n <= max(int(p["end"]) for p in posted):
             continue
         name = _export_or_drive(pdir)
         rv = review_state(pdir, name) if name else {"status": None, "superseded": False}
@@ -4712,6 +4752,35 @@ def _series_label(sid, pid):
     return m.get("series") or sid
 
 
+MERGE_HEADROOM_GB = float(os.environ.get("MERGE_HEADROOM_GB", "1.5"))
+
+
+def _merge_room(projects):
+    """Why an automatic merge can't start now, or "". 2026-11-23: two merges
+    stitching at once took the disk from 9.4 to 0.9 GB free. One at a time,
+    and only with room for the pieces fetched back from Drive, the stitched
+    file and its working copy (seen: about 1.7x the pieces)."""
+    if _RANGE_BUILDING:
+        return "another merged video is being built"
+    local = remote = 0
+    for pid in projects:
+        try:
+            pdir = project_dir_for(pid)
+            n = _export_or_drive(pdir)
+            f = os.path.join(pdir, "exports", n) if n else ""
+            if f and os.path.isfile(f):
+                local += os.path.getsize(f)
+            else:
+                remote += int((((_drive.record(pdir) or {}).get("files") or {}).get("video") or {}).get("size") or 0)
+        except Exception:  # noqa — an unreadable piece is the build's to report
+            pass
+    need = (1.7 * (local + remote) + remote) / 1e9 + MERGE_HEADROOM_GB
+    free = shutil.disk_usage(_ingest_mod.PROJECTS).free / 1e9
+    if free < need:
+        return f"not enough free disk yet ({free:.1f} GB free, about {need:.1f} GB needed)"
+    return ""
+
+
 def _auto_append_pass(apply=True, limit=1):
     """Scheduler step + after every chapter export. Builds at most `limit`
     merges per pass; logs each series' decision once, when it changes."""
@@ -4738,14 +4807,26 @@ def _auto_append_pass(apply=True, limit=1):
                 _ev("publish", f"{_series_label(sid, posted[-1]['project'] if posted else '')}: new chapters waiting for the next merge — {d['why']}", "info")
             if d["action"] == "build" and started < limit:
                 base = d["base"]
+                room = _merge_room(d["projects"])
+                if room:
+                    d = {**d, "action": "wait", "why": room}
+                    out[-1] = d
+                    key = ("wait", room)
+                    if _AUTO_APPEND["seen"].get(sid) != key:
+                        _ev("publish", f"{_series_label(sid, base['project'])}: chapters {d['start']}-{d['end']} "
+                                       f"wait to be merged — {room}", "info")
+                    _AUTO_APPEND["seen"][sid] = key
+                    continue
                 try:
                     r = api_range_build(RangeIn(projects=_expand_gone_merges(d["projects"]), append={
                         "base_project": base["project"], "base_name": base["name"],
-                        "video_id": base.get("video_id") or "", "retire": d["retire"]}))
+                        "video_id": base.get("video_id") or "", "retire": d["retire"],
+                        "extends": d.get("extends") or []}))
                     started += 1
                     d["started"] = r.get("project")
                     how = "adding the new chapter(s) to" if d["start"] <= base["start"] else "next merge after"
-                    _ev("publish", f"{_series_label(sid, base['project'])}: {how} the posted video {base['start']}-"
+                    what = "the waiting video" if "extends" in d else "the posted video"
+                    _ev("publish", f"{_series_label(sid, base['project'])}: {how} {what} {base['start']}-"
                                    f"{base['end']} → building {d['start']}-{d['end']} for Needs review", "ok")
                 except Exception as e:  # noqa — e.g. the posted video has no copy here or in Drive
                     d["error"] = str(getattr(e, "detail", e))[:200]
@@ -12428,7 +12509,7 @@ def _demand_pass():
     return out
 
 
-MERGED_KEEP_HOURS = float(os.environ.get("MERGED_KEEP_HOURS", "24"))
+MERGED_KEEP_HOURS = float(os.environ.get("MERGED_KEEP_HOURS", "6"))   # 24 until 2026-11-23 (disk)
 
 
 def _inside_a_merge(rv, now=None):

@@ -113,6 +113,9 @@ Read-only reports: `GET /api/spend` (now also by stage, thinking tokens, Flex re
 | `STITCH_ENGINE` (`clean` default / `copy`) | how merged videos are joined; `copy` is the join used before 2026-11-13 |
 | `AUTO_APPEND_MODE` (`cumulative` default / `fresh`) | how the next merge is cut. `cumulative`: the last posted video plus the new chapters (posted 1-4 + chapter 5 → 1-5; the posted video is re-used as the first piece). `fresh`: the 2026-11-08 rule — start after the last posted video, no overlapping ranges. An unknown value is refused |
 | `AUTO_APPEND_MIN` (1 when cumulative, 7 when fresh), `AUTO_APPEND_HOLD` | new chapters a merge needs; `series:chapter` pairs that post as singles |
+| Waiting merge extended (no variable; owner 2026-11-23) | new chapters after a merge that has not posted yet are added to it, also for a series with nothing posted: an unapproved waiting merge is replaced by the longer one; an approved / queued one stays queued and the longer one waits in Needs review beside it — approving it puts it in the old one's place on the schedule and bins the old one (restorable from Deleted) |
+| `MERGE_HEADROOM_GB` (1.5) | an automatic merge starts only when no other merge is building and free disk ≥ about 1.7× its pieces (+ the pieces fetched back from Drive) + this |
+| `MERGED_KEEP_HOURS` (6; was 24 until 2026-11-23) | a chapter's video inside a merge is kept here this long, then lives in Drive only (a rebuild fetches it back) |
 | `USAGE_RESERVE_TTL_S` (1800) | a hold for a paid call with no result after this long becomes **uncertain spend** (it is not dropped) |
 | `USAGE_OBSERVED_KEEP` (200) | how many recent real costs per kind / model / stage are remembered; the hold for a call is the larger of the model's estimate and the dearest of these |
 | `USAGE_UNCERTAIN_STREAK` (6), `USAGE_UNCERTAIN_COOLDOWN_S` (900) | paid calls of one job that end without an answer, in a row, before that job is refused more for this long |

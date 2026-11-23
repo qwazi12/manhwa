@@ -95,7 +95,8 @@ def test_wait_message_names_the_chapter_after_an_approved_merge():
     singles[136] = {"project": "s136", "name": "f", "has_video": True, "status": "review_pending"}
     pending = [{"project": "m", "start": 129, "end": 135, "building": False, "approved": True}]
     d = aa.decide(posted, singles, pending, min_new=7)
-    assert d["action"] == "wait" and "ch 136 ready right after it" in d["why"] and "rebuild 129-136" in d["why"]
+    # owner, 2026-11-23: no more waiting — 129-136 is built beside the approved 129-135
+    assert d["action"] == "build" and (d["start"], d["end"]) == (129, 136) and d["extends"] == ["m"], d
 
 
 def test_cumulative_mode_says_the_chapter_joins_the_posted_video(lib, monkeypatch):
