@@ -6799,6 +6799,17 @@ def _prepare_publish_labelled(pdir, name, do_seo=True):
                         filled.append(field)
                     except HTTPException:
                         pass
+            if name != DRAFT and "title" in filled:
+                # Owner, 2026-11-22: no hook to pick — a series without a locked
+                # hook takes its saved search-pack hook ("[N] hook | name"), as
+                # merged videos already do. Only over the title just filled in
+                # automatically; free (no model call).
+                try:
+                    sp = _apply_search_pack(pdir, name, why="series search pack (no hook picked)")
+                    for why in (sp or {}).get("problems") or []:
+                        _ev("publish", f"{label}: search-pack title not used — {why}", "warn")
+                except Exception as e:  # noqa — the filled-in title stays
+                    _ev("publish", f"{label}: the series search pack could not be applied — {str(e)[:160]}", "warn")
             _PREP_NOTE.pop(key, None)
         except _SkipSeo:
             pass
@@ -13537,32 +13548,8 @@ def home_view():
                          "series_id": r.get("series_id"), "cover": r.get("cover"), "auto": r.get("auto"),
                          "action": {"to_review": "Check the board", "video_ready": "Watch the video",
                                     "failed": "See why and retry", "waiting": "Resume"}[k]})
-    # Spec 10 Phase D: a series with chapters waiting on you but no title hook
-    # yet gets ONE "pick the hook" item at the top of its group.
-    seen_sid = set()
-    import ingest as _ingx
-    for n in list(need):
-        pid_ = n.get("id")
-        if not pid_ or n.get("kind") not in ("to_review", "video_ready"):
-            continue
-        try:
-            pdir_ = os.path.join(_ingx.PROJECTS, pid_)
-            sid_ = _series_ident(pdir_)[0]
-            if not sid_ or sid_ in seen_sid:
-                continue
-            seen_sid.add(sid_)
-            import series_pack as _spx
-            if ((_spx.load(_yt_root(), sid_) or {}).get("title_lock") or {}).get("approved_by_user"):
-                continue
-        except Exception:
-            continue
-        need.append({"kind": "hook", "id": pid_, "series": n.get("series"), "chapter": "-1",
-                     "series_id": n.get("series_id"), "cover": n.get("cover"),
-                     "title": f"Pick the title hook for {n.get('series')}",
-                     "status": {"key": "found", "label": "Title hook", "tone": "warn",
-                                "reason": "Every chapter's title becomes \"[N] hook — series | Manhwa Recap\". "
-                                          "Pick the hook once; only the chapter number changes after that."},
-                     "action": "Pick the hook"})
+    # Owner, 2026-11-22: no "Pick the title hook" item any more — a series
+    # without a locked hook takes its saved search-pack hook by itself.
     # Owner, 2026-10-07: review a series in chapter order (ch.81 before ch.93)
     # so posting follows it — Needs you is grouped by series, chapters ascending.
     def _chn(x):

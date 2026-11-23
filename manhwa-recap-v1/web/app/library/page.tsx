@@ -304,7 +304,7 @@ function HookPanel({ s }: { s: any }) {
             <span>Every chapter: <code>{x.example_title}</code></span>
             <span className="faint">Only the chapter number changes. Changing the hook re-titles this series’ chapters that haven’t posted.</span>
           </div>
-        ) : <span className="small" style={{ color: "var(--yellow)" }}>No hook yet — this series’ chapters can’t get their final title until you pick one.</span>}
+        ) : <span className="small faint">No hook picked — nothing to do: titles use the series’ saved hook (search pack). Pick one here only to override it.</span>}
         <div className="row">
           <ConfirmButton quick className="sm" confirm="Write 3 hook ideas from this series’ research? (about 1¢)"
             onConfirm={() => act(async () => { await api("/api/series/hooks", { project: pid }); info.reload(); }, "3 ideas ready")}>✨ Suggest 3 hooks</ConfirmButton>

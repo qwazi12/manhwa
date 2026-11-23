@@ -49,9 +49,8 @@ def test_needs_you_is_grouped_by_series_in_chapter_order(tmp_path, monkeypatch):
     need = srv.home_view()["need"]
     order = [n["id"] for n in need if n.get("id") and n["kind"] != "hook"]
     assert order == ["hound_81", "hound_93", "hound_100", "mount_180", "mount_181"], order
-    # spec 10: a series without a title hook gets ONE "pick the hook" item, first in its group
-    kinds = [(n.get("series"), n["kind"]) for n in need if n.get("id")]
-    assert kinds[0] == ("Hound", "hook") and kinds.count(("Hound", "hook")) == 1
+    # owner, 2026-11-22: no "pick the hook" item any more (the search-pack hook is used)
+    assert not [n for n in need if n.get("kind") == "hook"]
 
 
 def test_approving_out_of_order_still_posts_in_chapter_order(tmp_path):
