@@ -2670,3 +2670,10 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - IMK 161: job ff0be7198a94 done, 97 segments, 504.3 s; continuity checked by eye (starts the morning after 160's night assassination). Balloons spell the chancellor "Karl" (160's script said "Carl").
 - 10 AM ET A/B pass (15:06Z): nothing posted — /api/schedule shows 0 videos ready; todo only nem5uWt4JMo (held).
 - Skipped: TS 146, DR 85 + 91 (repeats), SLR/HD (paused). Mount Hua 189 still asura 403. Recent jobs: none failed.
+
+### 2026-11-23 16:19–16:24Z — DEPLOYED feat/no-hook-pick (owner: "Deploy")
+- Pre-checks 16:19Z: /api/jobsbar empty, /api/jobs none running, /api/render-queue none pending, /api/logs/ingest none running.
+- Merged 809dd27 into main in scratchpad/mainwt2 → 0aa2b00 (review_ui tests: 832 passed, 2 skipped); pushed 16:22Z; Railway BUILDING→SUCCESS 0aa2b00 at 16:24Z.
+- Verified live: /api/home "need" has 0 kind=hook items (38 items: 36 video_ready, 1 to_review, 1 demand); autopilot unchanged {enabled, agent}.
+- Rollback: git revert -m 1 0aa2b00 (or reset main to ea26377) and push.
+- Offered (not done): DR merge (19 singles waiting, no DR merge built), search-pack preview/apply on already-waiting DR/DB/Blinker/TS videos.
