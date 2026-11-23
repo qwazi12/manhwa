@@ -2641,3 +2641,7 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 ### 2026-11-23 03:06–03:08Z — A/B pass after the 10 PM slot: Death Knight 88-97 test running
 - Queue: todo = RxdkJmj71-Y (DK 88-97, published 03:00Z, oembed 200) + nem5uWt4JMo (held, DEMOND decision).
 - RxdkJmj71-Y: "Title and thumbnail" test set in Studio and saved (screen: "A/B Testing titles — Running..."), pairs A/B/C = series pictures options 58/59/60 with titles A/B/C (95/82/91 chars); marked running (note "set up in Studio 2026-11-23 03:08Z"). Nothing else on the video changed.
+
+### 2026-11-23 03:45Z — Writer pass: 4 writers; Mount Hua 189 refused by Asura
+- Writers: DR 89-90, Former Supreme 24, Dark Mage 114, Bountiful Harvest 94. Waiting for a free slot: Demon Lord 37, Regressor's Tale 39. Skipped: TS 146 (before first video), DR 85 (held), SLR/HD (paused).
+- Mount Hua 189 (prepared "manual"): failed HTTP 403 from asurascans; re-prepared once via POST /api/hand/prepare at ~03:46Z → failed 403 again. Not retried further (known: Asura refuses the server; it arrives once another mirror has it). Told the owner.
