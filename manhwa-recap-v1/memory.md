@@ -2694,3 +2694,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Checked 81-90 by eye (scratchpad/rel/chk2.py): 1080p + audio, 3813 s, series picture + CH 81-90, frames clean at 3 s/25/48/52/75 %/end; timestamps 81,82,83,84,86…90. Title repeats the 78-80 hook. Posting Review sheet row 24 (Flamingo!A25), Decision blank.
 - DR 92-101 NOT built: needs > 7 GB free (a merge needs ~2-3x its size while it runs); free is 6.0. Room comes when 81-90 is approved (its singles' crops/clips become merged_copies) or after 78-80 posts.
 - Lesson: never start a merge while auto-append may build one (a series just posted with a waiting single), and allow ~5 GB headroom per merge.
+
+### 2026-11-23 20:33Z — A/B test running on Too Many Heroes 28-36 (8CAxRhRtGVU)
+- 3 PM ET slot video published ~20:08Z (upload retried once after a broken pipe). First try 20:11Z: Studio still processing (Visibility Pending, A/B Testing hidden) — not marked. Retry ~20:32Z: Title and thumbnail test set and saved on Flamingo Recap; Studio shows "Running…" for titles and thumbnails.
+- Pairs: A (continent of heroes) ↔ "An Entire Continent Is Hunting One Demon King"; B (princess) ↔ "The Demon King Kidnapped a Princess. It Backfired."; C (torn rulebook) ↔ "The Demon King Died Playing by the Rules" (all "[28-36] … | The Demon King Overrun by Heroes").
+- /api/abtest/mark 200 ok (running, both). A/B todo now only nem5uWt4JMo (held for the owner's DEMOND decision).
