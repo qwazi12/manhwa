@@ -2714,3 +2714,10 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Live dry run /api/auto-append 21:53Z: build DR 78-101 (extends 78-80, retires 81-90 + 92-101), Blinker 98-103, TS 147-151, Dark Mage 111-114, Harvest 85-94 (each extends the queued one). Builds run one per scheduler pass with the room check; DR needs ~7.7 GB free (6.4 now) so it waits for room.
 - Disk: not posted videos are the load — 10 merged videos waiting for review 16 GB, the queue 6 GB, chapter files ~12.7 GB. Posting and the studio's lists read local files, so review/queue videos can't simply live in Drive without more work (offered to the owner). Mac storage is not used: the studio must run without the Mac.
 - Rollback: git revert -m 1 1859c2d (or reset main to 3bde571) and push.
+
+### 2026-11-23 23:50Z — extension merges built and checked; writer pass (Claude Code)
+- Auto-append built, one at a time with the room check: DR 78-101 (22:02Z), Blinker 98-103 (22:09Z), TS 147-151 (22:18Z), Dark Mage 111-114 (22:29Z). DR 81-90 and 92-101 are gone (retired). Blinker 98-101, TS 147-148, Dark Mage 111-112 and DR 78-80 were approved, so they stay queued; each longer video takes their slot once approved.
+- Checked by eye (scratchpad chk_ext4.jpg): all 1080p with sound, right CH cards, real pages throughout. Dark Mage 111-114's description has no per-chapter timestamps (the other three do) — told the owner, not changed.
+- Posting Review sheet (Flamingo): row 24 is now DR 78-101, row 25 (92-101) marked Retired, rows 26-28 added for Blinker 98-103, TS 147-151, Dark Mage 111-114. Decision blank on all.
+- Harvest 85-94 waits for disk room (4.1 GB free; the dry-run /api/auto-append shows "build" because the room check only runs in the real pass).
+- Writer pass: Fated Villain 372 waiting (106 panels) → one writer spawned with 371 as the previous handover. Skipped: solo-leveling-ragnarok 69-73 and the-heavenly-demon 211-215 (paused by owner), TS 146 (before the first TS video). Mount Hua 189 still failed (Asura 403).
