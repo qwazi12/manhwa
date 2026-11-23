@@ -2645,3 +2645,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 ### 2026-11-23 03:45Z — Writer pass: 4 writers; Mount Hua 189 refused by Asura
 - Writers: DR 89-90, Former Supreme 24, Dark Mage 114, Bountiful Harvest 94. Waiting for a free slot: Demon Lord 37, Regressor's Tale 39. Skipped: TS 146 (before first video), DR 85 (held), SLR/HD (paused).
 - Mount Hua 189 (prepared "manual"): failed HTTP 403 from asurascans; re-prepared once via POST /api/hand/prepare at ~03:46Z → failed 403 again. Not retried further (known: Asura refuses the server; it arrives once another mirror has it). Told the owner.
+
+### 2026-11-23 04:08Z — Writer pass results: 7 chapters handed over
+- Done (all jobs "done", render by themselves): Bountiful Harvest 94 (a1372dfdf707, ~476 s; SEASON 1 FINALE — "next spring"), Former Supreme 24 (27351156b942, 558.6 s), Dark Mage 114 (a497573aff6b, 537.9 s), DR 89 (15a766e4f6cc, ~476 s), DR 90 (80981074495f, ~423 s), Regressor's Tale 39 (a4fbbc259c5e, 539.6 s), Demon Lord 37 (981ee1e7e04a, 564.4 s).
+- Notes: DR from 89 spells "Kristina" (88 said Christina); FS 24 opening uses alias "The Former Absolute Supreme" (23 used "Former Supreme Master"); Dark Mage prints "Second Lieutenant Lee Yuna"; Demon Lord balloons spell Healan "Hileun Kagil" (cast name used).
+- Still held: DR 85 (source repeats 84). Mount Hua 189: asura 403 twice.
