@@ -71,6 +71,9 @@ def decide(posted, singles, pending, min_new=1, mode="fresh", skip=()):
     """
     if mode not in MODES:
         raise ValueError(f"unknown merge mode {mode!r}")
+    ext = _extend_waiting(posted, singles, pending, min_new, skip, mode)
+    if ext:
+        return ext
     if not posted:
         return {"action": "none", "why": "nothing posted yet"}
     base = max(posted, key=lambda p: (int(p["end"]), float(p.get("at") or 0)))
@@ -128,6 +131,61 @@ def _new_run(singles, pend, first, skip=()):
         run.append(n)
         n += 1
     return run
+
+
+def _extend_waiting(posted, singles, pending, min_new, skip=(), mode="cumulative"):
+    """Owner, 2026-11-23: "If a chapter isn't merged find out why and make the
+    fixes so you can merge them … why are we creating different merges for the
+    same series?" New chapters rendered after a merge that has NOT posted yet
+    (approved and queued, or still in Needs review) are added to it: one
+    waiting video per series, a-b + new chapters -> a-n.
+
+    The waiting merge is the head: the newest approved one, else the earliest
+    unapproved one after the last posted chapter. An approved head is never
+    replaced here — it stays queued as it is, and the longer video waits in
+    Needs review; approving it puts it in the head's place on the schedule
+    (server._schedule_on_verdict). Unapproved waiting merges inside the new
+    range are retired once it is built. In "fresh" mode a waiting merge that
+    overlaps a posted video is not extended (the fresh rule re-cuts it from the
+    next chapter) and min_new counts the whole merge. Returns None when there
+    is nothing to extend (the posted-video rules then apply)."""
+    last_posted = max((int(p["end"]) for p in posted), default=0)
+    first = (lambda p: int(p["end"])) if mode == "cumulative" else (lambda p: int(p["start"]))
+    waiting = [p for p in pending if first(p) > last_posted and not p.get("building")]
+    approved = [p for p in waiting if p.get("approved")]
+    head = (max(approved, key=lambda p: (int(p["end"]), int(p["start"]))) if approved
+            else min(waiting, key=lambda p: (int(p["start"]), int(p["end"])), default=None))
+    if head is None:
+        return None
+    pend = {p["project"]: p for p in pending}
+    run = _new_run(singles, pend, int(head["end"]) + 1, skip)
+    if not run:
+        return None
+    a, last = int(head["start"]), run[-1]
+    if any(p.get("building") for p in pending):
+        return {"action": "wait", "why": "a merged video of this series is still being built"}
+    for p in waiting:
+        if p is not head and not p.get("approved") and int(p["start"]) == a and int(p["end"]) >= last:
+            return {"action": "none", "why": f"{p['project']} already has chapters {a}-{last}"
+                                             + (f" — approving it puts it in {head['project']}'s place"
+                                                if head.get("approved") else "")}
+    count = len(run) if mode == "cumulative" else len(run) + int(head["end"]) - a + 1
+    if count < min_new:
+        return {"action": "wait", "why": f"{len(run)} new chapter(s) after {head['end']}; they are added to "
+                                         f"{a}-{head['end']} once {min_new} are ready"}
+    run_projects = [singles[c]["project"] for c in run]
+    pieces = [pc["project"] for pc in head.get("pieces") or [] if pc.get("project") not in run_projects]
+    if not pieces:
+        pieces = [head["project"]]
+    held = {pc.get("project") for p in waiting if p.get("approved") for pc in p.get("pieces") or []}
+    retire = [p["project"] for p in waiting
+              if p is not head and not p.get("approved") and p["project"] not in held
+              and int(p["start"]) >= a and int(p["end"]) <= last]
+    if not head.get("approved"):
+        retire.insert(0, head["project"])
+    return {"action": "build", "base": head, "start": a, "end": last,
+            "projects": list(dict.fromkeys(pieces + run_projects)),
+            "retire": retire, "extends": [head["project"]] if head.get("approved") else []}
 
 
 def _decide_cumulative(base, singles, pending, min_new, skip=()):

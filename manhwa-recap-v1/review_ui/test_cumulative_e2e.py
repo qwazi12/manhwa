@@ -325,10 +325,12 @@ def test_an_approved_or_queued_release_is_not_rebuilt_over(lib):
         server.api_range_build(server.RangeIn(projects=["saga_ch1-4", "saga_5"]))
     assert e.value.status_code == 409 and "approved" in e.value.detail
     assert sha(_file(L, "saga_ch1-5", "final_range_1-5.mp4")) == before
-    # chapter 6 arrives: the approved 1-5 is not replaced; 6 waits for it to post
+    # chapter 6 arrives: the approved 1-5 is not rebuilt over; owner 2026-11-23:
+    # 1-6 is built beside it (and takes its place once approved)
     L.chapter(6, 3.0)
     p = L.plan()
-    assert p["action"] == "wait" and "approved" in p["why"] and not os.path.isdir(os.path.join(L.root, "saga_ch1-6"))
+    assert p["action"] == "build" and (p["start"], p["end"]) == (1, 6) and p["extends"] == ["saga_ch1-5"], p
+    L.wait("saga_ch1-6")
     assert sha(_file(L, "saga_ch1-5", "final_range_1-5.mp4")) == before
 
 
