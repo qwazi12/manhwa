@@ -3,7 +3,8 @@
   "git": {
     "deploymentEnabled": {
       "dev/flamingo-*": false,
-      "feat/audit-fixes-*": false
+      "feat/audit-fixes-*": false,
+      "feat/media-bucket": false
     }
   }
 }
