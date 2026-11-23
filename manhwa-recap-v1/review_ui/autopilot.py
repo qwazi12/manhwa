@@ -56,6 +56,7 @@ without network or money.
 import json
 import math
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -73,6 +74,7 @@ MAX_WAIT_HOURS = 72
 ENGINES = ("gemini", "agent")
 MAX_FALLBACK_HOURS = 168
 WRITER = "writer"           # ledger status: prepared for free, waiting for the writer's hand-over
+SKIPPED = "skipped"         # ledger status: the source has no chapter of its own here (owner, 2026-11-23)
 SWITCH_BACK = 'POST /api/autopilot/settings {"engine": "gemini"} — autopilot ingests with Gemini again'
 
 
@@ -235,6 +237,8 @@ _SAY = {
     "writer_released": lambda f: (f"engine back to Gemini: {len(f.get('keys') or [])} chapter(s) no writer had "
                                   "taken go back to the paid ingest", "info"),
     "chapter_requested": lambda f: (f"made on request: {f.get('series')} ch.{f.get('chapter')}", "info"),
+    "chapter_skipped": lambda f: (f"{f.get('project')} skipped — {f.get('why')}; merges step over it", "info"),
+    "chapter_unskipped": lambda f: (f"{f.get('project')} is no longer skipped", "info"),
     "chapter_done": lambda f: (f"{f.get('key')} done", "ok"),
     "chapter_failed": lambda f: (f"{f.get('key')} failed: {f.get('error')}", "error"),
     "chapter_stopped": lambda f: (f"{f.get('key')} stopped by you", "warn"),
@@ -490,6 +494,55 @@ def writer_waiting(ledger, now=None):
     return sorted(out, key=lambda e: -e["waited_seconds"])
 
 
+def _series_of(project):
+    return re.sub(r"[^a-z0-9]", "", (project or "").rpartition("_")[0].lower())
+
+
+def skip_chapter(root, project, why, undo=False, now=None):
+    """Mark a chapter as having no source of its own (Damn Reincarnation 85 and
+    91: the pages behind them repeat the chapter before; the story carries on in
+    the next one). A skipped chapter leaves the writer's queue, is never picked
+    again, and merges step over it (auto_append, range build). undo=True clears
+    the mark (its ledger entry goes back to waiting for the writer)."""
+    now = time.time() if now is None else now
+    project = (project or "").strip()
+    series, _, ch = project.rpartition("_")
+    if not series or not ch.isdigit():
+        raise ValueError("name the chapter as <series>_<number>, e.g. damn-reincarnation_85")
+    with _lock:
+        st = load(root)
+        skipped = st.setdefault("skipped", {})
+        if undo:
+            gone = skipped.pop(project, None)
+            for e in st["ledger"].values():
+                if e.get("project") == project and e.get("status") == SKIPPED:
+                    e.update(status=e.get("skipped_from") or WRITER, updated_at=now)
+                    e.pop("skipped_from", None)
+        else:
+            why = (why or "").strip()
+            if not why:
+                raise ValueError("say why this chapter is skipped")
+            skipped[project] = {"why": why[:300], "at": now}
+            for e in st["ledger"].values():
+                if e.get("project") == project and e.get("status") != SKIPPED:
+                    e.update(skipped_from=e.get("status"), status=SKIPPED, updated_at=now)
+        save(root, st)
+    audit("chapter_skipped" if not undo else "chapter_unskipped", project=project, why=why)
+    return {"project": project, "skipped": not undo, "was_skipped": bool(gone) if undo else None}
+
+
+def skipped_projects(root):
+    """{project: {"why", "at"}} of every chapter marked as having no source."""
+    return dict(load(root).get("skipped") or {})
+
+
+def skipped_chapters(root, series_id):
+    """Chapter numbers of one series marked as having no source."""
+    key = re.sub(r"[^a-z0-9]", "", (series_id or "").lower())
+    return {int(p.rpartition("_")[2]) for p in skipped_projects(root)
+            if _series_of(p) == key and p.rpartition("_")[2].isdigit()}
+
+
 def release_writer(root, keep=()):
     """Engine switched back to gemini: picks still waiting for the writer, that
     no writer claimed or wrote (`keep`), leave the ledger so Gemini picks them
@@ -588,7 +641,7 @@ def candidates(st, series_view, canon, live_projects=(), now=None):
             if chap_key(c) < chap_key(start) or c in have:
                 continue
             e = ledger.get(ledger_key(ck, c))
-            if e and e.get("status") in MADE:
+            if e and e.get("status") in MADE + (SKIPPED,):
                 continue
             todo.append((c, e))
         row["remaining"] = [c for c, _ in todo]

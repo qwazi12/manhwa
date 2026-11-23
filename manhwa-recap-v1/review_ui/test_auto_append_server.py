@@ -351,3 +351,31 @@ def test_abtest_queue_and_mark(lib):
     assert q["have"][0]["test"]["status"] == "running"
     with pytest.raises(server.HTTPException):
         server.api_abtest_mark(server.AbMarkIn(video_id="abcdefghijk", status="maybe"))
+
+
+def test_skipped_chapter_is_stepped_over_by_auto_append_and_range_build(lib, monkeypatch):
+    """Owner 2026-11-23: Damn Reincarnation 85 has no source of its own; the
+    merge must not stop there (posted 78-80 + 81-84 then nothing, for good)."""
+    root, tmp_path = lib
+    monkeypatch.delenv("AUTO_APPEND_MODE")
+    monkeypatch.delenv("AUTO_APPEND_MIN")
+    _chapter(tmp_path, 25)                                   # 24 has no source
+    d = next(x for x in server._auto_append_pass(apply=False) if x["series"] == "hound")
+    assert (d["start"], d["end"]) == (20, 23), d
+    from fastapi.testclient import TestClient
+    c = TestClient(server.app)
+    r = c.post("/api/hand/skip", json={"chapter": "hound_24"})
+    assert r.status_code == 400                              # a reason is required
+    r = c.post("/api/hand/skip", json={"chapter": "hound_24", "why": "pages repeat ch.23"})
+    assert r.status_code == 200 and r.json()["skipped"] is True
+    d = next(x for x in server._auto_append_pass(apply=False) if x["series"] == "hound")
+    assert d["action"] == "build" and (d["start"], d["end"]) == (20, 25), d
+    assert "hound_24" not in d["projects"]
+    # a hand-built merge across the skipped chapter is accepted too
+    r = c.post("/api/ranges/build", json={"projects": ["hound_23", "hound_25"]})
+    assert r.status_code == 200, r.text
+    m = _wait(root, "hound_ch23-25")
+    assert [x["project"] for x in m["merged_from"]] == ["hound_23", "hound_25"]
+    c.post("/api/hand/skip", json={"chapter": "hound_24", "undo": True})
+    r = c.post("/api/ranges/build", json={"projects": ["hound_22", "hound_25"]})
+    assert r.status_code == 400 and "missing ch.23, 24" in r.text, r.text

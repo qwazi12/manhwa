@@ -246,8 +246,10 @@ def test_a_chapter_inside_a_posted_compilation_counts_as_posted(tree):
     d = _project(tree, "t_2", "t", 2)                                # never posted on its own
     _project(tree, "t_ch1-3", "t", span=(1, 3), posted_days=30, drive="bound", export="r.mp4")
     work = _paths(ret.plan(tree, now=NOW), "work_files")
-    assert "t_2/crops" in work
-    assert "t_2/exports/final.mp4" not in _paths(ret.plan(tree, now=NOW))    # its own video was never posted: kept
+    assert "t_2/pages" in work
+    # owner 2026-11-23: its own video and crops are a copy of what the posted merge carries
+    dup = _paths(ret.plan(tree, now=NOW), "merged_copies")
+    assert "t_2/crops" in dup and "t_2/exports/final.mp4" in dup and "t_2/pages" not in dup
     assert os.path.isdir(os.path.join(d, "crops"))
 
 
@@ -292,8 +294,10 @@ def test_a_chapter_without_a_series_id_is_covered_by_its_posted_compilation(tmp_
     _project(root, "a-tale_ch30-36", "a-tale", span=(30, 36), posted_days=20, export="r.mp4")
     _project(root, "a-tale_37", "a-tale", 37)                                  # not in any posted compilation
     work = _paths(ret.plan(root, now=NOW), "work_files")
-    assert "a-tale_36/crops" in work and "a-tale_37/crops" not in work
+    assert "a-tale_36/pages" in work and "a-tale_37/pages" not in work
     soon = _paths(ret.plan(root, now=NOW - 10 * DAY), "work_files")           # posted 10 days ago: inside 14
-    assert "a-tale_36/crops" not in soon
+    assert "a-tale_36/pages" not in soon
     short = _paths(ret.plan(root, now=NOW - 10 * DAY, environ={"RETENTION_WORK_DAYS": "3"}), "work_files")
-    assert "a-tale_36/crops" in short
+    assert "a-tale_36/pages" in short
+    dup = _paths(ret.plan(root, now=NOW), "merged_copies")                    # owner 2026-11-23
+    assert "a-tale_36/crops" in dup and "a-tale_37/crops" not in dup

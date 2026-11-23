@@ -3966,6 +3966,9 @@ def _range_ctx(body):
         start = ch_list[0][0]
         end = max(covered)
         gaps = sorted(set(range(start, end + 1)) - set(covered))
+        if gaps:      # a chapter marked as having no source is not a gap (POST /api/hand/skip)
+            gaps = [g for g in gaps if g not in _autopilot.skipped_chapters(
+                _ingest_mod.PROJECTS, _series_ident(primary_pdir)[0])]
         if gaps:
             raise HTTPException(400, "a merged video must be one unbroken run of chapters — missing ch." +
                                 ", ".join(str(g) for g in gaps[:10]))
@@ -4724,7 +4727,8 @@ def _auto_append_pass(apply=True, limit=1):
         for sid, (posted, singles, pending) in sorted(_auto_append_inputs().items()):
             if sid in holds:                          # FL-1: these chapters post as singles
                 singles = {n: x for n, x in singles.items() if n < holds[sid]}
-            d = _aa.decide(posted, singles, pending, min_new=_auto_append_min(), mode=_auto_append_mode())
+            d = _aa.decide(posted, singles, pending, min_new=_auto_append_min(), mode=_auto_append_mode(),
+                           skip=_autopilot.skipped_chapters(_ingest_mod.PROJECTS, sid))
             d["series"] = sid
             out.append(d)
             if not apply:
@@ -7187,7 +7191,8 @@ def _purge_trash(now=None, min_free_gb=None):
 LOW_DISK_FREE_GB = float(os.environ.get("LOW_DISK_FREE_GB", "6"))
 UNMERGED_BIN_HOURS = 6
 STORAGE_GUARD_SECONDS = 120
-GUARD_CATEGORIES = ("split_lab", "revisions", "work_files")   # never read again (retention.py)
+GUARD_CATEGORIES = ("split_lab", "revisions", "work_files",   # never read again (retention.py)
+                    "merged_copies")   # a chapter's own copy once its merge is posted or queued (owner, 2026-11-23)
 # While the disk is low, render inputs (crops/pages/clips) of a chapter count as
 # done this many days after it was posted (itself or inside a posted merge),
 # not retention's 14 (owner, 2026-11-19: "It should be free up the space").
@@ -9426,7 +9431,7 @@ def api_hand_queue():
     root = _ingest_mod.PROJECTS
     picked = {e.get("project") for e in _autopilot.load(root)["ledger"].values()
               if e.get("status") == _autopilot.WRITER}
-    q = _hm.queue(root, live=_hand_live_projects(), picked=picked)
+    q = _hm.queue(root, live=_hand_live_projects(), picked=picked, skipped=_autopilot.skipped_projects(root))
     for rows in q.values():
         for r in rows:
             r["name"] = _pretty(r["chapter_id"])
@@ -9466,6 +9471,25 @@ def api_hand_claim(body: HandClaimIn):
     except _hm.HandError as e:
         raise HTTPException(409, str(e))
     return {"ok": True, **c, "undo": "POST /api/hand/queue/claim {\"chapter\": id, \"release\": true}"}
+
+
+class HandSkipIn(BaseModel):
+    chapter: str = ""
+    why: str = ""
+    undo: bool = False
+
+
+@app.post("/api/hand/skip")
+def api_hand_skip(body: HandSkipIn):
+    """Mark a chapter as having no source of its own (owner, 2026-11-23: Damn
+    Reincarnation 85 and 91 repeat the chapter before). It leaves the writer's
+    queue, autopilot never picks it again, and merges step over it, so
+    81-90 is one video without 85. undo=true clears the mark."""
+    try:
+        out = _autopilot.skip_chapter(_ingest_mod.PROJECTS, body.chapter, body.why, undo=body.undo)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, **out, "undo": "POST /api/hand/skip {\"chapter\": id, \"undo\": true}"}
 
 
 @app.get("/api/hand/{pid}")
