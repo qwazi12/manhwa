@@ -2753,3 +2753,7 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Writer wrote, submitted and voiced omniscient-readers-viewpoint_315/316/317 (jobs 27ec0dd06c6f / ac62b6449aac / c088db6897c9 done; 105/102/99 lines).
 - Auto-append rebuilt the ORV merge as 309-317 (309-314 replaced, thumbnail 404). Checked by eye with chk2.py: 1080p, sound, 64 min, series picture + CH 309-317, ends on ch 317. Posting Review row 34 (A35) updated to 309-317, Decision blank (repeats 309-311, posted 15:00Z today).
 - Skipped TS 146 and paused SLR / Heavenly Demon; Mount Hua 189 still Asura 403. Free disk 5.3 GB.
+
+### 2026-11-24 20:10Z — A/B pass (3 PM ET slot): Blinker 98-103 NOT set up (Chrome window unusable)
+- aVYaoI79lFg (Magic Academy's Genius Blinker 98-103, published 20:00Z) public (oembed 200); plan "both", pictures A/B/C downloaded and viewed (real series art, CH 98-103 badges), titles 77/92/88 chars.
+- Chrome agent stopped after 2 tries: Studio edit page loaded for the right video, but the Chrome window reported 0x0 and every screenshot timed out (window likely minimized / on another Space); resize to 1440x900 did not help. Nothing changed on the video, /api/abtest/mark NOT called; stays in todo. Owner: restore the Chrome window with the Claude tab group, then this video is retried (abrun/todo_aVYaoI79lFg.json, mark_avy.py ready).
