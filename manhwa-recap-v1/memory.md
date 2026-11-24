@@ -2741,3 +2741,10 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 
 ### 2026-11-24 15:08Z — A/B pass (10 AM ET slot)
 - 9Lv8M7oyZiA (Omniscient Reader's Viewpoint 309-311, published 15:00Z) public (oembed 200); Chrome agent set up "Title and thumbnail" test in Studio: series pictures A/B/C paired with titles[0..2] (74/74/94 chars). Screen showed "Changes saved" and "A/B Testing titles — Running...". /api/abtest/mark 200; queue todo now only nem5uWt4JMo (held for owner DEMOND decision).
+
+### 2026-11-24 16:31Z — writer pass: DK 98, TS 152, ORV 312-314 written by hand; three auto-append merges checked
+- Writers (one per series) wrote, submitted and voiced: return-of-the-apocalypse-class-death-knight_98 (job c587c7245ad8 done, 86 lines), talent-swallowing-magician_152 (2f37c722964b done, 101 lines), omniscient-readers-viewpoint_312/313/314 (499729b85e0c / 1be26d193a4d / 7bb0e961d634 done). DK 97 / ORV 311 handover folders were gone (tmp cleanup); writers used brief.json story_so_far.
+- Auto-append then built TS 147-152 (extends approved, unposted 147-151), DK 88-98 (repeats posted 88-97, new ch 98 only) and ORV 309-314 (repeats 309-311 posted 15:00Z today; 309-312/309-313 replaced on the way, thumbnail 404). Checked each by eye with chk2.py: 1080p, sound, series picture + CH badge, story frames to the end.
+- Posting Review sheet rows 32-34 (A33:A35) added, Decision blank; DK and ORV flagged as repeats like the paused Harvest 85-94 / FV 361-372.
+- Skipped: TS 146 (before first TS video), paused SLR / Heavenly Demon. Still failing: Mount Hua 189 (Asura 403). Free disk 6.2 GB.
+- Note: my writer-pass one-liners earlier today read /api/auto-append key 'decisions'; the key is 'series', so their "no merges waiting" lines were unverified (state rechecked now).
