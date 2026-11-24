@@ -2738,3 +2738,6 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Fog Land 48 rendered 05:56Z, but /api/auto-append said "no new rendered chapter after 45": AUTO_APPEND_HOLD (Railway) still holds fog-land-9299:46 and the-stellar-swordmaster-5988:137 from the Nov 6 singles pilot, so those series' new chapters never join a merge. That contradicts the owner's Nov 23 one-video-per-series rule; changing the variable is the owner's (variable writes are denied to me).
 - Built fog-land-9299_ch46-48 by hand (POST /api/ranges/build, pieces 46/47/48, append base 46-47 with extends [ch46-47], so approving it takes 46-47's queue place like auto-append's extensions). Done 07:48Z, marks 46/47/48. Checked by eye: 1080p, sound, 24 min, CH 46-48, ends on ch 48. Sheet row 31, Decision blank.
 - Writer pass otherwise idle: TS 146 skipped (before first TS video); paused series skipped; Mount Hua 189 still Asura 403.
+
+### 2026-11-24 15:08Z — A/B pass (10 AM ET slot)
+- 9Lv8M7oyZiA (Omniscient Reader's Viewpoint 309-311, published 15:00Z) public (oembed 200); Chrome agent set up "Title and thumbnail" test in Studio: series pictures A/B/C paired with titles[0..2] (74/74/94 chars). Screen showed "Changes saved" and "A/B Testing titles — Running...". /api/abtest/mark 200; queue todo now only nem5uWt4JMo (held for owner DEMOND decision).
