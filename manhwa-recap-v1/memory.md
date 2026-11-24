@@ -2722,3 +2722,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Harvest 85-94 waits for disk room (4.1 GB free; the dry-run /api/auto-append shows "build" because the room check only runs in the real pass).
 - Writer pass: Fated Villain 372 waiting (106 panels) → one writer spawned with 371 as the previous handover. Skipped: solo-leveling-ragnarok 69-73 and the-heavenly-demon 211-215 (paused by owner), TS 146 (before the first TS video). Mount Hua 189 still failed (Asura 403).
 - 23:56Z: Fated Villain 372 written by hand (102 lines, 5 scenes); studio job 15ab7f302fc0 voiced it and built the board (100 segments, 574 s). It renders by itself; auto-append adds it to the series' video. Title A: "Five Immortal Kings Attacked Him and Lost a World". Unnamed silver-haired woman kept unnamed (as in 371); page 8 "ENEMY ATTACK?" left out as a likely translation slip.
+
+### 2026-11-24 03:08Z — Harvest 85-93 A/B test; Harvest 85-94 built; FV 361-372 next (Claude Code)
+- A/B: DomjgWzir_Y (Harvest 85-93, posted 03:00Z) — Title and thumbnail test running in Studio (A/B/C series pictures paired with titles[0..2]); /api/abtest/mark 200 at 03:08Z. Only nem5uWt4JMo left (held).
+- Harvest 85-93 posted, free disk went 3.9 → 13.4 GB. Harvest 85-94 had been built at 02:01Z (auto-append); checked by eye (1080p, sound, 82 min, CH 85-94). Since 85-93 posted first, only ch 94 is new. Sheet row 29 added, Decision blank, repeat flagged.
+- Owner asked (screenshot) why FV 372 and FV 361-371 sit apart in Needs review: auto-append plans 361-372 (retires 361-371) and waited for disk room; with 13.4 GB free it builds on the next pass (watching).
