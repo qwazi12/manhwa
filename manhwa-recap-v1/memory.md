@@ -2748,3 +2748,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Posting Review sheet rows 32-34 (A33:A35) added, Decision blank; DK and ORV flagged as repeats like the paused Harvest 85-94 / FV 361-372.
 - Skipped: TS 146 (before first TS video), paused SLR / Heavenly Demon. Still failing: Mount Hua 189 (Asura 403). Free disk 6.2 GB.
 - Note: my writer-pass one-liners earlier today read /api/auto-append key 'decisions'; the key is 'series', so their "no merges waiting" lines were unverified (state rechecked now).
+
+### 2026-11-24 18:17Z — writer pass: ORV 315-317 written by hand; merge now 309-317
+- Writer wrote, submitted and voiced omniscient-readers-viewpoint_315/316/317 (jobs 27ec0dd06c6f / ac62b6449aac / c088db6897c9 done; 105/102/99 lines).
+- Auto-append rebuilt the ORV merge as 309-317 (309-314 replaced, thumbnail 404). Checked by eye with chk2.py: 1080p, sound, 64 min, series picture + CH 309-317, ends on ch 317. Posting Review row 34 (A35) updated to 309-317, Decision blank (repeats 309-311, posted 15:00Z today).
+- Skipped TS 146 and paused SLR / Heavenly Demon; Mount Hua 189 still Asura 403. Free disk 5.3 GB.
