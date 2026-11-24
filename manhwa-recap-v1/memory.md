@@ -2727,3 +2727,4 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - A/B: DomjgWzir_Y (Harvest 85-93, posted 03:00Z) — Title and thumbnail test running in Studio (A/B/C series pictures paired with titles[0..2]); /api/abtest/mark 200 at 03:08Z. Only nem5uWt4JMo left (held).
 - Harvest 85-93 posted, free disk went 3.9 → 13.4 GB. Harvest 85-94 had been built at 02:01Z (auto-append); checked by eye (1080p, sound, 82 min, CH 85-94). Since 85-93 posted first, only ch 94 is new. Sheet row 29 added, Decision blank, repeat flagged.
 - Owner asked (screenshot) why FV 372 and FV 361-371 sit apart in Needs review: auto-append plans 361-372 (retires 361-371) and waited for disk room; with 13.4 GB free it builds on the next pass (watching).
+- 03:13Z: FV 361-372 built by auto-append at 03:12Z (free 13.4 → 10.2 GB); 361-371 retired. Checked by eye: 1080p, sound, 91 min, CH 361-372, ends on ch 372. Sheet row 30 added, Decision blank.
