@@ -148,6 +148,12 @@ def update(patch):
                 if not 1 <= n <= 5:
                     raise ValueError("posts per channel per day must be 1-5")
                 cur["schedule"]["per_channel_per_day"] = n
+            if sch.get("upload_lead_min") is not None:
+                # owner 2026-11-25: upload 24 h ahead so each video sits Scheduled on YouTube a day early
+                lead = int(sch["upload_lead_min"])
+                if not 45 <= lead <= 2880:
+                    raise ValueError("upload lead must be 45-2880 minutes (45 min to 2 days)")
+                cur["schedule"]["upload_lead_min"] = lead
         tmp = _path() + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cur, f, indent=1)

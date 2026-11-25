@@ -64,6 +64,16 @@ def main():
         check("unknown privacy is refused",
               c.post("/api/settings", json={"publish": {"privacy": "friends"}}).status_code == 400)
         check("a refused save changes nothing", ss.export_speed() == 1.15)
+
+        import publish_queue as pq
+        lead = c.post("/api/settings", json={"schedule": {"upload_lead_min": 1440}})
+        check("upload lead of 24 h saves and the scheduler uses it",
+              lead.status_code == 200 and ss.load()["schedule"]["upload_lead_min"] == 1440
+              and pq._leads(ss.load()["schedule"]) == (1440 * 60, 45 * 60))
+        check("upload lead outside 45-2880 min is refused and changes nothing",
+              c.post("/api/settings", json={"schedule": {"upload_lead_min": 30}}).status_code == 400
+              and c.post("/api/settings", json={"schedule": {"upload_lead_min": 5000}}).status_code == 400
+              and ss.load()["schedule"]["upload_lead_min"] == 1440)
     finally:
         ingest.PROJECTS, server.os_status = saved
 
