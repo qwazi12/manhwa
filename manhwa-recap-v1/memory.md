@@ -2773,3 +2773,10 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - /api/abtest/queue?days=60 todo: nem5uWt4JMo (held, DEMOND), aVYaoI79lFg (Blinker 98-103, still not set up), _XeFpGMT2gQ (Damn Reincarnation 78-101, went live 03:00Z, plan type both). Both are public (oembed 200).
 - Chrome: the one Studio tab (aVYaoI79lFg edit) does not answer; the screenshot timed out after 30 s twice, including after resizing the window to 1400x900. Per the rule (2 tries), no agent was spawned and nothing was marked. Owner: reload or restart Chrome, then the two tests can be set up.
 - Saved scratchpad abrun/todo__XeFpGMT2gQ.json (same shape as the Blinker todo) for the retry.
+
+### 2026-11-25 05:56Z — writer pass: Stellar Swordmaster 139 and Regressed Mercenary 106 written by hand
+- New waiting chapters: the-stellar-swordmaster-5988_139 and the-regressed-mercenary-has-a-plan-7261_106. One writer agent each (WRITER_PROMPT.txt). The previous chapters' folders had no handover, so continuity came from brief story_so_far.
+- Stellar 139: 94 panels, 86 lines, 4 scenes, job 9f82b49644c4 done (466.2 s voice). Recommended title "He Bluffed His Way Through the Enemy's Own Gate". The long-haired swordsman and the commander who left the ship are unnamed in the panels, so they are described by role.
+- Mercenary 106: 112 panels, 103 lines, 5 scenes, job 3c44075cf2a1 done (433.1 s voice). Recommended title "She Died Before She Could Say His Name". The chapter prints both "Black Moon" and "Mark of the Dark Moon"; the script uses Black Moon. The balloon spells "Gillian"; the script uses the cast name Gillion. The old mage is unnamed in this chapter.
+- Both left the hand queue; render queue at 05:5xZ: Stellar 139 rendering, Mercenary 106 waiting. Both series have videos, so auto-append handles the merges (Mercenary waits for 103-105 to post).
+- Skipped: talent-swallowing-magician_146 (before the first TS video) and the paused solo-leveling-ragnarok and the-heavenly-demon-* chapters. return-of-the-mount-hua-sect_189 is no longer in the failed list (failed count 0), and I did not find out why.
