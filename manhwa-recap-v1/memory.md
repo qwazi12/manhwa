@@ -2757,3 +2757,8 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 ### 2026-11-24 20:10Z — A/B pass (3 PM ET slot): Blinker 98-103 NOT set up (Chrome window unusable)
 - aVYaoI79lFg (Magic Academy's Genius Blinker 98-103, published 20:00Z) public (oembed 200); plan "both", pictures A/B/C downloaded and viewed (real series art, CH 98-103 badges), titles 77/92/88 chars.
 - Chrome agent stopped after 2 tries: Studio edit page loaded for the right video, but the Chrome window reported 0x0 and every screenshot timed out (window likely minimized / on another Space); resize to 1440x900 did not help. Nothing changed on the video, /api/abtest/mark NOT called; stays in todo. Owner: restore the Chrome window with the Claude tab group, then this video is retried (abrun/todo_aVYaoI79lFg.json, mark_avy.py ready).
+
+### 2026-11-25 00:04Z — writer pass: Murim Psychopath 52 written by hand; merge 44-52 checked
+- Writer wrote, submitted and voiced murim-psychopath_52 (job 1288854a20a5 done, 99 lines, 482s). Ch 51 handover folder was empty (tmp cleanup); used story_so_far.
+- Auto-append built murim-psychopath_ch44-52 (repeats 44-51 posted Nov 22, FdIKW_-DiG4; new ch 52 only). Checked by eye with chk2.py: 1080p, sound, 76 min, series picture + CH 44-52, ends on ch 52. Posting Review row 35 (A36) added, Decision blank.
+- Blinker 98-103 (aVYaoI79lFg) A/B test still not set up: waiting for the owner to restore the Chrome window. Skipped TS 146 and paused SLR / Heavenly Demon; Mount Hua 189 still Asura 403. Free disk 6.5 GB.
