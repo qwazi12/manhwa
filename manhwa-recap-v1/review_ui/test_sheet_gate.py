@@ -346,3 +346,41 @@ def test_sync_moves_a_missed_slot_and_logs_it(tmp_path, monkeypatch):
     assert r["pins"] == {"q1": T(2026, 11, 7, 22)}
     assert [c["action"] for c in r["changes"] if "slot" in c["action"]] == ["missed slot, moved to the next free slot"]
     assert saved["moves"]["p_ch1"]["to"] == T(2026, 11, 7, 22) and saved["slots"]["p_ch1"] == T(2026, 11, 7, 20)
+
+
+def test_series_guard_one_queued_video_per_series_and_never_backwards():
+    """Owner, 2026-11-25: Murim Login 248-250 was queued (Approve) behind the posted 251-252
+    while 251-254 also sat in the queue. Only the latest may post, and not backwards."""
+    vids = {"ml_ch248-250": {"lane": "queued"}, "ml_ch251-254": {"lane": "queued"},
+            "ts_ch147-152": {"lane": "queued"}, "dk_ch88-98": {"lane": "queued"}}
+    rows = _rows(row("ml_ch248-250", "Sun Nov 8, 10:00 AM"), row("ml_ch251-254", "Sun Nov 8, 2:00 PM"),
+                 row("ts_ch147-152", "Sun Nov 8, 10:00 PM"), row("dk_ch88-98", "Mon Nov 9, 10:00 AM"))
+    ev = sg.evaluate(rows, vids, {}, NOW, posted=["ml_ch251-252", "dk_ch88-97", "dk_ch88-94"])
+    g = {r["queue_id"]: (r["gate"], r["why"]) for r in ev["rows"]}
+    assert g["ml_ch248-250"][0] == "hold" and "later video of this series" in g["ml_ch248-250"][1]
+    assert g["ml_ch251-254"][0] == "post"                  # the latest, ends after the posted 252
+    assert g["ts_ch147-152"][0] == "post"                  # nothing of it posted
+    assert g["dk_ch88-98"][0] == "post"                    # extends the posted 88-97: not backwards
+    txt = "\n".join(ev["needs_owner"])
+    assert "ml: 2 videos of this series are queued (248-250, 251-254)" in txt
+    # a Skip does not count as queued for the guard
+    rows = _rows(row("ml_ch248-250", "Sun Nov 8, 10:00 AM", decision="Skip"), row("ml_ch251-254", "Sun Nov 8, 2:00 PM"))
+    ev = sg.evaluate(rows, vids, {}, NOW, posted=["ml_ch251-252"])
+    assert {r["queue_id"]: r["gate"] for r in ev["rows"]}["ml_ch251-254"] == "post"
+    assert "videos of this series are queued" not in "\n".join(ev["needs_owner"])
+
+
+def test_series_guard_holds_a_backfill_unless_the_notes_allow_it():
+    vids = {"ml_ch248-250": {"lane": "queued"}, "ml_ch251-252": {"lane": "uploaded", "publish_at": NOW - 86400}}
+    ev = sg.evaluate(_rows(row("ml_ch248-250", "Sun Nov 8, 10:00 AM")), vids, {}, NOW)
+    r = next(x for x in ev["rows"] if x["queue_id"] == "ml_ch248-250")
+    assert r["gate"] == "hold" and "goes backwards: chapters up to 252" in r["why"]
+    ev = sg.evaluate(_rows(row("ml_ch248-250", "Sun Nov 8, 10:00 AM", notes="Backfill OK, owner Nov 25")),
+                     vids, {}, NOW)
+    assert next(x for x in ev["rows"] if x["queue_id"] == "ml_ch248-250")["gate"] == "post"
+    # a single chapter and the guard never lets a held video post
+    ev = sg.evaluate(_rows(row("fl_48", "Sun Nov 8, 10:00 AM", decision="Edit")), {"fl_48": {"lane": "queued"}},
+                     {}, NOW, posted=["fl_ch38-45"])
+    assert next(x for x in ev["rows"] if x["queue_id"] == "fl_48")["gate"] == "hold"
+    assert sg.series_range("fl_48") == ("fl", 48, 48) and sg.series_range("x_ch1-3") == ("x", 1, 3)
+    assert sg.series_range("odd") is None

@@ -245,11 +245,71 @@ def gate(row, slot_at, now):
     return "hold", "Decision blank (posts if still blank 2 h before the slot)"
 
 
-def evaluate(rows, videos, prev_slots, now, tz=TZ):
+_RANGE = re.compile(r"^(?P<sid>.+)_ch(?P<a>\d+)-(?P<b>\d+)$")
+_SINGLE = re.compile(r"^(?P<sid>.+)_(?P<a>\d+)$")
+BACKFILL_OK = "backfill ok"          # in the row's notes: post a video that goes backwards anyway
+
+
+def series_range(pid):
+    """'murim-login_ch248-250' -> ('murim-login', 248, 250); 'fog-land-9299_48' -> (.., 48, 48);
+    anything else -> None."""
+    m = _RANGE.match(pid or "") or _SINGLE.match(pid or "")
+    if not m:
+        return None
+    a = int(m["a"])
+    return m["sid"], a, int(m.groupdict().get("b") or a)
+
+
+def series_guard(out_rows, by_row, videos, posted, needs):
+    """Owner, 2026-11-25 (Murim Login 248-250 queued behind the posted 251-252 while 251-254
+    also sat in the queue): one queued video per series, and never backwards.
+      * two or more queued videos of one series (not Skip): every one but the latest (highest
+        last chapter) is held — the owner keeps one (Skip the other) or merges them;
+      * a queued video whose last chapter is at or below a chapter the series already posted
+        is held, unless the row's notes say "backfill OK".
+    Turns "post" into "hold" only; never the other way. Mutates out_rows / needs."""
+    last_posted = {}
+    for pid in posted or ():
+        s = series_range(pid)
+        if s and s[2] > last_posted.get(s[0], (-1, ""))[0]:
+            last_posted[s[0]] = (s[2], pid)
+    groups = {}
+    for x in out_rows:
+        if x["lane"] != "queued" or (x["decision"] or "").strip().lower() == "skip":
+            continue
+        s = series_range(x["queue_id"])
+        if s:
+            groups.setdefault(s[0], []).append((s, x))
+    for sid, items in groups.items():
+        items.sort(key=lambda it: (it[0][2], it[0][1]))
+        latest = items[-1][0]
+        if len(items) > 1:
+            names = ", ".join(f"{s[1]}-{s[2]}" for s, _ in items)
+            needs.append(f"{sid}: {len(items)} videos of this series are queued ({names}) — keep one: "
+                         f"Skip the others or merge them; only {latest[1]}-{latest[2]} may post")
+        for s, x in items:
+            why = None
+            if s is not latest:
+                why = (f"a later video of this series is also queued ({sid} {latest[1]}-{latest[2]}): "
+                       "Skip one or merge them")
+            lp = last_posted.get(sid)
+            notes = ((by_row.get(x["queue_id"]) or {}).get("notes") or "").lower()
+            if why is None and lp and s[2] <= lp[0] and BACKFILL_OK not in notes:
+                why = (f"goes backwards: chapters up to {lp[0]} are already posted ({lp[1]}); "
+                       f"write \"backfill OK\" in its notes to post it anyway")
+                needs.append(f"{x['queue_id']}: {why}")
+            if why and x["gate"] == "post":
+                x["gate"], x["why"] = "hold", why
+            elif why:
+                x["why"] = f"{x['why']}; {why}"
+
+
+def evaluate(rows, videos, prev_slots, now, tz=TZ, posted=()):
     """Pure. Which slot each video gets, what the sheet asks for, and what needs the owner.
 
     rows: parse_rows() output. videos: {project: {"lane": "queued"|"pending"|"uploaded",
     "publish_at": epoch for uploaded ones}}. prev_slots: {project: epoch} accepted earlier.
+    posted: project ids already on YouTube (any age), for series_guard.
     Returns {"slots": {project: epoch}, "rows": [per row: queue_id, lane, decision, slot_at,
     slot_label, refused, gate, why], "needs_owner": [text, ...]}.
     """
@@ -331,6 +391,8 @@ def evaluate(rows, videos, prev_slots, now, tz=TZ):
             out_rows.append({"queue_id": pid, "row": None, "lane": "queued", "decision": "", "slot_sheet": "",
                              "slot_at": None, "slot_label": "", "refused": None, "gate": "hold",
                              "why": "not in the Posting Review sheet"})
+    series_guard(out_rows, {r["queue_id"]: r for r in rows}, videos,
+                 list(posted or ()) + [p for p, v in videos.items() if v.get("lane") == "uploaded"], needs)
     return {"slots": slots, "rows": out_rows, "needs_owner": needs}
 
 

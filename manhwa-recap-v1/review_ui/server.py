@@ -14390,11 +14390,17 @@ def _sheet_sync(apply=True, now=None, rows=None):
     st = _sg.load(root)
     by_row = {r["queue_id"]: r for r in rows}
     changes, extra_needs, text_preview = [], [], {}
+    try:                                   # every post on record, for the one-per-series / backwards guard
+        posted = [p["project"] for p in _published_videos()]
+    except Exception as e:  # noqa — the guard then only sees the last 14 days of the queue
+        posted = []
+        extra_needs.append(f"series guard: could not read the posted videos ({type(e).__name__}) — "
+                           "only the last 14 days of the queue are checked")
 
     def evaluate():
         q = _pq.load(root)
         v = _sheet_videos(q, now)
-        return v, _sg.evaluate(rows, v, st.get("slots") or {}, now)
+        return v, _sg.evaluate(rows, v, st.get("slots") or {}, now, posted=posted)
 
     vids, ev = evaluate()
     _lead, min_lead = _pq._leads(_studio.load().get("schedule") or {})
