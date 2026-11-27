@@ -17,6 +17,9 @@ H = python3 /Users/kwasiyeboah/dev/manhwa-ops/abtest/abtest.py
    - Slot 2: thumbnail B + titles[1]. Slot 3: thumbnail C + titles[2]. Type the titles exactly.
    - Screenshot and confirm 3 thumbnails, 3 titles and "Titles and thumbnails ready". Click "Set test".
    - Click "Save" (top right). Wait for "Changes saved". Reload the page and confirm the A/B box says "Running".
+     After Save the box is labelled "A/B Testing titles" even for a Title and thumbnail test; that is normal.
+     Click "View test report" and confirm it says "Title and thumbnail" with 3 different thumbnails, then close
+     it with the X (never click "Set this option" or "New test").
 4. If YouTube says the daily limit for thumbnail experiments is reached, do NOT mark. Stop; the next run retries.
    If the video is ineligible or private, mark it not_available with the on-screen reason.
 5. Record: `H mark <video_id> running` (or `failed|not_available|skipped "<short reason>"`). Only mark running

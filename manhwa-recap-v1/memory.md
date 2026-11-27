@@ -2627,3 +2627,9 @@ FLAMINGO_SERIES/QUEUE/POSTED_20261107.csv in ops/exports (23/9/31 rows, md5 ok).
 - Alerts (macOS notification): a public video > 3 h without a test; check failing (max once per 6 h); session exit ≠ 0. status.json = last check / due / stuck / last session.
 - Verified: check under launchd rc=0 (due=[] todo=4 have=68). Headless smoke session: helper ran, Studio opened on Flamingo Recap, `ls /` blocked by dontAsk. Bugs found while testing, all fixed: Homebrew railway 2.1.0 shadowed nvm railway 5.76 under launchd; python.org TLS needed certifi; pipestatus inside $() hid the exit code. Not yet verified: a full real test set up by the runner. First real one is DK 88-98 Z5VTF7pnyNQ (public 03:00Z → 03:17Z run); a session one-shot at 03:43Z checks it.
 - Session cron f2b9a898 deleted (replaced by the runner). Holds: nem5uWt4JMo.
+
+### 2026-11-27 — A/B runner: first real test verified (Death Knight 88-98)
+- launchd com.flamingo.abtest check at 03:17Z found Z5VTF7pnyNQ (public 03:00Z) due → headless session 03:17–03:18Z, exit 0, marked running (have 68→69).
+- Verified by hand in Studio: "View test report" shows "Title and thumbnail A/B Test report — Test running…" with 3 distinct CH 88-98 thumbnails + 3 titles, ~14 days left. The box label "A/B Testing titles" is Studio's normal label, not a titles-only test.
+- PROMPT.md step 3: runner now confirms thumbnails via View test report (closes with X, never "Set this option"/"New test").
+- Pending: Dark Mage 111-114 dd-MYNlraeo (13:00Z), Mercenary 103-105 JJh3TQqX03g (15:00Z) left to the runner; nem5uWt4JMo still held for the DEMOND decision.
