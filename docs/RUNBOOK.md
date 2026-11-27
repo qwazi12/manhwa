@@ -155,3 +155,6 @@ unchanged lines are not recorded twice). If the chapter fails with "the panels c
 was written", prepare was run again after the script was written: look at the panels again and send the
 script again. A paid step refused with "written by hand and pays for voice only" is the lock working; to
 let the chapter use the paid steps, `DELETE /api/hand/<chapter>`.
+
+## Added 2026-11-27 — YouTube A/B test runner
+- launchd `com.flamingo.abtest` on the owner's Mac (every 30 min at :17/:47) sets up a "Title and thumbnail" test on each public video in `/api/abtest/queue` that has none. Code, pause/resume/run-now, holds, logs and alerts: `scripts/abtest_runner/README.md`. Installed at `~/dev/manhwa-ops/abtest/`.
